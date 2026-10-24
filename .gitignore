@@ -1,0 +1,7 @@
+# Client CAD drawings and crash dumps stay out of the public repo
+*.dwg
+*.dxf
+*.dmp
+fixtures/cad/
+node_modules/
+.env
