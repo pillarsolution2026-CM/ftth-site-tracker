@@ -1,0 +1,248 @@
+{
+  "file": "القطاع_الثاني_قليوب_V5.dwg",
+  "totals": {
+    "layers": 72,
+    "inserts": 5755,
+    "texts": 13725,
+    "curves": 6952
+  },
+  "unreadable_texts": 832,
+  "entity_counts_by_layer": {
+    "0": {
+      "TEXT": 3,
+      "INSERT": 16
+    },
+    "12way": {
+      "LWPOLYLINE": 29
+    },
+    "1 Way": {
+      "TEXT": 955
+    },
+    "1way": {
+      "TEXT": 17,
+      "MTEXT": 44,
+      "INSERT": 101,
+      "LWPOLYLINE": 1050
+    },
+    "20_Building Information": {
+      "MTEXT": 352
+    },
+    "24core1-16": {
+      "INSERT": 520
+    },
+    "24core1-8": {
+      "INSERT": 1010
+    },
+    "24way": {
+      "LWPOLYLINE": 9
+    },
+    "36core1-32": {
+      "INSERT": 29
+    },
+    "7way": {
+      "LWPOLYLINE": 20
+    },
+    "BALTA": {
+      "INSERT": 80
+    },
+    "BOX FRAME": {
+      "INSERT": 26
+    },
+    "buat": {
+      "INSERT": 716
+    },
+    "building": {
+      "LINE": 6,
+      "TEXT": 2,
+      "MTEXT": 2,
+      "LWPOLYLINE": 4543
+    },
+    "Bundle End": {
+      "INSERT": 81
+    },
+    "bwatt": {
+      "INSERT": 265
+    },
+    "CABINA": {
+      "TEXT": 24
+    },
+    "CABXXXXX": {
+      "TEXT": 82,
+      "LWPOLYLINE": 123
+    },
+    "canal": {
+      "LWPOLYLINE": 45
+    },
+    "CUSTOMER SITE DATA": {
+      "TEXT": 1251,
+      "INSERT": 197
+    },
+    "door": {
+      "LWPOLYLINE": 7
+    },
+    "Duct Connector": {
+      "TEXT": 2,
+      "MTEXT": 2753,
+      "INSERT": 456
+    },
+    "fence": {
+      "LWPOLYLINE": 4
+    },
+    "frimbox": {
+      "INSERT": 401
+    },
+    "INNER DUCT 1 WAY SECONDARY": {
+      "LWPOLYLINE": 565
+    },
+    "MSAN ZONE": {
+      "TEXT": 6,
+      "LWPOLYLINE": 10
+    },
+    "nnnn": {
+      "LWPOLYLINE": 1
+    },
+    "P_DUC_TXT": {
+      "TEXT": 22
+    },
+    "PER": {
+      "INSERT": 591
+    },
+    "PRL 12x2F": {
+      "TEXT": 64,
+      "INSERT": 6,
+      "LWPOLYLINE": 17
+    },
+    "PRL 24x2F": {
+      "TEXT": 104,
+      "LWPOLYLINE": 56
+    },
+    "PRL48X2F": {
+      "TEXT": 46,
+      "LWPOLYLINE": 23
+    },
+    "road": {
+      "LWPOLYLINE": 112
+    },
+    "sbir": {
+      "INSERT": 65
+    },
+    "SP": {
+      "INSERT": 105
+    },
+    "Spare Text 2": {
+      "TEXT": 105,
+      "INSERT": 22
+    },
+    "sp txt": {
+      "TEXT": 67
+    },
+    "Steel Wire": {
+      "TEXT": 200
+    },
+    "sub": {
+      "INSERT": 27
+    },
+    "TEXT": {
+      "TEXT": 99,
+      "MTEXT": 1
+    },
+    "TRANSITION_POINTS CONNECTOR": {
+      "INSERT": 86
+    },
+    "tx": {
+      "TEXT": 152
+    },
+    "txt12way": {
+      "TEXT": 54
+    },
+    "TXT 2": {
+      "TEXT": 564
+    },
+    "txt24way": {
+      "TEXT": 30,
+      "LWPOLYLINE": 8
+    },
+    "txt7way": {
+      "TEXT": 44,
+      "LWPOLYLINE": 6
+    },
+    "txtbox": {
+      "TEXT": 397
+    },
+    "TXTCAP": {
+      "TEXT": 1382
+    },
+    "txt ftth": {
+      "TEXT": 1182
+    },
+    "TXTLINTH": {
+      "TEXT": 2337
+    },
+    "TXTNMPER": {
+      "TEXT": 1382
+    },
+    "WF": {
+      "LWPOLYLINE": 1
+    },
+    "wire": {
+      "CIRCLE": 9,
+      "INSERT": 955,
+      "LWPOLYLINE": 101
+    },
+    "zone": {
+      "LWPOLYLINE": 192
+    },
+    "سكة حديد": {
+      "LWPOLYLINE": 15
+    }
+  },
+  "inserts_by_block": {
+    "2222": 591,
+    "24core1-16": 525,
+    "24core1-8": 1025,
+    "36core1-32": 29,
+    "A$C61266ce4": 955,
+    "A$C821eac2b": 4,
+    "A$C9260df13": 6,
+    "A$Cd2d57ff0": 6,
+    "A$Cd9e23fdc": 6,
+    "A$Cfd8d7770": 22,
+    "BL1": 34,
+    "BO": 265,
+    "boxxxxxxxxxx": 26,
+    "buat": 716,
+    "Bundle End": 81,
+    "CONNECTOR": 86,
+    "Duct Connector": 456,
+    "f1": 80,
+    "f2": 47,
+    "frimbox": 598,
+    "sbir": 65,
+    "Spare Line": 105,
+    "sub": 27
+  },
+  "curve_length_by_layer": {
+    "12way": 5145.34,
+    "1way": 12346.44,
+    "24way": 2325.88,
+    "7way": 2049.57,
+    "building": 144679.05,
+    "CABXXXXX": 794.1,
+    "canal": 6816.2,
+    "door": 892.87,
+    "fence": 649.71,
+    "INNER DUCT 1 WAY SECONDARY": 1478.92,
+    "MSAN ZONE": 12927.51,
+    "nnnn": 50.97,
+    "PRL 12x2F": 2961.87,
+    "PRL 24x2F": 16714.54,
+    "PRL48X2F": 10724.26,
+    "road": 27205.84,
+    "txt24way": 2187.4,
+    "txt7way": 1526.57,
+    "WF": 0.0,
+    "wire": 3050.78,
+    "zone": 21400.85,
+    "سكة حديد": 6170.42
+  }
+}

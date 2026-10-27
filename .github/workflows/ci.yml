@@ -52,8 +52,34 @@ jobs:
     defaults:
       run:
         working-directory: workers/cad
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: ftth
+          POSTGRES_PASSWORD: ftth
+          POSTGRES_DB: ftth_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ftth -d ftth_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://ftth:ftth@localhost:5432/ftth_test
+      TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install DWG converter (LibreDWG WASM)
+        working-directory: workers/cad/converter
+        run: npm ci --omit=dev
       - uses: astral-sh/setup-uv@v5
         with:
           version: '0.11.32'

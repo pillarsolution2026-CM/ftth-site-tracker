@@ -12,6 +12,7 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "psycopg[binary]",
+    "boto3>=1.43.119",
 ]
 
 [dependency-groups]
@@ -31,6 +32,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]  # long SQL / sample strings
+
 [tool.mypy]
 strict = true
 python_version = "3.12"
@@ -38,7 +42,7 @@ files = ["cad_worker", "tests"]
 
 # Ignores only for third-party libraries that ship no type information.
 [[tool.mypy.overrides]]
-module = ["ezdxf", "ezdxf.*", "shapely", "shapely.*"]
+module = ["ezdxf", "ezdxf.*", "shapely", "shapely.*", "boto3", "botocore", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
