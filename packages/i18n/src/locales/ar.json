@@ -4,7 +4,20 @@
     "language": "اللغة",
     "logout": "تسجيل الخروج",
     "loading": "جارٍ التحميل…",
-    "restartToApplyDirection": "أعد تشغيل التطبيق لتطبيق اتجاه الكتابة الجديد"
+    "restartToApplyDirection": "أعد تشغيل التطبيق لتطبيق اتجاه الكتابة الجديد",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "saving": "جارٍ الحفظ…",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "actions": "إجراءات",
+    "yes": "نعم",
+    "no": "لا",
+    "next": "التالي",
+    "previous": "السابق",
+    "pagination": "التنقل بين الصفحات",
+    "pageOf": "صفحة {page} من {pages} ({total})",
+    "uploading": "جارٍ الرفع…"
   },
   "auth": {
     "title": "تسجيل الدخول",
@@ -36,7 +49,10 @@
     "CONFLICT": "تعارض في البيانات",
     "RATE_LIMITED": "محاولات كثيرة، حاول مرة أخرى بعد دقيقة",
     "INTERNAL": "حدث خطأ غير متوقع",
-    "NETWORK": "تعذّر الاتصال بالخادم، تحقق من الشبكة"
+    "NETWORK": "تعذّر الاتصال بالخادم، تحقق من الشبكة",
+    "UNSUPPORTED_FILE": "نوع الملف غير مدعوم أو محتواه لا يطابق نوعه",
+    "FILE_TOO_LARGE": "حجم الملف أكبر من الحد المسموح",
+    "IMPORT_INVALID": "تعذّر استيراد الملف"
   },
   "status": {
     "notStarted": "لم يبدأ",
@@ -48,5 +64,325 @@
   "home": {
     "projects": "مشاريعي",
     "noProjects": "لا توجد مشاريع مسندة إليك بعد"
+  },
+  "validation": {
+    "required": "هذا الحقل مطلوب",
+    "tooLong": "النص أطول من المسموح",
+    "decimal": "أدخل رقمًا غير سالب بحد أقصى 4 خانات عشرية",
+    "date": "تاريخ غير صحيح"
+  },
+  "nav": {
+    "menu": "قائمة المشروع",
+    "content": "محتوى المشروع",
+    "workOrders": "أوامر التكليف",
+    "cadFiles": "ملفات الكاد"
+  },
+  "project": {
+    "switcher": "المشروع",
+    "notMember": "أنت غير مسجَّل في هذا المشروع",
+    "noSections": "ليس لديك صلاحية لأي قسم في هذا المشروع"
+  },
+  "workOrders": {
+    "listTitle": "أوامر التكليف",
+    "detailTitle": "أمر التكليف",
+    "new": "أمر تكليف جديد",
+    "create": "إنشاء",
+    "importExcel": "استيراد من Excel",
+    "empty": "لا توجد أوامر تكليف بعد",
+    "number": "رقم الأمر",
+    "title": "العنوان",
+    "issuedOn": "تاريخ الإصدار",
+    "notes": "ملاحظات",
+    "source": "المصدر",
+    "sources": {
+      "manual": "يدوي",
+      "import": "استيراد Excel"
+    },
+    "itemCount": "عدد البنود",
+    "total": "الإجمالي",
+    "version": "الإصدار",
+    "editHeader": "تعديل بيانات الأمر",
+    "delete": "حذف أمر التكليف",
+    "confirmDelete": "حذف الأمر وكل بنوده ومرفقاته؟",
+    "backToList": "العودة إلى القائمة",
+    "numberTaken": "رقم الأمر مستخدم بالفعل في هذا المشروع",
+    "conflictOnUpdate": "تم تغيير الأمر بواسطة مستخدم آخر، أو أن الرقم مستخدم بالفعل. أعد التحميل لرؤية آخر نسخة.",
+    "reload": "إعادة التحميل"
+  },
+  "items": {
+    "title": "البنود",
+    "add": "إضافة بند",
+    "edit": "تعديل البند",
+    "empty": "لا توجد بنود",
+    "lineNo": "السطر",
+    "code": "الكود",
+    "description": "الوصف",
+    "unit": "الوحدة",
+    "quantity": "الكمية",
+    "unitPrice": "سعر الوحدة",
+    "amount": "القيمة",
+    "confirmDelete": "حذف هذا البند؟",
+    "duplicateBadge": "كود مكرر",
+    "duplicatesPresent": "يوجد أكواد مكررة (تم قبولها صراحةً كبنود منفصلة):",
+    "duplicateLine": "الكود {code} في الأسطر {lines}",
+    "duplicateTitle": "الكود {code} موجود بالفعل في الأسطر {lines}",
+    "duplicateExplain": "لن يتم دمج البنود. اختر إبقاءه كبند منفصل أو غيّر الكود.",
+    "keepSeparate": "إبقاء كبند منفصل",
+    "changeCode": "تغيير الكود"
+  },
+  "attachments": {
+    "title": "المرفقات",
+    "empty": "لا توجد مرفقات",
+    "upload": "رفع ملف PDF",
+    "onlyPdf": "يُسمح بملفات PDF فقط",
+    "confirmDelete": "حذف هذا المرفق؟",
+    "notDeletable": "ملف الاستيراد الأصلي لا يُحذف",
+    "kinds": {
+      "document": "مستند",
+      "import_source": "ملف الاستيراد الأصلي"
+    }
+  },
+  "import": {
+    "title": "استيراد أمر تكليف من Excel",
+    "upload": {
+      "title": "1. اختيار الملف",
+      "explain": "ارفع ملف Excel بصيغة xlsx. لن يُحفظ شيء قبل أن تراجع البيانات وتؤكد.",
+      "choose": "ملف Excel (.xlsx)",
+      "reading": "جارٍ قراءة {name}…"
+    },
+    "mapping": {
+      "title": "2. الورقة والأعمدة",
+      "sheet": "الورقة",
+      "headerRow": "رقم صف العناوين",
+      "notMapped": "— غير محدد —",
+      "noHeader": "(بدون عنوان)",
+      "required": "عمود مطلوب",
+      "usedTwice": "العمود مستخدم لأكثر من حقل",
+      "reread": "إعادة قراءة الملف بهذه الإعدادات",
+      "unapplied": "التعديلات لم تُطبَّق بعد على الصفوف",
+      "requiredHint": "الحقول المعلَّمة بنجمة مطلوبة."
+    },
+    "fields": {
+      "code": "الكود",
+      "description": "الوصف",
+      "unit": "الوحدة",
+      "quantity": "الكمية",
+      "unitPrice": "سعر الوحدة",
+      "amount": "القيمة (للمطابقة)"
+    },
+    "summary": {
+      "title": "3. الملخص",
+      "total": "إجمالي الصفوف",
+      "included": "الصفوف المضمَّنة",
+      "errors": "صفوف بها أخطاء",
+      "warnings": "صفوف بها تحذيرات",
+      "computedTotal": "الإجمالي المحسوب"
+    },
+    "duplicates": {
+      "title": "الأكواد المكررة",
+      "explain": "لا يتم دمج البنود المكررة أبدًا. لكل كود: استبعد صفوفه أو أبقها كبنود منفصلة.",
+      "rows": "الصفوف {rows}",
+      "needsDecision": "مطلوب قرار لهذا الكود",
+      "decisions": {
+        "exclude": "استبعاد صفوف هذا الكود",
+        "keep": "إبقاء الكل كبنود منفصلة"
+      }
+    },
+    "rows": {
+      "title": "4. مراجعة الصفوف",
+      "filter": "عرض",
+      "filters": {
+        "all": "كل الصفوف",
+        "errors": "الصفوف ذات الأخطاء",
+        "warnings": "الصفوف ذات التحذيرات",
+        "excluded": "الصفوف المستبعدة"
+      },
+      "excludeErrors": "استبعاد الصفوف التي بها أخطاء",
+      "none": "لا توجد صفوف مطابقة",
+      "include": "تضمين",
+      "includeRow": "تضمين الصف {row}",
+      "excludedBadge": "مستبعد",
+      "rowNumber": "الصف",
+      "issues": "الملاحظات",
+      "ok": "سليم"
+    },
+    "severity": {
+      "error": "خطأ",
+      "warning": "تحذير"
+    },
+    "header": {
+      "title": "5. بيانات أمر التكليف"
+    },
+    "commit": "إنشاء أمر التكليف",
+    "committing": "جارٍ الإنشاء…",
+    "blockers": {
+      "title": "قبل الإنشاء:",
+      "draftNotApplied": "أعد قراءة الملف بعد تغيير الإعدادات",
+      "fileIssues": "في الملف مشاكل يجب حلها أولًا",
+      "noHeaderRow": "لم يُعثر على صف العناوين",
+      "mappingIncomplete": "حدّد كل الأعمدة المطلوبة، كل عمود لحقل مختلف",
+      "headerInvalid": "أدخل رقم أمر التكليف",
+      "noRows": "لا توجد صفوف مضمَّنة",
+      "errorRows": "ما زالت صفوف بها أخطاء مضمَّنة: استبعدها",
+      "unresolvedDuplicates": "قرِّر ما يُفعل في كل كود مكرر"
+    },
+    "invalid": {
+      "FILE_CHANGED": "الملف يختلف عن الذي تمت مراجعته. ارفعه من جديد وراجعه.",
+      "FILE_ISSUES": "في الملف مشاكل:",
+      "ROW_ERRORS": "صفوف مضمَّنة بها أخطاء.",
+      "UNRESOLVED_DUPLICATES": "أكواد مكررة بلا قرار.",
+      "NO_ROWS_INCLUDED": "لا توجد صفوف مضمَّنة.",
+      "duplicateCodes": "الأكواد المكررة:",
+      "row": "الصف {row}",
+      "moreRows": "و{count} صفوف أخرى"
+    },
+    "issues": {
+      "MISSING_VALUE": "قيمة مفقودة: {field}",
+      "INVALID_NUMBER": "رقم غير صالح في {field}",
+      "NEGATIVE_NUMBER": "{field} لا يمكن أن يكون سالبًا",
+      "TOO_MANY_DECIMALS": "{field} به أكثر من 4 خانات عشرية",
+      "NUMBER_OUT_OF_RANGE": "{field} أكبر من المسموح",
+      "TEXT_TOO_LONG": "{field} أطول من المسموح",
+      "FORMULA_WITHOUT_RESULT": "{field} معادلة بلا نتيجة محفوظة؛ افتح الملف في Excel واحفظه",
+      "DUPLICATE_CODE": "الكود مكرر في الصفوف {otherRows}",
+      "AMOUNT_MISMATCH": "القيمة في الملف تختلف عن الكمية × سعر الوحدة"
+    },
+    "fileIssues": {
+      "SHEET_NOT_FOUND": "الورقة غير موجودة",
+      "SHEET_EMPTY": "الورقة فارغة",
+      "HEADER_ROW_NOT_FOUND": "لم يُكتشف صف العناوين؛ أدخل رقمه يدويًا",
+      "REQUIRED_FIELD_UNMAPPED": "عمود مطلوب غير محدد: {field}",
+      "COLUMN_MAPPED_TWICE": "عمود واحد محدد لأكثر من حقل",
+      "TOO_MANY_ROWS": "عدد الصفوف أكبر من المسموح",
+      "NO_ITEM_ROWS": "لا توجد صفوف بنود تحت صف العناوين"
+    }
+  },
+  "cad": {
+    "listTitle": "ملفات الكاد",
+    "empty": "لا توجد ملفات كاد بعد",
+    "upload": {
+      "label": "رفع ملف كاد",
+      "hint": "ملفات DWG أو DXF",
+      "uploading": "جارٍ رفع"
+    },
+    "fileName": "اسم الملف",
+    "format": "الصيغة",
+    "size": "الحجم",
+    "statusLabel": "الحالة",
+    "status": {
+      "uploaded": "تم الرفع",
+      "queued": "في الانتظار",
+      "processing": "قيد المعالجة",
+      "processed": "تمت المعالجة",
+      "failed": "فشلت المعالجة"
+    },
+    "counts": {
+      "layers": "الطبقات",
+      "inserts": "الكتل",
+      "texts": "النصوص",
+      "curves": "المنحنيات"
+    },
+    "warningsShort": "التحذيرات",
+    "uploadedAt": "تاريخ الرفع",
+    "processedAt": "تاريخ المعالجة",
+    "backToList": "العودة إلى القائمة",
+    "autoRefresh": "يتم التحديث تلقائيًا كل 3 ثوانٍ",
+    "downloadOriginal": "تنزيل الملف الأصلي",
+    "reprocess": "إعادة المعالجة",
+    "notProcessed": "البيانات متاحة بعد اكتمال المعالجة",
+    "tabs": {
+      "label": "أقسام الملف",
+      "overview": "نظرة عامة",
+      "layers": "الطبقات",
+      "inserts": "الكتل",
+      "texts": "النصوص",
+      "curves": "المنحنيات",
+      "log": "سجل المحوّل"
+    },
+    "logEmpty": "السجل فارغ",
+    "dxfVersion": "إصدار DXF",
+    "converter": "المحوّل",
+    "insUnits": "وحدات الرسم (INSUNITS)",
+    "sha256": "بصمة SHA-256",
+    "extents": "حدود الرسم",
+    "extentsNote": "بوحدات الرسم؛ ليست إحداثيات المشروع بعد.",
+    "warnings": "التحذيرات",
+    "noWarnings": "لا توجد تحذيرات",
+    "handle": "المعرّف",
+    "noRows": "لا توجد صفوف",
+    "failure": {
+      "ENQUEUE_FAILED": "تعذّر إضافة الملف إلى طابور المعالجة",
+      "FILE_MISSING": "الملف المخزَّن غير موجود",
+      "CONVERTER_FAILED": "فشل محوّل DWG",
+      "DXF_UNREADABLE": "تعذّرت قراءة ملف DXF",
+      "TIMEOUT": "استغرقت المعالجة وقتًا أطول من المسموح",
+      "MAX_ATTEMPTS_EXCEEDED": "فشلت المعالجة بعد عدة محاولات",
+      "INTERNAL": "خطأ غير متوقع أثناء المعالجة"
+    },
+    "warning": {
+      "DWG_CONVERTED": "تم تحويل DWG إلى DXF قبل القراءة",
+      "DXF_RECOVERED": "كان في DXF أخطاء وتمت استعادته؛ قد تنقص بعض البيانات",
+      "UNSUPPORTED_ENTITY": "تم تخطي نوع كيان غير مدعوم: {entityType}",
+      "PROXY_ENTITY": "تم تخطي كيانات وكيلة (من برامج أخرى)",
+      "XREF_NOT_RESOLVED": "مرجع خارجي غير محلول",
+      "MISSING_FONT": "الخط غير متوفر: {font}",
+      "UNREADABLE_TEXT": "تعذّر فك ترميز بعض النصوص بشكل موثوق",
+      "UNITS_UNSPECIFIED": "وحدات الرسم غير محددة",
+      "EMPTY_MODELSPACE": "لا يوجد محتوى في فضاء النموذج",
+      "CURVE_APPROXIMATED": "تم تقريب بعض المنحنيات بقطع مستقيمة"
+    },
+    "layers": {
+      "search": "بحث باسم الطبقة",
+      "withEntitiesOnly": "الطبقات التي بها كيانات فقط",
+      "onOnly": "الطبقات المفعّلة فقط",
+      "shown": "عرض {shown} من {total} طبقة",
+      "none": "لا توجد طبقات مطابقة",
+      "color": "اللون",
+      "name": "اسم الطبقة",
+      "entities": "الكيانات حسب النوع",
+      "total": "الإجمالي",
+      "flags": "الحالة",
+      "on": "مفعّلة",
+      "off": "مطفأة",
+      "frozen": "مجمَّدة",
+      "locked": "مقفلة"
+    },
+    "filters": {
+      "layer": "الطبقة",
+      "allLayers": "كل الطبقات",
+      "blockName": "اسم الكتلة",
+      "search": "بحث في النص",
+      "apply": "تطبيق"
+    },
+    "inserts": {
+      "block": "الكتلة",
+      "position": "الموضع",
+      "rotation": "الدوران",
+      "attributes": "الخصائص",
+      "attributeCount": "{count} خاصية"
+    },
+    "texts": {
+      "decoded": "النص",
+      "raw": "النص الخام",
+      "showRaw": "إظهار النص الخام",
+      "unreadableOnly": "النصوص غير المقروءة فقط",
+      "kind": "النوع",
+      "kinds": {
+        "text": "نص",
+        "mtext": "نص متعدد الأسطر"
+      },
+      "font": "الخط",
+      "readability": "القراءة",
+      "readable": "مقروء",
+      "unreadable": "غير مقروء"
+    },
+    "curves": {
+      "type": "النوع",
+      "allTypes": "كل الأنواع",
+      "length": "الطول (وحدات الرسم)",
+      "vertices": "عدد النقاط",
+      "closed": "مغلق",
+      "approximated": "مقرَّب"
+    }
   }
 }

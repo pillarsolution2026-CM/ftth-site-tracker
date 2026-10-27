@@ -4,7 +4,20 @@
     "language": "Langue",
     "logout": "Se déconnecter",
     "loading": "Chargement…",
-    "restartToApplyDirection": "Redémarrez l’application pour appliquer le nouveau sens d’écriture"
+    "restartToApplyDirection": "Redémarrez l’application pour appliquer le nouveau sens d’écriture",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "actions": "Actions",
+    "yes": "Oui",
+    "no": "Non",
+    "next": "Suivant",
+    "previous": "Précédent",
+    "pagination": "Pagination",
+    "pageOf": "Page {page} sur {pages} ({total})",
+    "uploading": "Envoi en cours…"
   },
   "auth": {
     "title": "Connexion",
@@ -36,7 +49,10 @@
     "CONFLICT": "Conflit de données",
     "RATE_LIMITED": "Trop de tentatives, réessayez dans une minute",
     "INTERNAL": "Une erreur est survenue",
-    "NETWORK": "Serveur injoignable, vérifiez votre connexion"
+    "NETWORK": "Serveur injoignable, vérifiez votre connexion",
+    "UNSUPPORTED_FILE": "Type de fichier non pris en charge, ou contenu différent du type déclaré",
+    "FILE_TOO_LARGE": "Le fichier dépasse la taille autorisée",
+    "IMPORT_INVALID": "L'import a été refusé"
   },
   "status": {
     "notStarted": "Non commencé",
@@ -48,5 +64,325 @@
   "home": {
     "projects": "Mes projets",
     "noProjects": "Aucun projet ne vous est encore attribué"
+  },
+  "validation": {
+    "required": "Ce champ est obligatoire",
+    "tooLong": "Le texte est trop long",
+    "decimal": "Saisissez un nombre positif avec au plus 4 décimales",
+    "date": "Date invalide"
+  },
+  "nav": {
+    "menu": "Menu du projet",
+    "content": "Contenu du projet",
+    "workOrders": "Ordres de travail",
+    "cadFiles": "Fichiers CAO"
+  },
+  "project": {
+    "switcher": "Projet",
+    "notMember": "Vous n'êtes pas membre de ce projet",
+    "noSections": "Vous n'avez accès à aucune section de ce projet"
+  },
+  "workOrders": {
+    "listTitle": "Ordres de travail",
+    "detailTitle": "Ordre de travail",
+    "new": "Nouvel ordre de travail",
+    "create": "Créer",
+    "importExcel": "Importer depuis Excel",
+    "empty": "Aucun ordre de travail pour l'instant",
+    "number": "Numéro",
+    "title": "Titre",
+    "issuedOn": "Date d'émission",
+    "notes": "Notes",
+    "source": "Source",
+    "sources": {
+      "manual": "Manuel",
+      "import": "Import Excel"
+    },
+    "itemCount": "Lignes",
+    "total": "Total",
+    "version": "Version",
+    "editHeader": "Modifier l'en-tête",
+    "delete": "Supprimer l'ordre de travail",
+    "confirmDelete": "Supprimer cet ordre avec toutes ses lignes et pièces jointes ?",
+    "backToList": "Retour à la liste",
+    "numberTaken": "Ce numéro est déjà utilisé dans le projet",
+    "conflictOnUpdate": "L'ordre a été modifié par quelqu'un d'autre, ou ce numéro existe déjà. Rechargez pour voir la dernière version.",
+    "reload": "Recharger"
+  },
+  "items": {
+    "title": "Lignes",
+    "add": "Ajouter une ligne",
+    "edit": "Modifier la ligne",
+    "empty": "Aucune ligne",
+    "lineNo": "Ligne",
+    "code": "Code",
+    "description": "Désignation",
+    "unit": "Unité",
+    "quantity": "Quantité",
+    "unitPrice": "Prix unitaire",
+    "amount": "Montant",
+    "confirmDelete": "Supprimer cette ligne ?",
+    "duplicateBadge": "Code répété",
+    "duplicatesPresent": "Certains codes sont répétés (acceptés explicitement comme lignes séparées) :",
+    "duplicateLine": "Code {code} aux lignes {lines}",
+    "duplicateTitle": "Le code {code} existe déjà aux lignes {lines}",
+    "duplicateExplain": "Les lignes ne sont jamais fusionnées. Gardez-la comme ligne séparée ou changez le code.",
+    "keepSeparate": "Garder comme ligne séparée",
+    "changeCode": "Changer le code"
+  },
+  "attachments": {
+    "title": "Pièces jointes",
+    "empty": "Aucune pièce jointe",
+    "upload": "Envoyer un PDF",
+    "onlyPdf": "Seuls les fichiers PDF sont autorisés",
+    "confirmDelete": "Supprimer cette pièce jointe ?",
+    "notDeletable": "La source d'import ne peut pas être supprimée",
+    "kinds": {
+      "document": "Document",
+      "import_source": "Fichier source d'import"
+    }
+  },
+  "import": {
+    "title": "Importer un ordre de travail depuis Excel",
+    "upload": {
+      "title": "1. Choisir le fichier",
+      "explain": "Envoyez un fichier .xlsx. Rien n'est enregistré avant votre vérification et confirmation.",
+      "choose": "Fichier Excel (.xlsx)",
+      "reading": "Lecture de {name}…"
+    },
+    "mapping": {
+      "title": "2. Feuille et colonnes",
+      "sheet": "Feuille",
+      "headerRow": "Numéro de la ligne d'en-tête",
+      "notMapped": "— non associé —",
+      "noHeader": "(sans en-tête)",
+      "required": "Colonne obligatoire",
+      "usedTwice": "Cette colonne est utilisée pour plusieurs champs",
+      "reread": "Relire le fichier avec ces réglages",
+      "unapplied": "Vos modifications ne sont pas encore appliquées aux lignes",
+      "requiredHint": "Les champs marqués * sont obligatoires."
+    },
+    "fields": {
+      "code": "Code",
+      "description": "Désignation",
+      "unit": "Unité",
+      "quantity": "Quantité",
+      "unitPrice": "Prix unitaire",
+      "amount": "Montant (contrôle)"
+    },
+    "summary": {
+      "title": "3. Résumé",
+      "total": "Lignes de la feuille",
+      "included": "Lignes incluses",
+      "errors": "Lignes en erreur",
+      "warnings": "Lignes avec avertissements",
+      "computedTotal": "Total calculé"
+    },
+    "duplicates": {
+      "title": "Codes répétés",
+      "explain": "Les lignes répétées ne sont jamais fusionnées. Pour chaque code : excluez ses lignes ou gardez-les séparées.",
+      "rows": "lignes {rows}",
+      "needsDecision": "Une décision est nécessaire pour ce code",
+      "decisions": {
+        "exclude": "Exclure les lignes de ce code",
+        "keep": "Tout garder comme lignes séparées"
+      }
+    },
+    "rows": {
+      "title": "4. Vérifier les lignes",
+      "filter": "Afficher",
+      "filters": {
+        "all": "Toutes les lignes",
+        "errors": "Lignes en erreur",
+        "warnings": "Lignes avec avertissements",
+        "excluded": "Lignes exclues"
+      },
+      "excludeErrors": "Exclure les lignes en erreur",
+      "none": "Aucune ligne correspondante",
+      "include": "Inclure",
+      "includeRow": "Inclure la ligne {row}",
+      "excludedBadge": "Exclue",
+      "rowNumber": "Ligne",
+      "issues": "Remarques",
+      "ok": "OK"
+    },
+    "severity": {
+      "error": "Erreur",
+      "warning": "Avertissement"
+    },
+    "header": {
+      "title": "5. Détails de l'ordre de travail"
+    },
+    "commit": "Créer l'ordre de travail",
+    "committing": "Création…",
+    "blockers": {
+      "title": "Avant de pouvoir créer :",
+      "draftNotApplied": "Relisez le fichier après avoir changé les réglages",
+      "fileIssues": "Le fichier a des problèmes à corriger d'abord",
+      "noHeaderRow": "Ligne d'en-tête introuvable",
+      "mappingIncomplete": "Associez toutes les colonnes obligatoires, chacune à une colonne différente",
+      "headerInvalid": "Saisissez le numéro de l'ordre de travail",
+      "noRows": "Aucune ligne n'est incluse",
+      "errorRows": "Des lignes en erreur sont encore incluses : excluez-les",
+      "unresolvedDuplicates": "Décidez quoi faire pour chaque code répété"
+    },
+    "invalid": {
+      "FILE_CHANGED": "Le fichier est différent de celui que vous avez vérifié. Envoyez-le à nouveau et vérifiez-le.",
+      "FILE_ISSUES": "Le fichier a des problèmes :",
+      "ROW_ERRORS": "Des lignes incluses sont en erreur.",
+      "UNRESOLVED_DUPLICATES": "Codes répétés sans décision.",
+      "NO_ROWS_INCLUDED": "Aucune ligne n'est incluse.",
+      "duplicateCodes": "Codes répétés :",
+      "row": "Ligne {row}",
+      "moreRows": "et {count} autres lignes"
+    },
+    "issues": {
+      "MISSING_VALUE": "Valeur manquante : {field}",
+      "INVALID_NUMBER": "Nombre invalide dans {field}",
+      "NEGATIVE_NUMBER": "{field} ne peut pas être négatif",
+      "TOO_MANY_DECIMALS": "{field} a plus de 4 décimales",
+      "NUMBER_OUT_OF_RANGE": "{field} est trop grand",
+      "TEXT_TOO_LONG": "{field} est trop long",
+      "FORMULA_WITHOUT_RESULT": "{field} est une formule sans résultat enregistré ; ouvrez et enregistrez le fichier dans Excel",
+      "DUPLICATE_CODE": "Ce code est répété aux lignes {otherRows}",
+      "AMOUNT_MISMATCH": "Le montant de la feuille diffère de quantité × prix unitaire"
+    },
+    "fileIssues": {
+      "SHEET_NOT_FOUND": "Feuille introuvable",
+      "SHEET_EMPTY": "La feuille est vide",
+      "HEADER_ROW_NOT_FOUND": "Aucune ligne d'en-tête détectée ; saisissez son numéro",
+      "REQUIRED_FIELD_UNMAPPED": "Colonne obligatoire non associée : {field}",
+      "COLUMN_MAPPED_TWICE": "Une colonne est associée à plusieurs champs",
+      "TOO_MANY_ROWS": "La feuille a trop de lignes",
+      "NO_ITEM_ROWS": "Aucune ligne d'article sous l'en-tête"
+    }
+  },
+  "cad": {
+    "listTitle": "Fichiers CAO",
+    "empty": "Aucun fichier CAO pour le moment",
+    "upload": {
+      "label": "Envoyer un fichier CAO",
+      "hint": "Fichiers DWG ou DXF",
+      "uploading": "Envoi de"
+    },
+    "fileName": "Nom du fichier",
+    "format": "Format",
+    "size": "Taille",
+    "statusLabel": "Statut",
+    "status": {
+      "uploaded": "Envoyé",
+      "queued": "En file d'attente",
+      "processing": "En cours de traitement",
+      "processed": "Traité",
+      "failed": "Échec"
+    },
+    "counts": {
+      "layers": "Calques",
+      "inserts": "Blocs",
+      "texts": "Textes",
+      "curves": "Courbes"
+    },
+    "warningsShort": "Avertissements",
+    "uploadedAt": "Envoyé le",
+    "processedAt": "Traité le",
+    "backToList": "Retour à la liste",
+    "autoRefresh": "Actualisation automatique toutes les 3 secondes",
+    "downloadOriginal": "Télécharger l'original",
+    "reprocess": "Retraiter",
+    "notProcessed": "Les données sont disponibles une fois le traitement terminé",
+    "tabs": {
+      "label": "Sections du fichier",
+      "overview": "Vue d'ensemble",
+      "layers": "Calques",
+      "inserts": "Blocs",
+      "texts": "Textes",
+      "curves": "Courbes",
+      "log": "Journal du convertisseur"
+    },
+    "logEmpty": "Le journal est vide",
+    "dxfVersion": "Version DXF",
+    "converter": "Convertisseur",
+    "insUnits": "Unités du dessin (INSUNITS)",
+    "sha256": "SHA-256",
+    "extents": "Étendue du dessin",
+    "extentsNote": "En unités du dessin ; pas encore des coordonnées du projet.",
+    "warnings": "Avertissements",
+    "noWarnings": "Aucun avertissement",
+    "handle": "Handle",
+    "noRows": "Aucune ligne",
+    "failure": {
+      "ENQUEUE_FAILED": "Impossible de mettre le fichier en file d'attente",
+      "FILE_MISSING": "Le fichier stocké est introuvable",
+      "CONVERTER_FAILED": "Le convertisseur DWG a échoué",
+      "DXF_UNREADABLE": "Le fichier DXF est illisible",
+      "TIMEOUT": "Le traitement a pris trop de temps",
+      "MAX_ATTEMPTS_EXCEEDED": "Le traitement a échoué après plusieurs tentatives",
+      "INTERNAL": "Erreur inattendue pendant le traitement"
+    },
+    "warning": {
+      "DWG_CONVERTED": "Le DWG a été converti en DXF avant lecture",
+      "DXF_RECOVERED": "Le DXF avait des erreurs et a été récupéré ; des données peuvent manquer",
+      "UNSUPPORTED_ENTITY": "Type d'entité non pris en charge ignoré : {entityType}",
+      "PROXY_ENTITY": "Des entités proxy (d'autres applications) ont été ignorées",
+      "XREF_NOT_RESOLVED": "Référence externe non résolue",
+      "MISSING_FONT": "Police indisponible : {font}",
+      "UNREADABLE_TEXT": "Certains textes ne peuvent pas être décodés de façon fiable",
+      "UNITS_UNSPECIFIED": "Les unités du dessin ne sont pas précisées",
+      "EMPTY_MODELSPACE": "Le dessin n'a pas de contenu dans l'espace objet",
+      "CURVE_APPROXIMATED": "Certaines courbes ont été approchées par des segments droits"
+    },
+    "layers": {
+      "search": "Rechercher un calque",
+      "withEntitiesOnly": "Seulement les calques avec entités",
+      "onOnly": "Seulement les calques activés",
+      "shown": "{shown} calques affichés sur {total}",
+      "none": "Aucun calque correspondant",
+      "color": "Couleur",
+      "name": "Nom du calque",
+      "entities": "Entités par type",
+      "total": "Total",
+      "flags": "État",
+      "on": "Activé",
+      "off": "Désactivé",
+      "frozen": "Gelé",
+      "locked": "Verrouillé"
+    },
+    "filters": {
+      "layer": "Calque",
+      "allLayers": "Tous les calques",
+      "blockName": "Nom du bloc",
+      "search": "Rechercher dans le texte",
+      "apply": "Appliquer"
+    },
+    "inserts": {
+      "block": "Bloc",
+      "position": "Position",
+      "rotation": "Rotation",
+      "attributes": "Attributs",
+      "attributeCount": "{count} attributs"
+    },
+    "texts": {
+      "decoded": "Texte",
+      "raw": "Texte brut",
+      "showRaw": "Afficher le texte brut",
+      "unreadableOnly": "Textes illisibles seulement",
+      "kind": "Type",
+      "kinds": {
+        "text": "Texte",
+        "mtext": "Texte multiligne"
+      },
+      "font": "Police",
+      "readability": "Lisibilité",
+      "readable": "Lisible",
+      "unreadable": "Illisible"
+    },
+    "curves": {
+      "type": "Type",
+      "allTypes": "Tous les types",
+      "length": "Longueur (unités du dessin)",
+      "vertices": "Sommets",
+      "closed": "Fermé",
+      "approximated": "Approché"
+    }
   }
 }
