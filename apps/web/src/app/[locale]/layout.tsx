@@ -41,7 +41,7 @@ export default async function LocaleLayout({
             <span className="font-semibold">{translate(locale, 'common.appName')}</span>
             <LanguageSwitcher />
           </header>
-          <main className="flex justify-center p-4">{children}</main>
+          <main className="p-4">{children}</main>
         </Providers>
       </body>
     </html>

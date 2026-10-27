@@ -9,6 +9,8 @@ import { GET_PROJECT_USE_CASE } from './projects.tokens.js';
 @Module({
   imports: [IdentityModule],
   controllers: [ProjectsController],
+  // Other modules (work-orders) read the project's currency through this application service.
+  exports: [GET_PROJECT_USE_CASE],
   providers: [
     {
       provide: GET_PROJECT_USE_CASE,

@@ -4,7 +4,20 @@
     "language": "Language",
     "logout": "Log out",
     "loading": "Loading…",
-    "restartToApplyDirection": "Restart the app to apply the new text direction"
+    "restartToApplyDirection": "Restart the app to apply the new text direction",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "delete": "Delete",
+    "edit": "Edit",
+    "actions": "Actions",
+    "yes": "Yes",
+    "no": "No",
+    "next": "Next",
+    "previous": "Previous",
+    "pagination": "Pagination",
+    "pageOf": "Page {page} of {pages} ({total})",
+    "uploading": "Uploading…"
   },
   "auth": {
     "title": "Sign in",
@@ -36,7 +49,10 @@
     "CONFLICT": "Data conflict",
     "RATE_LIMITED": "Too many attempts, try again in a minute",
     "INTERNAL": "Something went wrong",
-    "NETWORK": "Cannot reach the server, check your connection"
+    "NETWORK": "Cannot reach the server, check your connection",
+    "UNSUPPORTED_FILE": "Unsupported file type, or the content does not match the file type",
+    "FILE_TOO_LARGE": "The file is larger than the allowed size",
+    "IMPORT_INVALID": "The import was rejected"
   },
   "status": {
     "notStarted": "Not started",
@@ -48,5 +64,325 @@
   "home": {
     "projects": "My projects",
     "noProjects": "No projects are assigned to you yet"
+  },
+  "validation": {
+    "required": "This field is required",
+    "tooLong": "The text is too long",
+    "decimal": "Enter a non-negative number with at most 4 decimal places",
+    "date": "Invalid date"
+  },
+  "nav": {
+    "menu": "Project menu",
+    "content": "Project content",
+    "workOrders": "Work orders",
+    "cadFiles": "CAD files"
+  },
+  "project": {
+    "switcher": "Project",
+    "notMember": "You are not a member of this project",
+    "noSections": "You do not have access to any section of this project"
+  },
+  "workOrders": {
+    "listTitle": "Work orders",
+    "detailTitle": "Work order",
+    "new": "New work order",
+    "create": "Create",
+    "importExcel": "Import from Excel",
+    "empty": "No work orders yet",
+    "number": "Number",
+    "title": "Title",
+    "issuedOn": "Issue date",
+    "notes": "Notes",
+    "source": "Source",
+    "sources": {
+      "manual": "Manual",
+      "import": "Excel import"
+    },
+    "itemCount": "Items",
+    "total": "Total",
+    "version": "Version",
+    "editHeader": "Edit header",
+    "delete": "Delete work order",
+    "confirmDelete": "Delete this work order with all its items and attachments?",
+    "backToList": "Back to the list",
+    "numberTaken": "This number is already used in the project",
+    "conflictOnUpdate": "The work order was changed by someone else, or this number is already used. Reload to see the latest version.",
+    "reload": "Reload"
+  },
+  "items": {
+    "title": "Items",
+    "add": "Add item",
+    "edit": "Edit item",
+    "empty": "No items",
+    "lineNo": "Line",
+    "code": "Code",
+    "description": "Description",
+    "unit": "Unit",
+    "quantity": "Quantity",
+    "unitPrice": "Unit price",
+    "amount": "Amount",
+    "confirmDelete": "Delete this item?",
+    "duplicateBadge": "Repeated code",
+    "duplicatesPresent": "Some codes are repeated (explicitly accepted as separate lines):",
+    "duplicateLine": "Code {code} on lines {lines}",
+    "duplicateTitle": "Code {code} already exists on lines {lines}",
+    "duplicateExplain": "Items are never merged. Keep it as a separate line, or change the code.",
+    "keepSeparate": "Keep as a separate line",
+    "changeCode": "Change the code"
+  },
+  "attachments": {
+    "title": "Attachments",
+    "empty": "No attachments",
+    "upload": "Upload a PDF",
+    "onlyPdf": "Only PDF files are allowed",
+    "confirmDelete": "Delete this attachment?",
+    "notDeletable": "The import source cannot be deleted",
+    "kinds": {
+      "document": "Document",
+      "import_source": "Import source file"
+    }
+  },
+  "import": {
+    "title": "Import a work order from Excel",
+    "upload": {
+      "title": "1. Choose the file",
+      "explain": "Upload an .xlsx file. Nothing is saved until you review the data and confirm.",
+      "choose": "Excel file (.xlsx)",
+      "reading": "Reading {name}…"
+    },
+    "mapping": {
+      "title": "2. Sheet and columns",
+      "sheet": "Sheet",
+      "headerRow": "Header row number",
+      "notMapped": "— not mapped —",
+      "noHeader": "(no header)",
+      "required": "Required column",
+      "usedTwice": "This column is used for more than one field",
+      "reread": "Re-read the file with these settings",
+      "unapplied": "Your changes are not applied to the rows yet",
+      "requiredHint": "Fields marked with * are required."
+    },
+    "fields": {
+      "code": "Code",
+      "description": "Description",
+      "unit": "Unit",
+      "quantity": "Quantity",
+      "unitPrice": "Unit price",
+      "amount": "Amount (cross-check)"
+    },
+    "summary": {
+      "title": "3. Summary",
+      "total": "Rows in the sheet",
+      "included": "Rows included",
+      "errors": "Rows with errors",
+      "warnings": "Rows with warnings",
+      "computedTotal": "Computed total"
+    },
+    "duplicates": {
+      "title": "Repeated codes",
+      "explain": "Repeated items are never merged. For each code: exclude its rows, or keep them as separate lines.",
+      "rows": "rows {rows}",
+      "needsDecision": "A decision is needed for this code",
+      "decisions": {
+        "exclude": "Exclude the rows of this code",
+        "keep": "Keep all as separate lines"
+      }
+    },
+    "rows": {
+      "title": "4. Review the rows",
+      "filter": "Show",
+      "filters": {
+        "all": "All rows",
+        "errors": "Rows with errors",
+        "warnings": "Rows with warnings",
+        "excluded": "Excluded rows"
+      },
+      "excludeErrors": "Exclude rows with errors",
+      "none": "No matching rows",
+      "include": "Include",
+      "includeRow": "Include row {row}",
+      "excludedBadge": "Excluded",
+      "rowNumber": "Row",
+      "issues": "Issues",
+      "ok": "OK"
+    },
+    "severity": {
+      "error": "Error",
+      "warning": "Warning"
+    },
+    "header": {
+      "title": "5. Work order details"
+    },
+    "commit": "Create the work order",
+    "committing": "Creating…",
+    "blockers": {
+      "title": "Before you can create it:",
+      "draftNotApplied": "Re-read the file after changing the settings",
+      "fileIssues": "The file has issues to fix first",
+      "noHeaderRow": "Header row not found",
+      "mappingIncomplete": "Map all required columns, each to a different column",
+      "headerInvalid": "Enter the work order number",
+      "noRows": "No rows are included",
+      "errorRows": "Rows with errors are still included: exclude them",
+      "unresolvedDuplicates": "Decide what to do with each repeated code"
+    },
+    "invalid": {
+      "FILE_CHANGED": "The file is different from the one you reviewed. Upload it again and review it.",
+      "FILE_ISSUES": "The file has issues:",
+      "ROW_ERRORS": "Included rows have errors.",
+      "UNRESOLVED_DUPLICATES": "Repeated codes without a decision.",
+      "NO_ROWS_INCLUDED": "No rows are included.",
+      "duplicateCodes": "Repeated codes:",
+      "row": "Row {row}",
+      "moreRows": "and {count} more rows"
+    },
+    "issues": {
+      "MISSING_VALUE": "Missing value: {field}",
+      "INVALID_NUMBER": "Not a valid number in {field}",
+      "NEGATIVE_NUMBER": "{field} cannot be negative",
+      "TOO_MANY_DECIMALS": "{field} has more than 4 decimal places",
+      "NUMBER_OUT_OF_RANGE": "{field} is too large",
+      "TEXT_TOO_LONG": "{field} is too long",
+      "FORMULA_WITHOUT_RESULT": "{field} is a formula with no saved result; open and save the file in Excel",
+      "DUPLICATE_CODE": "This code is repeated in rows {otherRows}",
+      "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price"
+    },
+    "fileIssues": {
+      "SHEET_NOT_FOUND": "Sheet not found",
+      "SHEET_EMPTY": "The sheet is empty",
+      "HEADER_ROW_NOT_FOUND": "No header row was detected; enter its row number",
+      "REQUIRED_FIELD_UNMAPPED": "Required column not mapped: {field}",
+      "COLUMN_MAPPED_TWICE": "One column is mapped to more than one field",
+      "TOO_MANY_ROWS": "The sheet has too many rows",
+      "NO_ITEM_ROWS": "No item rows were found below the header"
+    }
+  },
+  "cad": {
+    "listTitle": "CAD files",
+    "empty": "No CAD files yet",
+    "upload": {
+      "label": "Upload a CAD file",
+      "hint": "DWG or DXF files",
+      "uploading": "Uploading"
+    },
+    "fileName": "File name",
+    "format": "Format",
+    "size": "Size",
+    "statusLabel": "Status",
+    "status": {
+      "uploaded": "Uploaded",
+      "queued": "Queued",
+      "processing": "Processing",
+      "processed": "Processed",
+      "failed": "Failed"
+    },
+    "counts": {
+      "layers": "Layers",
+      "inserts": "Inserts",
+      "texts": "Texts",
+      "curves": "Curves"
+    },
+    "warningsShort": "Warnings",
+    "uploadedAt": "Uploaded",
+    "processedAt": "Processed",
+    "backToList": "Back to the list",
+    "autoRefresh": "Refreshing automatically every 3 seconds",
+    "downloadOriginal": "Download the original",
+    "reprocess": "Reprocess",
+    "notProcessed": "Data is available once processing has finished",
+    "tabs": {
+      "label": "File sections",
+      "overview": "Overview",
+      "layers": "Layers",
+      "inserts": "Inserts",
+      "texts": "Texts",
+      "curves": "Curves",
+      "log": "Converter log"
+    },
+    "logEmpty": "The log is empty",
+    "dxfVersion": "DXF version",
+    "converter": "Converter",
+    "insUnits": "Drawing units (INSUNITS)",
+    "sha256": "SHA-256",
+    "extents": "Drawing extents",
+    "extentsNote": "In drawing units; not project coordinates yet.",
+    "warnings": "Warnings",
+    "noWarnings": "No warnings",
+    "handle": "Handle",
+    "noRows": "No rows",
+    "failure": {
+      "ENQUEUE_FAILED": "Could not queue the file for processing",
+      "FILE_MISSING": "The stored file is missing",
+      "CONVERTER_FAILED": "The DWG converter failed",
+      "DXF_UNREADABLE": "The DXF file could not be read",
+      "TIMEOUT": "Processing took too long",
+      "MAX_ATTEMPTS_EXCEEDED": "Processing failed after several attempts",
+      "INTERNAL": "Unexpected processing error"
+    },
+    "warning": {
+      "DWG_CONVERTED": "The DWG was converted to DXF before reading",
+      "DXF_RECOVERED": "The DXF had errors and was recovered; some data may be missing",
+      "UNSUPPORTED_ENTITY": "Unsupported entity type skipped: {entityType}",
+      "PROXY_ENTITY": "Proxy entities (from other applications) were skipped",
+      "XREF_NOT_RESOLVED": "External reference not resolved",
+      "MISSING_FONT": "Font not available: {font}",
+      "UNREADABLE_TEXT": "Some text could not be decoded reliably",
+      "UNITS_UNSPECIFIED": "Drawing units are not specified",
+      "EMPTY_MODELSPACE": "The drawing has no model-space content",
+      "CURVE_APPROXIMATED": "Some curves were approximated by straight segments"
+    },
+    "layers": {
+      "search": "Search layer name",
+      "withEntitiesOnly": "Only layers with entities",
+      "onOnly": "Only layers that are on",
+      "shown": "Showing {shown} of {total} layers",
+      "none": "No matching layers",
+      "color": "Colour",
+      "name": "Layer name",
+      "entities": "Entities by type",
+      "total": "Total",
+      "flags": "State",
+      "on": "On",
+      "off": "Off",
+      "frozen": "Frozen",
+      "locked": "Locked"
+    },
+    "filters": {
+      "layer": "Layer",
+      "allLayers": "All layers",
+      "blockName": "Block name",
+      "search": "Search text",
+      "apply": "Apply"
+    },
+    "inserts": {
+      "block": "Block",
+      "position": "Position",
+      "rotation": "Rotation",
+      "attributes": "Attributes",
+      "attributeCount": "{count} attributes"
+    },
+    "texts": {
+      "decoded": "Text",
+      "raw": "Raw text",
+      "showRaw": "Show raw text",
+      "unreadableOnly": "Unreadable texts only",
+      "kind": "Kind",
+      "kinds": {
+        "text": "Text",
+        "mtext": "Multiline text"
+      },
+      "font": "Font",
+      "readability": "Readability",
+      "readable": "Readable",
+      "unreadable": "Unreadable"
+    },
+    "curves": {
+      "type": "Type",
+      "allTypes": "All types",
+      "length": "Length (drawing units)",
+      "vertices": "Vertices",
+      "closed": "Closed",
+      "approximated": "Approximated"
+    }
   }
 }

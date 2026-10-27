@@ -7,7 +7,8 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2), awaiting approval | — |
 | Staging (Hetzner) | Ready — server bootstrap pending (owner runs one command) | — |
-| 1 Work orders + CAD import & mapping | Not started | — |
+| 1a Work orders + CAD upload & extraction | Done — awaiting approval | — |
+| 1b Mapping, text linking, features, tiles | Not started | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
 | 4 As-Built editing | Not started | — |
@@ -67,3 +68,19 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 - **Verified:** simulated Ubuntu server with real Caddy and a second site: bootstrap end-to-end (healthy stack, login page 200, admin created), idempotent re-run, Caddy rollback byte-for-byte, autodeploy waits when images are missing, other site untouched.
 - **Not done:** bootstrap has not been run on the real server yet (needs the owner in the Hetzner web console; SSH from the build sandbox is blocked and no existing key has admin access).
 
+
+### Phase 1a — Work orders and CAD import (upload + extraction)
+- **Done:**
+  - Contracts (`packages/shared`), ADR-011..015, migration 0003 (8 tables, verified on PostGIS 16).
+  - API: work orders (CRUD, items, PDF attachments), Excel import (preview → commit, Arabic/English/French headers, Arabic-Indic digits, formulas, duplicate codes, exact decimal money), CAD upload (streamed, content-sniffed, write-once storage `fs`/`s3`), extraction read endpoints, permission guard.
+  - Worker: LibreDWG-WASM DWG→DXF + ezdxf extraction (layers, inserts+attributes, texts, curves as LineStringZ), reliable Redis job loop (per-worker in-flight list, heartbeat, orphan requeue, 3 attempts), single-transaction write.
+  - Web: work-order screens, import wizard, CAD list/detail with layers/inserts/texts/curves, BFF proxy streaming uploads and downloads.
+- **Verified end to end (local, real PostGIS + Redis + API + worker):** the sector-1 DWG uploaded through the API became `processed` with 81 layers, 47 inserts, 672 texts, 3,786 curves; an Arabic xlsx (header on row 3, Arabic-Indic digits, formulas, a duplicate code, a bad row) previewed correctly with total 99,382.375; supervisor upload → 403, list → 200.
+- **Test report:** unit shared 84, i18n, ui-tokens, api 194, web 110, mobile 11; API integration 89 (PostGIS + Redis); web e2e 9; worker 89 (94% coverage; golden runs on three real drawings: 8–13 s each, largest has 5,755 inserts and 13,725 texts).
+- **Bug found by the end-to-end run and fixed:** redis-py's default 5 s socket timeout equal to the blocking claim crashed an idle worker (ADR-015).
+- **Not done / open:**
+  - One CAD job disappeared from Redis during manual process-killing in the end-to-end run (file stayed `queued`). Not reproduced; recovery paths are covered by tests, and a stale `queued` file can be re-queued with Reprocess after 15 min. Watch for it on staging.
+  - Arabic street names (legacy `xarb.shx` fonts) are stored as raw ASCII key codes and flagged `readable=false`; a full character table is needed (the lowercase keys follow the Arabic 101 keyboard layout). Alternative: re-export those texts as Unicode from AutoCAD.
+  - Drawing units are inches (`$INSUNITS=1`) while the plan assumes metres: confirm in 1b before lengths are used for quantities.
+  - S3 adapter only unit-tested; the web was tested against a mock API only (the API path above was checked with curl).
+  - Owner decisions pending (ADR-011): required item fields, duplicate-code handling, visibility of prices to supervisors, and the real work-order Excel sample.

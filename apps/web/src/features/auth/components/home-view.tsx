@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { ErrorCode, MeResponse } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -16,7 +17,7 @@ interface HomeViewProps {
 
 /** Presentational home: greeting, role per project, logout. */
 export function HomeView({ me, loading, failureCode, loggingOut, onLogout }: HomeViewProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   if (failureCode) {
     return (
@@ -48,7 +49,12 @@ export function HomeView({ me, loading, failureCode, loggingOut, onLogout }: Hom
               key={membership.projectId}
               className="flex min-h-11 items-center justify-between gap-4 py-2"
             >
-              <span>{membership.projectName}</span>
+              <Link
+                href={`/${locale}/projects/${membership.projectId}`}
+                className="flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)"
+              >
+                {membership.projectName}
+              </Link>
               <span className="rounded-md border border-(--color-border) px-2 py-1 text-sm">
                 {t(`roles.${membership.role}`)}
               </span>

@@ -10,6 +10,12 @@ export const ERROR_CODES = [
   'NOT_FOUND',
   'CONFLICT',
   'RATE_LIMITED',
+  /** Wrong file type or content does not match the declared type (HTTP 415). */
+  'UNSUPPORTED_FILE',
+  /** Upload exceeds MAX_UPLOAD_MB (HTTP 413). */
+  'FILE_TOO_LARGE',
+  /** Excel import commit rejected; `details` follows ImportInvalidDetailsSchema (HTTP 422). */
+  'IMPORT_INVALID',
   'INTERNAL',
 ] as const;
 

@@ -6,9 +6,20 @@ import { DbModule } from './db/db.module.js';
 import { HealthController } from './health/health.controller.js';
 import { IdentityModule } from './modules/identity/identity.module.js';
 import { ProjectsModule } from './modules/projects/projects.module.js';
+import { CadModule } from './modules/cad/cad.module.js';
+import { WorkOrdersModule } from './modules/work-orders/work-orders.module.js';
+import { StorageModule } from './common/storage/storage.module.js';
 
 @Module({
-  imports: [ConfigModule, DbModule, IdentityModule, ProjectsModule],
+  imports: [
+    ConfigModule,
+    DbModule,
+    StorageModule,
+    IdentityModule,
+    ProjectsModule,
+    WorkOrdersModule,
+    CadModule,
+  ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

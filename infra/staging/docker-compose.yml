@@ -6,6 +6,11 @@ name: ftth-staging
 
 x-db-url: &db-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgis:5432/${POSTGRES_DB:?}
 x-redis-url: &redis-url redis://:${REDIS_PASSWORD:?}@redis:6379
+# Files (CAD originals, PDFs, xlsx) live on the `ftth-storage` volume shared by api and worker (ADR-012).
+# The S3_* values are only used when STORAGE_DRIVER=s3.
+x-storage-env: &storage-env
+  STORAGE_DRIVER: fs
+  STORAGE_FS_ROOT: /var/lib/ftth/storage
 x-s3-env: &s3-env
   S3_ENDPOINT: ${S3_ENDPOINT:?}
   S3_BUCKET: ${S3_BUCKET:?}
@@ -48,8 +53,11 @@ services:
     depends_on:
       postgis:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      <<: *s3-env
+      <<: [*s3-env, *storage-env]
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
       NODE_ENV: production
       PORT: 3001
       APP_VERSION: ${IMAGE_TAG:?}
@@ -59,6 +67,8 @@ services:
       JWT_ACCESS_TTL_SECONDS: 900
       REFRESH_TOKEN_TTL_DAYS: 30
       CORS_ORIGINS: https://${APP_DOMAIN:?}
+    volumes:
+      - ftth-storage:/var/lib/ftth/storage
     ports:
       - '127.0.0.1:${API_PORT:?}:3001'
     command: ['sh', '-c', 'node dist/db/migrate.js && exec node dist/main.js']
@@ -93,10 +103,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # The API (user `node`, uid/gid 1000) creates the group-writable directories; the worker (uid 10001)
+    # joins gid 1000 so it can write converted files next to the originals.
+    group_add:
+      - '1000'
+    volumes:
+      - ftth-storage:/var/lib/ftth/storage
     environment:
-      <<: *s3-env
+      <<: [*s3-env, *storage-env]
       DATABASE_URL: *db-url
       REDIS_URL: *redis-url
+      WORKER_ID: ${WORKER_ID:-worker-1}
 
   # Nightly logical backup kept on the server (7 days). Off-site WAL archiving comes in Phase 7.
   backup:
@@ -122,3 +139,4 @@ services:
 volumes:
   postgis-data:
   redis-data:
+  ftth-storage:

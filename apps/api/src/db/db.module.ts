@@ -1,6 +1,7 @@
 import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
 import type { ApiEnv } from '@ftth/shared';
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { drizzle, type NodePgDatabase, type NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
+import type { PgDatabase } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import { EVENT_LOG } from '../common/event-log.port.js';
 import { APP_ENV } from '../config/config.module.js';
@@ -10,6 +11,8 @@ import { schema } from './schema.js';
 export const PG_POOL = 'PG_POOL';
 export const DB = 'DB';
 export type Database = NodePgDatabase<typeof schema>;
+/** A database or an open transaction: repositories accept either so they can join a unit of work. */
+export type DbHandle = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 
 @Global()
 @Module({

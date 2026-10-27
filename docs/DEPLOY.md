@@ -54,6 +54,8 @@ IMAGE_TAG=$(cat /srv/ftth/deployed-sha) $C logs -f api
 ```
 النسخ الاحتياطية في `/srv/ftth/backups`: نسخة كل يوم، بتتحفظ 7 أيام.
 
+الملفات المرفوعة (رسومات الكاد DWG/DXF وملفات PDF وإكسل أوامر التكليف) على staging بتتخزن على volume اسمه `ftth-storage` (مثبّت على `/var/lib/ftth/storage` في الـapi والـworker). الـvolume ده **مش داخل في نسخة قاعدة البيانات الليلية**، فلازم يتاخد منه نسخة احتياطية بنفس الاهتمام (مثلاً `docker run --rm -v ftth-staging_ftth-storage:/data -v /srv/ftth/backups:/out alpine tar czf /out/storage-$(date +%F).tgz -C /data .`). لما نعدي على object storage هنغيّر `STORAGE_DRIVER` لـ`s3`.
+
 ## إلغاء كل حاجة
 ```bash
 systemctl disable --now ftth-autodeploy.timer

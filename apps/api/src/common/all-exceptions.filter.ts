@@ -10,7 +10,9 @@ import type { Response } from 'express';
 import { AppError, httpStatusFor } from './app-error.js';
 
 function codeForHttpStatus(status: number): ErrorCode {
-  if (status === 400 || status === 413 || status === 415 || status === 422) {
+  if (status === 413) return 'FILE_TOO_LARGE';
+  if (status === 415) return 'UNSUPPORTED_FILE';
+  if (status === 400 || status === 422) {
     return 'VALIDATION_FAILED';
   }
   if (status === 401) return 'TOKEN_INVALID';
@@ -19,6 +21,12 @@ function codeForHttpStatus(status: number): ErrorCode {
   if (status === 409) return 'CONFLICT';
   if (status === 429) return 'RATE_LIMITED';
   return 'INTERNAL';
+}
+
+function isClientHttpError(error: unknown): error is Error & { status: number } {
+  if (!(error instanceof Error)) return false;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' && status >= 400 && status < 500;
 }
 
 /** Maps every thrown error to the `ApiError` contract {code, message, details}. */
@@ -38,6 +46,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = exception.getStatus();
       const code = codeForHttpStatus(status);
       body = { code, message: status < 500 ? exception.message : 'Internal server error' };
+    } else if (isClientHttpError(exception)) {
+      // body-parser / raw-body errors (e.g. JSON larger than the limit) are plain http-errors.
+      status = exception.status;
+      body = { code: codeForHttpStatus(status), message: exception.message };
     } else {
       this.logger.error(
         exception instanceof Error ? (exception.stack ?? exception.message) : String(exception),

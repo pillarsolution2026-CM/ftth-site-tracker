@@ -29,6 +29,12 @@ FROM node:22-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
+# File storage (ADR-012). A named volume mounted here copies this directory's owner on first use, so
+# the unprivileged `node` user (uid/gid 1000) can write it. Group-writable + setgid so the CAD worker
+# (uid 10001, run with `group_add: ['1000']` in compose) can add files next to the originals.
+RUN mkdir -p /var/lib/ftth/storage \
+ && chown node:node /var/lib/ftth/storage \
+ && chmod 2775 /var/lib/ftth/storage
 USER node
 EXPOSE 3001
 CMD ["node", "dist/main.js"]

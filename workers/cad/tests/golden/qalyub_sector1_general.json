@@ -1,0 +1,110 @@
+{
+  "file": "General_القطاع_الاول_قليوب.dwg",
+  "totals": {
+    "layers": 81,
+    "inserts": 47,
+    "texts": 672,
+    "curves": 3786
+  },
+  "unreadable_texts": 488,
+  "entity_counts_by_layer": {
+    "19_total Users": {
+      "TEXT": 1
+    },
+    "1way": {
+      "POINT": 1
+    },
+    "1way-elc": {
+      "LWPOLYLINE": 2
+    },
+    "building": {
+      "LINE": 16,
+      "CIRCLE": 3,
+      "LWPOLYLINE": 3434
+    },
+    "CABINA": {
+      "TEXT": 68,
+      "LWPOLYLINE": 102
+    },
+    "canal": {
+      "LWPOLYLINE": 2
+    },
+    "CAP F144": {
+      "TEXT": 28,
+      "INSERT": 26
+    },
+    "CAP F36": {
+      "TEXT": 54
+    },
+    "door": {
+      "LWPOLYLINE": 49
+    },
+    "E_CAB_TXT": {
+      "TEXT": 5
+    },
+    "edit build.": {
+      "LWPOLYLINE": 79
+    },
+    "E_DUC_SYM": {
+      "LWPOLYLINE": 5
+    },
+    "E_MH_TXT": {
+      "LINE": 1,
+      "TEXT": 1,
+      "LWPOLYLINE": 1
+    },
+    "jont 144": {
+      "TEXT": 3,
+      "INSERT": 4
+    },
+    "MAS-LAY": {
+      "HATCH": 7,
+      "LWPOLYLINE": 5
+    },
+    "N-CABLE-TXT": {
+      "TEXT": 2
+    },
+    "N_DUC_CBL": {
+      "ARC": 1,
+      "LINE": 3,
+      "LWPOLYLINE": 28
+    },
+    "N_SYM": {
+      "LWPOLYLINE": 5
+    },
+    "road": {
+      "LWPOLYLINE": 43
+    },
+    "RRR": {
+      "LINE": 7,
+      "TEXT": 22
+    },
+    "sub": {
+      "INSERT": 17
+    },
+    "tx": {
+      "TEXT": 488
+    }
+  },
+  "inserts_by_block": {
+    "144": 5,
+    "36": 21,
+    "JONT 144": 4,
+    "sub": 17
+  },
+  "curve_length_by_layer": {
+    "1way-elc": 13.86,
+    "building": 123506.47,
+    "CABINA": 1463.47,
+    "canal": 1560.12,
+    "door": 535.15,
+    "edit build.": 1430.43,
+    "E_DUC_SYM": 2292.36,
+    "E_MH_TXT": 69.7,
+    "MAS-LAY": 342.23,
+    "N_DUC_CBL": 3782.53,
+    "N_SYM": 164.17,
+    "road": 15185.13,
+    "RRR": 162.41
+  }
+}
