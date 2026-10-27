@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: ftth
+          POSTGRES_PASSWORD: ftth
+          POSTGRES_DB: ftth_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ftth -d ftth_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://ftth:ftth@localhost:5432/ftth_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: API integration tests (PostGIS)
+        run: pnpm --filter @ftth/api test:int
+      - name: Web e2e (Playwright)
+        run: |
+          pnpm --filter @ftth/web exec playwright install --with-deps chromium
+          pnpm --filter @ftth/web test:e2e
+
+  python:
+    name: CAD worker (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/cad
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: '0.11.32'
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+      - run: uv run pytest --cov=cad_worker
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/api/Dockerfile -t ftth-api .
+      - run: docker build -f apps/web/Dockerfile -t ftth-web .
+      - run: docker build -t ftth-cad-worker workers/cad
+      - run: docker run --rm ftth-cad-worker python -m cad_worker --health

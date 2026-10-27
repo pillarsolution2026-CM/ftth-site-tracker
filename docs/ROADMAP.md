@@ -82,6 +82,9 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - [‖] i18n + RTL ويب/موبايل — i18n (Haiku) + ui-polisher (Sonnet)
 - **قبول:** `docker compose up` شغال، CI أخضر، login ويب + موبايل.
 
+### بيئة Staging (قبل المرحلة 1)
+- [x] Staging على سيرفر Hetzner المشترك (`49.13.167.124`) خلف الـCaddy الموجود: `bootstrap.sh` (أمر واحد من Hetzner Console) + `ftth-autodeploy` (pull كل دقيقتين، rollback تلقائي) + `publish-images.yml` (GHCR)، و`create-admin`، وrate limiting للدخول — ADR-010 و`docs/DEPLOY.md`.
+
 ### المرحلة 1: أوامر التكليف + استيراد الكاد والـMapping
 - Domain للمشروع / أوامر التكليف (أكتر من أمر للمشروع، كل أمر ببنوده) — architect (Opus) ثم backend-dev (Sonnet)
 - رفع DWG/DXF بـpresigned + job في BullMQ — backend-dev (Sonnet)
@@ -90,6 +93,7 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - [‖] تحويل SHX العربي (xarb.shx) — cad-engineer (Sonnet)
 - [‖] شاشة Mapping + قائمة مراجعة النصوص — web-dev (Sonnet)
 - features + design_revisions مقفولة + tiles (PMTiles) — cad-engineer (Sonnet)
+- Tiles security: Martin serves only project-scoped function sources via a read-only DB role, behind Caddy forward_auth / signed tile URLs checked by the API; never auto-publish tables — architect (Opus) + security-reviewer (Opus)
 - Revision matching وتقرير فروقات — cad-engineer (Opus)
 - Golden-file tests على ملف قليوب — test-writer (Sonnet)
 - **قبول:** قليوب ← ~25 مسار (~3,700 م)، 17 صندوق، 6 HHI، 4 Joint، UTM 36N في < دقيقة.

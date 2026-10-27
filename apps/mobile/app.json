@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "FTTH Site Tracker",
+    "slug": "ftth-site-tracker",
+    "scheme": "ftth",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": { "bundleIdentifier": "com.ftth.sitetracker", "supportsTablet": false },
+    "android": { "package": "com.ftth.sitetracker" },
+    "web": { "bundler": "metro", "output": "single" },
+    "plugins": ["expo-router", "expo-secure-store", "expo-dev-client"],
+    "experiments": { "typedRoutes": true }
+  }
+}

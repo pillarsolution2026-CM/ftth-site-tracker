@@ -1,0 +1,45 @@
+[project]
+name = "cad-worker"
+version = "0.1.0"
+description = "FTTH Site Tracker server-side CAD worker"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ezdxf",
+    "pyproj",
+    "shapely",
+    "redis",
+    "pydantic",
+    "pydantic-settings",
+    "psycopg[binary]",
+]
+
+[dependency-groups]
+dev = ["ruff", "mypy", "pytest", "pytest-cov"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cad_worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["cad_worker", "tests"]
+
+# Ignores only for third-party libraries that ship no type information.
+[[tool.mypy.overrides]]
+module = ["ezdxf", "ezdxf.*", "shapely", "shapely.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

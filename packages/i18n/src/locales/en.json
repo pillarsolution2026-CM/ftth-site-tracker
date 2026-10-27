@@ -3,14 +3,20 @@
     "appName": "FTTH Site Tracker",
     "language": "Language",
     "logout": "Log out",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "restartToApplyDirection": "Restart the app to apply the new text direction"
   },
   "auth": {
     "title": "Sign in",
     "email": "Email",
     "password": "Password",
     "submit": "Sign in",
-    "welcome": "Welcome, {name}"
+    "welcome": "Welcome, {name}",
+    "emailInvalid": "Enter a valid email address",
+    "passwordTooShort": "Password must be at least 8 characters",
+    "noMemberships": "You are not assigned to any project yet",
+    "projects": "Your projects",
+    "signingIn": "Signing in…"
   },
   "roles": {
     "admin": "Administrator",
@@ -28,7 +34,9 @@
     "FORBIDDEN": "You are not allowed to do this",
     "NOT_FOUND": "Not found",
     "CONFLICT": "Data conflict",
-    "INTERNAL": "Something went wrong"
+    "RATE_LIMITED": "Too many attempts, try again in a minute",
+    "INTERNAL": "Something went wrong",
+    "NETWORK": "Cannot reach the server, check your connection"
   },
   "status": {
     "notStarted": "Not started",
@@ -36,5 +44,9 @@
     "executed": "Executed",
     "approved": "Approved",
     "rejected": "Rejected"
+  },
+  "home": {
+    "projects": "My projects",
+    "noProjects": "No projects are assigned to you yet"
   }
 }

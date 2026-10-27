@@ -1,0 +1,26 @@
+# Template rendered by bootstrap.sh into /srv/ftth/ftthtracker.caddy, which /etc/caddy/Caddyfile imports.
+# Snippet only, not a full Caddyfile. __WEB_PORT__ / __API_PORT__ come from /srv/ftth/.env.
+# Re-run bootstrap.sh after changing this file (it validates, reloads Caddy and rolls back on error).
+
+(ftth_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+}
+
+staging.ftthtracker.projectflow.site {
+	import ftth_headers
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:__WEB_PORT__
+}
+
+api.staging.ftthtracker.projectflow.site {
+	import ftth_headers
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:__API_PORT__
+}

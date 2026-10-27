@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new FTTH Site Tracker staging build every 2 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+RandomizedDelaySec=15s
+
+[Install]
+WantedBy=timers.target

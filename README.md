@@ -12,7 +12,21 @@ Web platform + mobile app for tracking FTTH rollout directly on CAD drawings, wi
 - `docs/ARCHITECTURE.md`: clean-architecture and code rules.
 - `docs/DECISIONS.md`: ADRs (cloud hosting, server-side CAD, stack, model routing).
 - `docs/PROGRESS.md`: phase tracking.
+- `docs/DEPLOY.md`: staging on Hetzner (`staging.ftthtracker.projectflow.site`).
 - `CLAUDE.md` and `.claude/agents/`: Claude Code rules and sub-agent definitions.
 - `docs/prototype/`: standalone HTML mockup (open `index.html`): supervisor app screens + web QC and BOQ-linked invoice screens (sample data).
 
-Status: planning / mockup stage. No application code yet.
+Status: Phase 0 (foundation) — see `docs/PROGRESS.md`.
+
+## Run locally
+```bash
+pnpm install
+pnpm build && pnpm test                 # all JS/TS packages
+pnpm --filter @ftth/api test:int        # API integration tests (needs Docker)
+cd workers/cad && uv sync && uv run pytest
+docker compose -f infra/docker-compose.yml up -d --build   # postgis, redis, minio, martin, api, web, worker
+# Dev seed is never run automatically; load it once (refuses NODE_ENV=production):
+docker compose -f infra/docker-compose.yml run --rm -e ALLOW_DEV_SEED=true api node dist/db/seed.js
+```
+All published ports bind to 127.0.0.1 (dev only).
+Dev users (seed): `admin@ftth.local` / `Admin#12345`, `pm@ftth.local` / `Pm#123456`, `supervisor@ftth.local` / `Super#12345`.
