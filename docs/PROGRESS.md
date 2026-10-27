@@ -5,7 +5,8 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | Phase | Status | Approved |
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
-| 0 Foundation | Done — awaiting approval | — |
+| 0 Foundation | Done — merged (PR #1, #2), awaiting approval | — |
+| Staging (Hetzner) | Ready — server bootstrap pending (owner runs one command) | — |
 | 1 Work orders + CAD import & mapping | Not started | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
@@ -38,8 +39,8 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - MinIO and Martin images use `latest` tags; pin them once a tag is verified (MinIO is local-dev only; production uses Hetzner Object Storage, ADR-009).
 - **Test report (local):**
   - `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm format:check`: pass.
-  - Unit: shared 7, i18n 4, ui-tokens 2, api 32, web 15, mobile 11 — all pass.
-  - API integration (real PostGIS via Testcontainers): 35 pass.
+  - Unit: shared 7, i18n 4, ui-tokens 2, api 43, web 15, mobile 11 — all pass (82).
+  - API integration (real PostGIS via Testcontainers): 42 pass (incl. rate limiting, create-admin).
   - Web e2e (Playwright, mock API): 4 pass.
   - CAD worker: ruff, mypy --strict, pytest 8 pass (coverage 50%: Redis adapter and entry point untested); Docker image builds and `--health` returns ok.
 - **Known issues:**
@@ -55,4 +56,14 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - Composite FK keeps assignment zones inside the same project (migration 0002).
   - `/docs` hidden in production; CORS without credentials; web login/logout reject cross-site and non-JSON requests (login CSRF).
   - Compose web service now gets `API_URL`.
-- **Acceptance criteria met:** login works on web (e2e) and mobile (component tests) against the API contract; CI green pending first run; `docker compose up` partially verified (see above).
+- **Acceptance criteria met:** login works on web (e2e) and mobile (component tests) against the API contract; CI green on every commit; `docker compose up` partially verified locally (see above); the full staging stack was verified on a simulated server.
+
+### Staging on Hetzner (before Phase 1) — ADR-010, `docs/DEPLOY.md`
+- **Done:**
+  - `publish-images.yml`: every push to `main` publishes api/web/cad-worker to GHCR (first run on merge `297c61b` succeeded; images pull anonymously).
+  - `infra/staging/bootstrap.sh` (one command from the Hetzner console), `autodeploy.sh` + systemd timer (pull every 2 min, rollback on failure), Caddy snippet imported into the host Caddy with validate + automatic rollback.
+  - API: `create-admin` CLI, login/refresh rate limiting (429 `RATE_LIMITED`), `/health` reports the deployed version.
+  - DNS: `staging.ftthtracker` and `api.staging.ftthtracker` → `49.13.167.124`.
+- **Verified:** simulated Ubuntu server with real Caddy and a second site: bootstrap end-to-end (healthy stack, login page 200, admin created), idempotent re-run, Caddy rollback byte-for-byte, autodeploy waits when images are missing, other site untouched.
+- **Not done:** bootstrap has not been run on the real server yet (needs the owner in the Hetzner web console; SSH from the build sandbox is blocked and no existing key has admin access).
+
