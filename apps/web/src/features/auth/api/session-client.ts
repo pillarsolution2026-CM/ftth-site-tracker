@@ -46,6 +46,10 @@ export async function fetchMe(): Promise<MeResponse> {
 }
 
 export async function logout(): Promise<void> {
-  const response = await request('/api/session/logout', { method: 'POST' });
+  const response = await request('/api/session/logout', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
   if (!response.ok) throw await toError(response);
 }
