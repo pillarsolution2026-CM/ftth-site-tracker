@@ -10,10 +10,21 @@ export const ApiEnvSchema = z
     PORT: z.coerce.number().int().positive().default(3001),
     DATABASE_URL: z.url(),
     REDIS_URL: z.url(),
-    S3_ENDPOINT: z.url(),
-    S3_BUCKET: z.string().min(1),
-    S3_ACCESS_KEY: z.string().min(1),
-    S3_SECRET_KEY: z.string().min(1),
+    /** Object storage adapter (ADR-012). `fs` = directory shared with the CAD worker. */
+    STORAGE_DRIVER: z.enum(['fs', 's3']).default('fs'),
+    /** Absolute root directory for STORAGE_DRIVER=fs (a volume mounted in api and cad-worker). */
+    STORAGE_FS_ROOT: z
+      .string()
+      .regex(/^\//, 'STORAGE_FS_ROOT must be an absolute path')
+      .default('/var/lib/ftth/storage'),
+    /** Max size of any single upload (CAD, PDF, xlsx), in MiB. */
+    MAX_UPLOAD_MB: z.coerce.number().int().positive().max(1024).default(100),
+    // S3 settings are required only when STORAGE_DRIVER=s3 (checked below).
+    S3_ENDPOINT: z.url().optional(),
+    S3_BUCKET: z.string().min(1).optional(),
+    S3_ACCESS_KEY: z.string().min(1).optional(),
+    S3_SECRET_KEY: z.string().min(1).optional(),
+    S3_REGION: z.string().min(1).default('us-east-1'),
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
@@ -27,6 +38,13 @@ export const ApiEnvSchema = z
       .transform((value) => value.split(',').map((origin) => origin.trim())),
   })
   .superRefine((env, ctx) => {
+    if (env.STORAGE_DRIVER === 's3') {
+      for (const key of ['S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY', 'S3_SECRET_KEY'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({ code: 'custom', path: [key], message: `${key} is required for s3` });
+        }
+      }
+    }
     if (env.NODE_ENV !== 'production') return;
     if (
       env.JWT_ACCESS_SECRET.includes('change-me') ||
