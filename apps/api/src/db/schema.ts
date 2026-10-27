@@ -4,12 +4,14 @@ import {
   boolean,
   char,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -62,34 +64,49 @@ export const projects = pgTable('projects', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const zones = pgTable('zones', {
-  id: uuid('id')
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  projectId: uuid('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  parentId: uuid('parent_id'),
-  name: text('name').notNull(),
-  geom: multiPolygon('geom'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const zones = pgTable(
+  'zones',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    parentId: uuid('parent_id'),
+    name: text('name').notNull(),
+    geom: multiPolygon('geom'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('zones_project_id_id_key').on(table.projectId, table.id)],
+);
 
-export const assignments = pgTable('assignments', {
-  id: uuid('id')
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  projectId: uuid('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  role: text('role').notNull(),
-  zoneId: uuid('zone_id').references(() => zones.id, { onDelete: 'cascade' }),
-  contractorId: uuid('contractor_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const assignments = pgTable(
+  'assignments',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    zoneId: uuid('zone_id'),
+    contractorId: uuid('contractor_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // A zone must belong to the same project as the assignment (migration 0002).
+    foreignKey({
+      name: 'assignments_project_zone_fkey',
+      columns: [table.projectId, table.zoneId],
+      foreignColumns: [zones.projectId, zones.id],
+    }).onDelete('cascade'),
+  ],
+);
 
 export const events = pgTable('events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),

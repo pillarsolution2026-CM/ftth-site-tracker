@@ -96,6 +96,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     console.error('Refusing to seed with NODE_ENV=production');
     process.exit(1);
   }
+  if (process.env.ALLOW_DEV_SEED !== 'true') {
+    console.error('Refusing to seed: set ALLOW_DEV_SEED=true to confirm this is a dev database');
+    process.exit(1);
+  }
   const pool = new pg.Pool({ connectionString: url });
   seed(drizzle(pool, { schema }))
     .then(() => console.log('Seed complete'))

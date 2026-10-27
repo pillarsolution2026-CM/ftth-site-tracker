@@ -35,7 +35,7 @@ describe('ProjectScopeGuard', () => {
     expect(request.projectAccess).toEqual({
       projectId: PROJECT_A,
       roles: ['supervisor'],
-      zoneIds: [ZONE_1, ZONE_2],
+      scope: { kind: 'zones', zoneIds: [ZONE_1, ZONE_2] },
     });
   });
 
@@ -46,7 +46,28 @@ describe('ProjectScopeGuard', () => {
     const request = requestFor(PROJECT_A);
 
     await guard.canActivate(contextFor(request));
-    expect(request.projectAccess?.zoneIds).toEqual([]);
+    expect(request.projectAccess?.scope).toEqual({ kind: 'project' });
+  });
+
+  it('fails closed: a zoneless supervisor or contractor is FORBIDDEN, not project-wide', async () => {
+    for (const role of ['supervisor', 'contractor'] as const) {
+      const guard = guardWith([
+        { userId: USER, projectId: PROJECT_A, projectName: 'A', role, zoneId: null },
+      ]);
+      await expect(guard.canActivate(contextFor(requestFor(PROJECT_A)))).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+    }
+  });
+
+  it('ignores a zoneless supervisor row when another zoned row exists', async () => {
+    const guard = guardWith([
+      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', zoneId: null },
+      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', zoneId: ZONE_1 },
+    ]);
+    const request = requestFor(PROJECT_A);
+    await guard.canActivate(contextFor(request));
+    expect(request.projectAccess?.scope).toEqual({ kind: 'zones', zoneIds: [ZONE_1] });
   });
 
   it('rejects a non-member with FORBIDDEN', async () => {

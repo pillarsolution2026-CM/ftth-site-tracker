@@ -24,7 +24,7 @@ const proto = Handlers.prototype;
 const access = (roles: Array<'pm' | 'supervisor'>) => ({
   projectId: 'p',
   roles,
-  zoneIds: [],
+  scope: { kind: 'project' as const },
 });
 
 describe('RolesGuard', () => {

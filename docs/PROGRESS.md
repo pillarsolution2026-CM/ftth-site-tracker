@@ -38,13 +38,21 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - MinIO and Martin images use `latest` tags; pin them once a tag is verified (MinIO is local-dev only; production uses Hetzner Object Storage, ADR-009).
 - **Test report (local):**
   - `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm format:check`: pass.
-  - Unit: shared 3, i18n 4, ui-tokens 2, api 27, web 10, mobile 11 — all pass.
-  - API integration (real PostGIS via Testcontainers): 33 pass.
+  - Unit: shared 7, i18n 4, ui-tokens 2, api 32, web 15, mobile 11 — all pass.
+  - API integration (real PostGIS via Testcontainers): 35 pass.
   - Web e2e (Playwright, mock API): 4 pass.
   - CAD worker: ruff, mypy --strict, pytest 8 pass (coverage 50%: Redis adapter and entry point untested); Docker image builds and `--health` returns ok.
 - **Known issues:**
   - i18n has overlapping keys from web and mobile (`home.projects` vs `auth.projects`); unify in Phase 1.
   - `ProjectResponseSchema` lives in the API; move to `packages/shared` when the web needs it.
   - Next 16 warns that `middleware.ts` is deprecated in favour of `proxy.ts`.
-  - Login rate limiting not implemented yet.
+  - Login rate limiting, security headers, `__Host-` cookies, least-privilege DB role, JWT iss/aud: deferred to before the first non-local deploy.
+  - Deactivated/demoted admins keep their access token up to 15 min (accepted in ADR-007).
+- **Security review (Opus) — fixed in this phase:**
+  - Production rejects the dev JWT secret; dev seed no longer runs on container start and needs `ALLOW_DEV_SEED=true`.
+  - Data services bound to 127.0.0.1, Redis password; Martin dev-only until tiles are gated (Phase 1 task added).
+  - Zone scope fails closed (zoneless supervisor/contractor → 403); refresh-token 30 s grace window (no family revoke on benign races).
+  - Composite FK keeps assignment zones inside the same project (migration 0002).
+  - `/docs` hidden in production; CORS without credentials; web login/logout reject cross-site and non-JSON requests (login CSRF).
+  - Compose web service now gets `API_URL`.
 - **Acceptance criteria met:** login works on web (e2e) and mobile (component tests) against the API contract; CI green pending first run; `docker compose up` partially verified (see above).

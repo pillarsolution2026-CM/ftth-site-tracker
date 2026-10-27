@@ -97,6 +97,29 @@ describe('schema', () => {
     ).rejects.toThrow(/assignments_unique/);
   });
 
+  it('rejects an assignment whose zone belongs to another project', async () => {
+    const { rows: users } = await pool.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'pm@ftth.local'",
+    );
+    const { rows: projects } = await pool.query<{ id: string }>(
+      "INSERT INTO projects (name, client, crs_epsg, currency) VALUES ('fk-a', 'WE', 32636, 'EGP'), ('fk-b', 'WE', 32636, 'EGP') RETURNING id",
+    );
+    const { rows: zone } = await pool.query<{ id: string }>(
+      "INSERT INTO zones (project_id, name) VALUES ($1, 'z') RETURNING id",
+      [projects[0]?.id],
+    );
+    await expect(
+      pool.query(
+        "INSERT INTO assignments (user_id, project_id, role, zone_id) VALUES ($1, $2, 'supervisor', $3)",
+        [users[0]?.id, projects[1]?.id, zone[0]?.id],
+      ),
+    ).rejects.toThrow(/assignments_project_zone_fkey/);
+    await pool.query(
+      "INSERT INTO assignments (user_id, project_id, role, zone_id) VALUES ($1, $2, 'supervisor', $3)",
+      [users[0]?.id, projects[0]?.id, zone[0]?.id],
+    );
+  });
+
   it('keeps emails lower-case and unique', async () => {
     await expect(
       pool.query(

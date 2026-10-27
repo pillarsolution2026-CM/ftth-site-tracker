@@ -22,6 +22,14 @@ async function login(email: string, password: string): Promise<TokenPair> {
 const refresh = (refreshToken: string) =>
   request(ctx.app.getHttpServer()).post('/auth/refresh').send({ refreshToken });
 
+async function backdateRotation(refreshToken: string, seconds: number): Promise<void> {
+  const hash = createHash('sha256').update(refreshToken).digest('hex');
+  await ctx.pool.query(
+    `UPDATE refresh_tokens SET rotated_at = rotated_at - make_interval(secs => $2) WHERE token_hash = $1`,
+    [hash, seconds],
+  );
+}
+
 describe('POST /auth/login', () => {
   it('logs in the seeded admin and returns a token pair', async () => {
     const pair = await login('admin@ftth.local', 'Admin#12345');
@@ -87,9 +95,21 @@ describe('POST /auth/refresh and /auth/logout', () => {
     expect((await refresh(second.refreshToken)).status).toBe(200);
   });
 
+  it('re-presenting a just-rotated token (inside the grace window) is 401 TOKEN_INVALID and keeps the family', async () => {
+    const first = await login('pm@ftth.local', 'Pm#123456');
+    const second = TokenPairSchema.parse((await refresh(first.refreshToken)).body);
+
+    const retry = await refresh(first.refreshToken);
+    expect(retry.status).toBe(401);
+    expect(retry.body.code).toBe('TOKEN_INVALID');
+
+    expect((await refresh(second.refreshToken)).status).toBe(200);
+  });
+
   it('reusing a rotated token returns 401 REFRESH_TOKEN_REUSED and revokes the whole family', async () => {
     const first = await login('pm@ftth.local', 'Pm#123456');
     const second = TokenPairSchema.parse((await refresh(first.refreshToken)).body);
+    await backdateRotation(first.refreshToken, 60);
 
     const reuse = await refresh(first.refreshToken);
     expect(reuse.status).toBe(401);

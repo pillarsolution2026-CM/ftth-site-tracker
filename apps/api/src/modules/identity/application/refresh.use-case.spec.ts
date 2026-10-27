@@ -11,7 +11,7 @@ import {
 } from '../testing/in-memory.js';
 import { LoginUseCase } from './login.use-case.js';
 import { LogoutUseCase } from './logout.use-case.js';
-import { RefreshUseCase } from './refresh.use-case.js';
+import { REFRESH_REUSE_GRACE_MS, RefreshUseCase } from './refresh.use-case.js';
 import { SessionIssuer } from './session-issuer.js';
 
 function setup() {
@@ -51,9 +51,10 @@ describe('RefreshUseCase', () => {
   });
 
   it('detects reuse of a rotated token: REFRESH_TOKEN_REUSED and the whole family is revoked', async () => {
-    const { login, refresh, refreshTokens } = setup();
+    const { login, refresh, refreshTokens, clock } = setup();
     const first = await login.execute(credentials);
     const second = await refresh.execute({ refreshToken: first.refreshToken });
+    clock.advanceSeconds(REFRESH_REUSE_GRACE_MS / 1000 + 1);
 
     await expect(refresh.execute({ refreshToken: first.refreshToken })).rejects.toMatchObject({
       code: 'REFRESH_TOKEN_REUSED',
@@ -64,6 +65,21 @@ describe('RefreshUseCase', () => {
     await expect(refresh.execute({ refreshToken: second.refreshToken })).rejects.toMatchObject({
       code: 'TOKEN_INVALID',
     });
+  });
+
+  it('inside the grace window a re-presented rotated token is TOKEN_INVALID and nothing is revoked', async () => {
+    const { login, refresh, refreshTokens, clock } = setup();
+    const first = await login.execute(credentials);
+    const second = await refresh.execute({ refreshToken: first.refreshToken });
+    clock.advanceSeconds(REFRESH_REUSE_GRACE_MS / 1000 - 1);
+
+    await expect(refresh.execute({ refreshToken: first.refreshToken })).rejects.toMatchObject({
+      code: 'TOKEN_INVALID',
+    });
+
+    expect(refreshTokens.rows.every((row) => row.revokedAt === null)).toBe(true);
+    // the legitimate newest token still works
+    await expect(refresh.execute({ refreshToken: second.refreshToken })).resolves.toBeDefined();
   });
 
   it('rejects an unknown token with TOKEN_INVALID', async () => {
@@ -94,7 +110,7 @@ describe('RefreshUseCase', () => {
     expect(refreshTokens.rows.every((row) => row.revokedAt !== null)).toBe(true);
   });
 
-  it('treats a lost rotation race as reuse', async () => {
+  it('treats a lost rotation race as a benign retry: TOKEN_INVALID, family kept', async () => {
     const { login, refresh, refreshTokens } = setup();
     const first = await login.execute(credentials);
     // Simulate a concurrent request that claims the token between our read and our rotate.
@@ -106,9 +122,9 @@ describe('RefreshUseCase', () => {
     };
 
     await expect(refresh.execute({ refreshToken: first.refreshToken })).rejects.toMatchObject({
-      code: 'REFRESH_TOKEN_REUSED',
+      code: 'TOKEN_INVALID',
     });
-    expect(refreshTokens.rows.every((row) => row.revokedAt !== null)).toBe(true);
+    expect(refreshTokens.rows.every((row) => row.revokedAt === null)).toBe(true);
   });
 });
 

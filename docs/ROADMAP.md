@@ -90,6 +90,7 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - [‖] تحويل SHX العربي (xarb.shx) — cad-engineer (Sonnet)
 - [‖] شاشة Mapping + قائمة مراجعة النصوص — web-dev (Sonnet)
 - features + design_revisions مقفولة + tiles (PMTiles) — cad-engineer (Sonnet)
+- Tiles security: Martin serves only project-scoped function sources via a read-only DB role, behind Caddy forward_auth / signed tile URLs checked by the API; never auto-publish tables — architect (Opus) + security-reviewer (Opus)
 - Revision matching وتقرير فروقات — cad-engineer (Opus)
 - Golden-file tests على ملف قليوب — test-writer (Sonnet)
 - **قبول:** قليوب ← ~25 مسار (~3,700 م)، 17 صندوق، 6 HHI، 4 Joint، UTM 36N في < دقيقة.

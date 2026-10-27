@@ -13,9 +13,17 @@ export interface MembershipRepository {
   listForUserInProject(userId: string, projectId: string): Promise<AssignmentRow[]>;
 }
 
-/** What a user may do inside one project. `zoneIds` is empty for project-wide access. */
+/** Which part of a project a user may touch. Zone scope is explicit so it can never default to wide. */
+export type AccessScope = { kind: 'project' } | { kind: 'zones'; zoneIds: string[] };
+
+/** What a user may do inside one project. */
 export interface ProjectAccess {
   projectId: string;
   roles: Role[];
-  zoneIds: string[];
+  scope: AccessScope;
+}
+
+/** A row grants access only if its role is project-wide or it names a zone (fail closed). */
+export function grantsAccess(row: AssignmentRow, projectWideRoles: readonly Role[]): boolean {
+  return projectWideRoles.includes(row.role) || row.zoneId !== null;
 }
