@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -11,22 +14,29 @@ import { seed } from '../../src/db/seed.js';
 export interface TestContext {
   app: INestApplication;
   pool: pg.Pool;
+  /** Directory behind the `fs` storage adapter of this app instance. */
+  storageRoot: string;
   close(): Promise<void>;
+}
+
+export interface ProviderOverride {
+  token: string;
+  value: unknown;
 }
 
 /** Boots the real application against the given PostGIS database and applies the dev seed. */
 export async function createTestContext(
   databaseUrl: string,
   overrides: NodeJS.ProcessEnv = {},
+  providerOverrides: ProviderOverride[] = [],
 ): Promise<TestContext> {
+  const storageRoot = await mkdtemp(join(tmpdir(), 'ftth-int-storage-'));
   const env = loadEnv({
     NODE_ENV: 'test',
     DATABASE_URL: databaseUrl,
     REDIS_URL: 'redis://localhost:6379',
-    S3_ENDPOINT: 'http://localhost:9000',
-    S3_BUCKET: 'ftth',
-    S3_ACCESS_KEY: 'test',
-    S3_SECRET_KEY: 'test-secret',
+    STORAGE_DRIVER: 'fs',
+    STORAGE_FS_ROOT: storageRoot,
     JWT_ACCESS_SECRET: 'integration-test-secret-integration-test-secret',
     CORS_ORIGINS: 'http://localhost:3000',
     // Generous by default so suites that log in repeatedly never trip the limiter.
@@ -38,10 +48,13 @@ export async function createTestContext(
   const pool = new pg.Pool({ connectionString: databaseUrl });
   await seed(drizzle(pool, { schema }));
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(APP_ENV)
-    .useValue(env)
-    .compile();
+    .useValue(env);
+  for (const { token, value } of providerOverrides) {
+    builder = builder.overrideProvider(token).useValue(value);
+  }
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   configureApp(app, env);
   await app.init();
@@ -49,9 +62,11 @@ export async function createTestContext(
   return {
     app,
     pool,
+    storageRoot,
     close: async () => {
       await app.close();
       await pool.end();
+      await rm(storageRoot, { recursive: true, force: true });
     },
   };
 }

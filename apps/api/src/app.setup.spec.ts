@@ -26,14 +26,15 @@ import { configureApp } from './app.setup.js';
 function run(nodeEnv: ApiEnv['NODE_ENV']) {
   const enableCors = vi.fn();
   const set = vi.fn();
+  const useBodyParser = vi.fn();
   configureApp(
-    { enableCors, set } as unknown as INestApplication,
+    { enableCors, set, useBodyParser } as unknown as INestApplication,
     {
       NODE_ENV: nodeEnv,
       CORS_ORIGINS: ['http://localhost:3000'],
     } as ApiEnv,
   );
-  return Object.assign(enableCors, { set });
+  return Object.assign(enableCors, { set, useBodyParser });
 }
 
 describe('configureApp', () => {
@@ -45,6 +46,10 @@ describe('configureApp', () => {
 
   it('trusts only the loopback proxy for client IPs', () => {
     expect(run('production').set).toHaveBeenCalledWith('trust proxy', 'loopback');
+  });
+
+  it('raises the JSON body limit to 5 MB', () => {
+    expect(run('production').useBodyParser).toHaveBeenCalledWith('json', { limit: '5mb' });
   });
 
   it('serves /docs outside production only', () => {
