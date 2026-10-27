@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isSameOriginJsonRequest, isTrustedSessionRequest } from './csrf-guard';
+import {
+  isSameOriginJsonRequest,
+  isSameOriginRequest,
+  isTrustedProxyMutation,
+  isTrustedSessionRequest,
+} from './csrf-guard';
 
 const base = {
   contentType: 'application/json',
@@ -59,5 +64,40 @@ describe('isTrustedSessionRequest', () => {
       body: '{}',
     });
     expect(isTrustedSessionRequest(evil)).toBe(false);
+  });
+});
+
+describe('proxy mutations accept multipart as well as JSON, same origin only', () => {
+  const multipart = { ...base, contentType: 'multipart/form-data; boundary=x' };
+
+  it('accepts same-origin multipart for the proxy guard only', () => {
+    expect(isSameOriginRequest(multipart, ['application/json', 'multipart/form-data'])).toBe(true);
+    expect(isSameOriginJsonRequest(multipart)).toBe(false);
+  });
+
+  it('rejects cross-site multipart', () => {
+    expect(
+      isSameOriginRequest({ ...multipart, origin: 'https://evil.example' }, [
+        'multipart/form-data',
+      ]),
+    ).toBe(false);
+  });
+
+  it('works on a Request', () => {
+    const request = (headers: Record<string, string>) =>
+      new Request('http://localhost:3000/api/projects/x', { method: 'POST', headers });
+    expect(
+      isTrustedProxyMutation(
+        request({
+          'content-type': 'multipart/form-data; boundary=x',
+          origin: 'http://localhost:3000',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedProxyMutation(
+        request({ 'content-type': 'text/plain', origin: 'http://localhost:3000' }),
+      ),
+    ).toBe(false);
   });
 });
