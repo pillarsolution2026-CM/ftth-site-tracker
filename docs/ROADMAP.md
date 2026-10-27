@@ -3,7 +3,7 @@
 المرجع التفصيلي للـworkflow ونموذج البيانات ومعايير القبول: `خطة بناء منصة متابعة تنفيذ FTTH على الكاد – لـClaude Code.md`.
 قواعد الكود والمعمارية: `docs/ARCHITECTURE.md`. القرارات: `docs/DECISIONS.md`. المتابعة: `docs/PROGRESS.md`.
 
-**قرارات محسومة:** تخزين وتشغيل سحابي، معالجة AutoCAD على السيرفر فقط (Python worker)، الـStack كما في خطة البناء.
+**قرارات محسومة:** تخزين وتشغيل سحابي على Hetzner بدومين `ftthtracker.projectflow.site`، معالجة AutoCAD على السيرفر فقط (Python worker)، الـStack كما في خطة البناء.
 
 ## 1. نظام الـAgents وتوجيه الموديلات
 
@@ -136,10 +136,20 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - Accessibility + RTL — ui-polisher (Sonnet)
 - تلخيص التقارير في PROGRESS — chore (Haiku)
 
-### المرحلة 7: الإطلاق على السحابة
-- IaC للبيئات dev/staging/prod (Postgres مُدار + PITR، S3 lifecycle) — backend-dev (Sonnet) + مراجعة architect (Opus)
-- EAS Build + توزيع داخلي + OTA — mobile-dev (Sonnet)
-- مراقبة (Sentry، OpenTelemetry، تنبيه تأخر المزامنة) — chore (Haiku)
+### المرحلة 7: الإطلاق على Hetzner
+الاستضافة على **Hetzner Cloud** والدومين **`ftthtracker.projectflow.site`** (تفاصيل القرار في ADR-009).
+- تجهيز السيرفرات: Hetzner Cloud VPS لـproduction (مثلًا CCX23) وVPS أصغر لـstaging (CPX21)، Firewall (22 من IPs محددة، 80/443 بس)، SSH keys، تحديثات أمنية تلقائية — backend-dev (Sonnet) + مراجعة security-reviewer (Opus)
+- Docker Compose للإنتاج + **Caddy** reverse proxy بشهادات Let's Encrypt تلقائية — backend-dev (Sonnet)
+- الدومينات (A records عند مسجّل `projectflow.site` على IP السيرفر):
+  - `ftthtracker.projectflow.site` → الويب
+  - `api.ftthtracker.projectflow.site` → الـAPI (والموبايل بيكلمه)
+  - `tiles.ftthtracker.projectflow.site` → Martin/PMTiles
+  - `staging.ftthtracker.projectflow.site` → بيئة الاختبار
+- قاعدة البيانات: PostgreSQL/PostGIS في container على Hetzner Volume، مع نسخ احتياطي يومي + WAL archiving (WAL-G/pgBackRest) إلى Hetzner Object Storage لـpoint-in-time recovery، واختبار استرجاع شهري — backend-dev (Sonnet) + مراجعة architect (Opus)
+- الملفات والصور: Hetzner Object Storage (S3-compatible) بدل MinIO، مع lifecycle وتشفير — backend-dev (Sonnet)
+- CD: GitHub Actions يبني الـimages ويرفعها على GHCR، وdeploy على staging تلقائي وعلى production بموافقة يدوية — chore (Haiku) + مراجعة architect (Opus)
+- EAS Build + توزيع داخلي + OTA، والموبايل مربوط بـ`api.ftthtracker.projectflow.site` — mobile-dev (Sonnet)
+- مراقبة (Sentry، OpenTelemetry، uptime check على الدومين، تنبيه تأخر المزامنة) — chore (Haiku)
 - أدلة تدريب بالعربي — i18n/chore (Haiku)
 - Pilot قليوب أسبوعين ← تعميم.
 
