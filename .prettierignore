@@ -1,0 +1,7 @@
+docs/
+*.md
+pnpm-lock.yaml
+**/dist
+**/.next
+**/.expo
+workers/
