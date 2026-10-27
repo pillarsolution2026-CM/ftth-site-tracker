@@ -3,6 +3,7 @@ import type { ApiEnv } from '@ftth/shared';
 import { EVENT_LOG, type EventLog } from '../../common/event-log.port.js';
 import { APP_ENV } from '../../config/config.module.js';
 import { DB, type Database } from '../../db/db.module.js';
+import { FixedWindowRateLimiter } from './application/fixed-window-rate-limiter.js';
 import { GetMeUseCase } from './application/get-me.use-case.js';
 import { LoginUseCase } from './application/login.use-case.js';
 import { LogoutUseCase } from './application/logout.use-case.js';
@@ -15,6 +16,8 @@ import type { RefreshTokenRepository } from './domain/refresh-token.js';
 import type { UserRepository } from './domain/user.js';
 import {
   ACCESS_TOKENS,
+  AUTH_RATE_LIMITER,
+  AUTH_RATE_LIMITS,
   GET_ME_USE_CASE,
   LOGIN_USE_CASE,
   LOGOUT_USE_CASE,
@@ -30,6 +33,7 @@ import { DrizzleMembershipRepository } from './infrastructure/drizzle-membership
 import { DrizzleRefreshTokenRepository } from './infrastructure/drizzle-refresh-token.repository.js';
 import { DrizzleUserRepository } from './infrastructure/drizzle-user.repository.js';
 import { JwtAccessTokenService } from './infrastructure/jwt-access-token.service.js';
+import { AuthRateLimitGuard, type AuthRateLimits } from './interface/auth-rate-limit.guard.js';
 import { AuthController } from './interface/auth.controller.js';
 import { JwtAuthGuard } from './interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from './interface/project-scope.guard.js';
@@ -44,6 +48,21 @@ const refreshFactory = new CryptoRefreshTokenFactory();
     JwtAuthGuard,
     ProjectScopeGuard,
     RolesGuard,
+    AuthRateLimitGuard,
+    {
+      provide: AUTH_RATE_LIMITER,
+      inject: [APP_ENV],
+      useFactory: (env: ApiEnv) =>
+        new FixedWindowRateLimiter(systemClock, env.AUTH_RATE_LIMIT_WINDOW_SECONDS * 1000),
+    },
+    {
+      provide: AUTH_RATE_LIMITS,
+      inject: [APP_ENV],
+      useFactory: (env: ApiEnv): AuthRateLimits => ({
+        login: env.AUTH_LOGIN_RATE_LIMIT,
+        refresh: env.AUTH_REFRESH_RATE_LIMIT,
+      }),
+    },
     {
       provide: ACCESS_TOKENS,
       inject: [APP_ENV],

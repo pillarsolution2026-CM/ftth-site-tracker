@@ -23,6 +23,7 @@ import {
   REFRESH_USE_CASE,
 } from '../identity.tokens.js';
 import type { AuthenticatedRequest } from './auth-request.js';
+import { AuthRateLimit, AuthRateLimitGuard } from './auth-rate-limit.guard.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 
 @ApiTags('auth')
@@ -36,10 +37,13 @@ export class AuthController {
   ) {}
 
   @Post('login')
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit('login')
   @HttpCode(200)
   @ApiBody({ schema: openApiSchema(LoginRequestSchema) })
   @ApiOkResponse({ schema: openApiSchema(TokenPairSchema) })
   @ApiResponse({ status: 401, description: 'INVALID_CREDENTIALS' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMITED (Retry-After header)' })
   loginUser(
     @Body(new ZodValidationPipe(LoginRequestSchema)) body: LoginRequest,
   ): Promise<TokenPair> {
@@ -47,10 +51,13 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit('refresh')
   @HttpCode(200)
   @ApiBody({ schema: openApiSchema(RefreshRequestSchema) })
   @ApiOkResponse({ schema: openApiSchema(TokenPairSchema) })
   @ApiResponse({ status: 401, description: 'TOKEN_INVALID | TOKEN_EXPIRED | REFRESH_TOKEN_REUSED' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMITED (Retry-After header)' })
   refreshTokens(
     @Body(new ZodValidationPipe(RefreshRequestSchema)) body: RefreshRequest,
   ): Promise<TokenPair> {

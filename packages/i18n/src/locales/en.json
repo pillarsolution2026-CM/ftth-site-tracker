@@ -34,6 +34,7 @@
     "FORBIDDEN": "You are not allowed to do this",
     "NOT_FOUND": "Not found",
     "CONFLICT": "Data conflict",
+    "RATE_LIMITED": "Too many attempts, try again in a minute",
     "INTERNAL": "Something went wrong",
     "NETWORK": "Cannot reach the server, check your connection"
   },

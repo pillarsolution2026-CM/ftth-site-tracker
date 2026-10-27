@@ -1,6 +1,6 @@
-# Imported from /etc/caddy/Caddyfile on the shared server (see docs/DEPLOY.md).
-# Snippet only, not a full Caddyfile. Ports must match WEB_PORT / API_PORT in /srv/ftth/.env.
-# Changes here apply after: sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# Template rendered by bootstrap.sh into /srv/ftth/ftthtracker.caddy, which /etc/caddy/Caddyfile imports.
+# Snippet only, not a full Caddyfile. __WEB_PORT__ / __API_PORT__ come from /srv/ftth/.env.
+# Re-run bootstrap.sh after changing this file (it validates, reloads Caddy and rolls back on error).
 
 (ftth_headers) {
 	header {
@@ -16,11 +16,11 @@
 staging.ftthtracker.projectflow.site {
 	import ftth_headers
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:3310
+	reverse_proxy 127.0.0.1:__WEB_PORT__
 }
 
 api.staging.ftthtracker.projectflow.site {
 	import ftth_headers
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:3311
+	reverse_proxy 127.0.0.1:__API_PORT__
 }

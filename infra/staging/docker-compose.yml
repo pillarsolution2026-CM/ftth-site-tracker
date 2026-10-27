@@ -1,7 +1,7 @@
 # Staging stack on the shared Hetzner server (ADR-010), next to other apps.
 # TLS and routing are done by the host's Caddy (ftthtracker.caddy is imported into /etc/caddy/Caddyfile);
 # this stack only publishes web and api on 127.0.0.1. Data services stay on the internal network.
-# Run by /usr/local/bin/ftth-deploy with --env-file /srv/ftth/.env (see .env.example); no secret defaults.
+# Run by /usr/local/bin/ftth-autodeploy with --env-file /srv/ftth/.env (written by bootstrap.sh); no secret defaults.
 name: ftth-staging
 
 x-db-url: &db-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgis:5432/${POSTGRES_DB:?}
@@ -52,6 +52,7 @@ services:
       <<: *s3-env
       NODE_ENV: production
       PORT: 3001
+      APP_VERSION: ${IMAGE_TAG:?}
       DATABASE_URL: *db-url
       REDIS_URL: *redis-url
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}

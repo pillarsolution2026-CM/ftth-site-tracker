@@ -46,7 +46,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - i18n has overlapping keys from web and mobile (`home.projects` vs `auth.projects`); unify in Phase 1.
   - `ProjectResponseSchema` lives in the API; move to `packages/shared` when the web needs it.
   - Next 16 warns that `middleware.ts` is deprecated in favour of `proxy.ts`.
-  - Login rate limiting, security headers, `__Host-` cookies, least-privilege DB role, JWT iss/aud: deferred to before the first non-local deploy.
+  - Login/refresh rate limiting done (in-memory, single instance). Security headers are set by Caddy on staging. `__Host-` cookies, least-privilege DB role, JWT iss/aud: deferred to Phase 7.
   - Deactivated/demoted admins keep their access token up to 15 min (accepted in ADR-007).
 - **Security review (Opus) — fixed in this phase:**
   - Production rejects the dev JWT secret; dev seed no longer runs on container start and needs `ALLOW_DEV_SEED=true`.

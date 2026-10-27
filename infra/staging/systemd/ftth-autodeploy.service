@@ -1,0 +1,18 @@
+[Unit]
+Description=FTTH Site Tracker staging auto-deploy (pull from GitHub/GHCR)
+Documentation=https://github.com/pillarsolution2026-CM/ftth-site-tracker/blob/main/docs/DEPLOY.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ftth-deploy
+Group=ftth-deploy
+ExecStart=/usr/local/bin/ftth-autodeploy
+TimeoutStartSec=15min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/srv/ftth

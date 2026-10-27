@@ -25,14 +25,15 @@ import { configureApp } from './app.setup.js';
 
 function run(nodeEnv: ApiEnv['NODE_ENV']) {
   const enableCors = vi.fn();
+  const set = vi.fn();
   configureApp(
-    { enableCors } as unknown as INestApplication,
+    { enableCors, set } as unknown as INestApplication,
     {
       NODE_ENV: nodeEnv,
       CORS_ORIGINS: ['http://localhost:3000'],
     } as ApiEnv,
   );
-  return enableCors;
+  return Object.assign(enableCors, { set });
 }
 
 describe('configureApp', () => {
@@ -40,6 +41,10 @@ describe('configureApp', () => {
     expect(run('development')).toHaveBeenCalledWith(
       expect.objectContaining({ credentials: false }),
     );
+  });
+
+  it('trusts only the loopback proxy for client IPs', () => {
+    expect(run('production').set).toHaveBeenCalledWith('trust proxy', 'loopback');
   });
 
   it('serves /docs outside production only', () => {

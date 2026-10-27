@@ -17,6 +17,10 @@ export const ApiEnvSchema = z
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+    APP_VERSION: z.string().min(1).default('dev'),
+    AUTH_LOGIN_RATE_LIMIT: z.coerce.number().int().positive().default(5),
+    AUTH_REFRESH_RATE_LIMIT: z.coerce.number().int().positive().default(30),
+    AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')

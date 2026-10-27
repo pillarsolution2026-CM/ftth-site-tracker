@@ -34,6 +34,7 @@
     "FORBIDDEN": "Action non autorisée",
     "NOT_FOUND": "Introuvable",
     "CONFLICT": "Conflit de données",
+    "RATE_LIMITED": "Trop de tentatives, réessayez dans une minute",
     "INTERNAL": "Une erreur est survenue",
     "NETWORK": "Serveur injoignable, vérifiez votre connexion"
   },

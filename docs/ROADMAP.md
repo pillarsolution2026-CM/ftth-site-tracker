@@ -83,7 +83,7 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - **قبول:** `docker compose up` شغال، CI أخضر، login ويب + موبايل.
 
 ### بيئة Staging (قبل المرحلة 1)
-- [x] `infra/staging` على سيرفر Hetzner المشترك (`49.13.167.124`) خلف الـCaddy الموجود: PostGIS + Redis + api + web + worker + backup، و`deploy-staging.yml` (GHCR + forced-command SSH)، و`create-admin`، ودليل `docs/DEPLOY.md` — ADR-010. الـDNS اتعمل؛ تجهيز السيرفر مرة واحدة من صاحب الحساب.
+- [x] Staging على سيرفر Hetzner المشترك (`49.13.167.124`) خلف الـCaddy الموجود: `bootstrap.sh` (أمر واحد من Hetzner Console) + `ftth-autodeploy` (pull كل دقيقتين، rollback تلقائي) + `publish-images.yml` (GHCR)، و`create-admin`، وrate limiting للدخول — ADR-010 و`docs/DEPLOY.md`.
 
 ### المرحلة 1: أوامر التكليف + استيراد الكاد والـMapping
 - Domain للمشروع / أوامر التكليف (أكتر من أمر للمشروع، كل أمر ببنوده) — architect (Opus) ثم backend-dev (Sonnet)

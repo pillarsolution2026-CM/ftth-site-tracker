@@ -83,7 +83,7 @@ describe('platform endpoints', () => {
   it('GET /health reports the database', async () => {
     const res = await request(ctx.app.getHttpServer()).get('/health');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok', db: 'ok' });
+    expect(res.body).toEqual({ status: 'ok', db: 'ok', version: 'dev' });
   });
 
   it('serves the OpenAPI document with the auth routes', async () => {

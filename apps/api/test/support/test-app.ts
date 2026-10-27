@@ -15,7 +15,10 @@ export interface TestContext {
 }
 
 /** Boots the real application against the given PostGIS database and applies the dev seed. */
-export async function createTestContext(databaseUrl: string): Promise<TestContext> {
+export async function createTestContext(
+  databaseUrl: string,
+  overrides: NodeJS.ProcessEnv = {},
+): Promise<TestContext> {
   const env = loadEnv({
     NODE_ENV: 'test',
     DATABASE_URL: databaseUrl,
@@ -26,6 +29,10 @@ export async function createTestContext(databaseUrl: string): Promise<TestContex
     S3_SECRET_KEY: 'test-secret',
     JWT_ACCESS_SECRET: 'integration-test-secret-integration-test-secret',
     CORS_ORIGINS: 'http://localhost:3000',
+    // Generous by default so suites that log in repeatedly never trip the limiter.
+    AUTH_LOGIN_RATE_LIMIT: '10000',
+    AUTH_REFRESH_RATE_LIMIT: '10000',
+    ...overrides,
   });
 
   const pool = new pg.Pool({ connectionString: databaseUrl });

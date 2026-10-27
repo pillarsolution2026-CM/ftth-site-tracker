@@ -46,6 +46,18 @@ Hostnames (A records at the `projectflow.site` registrar):
 **Consequences:** Low monthly cost and EU data location. We operate the database ourselves, so backups, restore drills, monitoring and security updates are our responsibility (scripts and runbook delivered in Phase 7). The code stays provider-neutral: everything is configured by env vars (`DATABASE_URL`, `S3_ENDPOINT`, `CORS_ORIGINS`, …), so moving to a managed database later needs no code change.
 
 ## ADR-010: Early staging environment on the shared Hetzner server — Accepted (2026-10-27)
-**Context:** The owner wants a reachable environment now, before Phase 1, on the existing Hetzner server `49.13.167.124` that already runs other apps (invoices, app, n8n) behind a host-level Caddy that imports one snippet per app.
-**Decision:** Follow the server's existing conventions. `infra/staging/docker-compose.yml` (project `ftth-staging`) runs its own PostGIS, Redis (password), api, web, cad-worker and a nightly `pg_dump` (7 days). Only web and api are published, on `127.0.0.1:3310/3311`. The host Caddy imports `infra/staging/ftthtracker.caddy` for `staging.ftthtracker.projectflow.site` and `api.staging.ftthtracker.projectflow.site` (TLS, security headers, `noindex`). Everything lives under `/srv/ftth`. A dedicated `ftth-deploy` user accepts only a forced command (`/usr/local/bin/ftth-deploy`, root-owned copy of `infra/staging/deploy.sh`) that checks out the given commit, pulls the GHCR images with a short-lived token read from stdin, and restarts the stack. The deploy workflow is skipped until `STAGING_HOST` is configured. Martin and MinIO are not deployed until tiles are gated and uploads exist (Phase 1). Staging uses `NODE_ENV=production`, so the dev seed is refused; the first admin is created with `create-admin`.
-**Consequences:** No new public ports and no interference with the other apps; each merge is visible to the owner. Resources are shared with the other apps, so heavy CAD processing may need its own server later. Off-site backups, WAL/PITR, monitoring and production remain Phase 7 work.
+**Context:** The owner wants a reachable environment now, before Phase 1, on the existing Hetzner server `49.13.167.124`, which already runs other apps (invoices, app, n8n) behind a host-level Caddy that imports one snippet per app. The owner has no deploy keys set up and prefers not to manage server secrets.
+**Decision:** Pull-based staging that follows the server's conventions.
+- `infra/staging/bootstrap.sh` is run once as root from the Hetzner web console (and is safe to re-run). It:
+  - creates user `ftth-deploy`, `/srv/ftth`, a clone of the public repo and generated secrets in `/srv/ftth/.env`;
+  - renders `/srv/ftth/ftthtracker.caddy` and adds a single `import` to `/etc/caddy/Caddyfile`, with a backup, `caddy validate` and automatic rollback;
+  - installs `ftth-autodeploy` and its systemd timer, then deploys and creates the first admin with a random password.
+- Every 2 minutes `ftth-autodeploy` compares `origin/main` with the deployed commit. When the matching GHCR images (`<sha>`, published by `publish-images.yml`) exist, it checks the commit out, runs `compose up --wait`, and rolls back to the previous commit on failure.
+- The stack (`ftth-staging`) runs its own PostGIS, Redis (password), api, web, cad-worker and a nightly `pg_dump` kept 7 days. Only web and api listen, on loopback ports chosen by bootstrap (3310/3311 by default).
+- Martin and MinIO are not deployed until tiles are gated and uploads exist (Phase 1). Staging uses `NODE_ENV=production`, so the dev seed is refused. Login and refresh are rate-limited.
+**Consequences:**
+- No GitHub secrets, no inbound deploy SSH, no new public ports, and no edits to other apps' config.
+- Each merge to `main` reaches staging within a few minutes.
+- GHCR packages must be public for anonymous pulls.
+- Resources are shared with other apps, so heavy CAD processing may need its own server later.
+- Off-site backups, WAL/PITR, monitoring and production remain Phase 7 work.
