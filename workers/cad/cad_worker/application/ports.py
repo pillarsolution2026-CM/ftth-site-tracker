@@ -112,6 +112,10 @@ class CadRepository(Protocol):
         ...
 
 
+class BrokerUnavailableError(Exception):
+    """The queue could not be reached (network, timeout, restart). The consumer retries."""
+
+
 class JobBroker(Protocol):
     """Reliable-queue operations of ADR-013. Items are the raw JSON strings."""
 

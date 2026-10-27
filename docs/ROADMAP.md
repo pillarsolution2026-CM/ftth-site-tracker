@@ -86,6 +86,7 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - [x] Staging على سيرفر Hetzner المشترك (`49.13.167.124`) خلف الـCaddy الموجود: `bootstrap.sh` (أمر واحد من Hetzner Console) + `ftth-autodeploy` (pull كل دقيقتين، rollback تلقائي) + `publish-images.yml` (GHCR)، و`create-admin`، وrate limiting للدخول — ADR-010 و`docs/DEPLOY.md`.
 
 ### المرحلة 1: أوامر التكليف + استيراد الكاد والـMapping
+**1a (خلصت):** أوامر التكليف (يدوي + Excel + PDF)، رفع الكاد، استخراج الـlayers والـblocks والنصوص والخطوط، وشاشات الويب. **1b (الجاي):** شاشة الـMapping، ربط النصوص، اكتشاف EPSG، الـfeatures والـrevisions المقفولة، الـtiles وتأمينها، مطابقة الـrevisions.
 - Domain للمشروع / أوامر التكليف (أكتر من أمر للمشروع، كل أمر ببنوده) — architect (Opus) ثم backend-dev (Sonnet)
 - رفع DWG/DXF بـpresigned + job في BullMQ — backend-dev (Sonnet)
 - Worker: DWG→DXF (ODA/LibreDWG)، ezdxf recover، استخراج layers/blocks/attributes/TEXT/MTEXT — cad-engineer (Sonnet)

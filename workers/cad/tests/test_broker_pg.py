@@ -200,3 +200,11 @@ def test_run_loop_recovers_own_list_then_processes(
     consumer.run(lambda: next(stops), timeout_s=1)
     assert status_of(db, queued) == ("processed", None)
     assert redis_client.llen(f"cad:processing:{WORKER}") == 0
+
+
+def test_idle_claim_longer_than_redis_py_default_socket_timeout(redis_server_url: str) -> None:
+    """Regression: redis-py 8 defaults to a 5 s socket timeout, which killed an idle worker
+    blocked in BLMOVE for the same 5 s ("Timeout reading from socket")."""
+    broker = RedisJobBroker.from_url(redis_server_url, f"idle-{uuid.uuid4().hex[:6]}")
+
+    assert broker.claim(6) is None

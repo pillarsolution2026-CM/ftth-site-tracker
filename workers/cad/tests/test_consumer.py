@@ -9,7 +9,7 @@ import pytest
 
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.import_job import ImportDeps
-from cad_worker.application.ports import RecoveredJob
+from cad_worker.application.ports import BrokerUnavailableError, RecoveredJob
 
 
 class MemoryBroker:
@@ -78,3 +78,30 @@ def test_infrastructure_error_leaves_job_in_flight() -> None:
     with pytest.raises(ConnectionError):
         make_consumer(broker, ExplodingRepo()).process_raw(raw)
     assert broker.acked == [] and broker.dead == []
+
+
+class FlakyBroker(MemoryBroker):
+    """Raises BrokerUnavailableError for the first claims, then lets the loop stop."""
+
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.claims = 0
+
+    def claim(self, timeout_s: int) -> str | None:
+        self.claims += 1
+        if self.claims <= self.failures:
+            raise BrokerUnavailableError("Timeout reading from socket")
+        return None
+
+
+def test_loop_survives_a_queue_outage_with_growing_backoff() -> None:
+    broker = FlakyBroker(failures=3)
+    sleeps: list[float] = []
+    deps = ImportDeps(repo=None, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
+    consumer = Consumer(broker, deps, "w", sleep=sleeps.append)
+
+    consumer.run(lambda: broker.claims >= 5)
+
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert broker.claims == 5
