@@ -1,0 +1,33 @@
+import type { ErrorCode } from '@ftth/shared';
+
+const STATUS_BY_CODE: Record<ErrorCode, number> = {
+  VALIDATION_FAILED: 400,
+  INVALID_CREDENTIALS: 401,
+  TOKEN_EXPIRED: 401,
+  TOKEN_INVALID: 401,
+  REFRESH_TOKEN_REUSED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  INTERNAL: 500,
+};
+
+/** Error with a stable, client-facing code. Use cases throw it; the exception filter maps it to HTTP. */
+export class AppError extends Error {
+  constructor(
+    readonly code: ErrorCode,
+    message: string = code,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'AppError';
+  }
+
+  get httpStatus(): number {
+    return STATUS_BY_CODE[this.code];
+  }
+}
+
+export function httpStatusFor(code: ErrorCode): number {
+  return STATUS_BY_CODE[code];
+}
