@@ -10,7 +10,9 @@
     "email": "البريد الإلكتروني",
     "password": "كلمة المرور",
     "submit": "دخول",
-    "welcome": "أهلًا {name}"
+    "welcome": "أهلًا {name}",
+    "emailInvalid": "أدخل بريدًا إلكترونيًا صحيحًا",
+    "passwordTooShort": "كلمة المرور يجب ألا تقل عن 8 أحرف"
   },
   "roles": {
     "admin": "مدير النظام",
@@ -36,5 +38,9 @@
     "executed": "منفذ",
     "approved": "معتمد",
     "rejected": "مرفوض"
+  },
+  "home": {
+    "projects": "مشاريعي",
+    "noProjects": "لا توجد مشاريع مسندة إليك بعد"
   }
 }

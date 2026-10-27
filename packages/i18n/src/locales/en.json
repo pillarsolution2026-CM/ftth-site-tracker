@@ -10,7 +10,9 @@
     "email": "Email",
     "password": "Password",
     "submit": "Sign in",
-    "welcome": "Welcome, {name}"
+    "welcome": "Welcome, {name}",
+    "emailInvalid": "Enter a valid email address",
+    "passwordTooShort": "Password must be at least 8 characters"
   },
   "roles": {
     "admin": "Administrator",
@@ -36,5 +38,9 @@
     "executed": "Executed",
     "approved": "Approved",
     "rejected": "Rejected"
+  },
+  "home": {
+    "projects": "My projects",
+    "noProjects": "No projects are assigned to you yet"
   }
 }

@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+/* Design tokens (colours, status colours, spacing) are injected as CSS variables in the layout. */
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 15px;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: var(--color-surfaceDark);
+    color: var(--color-textDark);
+  }
+}
