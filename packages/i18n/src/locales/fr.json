@@ -1,0 +1,40 @@
+{
+  "common": {
+    "appName": "Suivi de chantier FTTH",
+    "language": "Langue",
+    "logout": "Se déconnecter",
+    "loading": "Chargement…"
+  },
+  "auth": {
+    "title": "Connexion",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "submit": "Se connecter",
+    "welcome": "Bienvenue, {name}"
+  },
+  "roles": {
+    "admin": "Administrateur",
+    "pm": "Chef de projet",
+    "supervisor": "Superviseur",
+    "qc": "Contrôle qualité",
+    "contractor": "Sous-traitant"
+  },
+  "errors": {
+    "VALIDATION_FAILED": "Les données saisies sont invalides",
+    "INVALID_CREDENTIALS": "E-mail ou mot de passe incorrect",
+    "TOKEN_EXPIRED": "Votre session a expiré, reconnectez-vous",
+    "TOKEN_INVALID": "Session invalide",
+    "REFRESH_TOKEN_REUSED": "Votre session a été fermée par sécurité",
+    "FORBIDDEN": "Action non autorisée",
+    "NOT_FOUND": "Introuvable",
+    "CONFLICT": "Conflit de données",
+    "INTERNAL": "Une erreur est survenue"
+  },
+  "status": {
+    "notStarted": "Non commencé",
+    "inProgress": "En cours",
+    "executed": "Exécuté",
+    "approved": "Approuvé",
+    "rejected": "Rejeté"
+  }
+}

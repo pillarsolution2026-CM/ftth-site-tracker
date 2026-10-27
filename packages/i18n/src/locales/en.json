@@ -1,0 +1,40 @@
+{
+  "common": {
+    "appName": "FTTH Site Tracker",
+    "language": "Language",
+    "logout": "Log out",
+    "loading": "Loading…"
+  },
+  "auth": {
+    "title": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "welcome": "Welcome, {name}"
+  },
+  "roles": {
+    "admin": "Administrator",
+    "pm": "Project manager",
+    "supervisor": "Supervisor",
+    "qc": "Quality control",
+    "contractor": "Subcontractor"
+  },
+  "errors": {
+    "VALIDATION_FAILED": "The submitted data is invalid",
+    "INVALID_CREDENTIALS": "Incorrect email or password",
+    "TOKEN_EXPIRED": "Your session expired, please sign in again",
+    "TOKEN_INVALID": "Invalid session",
+    "REFRESH_TOKEN_REUSED": "Your session was ended for security reasons",
+    "FORBIDDEN": "You are not allowed to do this",
+    "NOT_FOUND": "Not found",
+    "CONFLICT": "Data conflict",
+    "INTERNAL": "Something went wrong"
+  },
+  "status": {
+    "notStarted": "Not started",
+    "inProgress": "In progress",
+    "executed": "Executed",
+    "approved": "Approved",
+    "rejected": "Rejected"
+  }
+}
