@@ -10,7 +10,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | 1 Work orders + CAD import & mapping | Not started | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
-| 4 As-Built editing | Not started | — |
+| 4 As-Built editing | Started early (owner request): geometry engine done; rest waits for Phases 1 and 3 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
@@ -67,3 +67,15 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 - **Verified:** simulated Ubuntu server with real Caddy and a second site: bootstrap end-to-end (healthy stack, login page 200, admin created), idempotent re-run, Caddy rollback byte-for-byte, autodeploy waits when images are missing, other site untouched.
 - **Not done:** bootstrap has not been run on the real server yet (needs the owner in the Hetzner web console; SSH from the build sandbox is blocked and no existing key has admin access).
 
+
+### Phase 4 (early start) — Geometry engine `packages/geo`
+Started ahead of Phases 1–3 at the owner's explicit request; only the part with no dependency on CAD import or the mobile app.
+- **Done:**
+  - `@ftth/geo` (pure TS, no runtime deps): `Point`/`Polyline` in the project CRS, `polylineLength` (planar metres, same as PostGIS `ST_Length`), `closestPointOnSegment`, translate.
+  - Grips: vertex grips + segment-midpoint grips; `moveVertex`, `insertVertex` (midpoint by default), `removeVertex` (never below 2 vertices). All functions are immutable.
+  - Snap: endpoint / vertex / symbol, nearest wins, ties prefer endpoint → symbol → vertex; `SNAP_TOLERANCE_PX = 14` (plan) converted to metres per zoom; the dragged feature or vertex is excluded.
+  - Unlimited undo/redo for an editing session (`EditHistory`).
+  - Typed `GeometryError` codes (`NON_FINITE_COORDINATE`, `TOO_FEW_VERTICES`, `VERTEX_OUT_OF_RANGE`, `INVALID_TOLERANCE`).
+- **Not done (blocked on Phases 1 and 3):** mobile editing tools (Skia), web design-vs-As-Built review, As-Built DXF export, CRS transforms (to be added here when the mobile GPS/display needs them).
+- **Test report:** `pnpm --filter @ftth/geo test:cov` — 26 tests pass (18 unit, 8 property-based with fast-check at 10,000 runs each; random edit sequences at 2,000); coverage 100% (threshold 90% enforced). Lint, typecheck, build, format: pass. `pnpm test` (all packages): pass.
+- **Decisions to confirm:** snap tie order endpoint → symbol → vertex is a UX choice, not from the docs; change if the field team prefers otherwise.
