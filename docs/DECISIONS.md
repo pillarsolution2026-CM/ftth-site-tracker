@@ -23,3 +23,14 @@ Short ADRs. Format: context → decision → consequences. Status: Accepted / Su
 ## ADR-005: Agent and model routing — Accepted (2026-10-27)
 **Decision:** Hard reasoning (architecture, finance, geometry, sync, security) → Opus; feature implementation and tests → Sonnet; mechanical work (scaffolding, i18n, lint, docs, search) → Haiku. Agents are defined in `.claude/agents/`. Contracts are fixed first so implementation agents can run in parallel worktrees.
 **Consequences:** Most tokens are spent on Sonnet/Haiku; Opus is used where a mistake is expensive.
+
+## ADR-006: Drizzle ORM with explicit SQL migrations — Accepted (2026-10-27)
+**Decision:** Drizzle for typed queries; migrations are plain SQL files (so PostGIS types, extensions, triggers and constraints are explicit and reviewable).
+**Consequences:** No ORM magic around geometry; spatial queries use `sql` templates in repository implementations only.
+
+## ADR-007: Authentication and authorization — Accepted (2026-10-27)
+**Decision:** Short-lived JWT access token (15 min, claims: `sub`, `isAdmin`) + opaque refresh token (30 days) stored as SHA-256 hash, rotated on every use; reuse of a rotated token revokes the whole token family. Passwords hashed with argon2id. Authorization = role per project (`assignments`) + optional zone scope; `admin`, `pm`, `qc` are project-wide. Memberships are resolved per request, not baked into the token.
+**Consequences:** Revoking access takes effect within one access-token lifetime. Web stores tokens in httpOnly cookies via the Next.js server; mobile stores them in the OS secure store.
+
+## ADR-008: Python worker tooling — Accepted (2026-10-27)
+**Decision:** `uv` for dependency management, Python ≥ 3.12, `ruff` + `mypy --strict` + `pytest`.
