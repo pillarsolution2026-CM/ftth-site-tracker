@@ -1,0 +1,26 @@
+repos:
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: pnpm exec prettier --check
+        language: system
+        types_or: [javascript, ts, tsx, json, yaml, css]
+      - id: eslint
+        name: eslint
+        entry: pnpm lint
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx|mjs|js)$
+      - id: ruff
+        name: ruff
+        entry: bash -c 'cd workers/cad && uv run ruff check . && uv run ruff format --check .'
+        language: system
+        pass_filenames: false
+        files: ^workers/cad/
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd workers/cad && uv run mypy .'
+        language: system
+        pass_filenames: false
+        files: ^workers/cad/
