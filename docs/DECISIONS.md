@@ -44,3 +44,8 @@ Hostnames (A records at the `projectflow.site` registrar):
 - `tiles.ftthtracker.projectflow.site` — vector tiles
 - `staging.ftthtracker.projectflow.site` — staging (API and tiles under `api.staging…` / `tiles.staging…`)
 **Consequences:** Low monthly cost and EU data location. We operate the database ourselves, so backups, restore drills, monitoring and security updates are our responsibility (scripts and runbook delivered in Phase 7). The code stays provider-neutral: everything is configured by env vars (`DATABASE_URL`, `S3_ENDPOINT`, `CORS_ORIGINS`, …), so moving to a managed database later needs no code change.
+
+## ADR-010: Early staging environment on Hetzner — Accepted (2026-10-27)
+**Context:** The owner wants a reachable environment now, before Phase 1, instead of waiting for Phase 7.
+**Decision:** One Hetzner Cloud VPS (CPX21, Ubuntu 24.04) running `infra/staging/docker-compose.yml`: Caddy (only public service, automatic TLS, security headers, `noindex`), PostGIS, Redis (password), api, web, cad-worker, and a nightly `pg_dump` kept 7 days. Hostnames `staging.ftthtracker.projectflow.site` and `api.staging.ftthtracker.projectflow.site`. Every merge to `main` builds images to GHCR and deploys over SSH with a dedicated deploy key; the workflow is skipped until `STAGING_HOST` is configured. Martin and MinIO are not deployed until tiles are gated and uploads exist (Phase 1). Staging uses `NODE_ENV=production`, so the dev seed is refused; the first admin is created with `create-admin`.
+**Consequences:** Each phase is visible to the owner as soon as it merges. Off-site backups, WAL/PITR, monitoring and the production server remain Phase 7 work.

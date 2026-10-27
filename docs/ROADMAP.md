@@ -82,6 +82,9 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - [‖] i18n + RTL ويب/موبايل — i18n (Haiku) + ui-polisher (Sonnet)
 - **قبول:** `docker compose up` شغال، CI أخضر، login ويب + موبايل.
 
+### بيئة Staging (قبل المرحلة 1)
+- [x] `infra/staging` (Caddy + PostGIS + Redis + api + web + worker + backup)، و`deploy-staging.yml` (GHCR + SSH)، و`create-admin`، ودليل `docs/DEPLOY.md` — ADR-010. التجهيز على Hetzner والـDNS من صاحب الحساب.
+
 ### المرحلة 1: أوامر التكليف + استيراد الكاد والـMapping
 - Domain للمشروع / أوامر التكليف (أكتر من أمر للمشروع، كل أمر ببنوده) — architect (Opus) ثم backend-dev (Sonnet)
 - رفع DWG/DXF بـpresigned + job في BullMQ — backend-dev (Sonnet)

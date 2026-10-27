@@ -12,6 +12,7 @@ Web platform + mobile app for tracking FTTH rollout directly on CAD drawings, wi
 - `docs/ARCHITECTURE.md`: clean-architecture and code rules.
 - `docs/DECISIONS.md`: ADRs (cloud hosting, server-side CAD, stack, model routing).
 - `docs/PROGRESS.md`: phase tracking.
+- `docs/DEPLOY.md`: staging on Hetzner (`staging.ftthtracker.projectflow.site`).
 - `CLAUDE.md` and `.claude/agents/`: Claude Code rules and sub-agent definitions.
 - `docs/prototype/`: standalone HTML mockup (open `index.html`): supervisor app screens + web QC and BOQ-linked invoice screens (sample data).
 

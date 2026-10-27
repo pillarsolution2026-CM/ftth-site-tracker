@@ -1,0 +1,138 @@
+# Staging stack on a Hetzner Cloud VPS (ADR-009, ADR-010).
+# Images are built by .github/workflows/deploy-staging.yml and pulled from GHCR.
+# Only Caddy publishes ports; every data service stays on the internal network.
+# Secrets come from /opt/ftth/.env (see .env.example) and are required: no defaults.
+name: ftth-staging
+
+x-db-url: &db-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgis:5432/${POSTGRES_DB:?}
+x-redis-url: &redis-url redis://:${REDIS_PASSWORD:?}@redis:6379
+x-s3-env: &s3-env
+  S3_ENDPOINT: ${S3_ENDPOINT:?}
+  S3_BUCKET: ${S3_BUCKET:?}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?}
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on: [web, api]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?}
+      API_DOMAIN: ${API_DOMAIN:?}
+      ACME_EMAIL: ${ACME_EMAIL:?}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  postgis:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    volumes:
+      - postgis-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD:?}', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+
+  api:
+    image: ${IMAGE_REGISTRY:?}/api:${IMAGE_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      <<: *s3-env
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: *db-url
+      REDIS_URL: *redis-url
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
+      JWT_ACCESS_TTL_SECONDS: 900
+      REFRESH_TOKEN_TTL_DAYS: 30
+      CORS_ORIGINS: https://${APP_DOMAIN:?}
+    command: ['sh', '-c', 'node dist/db/migrate.js && exec node dist/main.js']
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3001/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web:
+    image: ${IMAGE_REGISTRY:?}/web:${IMAGE_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_URL: http://api:3001
+      APP_ORIGIN: https://${APP_DOMAIN:?}
+
+  worker:
+    image: ${IMAGE_REGISTRY:?}/cad-worker:${IMAGE_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *s3-env
+      DATABASE_URL: *db-url
+      REDIS_URL: *redis-url
+
+  # Nightly logical backup kept on the server (7 days). Off-site WAL archiving comes in Phase 7.
+  backup:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - ./backups:/backups
+    entrypoint:
+      - sh
+      - -c
+      - >
+        while true; do
+          pg_dump -h postgis -U ${POSTGRES_USER} -d ${POSTGRES_DB} -Fc -f /backups/ftth-$$(date +%F).dump &&
+          find /backups -name 'ftth-*.dump' -mtime +7 -delete;
+          sleep 86400;
+        done
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgis-data:
+  redis-data:
