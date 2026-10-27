@@ -1,32 +1,86 @@
-"""Job dispatch and consumer loop (queue-agnostic)."""
+"""Consumer loop (ADR-013): claim -> process -> ack, plus heartbeat and orphan recovery."""
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
+from pydantic import ValidationError
+
+from cad_worker.adapters.job_message import CadHealthJob, parse_job
 from cad_worker.application.health import check_health
-from cad_worker.application.ports import JobQueue
+from cad_worker.application.import_job import ImportDeps, run_import
+from cad_worker.application.ports import JobBroker
+
+log = logging.getLogger(__name__)
+
+HEARTBEAT_INTERVAL_S = 10
+RECOVERY_INTERVAL_S = 60
 
 
-def handle_job(job: dict[str, Any]) -> dict[str, Any]:
-    if job.get("type") == "health":
-        return {"ok": True, "result": check_health().to_dict()}
-    return {"ok": False, "error": f"unsupported job type: {job.get('type')!r}"}
+def handle_health(job: CadHealthJob) -> dict[str, Any]:
+    return {"ok": True, "result": check_health().to_dict()}
 
 
-def process_one(queue: JobQueue, timeout_s: int = 5) -> bool:
-    """Process at most one job. Returns True if a job was consumed."""
-    job = queue.pop_job(timeout_s)
-    if job is None:
-        return False
-    job_id = str(job.get("id", ""))
-    if not job_id:
-        return True  # malformed: nowhere to write a result
-    queue.put_result(job_id, handle_job(job))
-    return True
+class Consumer:
+    def __init__(self, broker: JobBroker, deps: ImportDeps, worker_id: str) -> None:
+        self._broker = broker
+        self._deps = deps
+        self._worker_id = worker_id
 
+    def process_raw(self, raw: str) -> None:
+        """Handle one claimed item. Acks only after the database outcome is committed; an
+        infrastructure error propagates and leaves the item in the in-flight list."""
+        try:
+            job = parse_job(raw)
+        except ValidationError:
+            log.warning("invalid job message moved to cad:dead")
+            self._broker.dead_letter(raw)
+            return
+        if isinstance(job, CadHealthJob):
+            self._broker.put_result(job.id, handle_health(job))
+        else:
+            run_import(job, self._deps, self._worker_id)
+        self._broker.ack(raw)
 
-def run_loop(queue: JobQueue, should_stop: Callable[[], bool], timeout_s: int = 5) -> None:
-    while not should_stop():
-        process_one(queue, timeout_s)
+    def process_one(self, timeout_s: int = 5) -> bool:
+        raw = self._broker.claim(timeout_s)
+        if raw is None:
+            return False
+        self.process_raw(raw)
+        return True
+
+    def recover(self, *, include_own: bool) -> None:
+        for orphan in self._broker.recover(include_own=include_own):
+            msg = f"job {orphan.job.id} lost {orphan.job.attempt} times (worker crashed)"
+            self._deps.repo.fail(orphan.job, "MAX_ATTEMPTS_EXCEEDED", msg)
+            self._broker.ack_orphan(orphan)
+
+    def run(self, should_stop: Callable[[], bool], timeout_s: int = 5) -> None:
+        stop_heartbeat = threading.Event()
+        self._broker.heartbeat()
+        beat = threading.Thread(
+            target=self._heartbeat_loop, args=(stop_heartbeat,), daemon=True, name="heartbeat"
+        )
+        beat.start()
+        try:
+            self.recover(include_own=True)
+            last_recovery = time.monotonic()
+            while not should_stop():
+                self.process_one(timeout_s)
+                if time.monotonic() - last_recovery >= RECOVERY_INTERVAL_S:
+                    self.recover(include_own=False)
+                    last_recovery = time.monotonic()
+        finally:
+            stop_heartbeat.set()
+            beat.join(timeout=2)
+
+    def _heartbeat_loop(self, stop: threading.Event) -> None:
+        while not stop.wait(HEARTBEAT_INTERVAL_S):
+            try:
+                self._broker.heartbeat()
+            except Exception:
+                log.exception("heartbeat failed")

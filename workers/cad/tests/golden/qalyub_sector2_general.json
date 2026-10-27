@@ -1,0 +1,199 @@
+{
+  "file": "General_القطاع_الثاني.dwg",
+  "totals": {
+    "layers": 94,
+    "inserts": 224,
+    "texts": 1916,
+    "curves": 9109
+  },
+  "unreadable_texts": 1350,
+  "entity_counts_by_layer": {
+    "0": {
+      "TEXT": 4,
+      "INSERT": 12
+    },
+    "1-3": {
+      "TEXT": 6
+    },
+    "19_total Users": {
+      "TEXT": 1
+    },
+    "1way": {
+      "POINT": 1
+    },
+    "1way-elc": {
+      "LWPOLYLINE": 2
+    },
+    "2-3": {
+      "LINE": 26,
+      "ELLIPSE": 4
+    },
+    "building": {
+      "LINE": 22,
+      "TEXT": 2,
+      "MTEXT": 2,
+      "CIRCLE": 3,
+      "LWPOLYLINE": 7977
+    },
+    "CABINA": {
+      "TEXT": 92,
+      "LWPOLYLINE": 102
+    },
+    "CABXXXXX": {
+      "TEXT": 82,
+      "LWPOLYLINE": 123
+    },
+    "canal": {
+      "LWPOLYLINE": 47
+    },
+    "CAP F144": {
+      "TEXT": 49,
+      "INSERT": 59
+    },
+    "CAP F288": {
+      "TEXT": 9,
+      "INSERT": 3
+    },
+    "CAP F36": {
+      "TEXT": 132
+    },
+    "CR-NEW": {
+      "CIRCLE": 4,
+      "LWPOLYLINE": 58
+    },
+    "door": {
+      "LWPOLYLINE": 56
+    },
+    "E_CAB_TXT": {
+      "TEXT": 5
+    },
+    "edit build.": {
+      "LWPOLYLINE": 79
+    },
+    "E_DUC_SYM": {
+      "ARC": 16,
+      "LINE": 29,
+      "LWPOLYLINE": 110
+    },
+    "E_MH_TXT": {
+      "LINE": 1,
+      "TEXT": 1,
+      "LWPOLYLINE": 1
+    },
+    "fence": {
+      "LWPOLYLINE": 2
+    },
+    "jont 144": {
+      "TEXT": 10,
+      "INSERT": 11
+    },
+    "jont 288": {
+      "TEXT": 3,
+      "INSERT": 3
+    },
+    "MAS-LAY": {
+      "LINE": 4,
+      "LWPOLYLINE": 6
+    },
+    "Msan": {
+      "INSERT": 92
+    },
+    "N-CABLE-TXT": {
+      "TEXT": 2
+    },
+    "N_DUC_CBL": {
+      "ARC": 1,
+      "LINE": 3,
+      "LWPOLYLINE": 25
+    },
+    "new main": {
+      "ARC": 27,
+      "LINE": 95,
+      "LWPOLYLINE": 1
+    },
+    "nnnn": {
+      "LWPOLYLINE": 1
+    },
+    "N_SYM": {
+      "LWPOLYLINE": 4
+    },
+    "road": {
+      "LWPOLYLINE": 163
+    },
+    "RRR": {
+      "LINE": 77,
+      "TEXT": 165,
+      "LWPOLYLINE": 3
+    },
+    "S": {
+      "LINE": 17,
+      "ELLIPSE": 1
+    },
+    "sub": {
+      "INSERT": 44
+    },
+    "TEXT": {
+      "TEXT": 125,
+      "MTEXT": 1,
+      "POLYLINE": 3,
+      "LWPOLYLINE": 2
+    },
+    "tx": {
+      "TEXT": 644
+    },
+    "TXT 2": {
+      "TEXT": 581
+    },
+    "WF": {
+      "LWPOLYLINE": 1
+    },
+    "ZONA": {
+      "ELLIPSE": 2
+    },
+    "zone": {
+      "LWPOLYLINE": 3
+    },
+    "سكة حديد": {
+      "LWPOLYLINE": 15
+    }
+  },
+  "inserts_by_block": {
+    "144": 12,
+    "288": 3,
+    "36": 47,
+    "A$C9260df13": 6,
+    "A$Cd2d57ff0": 6,
+    "CH1": 2,
+    "CH11": 60,
+    "JONT 144": 11,
+    "JONT288": 3,
+    "MH11": 30,
+    "sub": 44
+  },
+  "curve_length_by_layer": {
+    "1way-elc": 13.86,
+    "2-3": 474.98,
+    "building": 268185.53,
+    "CABINA": 1463.47,
+    "CABXXXXX": 1588.28,
+    "canal": 8376.32,
+    "CR-NEW": 4781.11,
+    "door": 1428.03,
+    "edit build.": 1430.43,
+    "E_DUC_SYM": 17361.94,
+    "E_MH_TXT": 69.7,
+    "fence": 429.41,
+    "MAS-LAY": 581.78,
+    "N_DUC_CBL": 3154.07,
+    "new main": 4241.53,
+    "nnnn": 50.97,
+    "N_SYM": 131.33,
+    "road": 42544.7,
+    "RRR": 7467.13,
+    "S": 145.23,
+    "TEXT": 203.73,
+    "WF": 0.0,
+    "zone": 7819.95,
+    "سكة حديد": 6170.42
+  }
+}

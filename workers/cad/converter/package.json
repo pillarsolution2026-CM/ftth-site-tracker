@@ -1,0 +1,11 @@
+{
+  "name": "cad-worker-converter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DWG to DXF conversion through LibreDWG WASM",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@mlightcad/libredwg-web": "0.8.2"
+  }
+}
