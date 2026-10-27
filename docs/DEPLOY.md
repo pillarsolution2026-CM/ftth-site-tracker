@@ -1,85 +1,103 @@
-# النشر على Staging (Hetzner)
+# النشر على Staging (سيرفر Hetzner المشترك)
 
 بيئة الاختبار: **https://staging.ftthtracker.projectflow.site** (الويب) و **https://api.staging.ftthtracker.projectflow.site** (الـAPI، والموبايل بيكلمه).
-القرار: ADR-009 و ADR-010 في `docs/DECISIONS.md`. ملفات التشغيل في `infra/staging/`.
+السيرفر: `49.13.167.124`، وهو نفس السيرفر اللي عليه invoices وapp وn8n. القرار في ADR-010، والملفات في `infra/staging/`.
 
-## إزاي بيشتغل
-- كل merge على `main` يشغّل `.github/workflows/deploy-staging.yml`: يبني 3 images (api، web، cad-worker) ويرفعها على GHCR، وبعدين يدخل السيرفر بـSSH ويعمل `docker compose pull && up -d`، ويختبر `/health` وصفحة الدخول.
-- الـworkflow مش بيشتغل إلا لو متغير الريبو `STAGING_HOST` متظبط، فمفيش حاجة بتفشل قبل التجهيز.
-- على السيرفر: Caddy بس اللي فاتح 80/443 وبيطلع شهادات Let's Encrypt تلقائي. Postgres/PostGIS وRedis جوه شبكة Docker الداخلية ومش مكشوفين.
-- نسخة احتياطية يومية (`pg_dump`) في `/opt/ftth/backups` لمدة 7 أيام. النسخ الخارجي وPITR في المرحلة 7.
-- الـmigrations بتتطبق تلقائي مع كل تشغيل للـAPI. الـseed التجريبي **مش** بيتشغل على staging.
+## الفكرة
+- **Caddy الموجود على السيرفر** هو اللي بيعمل HTTPS ويوجّه الدومينات. إحنا بنضيف له سطر `import` واحد لملف `ftthtracker.caddy`، بنفس طريقة `invoices.caddy`. مفيش Caddy تاني ومفيش بورتات جديدة على الإنترنت.
+- الـstack بتاعنا (`ftth-staging`) فيه قاعدة بيانات وRedis خاصين بيه، منفصلين تمامًا عن invoices. الويب والـAPI بيفتحوا بس على `127.0.0.1:3310` و`127.0.0.1:3311`.
+- كل حاجة تخصنا في `/srv/ftth`، ومستخدم مخصوص اسمه `ftth-deploy` مالوش صلاحية غير أمر الـdeploy (forced command)، زي `invoices-deploy` بالظبط.
+- كل merge على `main` بيبني الـimages ويرفعها على GHCR، وبعدين يعمل SSH بمفتاح الـdeploy: `deploy <sha>`. السكربت بيعمل checkout للـcommit، ثم `docker compose pull`، ثم `up --wait`.
+- الـworkflow مش بيشتغل إلا لو `STAGING_HOST` متظبط.
+- فيه نسخة احتياطية يومية (`pg_dump`) في `/srv/ftth/backups` بتتحفظ 7 أيام. الـmigrations بتتطبق تلقائي، والـseed التجريبي ممنوع.
 
-## التجهيز لأول مرة (مرة واحدة)
+## التجهيز لأول مرة (مرة واحدة، بمستخدم عنده sudo أو root)
 
-### 1) مفتاح SSH للـdeploy
+### 0) الدخول للسيرفر
+بالمستخدم الإداري اللي بتستخدمه لإعداد invoices، أو من Hetzner Console: افتح السيرفر واضغط `>_` Console. لو باسورد root مش معاك: Rescue → Reset root password.
+
+### 1) اتأكد إن البورتات فاضية
+```bash
+ss -tlnp | grep -E ':(3310|3311) ' || echo "free"
+```
+لو مستخدمين: غيّر `WEB_PORT`/`API_PORT` في `.env` (الخطوة 4)، وغيّر الرقمين في `infra/staging/ftthtracker.caddy`.
+
+### 2) المستخدم والفولدرات والكود
+```bash
+sudo adduser --disabled-password --gecos "" ftth-deploy
+sudo usermod -aG docker ftth-deploy
+sudo install -d -o ftth-deploy -g ftth-deploy -m 755 /srv/ftth
+sudo install -d -o ftth-deploy -g ftth-deploy -m 750 /srv/ftth/backups
+sudo -u ftth-deploy git clone https://github.com/pillarsolution2026-CM/ftth-site-tracker.git /srv/ftth/app
+sudo install -o root -g root -m 755 /srv/ftth/app/infra/staging/deploy.sh /usr/local/bin/ftth-deploy
+```
+
+### 3) مفتاح الـdeploy (forced command)
 على جهازك:
-```bash
-ssh-keygen -t ed25519 -f ftth-staging-deploy -C github-actions-staging -N ''
+```powershell
+ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\ftth_staging_deploy -C github-actions-ftth -N '""'
+type $env:USERPROFILE\.ssh\ftth_staging_deploy.pub
 ```
-- `ftth-staging-deploy.pub` → يتحط في cloud-init (الخطوة 2).
-- `ftth-staging-deploy` (الخاص) → GitHub Secret (الخطوة 4). ماتبعتهوش في أي شات.
-
-### 2) إنشاء السيرفر على Hetzner Cloud
-- Console → Project جديد `ftth` → Add Server.
-- Location: Falkenstein أو Nuremberg. Image: **Ubuntu 24.04**. Type: **CPX21** (3 vCPU / 4 GB) كفاية لـstaging.
-- SSH key: مفتاحك الشخصي.
-- **Cloud config:** الصق محتوى `infra/staging/cloud-init.yaml` بعد ما تحط المفتاحين (الشخصي ومفتاح الـdeploy العام).
-- Firewalls → Create: inbound TCP 22، TCP 80، TCP 443، UDP 443 بس، واربطه بالسيرفر.
-- خد الـIPv4 بتاع السيرفر.
-
-### 3) الدومين (DNS عند مسجّل projectflow.site)
-| Type | Name | Value |
-| --- | --- | --- |
-| A | `staging.ftthtracker` | IPv4 السيرفر |
-| A | `api.staging.ftthtracker` | IPv4 السيرفر |
-
-(اختياري AAAA بالـIPv6.) استنى لحد ما `dig +short staging.ftthtracker.projectflow.site` يرجّع الـIP.
-
-### 4) إعدادات GitHub (Settings → Secrets and variables → Actions)
-- **Variables:** `STAGING_HOST` = الـIPv4 أو `staging.ftthtracker.projectflow.site`.
-- **Secrets:**
-  - `STAGING_SSH_KEY` = محتوى الملف الخاص `ftth-staging-deploy`.
-  - `STAGING_SSH_KNOWN_HOSTS` = ناتج `ssh-keyscan -t ed25519 <IP>` (من جهازك بعد ما السيرفر يقوم).
-- Settings → Environments → `staging` (بيتعمل تلقائي أول مرة؛ ممكن تضيف required reviewers لو عايز موافقة قبل كل deploy).
-
-### 5) ملف الأسرار على السيرفر
+وعلى السيرفر، حط المفتاح **العام** مع القيود دي:
 ```bash
-ssh deploy@<IP>
-cd /opt/ftth
-nano .env        # انسخ infra/staging/.env.example واملأ القيم
-chmod 600 .env
+sudo install -d -o ftth-deploy -g ftth-deploy -m 700 /home/ftth-deploy/.ssh
+echo 'restrict,command="/usr/local/bin/ftth-deploy" ssh-ed25519 AAAA...الصق_المفتاح_العام... github-actions-ftth' | sudo tee /home/ftth-deploy/.ssh/authorized_keys
+sudo chown ftth-deploy:ftth-deploy /home/ftth-deploy/.ssh/authorized_keys && sudo chmod 600 /home/ftth-deploy/.ssh/authorized_keys
 ```
-ولّد كل كلمة سر بـ: `openssl rand -base64 48 | tr -d '\n/+='`.
-بيانات S3 (Hetzner Object Storage) مش مستخدمة لحد المرحلة 1، بس لازم تبقى مالية؛ اعمل bucket `ftth-staging` من Console → Object Storage وحط مفاتيحه.
 
-### 6) أول deploy
-GitHub → Actions → **Deploy staging** → Run workflow (أو merge على `main`). بعد ما يخلص:
+### 4) ملف الأسرار
+```bash
+sudo -u ftth-deploy cp /srv/ftth/app/infra/staging/.env.example /srv/ftth/.env
+sudo -u ftth-deploy chmod 600 /srv/ftth/.env
+sudo -u ftth-deploy nano /srv/ftth/.env
+```
+ولّد كل كلمة سر بالأمر `openssl rand -base64 48 | tr -d '\n/+='`. بيانات S3 مش مستخدمة لحد المرحلة 1، بس لازم تكون موجودة: اعمل bucket `ftth-staging` من Hetzner Console → Object Storage.
+
+### 5) ربط Caddy
+```bash
+sudo cp -a /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%F-%H%M)
+echo 'import /srv/ftth/app/infra/staging/ftthtracker.caddy' | sudo tee -a /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy
+```
+لو الـvalidate فشل، **ماتعملش reload**. رجّع النسخة: `sudo cp -a /etc/caddy/Caddyfile.bak.<التاريخ> /etc/caddy/Caddyfile`.
+
+### 6) GitHub (Settings → Secrets and variables → Actions)
+- **Variable** باسم `STAGING_HOST` وقيمته `49.13.167.124`.
+- **Secret** باسم `STAGING_SSH_KEY` وقيمته محتوى الملف الخاص `ftth_staging_deploy` كامل.
+- **Secret** باسم `STAGING_SSH_KNOWN_HOSTS` وقيمته ناتج `ssh-keyscan -t ed25519 49.13.167.124`. قارن البصمة بناتج `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` على السيرفر.
+
+### 7) أول deploy
+من GitHub: Actions → **Deploy staging** → Run workflow، أو اعمل merge على `main`. بعدها:
 ```bash
 curl https://api.staging.ftthtracker.projectflow.site/health   # {"status":"ok","db":"ok"}
 ```
 
-### 7) إنشاء أول Admin
+### 8) أول Admin
 ```bash
-ssh deploy@<IP>
-cd /opt/ftth
-docker compose run --rm -e ADMIN_EMAIL=you@company.com -e ADMIN_PASSWORD='<12+ حرف>' -e ADMIN_NAME='اسمك' api node dist/db/create-admin.js
+cd /srv/ftth/app
+sudo -u ftth-deploy docker compose --env-file /srv/ftth/.env -f infra/staging/docker-compose.yml \
+  run --rm -e ADMIN_EMAIL=you@company.com -e ADMIN_PASSWORD='<12+ حرف>' -e ADMIN_NAME='اسمك' \
+  api node dist/db/create-admin.js
 ```
-الأمر مابيعدلش أي مستخدم موجود. بعدها ادخل على https://staging.ftthtracker.projectflow.site.
+الأمر مابيعدلش أي مستخدم موجود.
 
 ## الموبايل على staging
 ```bash
 EXPO_PUBLIC_API_URL=https://api.staging.ftthtracker.projectflow.site pnpm --filter @ftth/mobile start
 ```
 
-## تشغيل يدوي وصيانة
+## صيانة
 ```bash
-cd /opt/ftth
-docker compose ps
-docker compose logs -f api
-IMAGE_TAG=<commit-sha> docker compose up -d     # الرجوع لإصدار سابق
-docker compose exec -T postgis pg_restore -U ftth -d ftth --clean < backups/ftth-YYYY-MM-DD.dump   # استرجاع
+cd /srv/ftth/app
+C="docker compose --env-file /srv/ftth/.env -f infra/staging/docker-compose.yml"
+$C ps; $C logs -f api
+IMAGE_TAG=<commit-sha> $C up -d                                    # الرجوع لإصدار سابق
+$C exec -T postgis pg_restore -U ftth -d ftth --clean < /srv/ftth/backups/ftth-YYYY-MM-DD.dump
 ```
+لو `deploy.sh` اتغير في الريبو، لازم تعيد تثبيته يدويًا (الخطوة 2، السطر الأخير)، لأن النسخة المثبتة بتاعة root ومحدش يقدر يغيرها غيره. ونفس الكلام لأي تعديل في `ftthtracker.caddy`: مش هيشتغل غير بعد `caddy validate` و`systemctl reload caddy`.
 
 ## اللي اتأكد منه قبل الرفع
-الـstack ده اتشغّل كامل محليًا بنفس الملفات (بدومينات `*.localhost`): كل الخدمات healthy، `/health` = ok، صفحة الدخول 200 عبر Caddy، تسجيل الدخول بأدمن اتعمل بـ`create-admin` نجح وطلّع cookies بـ`Secure; HttpOnly`، `/docs` = 404 في production، طلب login cross-site = 403، والنسخة الاحتياطية اتعملت.
+- الـstack اتشغّل محليًا بنفس الملفات. كل الخدمات بقت healthy، و`127.0.0.1:3311/health` رجّع ok، و`127.0.0.1:3310/ar/login` رجّع 200.
+- ملف `ftthtracker.caddy` بعد ما اتعمله import جوه Caddyfile فيه موقع تاني عدّى `caddy validate`.
+- `deploy.sh` بيرفض أي أمر غير `deploy <sha كامل> <user>`، وبيرفض لو مفيش token.
+- النسخة الأولى من الـstack (بـCaddy خاص بيها) كان اتجرب فيها كمان: تسجيل الدخول عبر HTTPS، والـcookies طالعة `Secure; HttpOnly`، و`/docs` بترجع 404، وطلب login من موقع تاني بيترفض (CSRF).

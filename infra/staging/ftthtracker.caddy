@@ -1,0 +1,26 @@
+# Imported from /etc/caddy/Caddyfile on the shared server (see docs/DEPLOY.md).
+# Snippet only, not a full Caddyfile. Ports must match WEB_PORT / API_PORT in /srv/ftth/.env.
+# Changes here apply after: sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+(ftth_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+}
+
+staging.ftthtracker.projectflow.site {
+	import ftth_headers
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3310
+}
+
+api.staging.ftthtracker.projectflow.site {
+	import ftth_headers
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3311
+}

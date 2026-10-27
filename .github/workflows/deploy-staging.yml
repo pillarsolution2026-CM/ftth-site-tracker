@@ -1,6 +1,7 @@
 name: Deploy staging
 
-# Builds the three images, pushes them to GHCR and deploys to the Hetzner staging server.
+# Builds the three images, pushes them to GHCR and deploys to the shared Hetzner staging server
+# through the ftth-deploy forced command (infra/staging/deploy.sh).
 # Runs only when the repository variable STAGING_HOST is set (see docs/DEPLOY.md).
 on:
   push:
@@ -62,7 +63,6 @@ jobs:
       name: staging
       url: https://staging.ftthtracker.projectflow.site
     steps:
-      - uses: actions/checkout@v4
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
@@ -72,28 +72,12 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
-      - name: Upload stack definition
-        run: |
-          scp infra/staging/docker-compose.yml infra/staging/Caddyfile \
-            "deploy@${{ vars.STAGING_HOST }}:/opt/ftth/"
-      - name: Pull and restart
+      - name: Deploy (forced command on the server)
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-          IMAGE_TAG: ${{ github.sha }}
         run: |
-          registry="${IMAGE_REGISTRY,,}"
-          ssh "deploy@${{ vars.STAGING_HOST }}" \
-            "GHCR_TOKEN='$GHCR_TOKEN' GHCR_USER='$GHCR_USER' IMAGE_TAG='$IMAGE_TAG' IMAGE_REGISTRY='$registry' bash -s" <<'REMOTE'
-          set -euo pipefail
-          cd /opt/ftth
-          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-          export IMAGE_TAG IMAGE_REGISTRY
-          docker compose pull
-          docker compose up -d --remove-orphans --wait --wait-timeout 180
-          docker logout ghcr.io
-          docker image prune -f
-          REMOTE
+          printf '%s\n' "$GHCR_TOKEN" | ssh -o BatchMode=yes -i ~/.ssh/id_ed25519 \
+            "ftth-deploy@${{ vars.STAGING_HOST }}" "deploy ${{ github.sha }} ${{ github.actor }}"
       - name: Smoke test
         run: |
           curl --fail --retry 10 --retry-delay 6 --retry-all-errors \
