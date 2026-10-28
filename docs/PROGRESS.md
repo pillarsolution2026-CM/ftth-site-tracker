@@ -6,7 +6,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | Blocked — push-to-`main` SSH deploy (`deploy.yml`, PR #7) fails: "node is not available" for the server SSH user; server bootstrap still pending | — |
+| Staging (Hetzner) | Docker + autodeploy is the only deploy path (owner, 2026-10-28); the SSH deploy of PR #7 (`deploy.yml`, failing with "node is not available") was removed. Server bootstrap still pending (owner runs one command) | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | Not started | — |
