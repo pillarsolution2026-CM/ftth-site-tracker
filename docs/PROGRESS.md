@@ -81,7 +81,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 - **Not done / open:**
   - One CAD job disappeared from Redis during manual process-killing in the end-to-end run (file stayed `queued`). Not reproduced; recovery paths are covered by tests, and a stale `queued` file can be re-queued with Reprocess after 15 min. Watch for it on staging.
   - Arabic street names (legacy `xarb.shx` fonts) are stored as raw ASCII key codes and flagged `readable=false`; a full character table is needed (the lowercase keys follow the Arabic 101 keyboard layout). Alternative: re-export those texts as Unicode from AutoCAD.
-  - Drawing units are inches (`$INSUNITS=1`) while the plan assumes metres: confirm in 1b before lengths are used for quantities.
+  - Drawing units are inches (`$INSUNITS=1`) while the plan assumes metres: confirm in 1b before lengths are used for quantities. **Resolved 2026-10-28: owner confirmed metres (ADR-018).**
   - S3 adapter only unit-tested; the web was tested against a mock API only (the API path above was checked with curl).
   - Owner decisions pending (ADR-011): visibility of prices to supervisors, header fields, hard delete. Confirmed 2026-10-28: required item fields (plus work type, ADR-016) and duplicate-code handling (never merged, explicit decision). The real work-order Excel sample was received and tested.
 - **Change after review — ADR-016 (2026-10-28, branch `feat/work-order-work-type`):**
@@ -91,11 +91,11 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - Note: API integration tests cannot run directly on a Windows host (`STORAGE_FS_ROOT` must be a POSIX path); run them in Linux/CI.
 
 ### Phase 1b — Mapping, text linking, design revisions, tiles
-Contracts: `docs/phase-1b-contracts.md`. ADRs: 017 (mapping, revisions), 018 (drawing units — **Proposed, awaiting the technical office**), 019 (text linking, SHX), 020 (matching), 021 (tiles). Migration `0005`.
+Contracts: `docs/phase-1b-contracts.md`. ADRs: 017 (mapping, revisions), 018 (drawing units — **Accepted: metres, owner 2026-10-28**), 019 (text linking, SHX), 020 (matching), 021 (tiles). Migration `0005`.
 - **Done:**
   - **Mapping** (`cad_mappings`, one per file, versioned): rules by layer, block or exact text on a layer → `route` / `box` / `hhi` / `joint` / `mh`, or `label` / `background` / `ignore`. Name suggestions from the plan's examples only (`N_DUC_CBL` → route, `sub` → box, `NEW-HHI` → hhi, `JONT 144` → joint); the PM saves every rule.
   - **EPSG detection** at import (`cad_files.crs_detection`): UTM ranges + the project's zone → suggested EPSG; lon/lat, local and unknown are recognised and not offered. The PM confirms the EPSG (WGS 84 / UTM only).
-  - **Drawing units (owner decision pending):** a per-drawing setting with no default (`m`, `cm`, `mm`, `km`, `in`, `ft`), stored with the exact factor on the mapping and on every revision. When `$INSUNITS` disagrees with the CRS detection, the file gets `UNITS_CRS_MISMATCH`, the mapping screen shows a warning and the revision keeps `units_conflict`. All geometry and lengths are scaled by the chosen factor.
+  - **Drawing units (owner confirmed metres, 2026-10-28):** a per-drawing setting with no default (`m`, `cm`, `mm`, `km`, `in`, `ft`), stored with the exact factor on the mapping and on every revision. When `$INSUNITS` disagrees with the CRS detection, the file gets `UNITS_CRS_MISMATCH`, the mapping screen shows a warning and the revision keeps `units_conflict`. All geometry and lengths are scaled by the chosen factor.
   - **Arabic SHX** (`xarb.shx`): conversion table = the 33 lowercase keys of the Arabic 101 layout. Any other character keeps the whole text `readable=false`; unreadable texts go to the review list and are never guessed.
   - **Text linking**: plan patterns (`F 36 C`, `1X2Way16/12`, `150.0M`, `1-1`, `12B`), nearest allowed feature within 15 × text height, confidence 0..1; ≥ 0.8 auto, else review. Box codes come from their best `1-1`-style link.
   - **Design revisions**: build job `cad.build_revision` on the existing Redis protocol → `draft` with features, text links, diff and a PMTiles archive; review list (least confident first), confirm / reassign / reject; publish → `rev_no`, locked by database triggers (revision, its features, links and diff). Stable feature ids (`features` + `design_features`).
