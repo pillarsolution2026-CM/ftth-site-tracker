@@ -1,6 +1,15 @@
 import { z } from 'zod';
-import { Decimal4StringSchema, DecimalStringSchema } from '../common/decimal.js';
-import { MAX_WORK_ORDER_ITEMS, WorkOrderHeaderInputSchema } from './work-order.schemas.js';
+import {
+  Decimal4StringSchema,
+  Decimal6StringSchema,
+  DecimalStringSchema,
+} from '../common/decimal.js';
+import {
+  MAX_WORK_ORDER_ITEMS,
+  WorkOrderHeaderInputSchema,
+  WorkTypeSchema,
+  type WorkType,
+} from './work-order.schemas.js';
 
 /**
  * Excel import of work-order items: preview (no writes) → user confirms mapping → commit (atomic).
@@ -20,19 +29,32 @@ export const IMPORT_FIELDS = [
   'unit',
   'quantity',
   'unitPrice',
+  'workType',
   'amount',
 ] as const;
 export const ImportFieldSchema = z.enum(IMPORT_FIELDS);
 export type ImportField = z.infer<typeof ImportFieldSchema>;
 
-/** ASSUMPTION (ADR-011): required fields. `amount` is optional and only cross-checked. */
+/** Required fields (ADR-011, ADR-016). `amount` is optional and only cross-checked. */
 export const REQUIRED_IMPORT_FIELDS: readonly ImportField[] = [
   'code',
   'description',
   'unit',
   'quantity',
   'unitPrice',
+  'workType',
 ];
+
+/**
+ * Cell values accepted for each work type, compared after the same normalisation as headers.
+ * Arabic labels are the owner's terms (ADR-016); the codes and the English/French labels shown
+ * by the app are accepted too.
+ */
+export const WORK_TYPE_SYNONYMS: Readonly<Record<WorkType, readonly string[]>> = {
+  civil: ['مدني', 'civil', 'génie civil'],
+  installation: ['تركيبات', 'installation', 'installations'],
+  planning: ['تخطيط', 'planning', 'planification'],
+};
 
 /**
  * Header synonyms used to suggest a mapping. Compared after normalisation: trim, lower-case,
@@ -45,6 +67,7 @@ export const IMPORT_HEADER_SYNONYMS: Readonly<Record<ImportField, readonly strin
   unit: ['الوحدة', 'وحدة', 'unit', 'uom', 'unité', 'unite'],
   quantity: ['الكمية', 'كمية', 'quantity', 'qty', 'quantité', 'quantite'],
   unitPrice: ['السعر', 'سعر الوحدة', 'الفئة', 'unit price', 'price', 'rate', 'prix unitaire'],
+  workType: ['نوع الأعمال', 'نوع العمل', 'work type', 'type of work', 'type de travaux'],
   amount: ['القيمة', 'الإجمالي', 'الاجمالي', 'amount', 'total', 'montant'],
 };
 
@@ -58,6 +81,7 @@ export const ColumnMappingSchema = z.object({
   unit: ColumnIndexSchema.nullable(),
   quantity: ColumnIndexSchema.nullable(),
   unitPrice: ColumnIndexSchema.nullable(),
+  workType: ColumnIndexSchema.nullable(),
   amount: ColumnIndexSchema.nullable(),
 });
 export type ColumnMapping = z.infer<typeof ColumnMappingSchema>;
@@ -70,6 +94,7 @@ export const ConfirmedColumnMappingSchema = z
     unit: ColumnIndexSchema,
     quantity: ColumnIndexSchema,
     unitPrice: ColumnIndexSchema,
+    workType: ColumnIndexSchema,
     amount: ColumnIndexSchema.nullable().default(null),
   })
   .superRefine((mapping, ctx) => {
@@ -90,6 +115,7 @@ export const IMPORT_ROW_ISSUE_CODES = [
   'NUMBER_OUT_OF_RANGE',
   'TEXT_TOO_LONG',
   'FORMULA_WITHOUT_RESULT',
+  'INVALID_WORK_TYPE',
   'DUPLICATE_CODE',
   'AMOUNT_MISMATCH',
 ] as const;
@@ -109,6 +135,8 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
     NUMBER_OUT_OF_RANGE: 'error',
     TEXT_TOO_LONG: 'error',
     FORMULA_WITHOUT_RESULT: 'error',
+    /** Work type cell is not one of WORK_TYPE_SYNONYMS (ADR-016). */
+    INVALID_WORK_TYPE: 'error',
     /** Must be resolved: exclude rows or list the code in `acceptedDuplicateCodes`. Never merged. */
     DUPLICATE_CODE: 'warning',
     /** Sheet amount ≠ quantity × unitPrice (rounded to the sheet value's decimals). Informative only. */
@@ -168,6 +196,7 @@ export const ImportPreviewRowSchema = z.object({
     unit: nullableText,
     quantity: nullableText,
     unitPrice: nullableText,
+    workType: nullableText,
     amount: nullableText,
   }),
   /** Parsed values; null when missing or invalid (see issues). */
@@ -175,7 +204,8 @@ export const ImportPreviewRowSchema = z.object({
   description: nullableText,
   unit: nullableText,
   quantity: Decimal4StringSchema.nullable(),
-  unitPrice: Decimal4StringSchema.nullable(),
+  unitPrice: Decimal6StringSchema.nullable(),
+  workType: WorkTypeSchema.nullable(),
   /** Amount read from the sheet (cross-check only, never stored). */
   sheetAmount: DecimalStringSchema.nullable(),
   /** quantity × unitPrice, exact; null if either is invalid. */

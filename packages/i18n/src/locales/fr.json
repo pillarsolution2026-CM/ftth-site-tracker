@@ -69,6 +69,7 @@
     "required": "Ce champ est obligatoire",
     "tooLong": "Le texte est trop long",
     "decimal": "Saisissez un nombre positif avec au plus 4 décimales",
+    "priceDecimal": "Saisissez un nombre positif avec au plus 6 décimales",
     "date": "Date invalide"
   },
   "nav": {
@@ -120,6 +121,14 @@
     "unit": "Unité",
     "quantity": "Quantité",
     "unitPrice": "Prix unitaire",
+    "workType": "Type de travaux",
+    "workTypeChoose": "— Choisir un type de travaux —",
+    "workTypeNone": "Non défini",
+    "workTypes": {
+      "civil": "Génie civil",
+      "installation": "Installation",
+      "planning": "Planification"
+    },
     "amount": "Montant",
     "confirmDelete": "Supprimer cette ligne ?",
     "duplicateBadge": "Code répété",
@@ -168,6 +177,7 @@
       "unit": "Unité",
       "quantity": "Quantité",
       "unitPrice": "Prix unitaire",
+      "workType": "Type de travaux",
       "amount": "Montant (contrôle)"
     },
     "summary": {
@@ -240,10 +250,11 @@
       "MISSING_VALUE": "Valeur manquante : {field}",
       "INVALID_NUMBER": "Nombre invalide dans {field}",
       "NEGATIVE_NUMBER": "{field} ne peut pas être négatif",
-      "TOO_MANY_DECIMALS": "{field} a plus de 4 décimales",
+      "TOO_MANY_DECIMALS": "{field} a plus de {max} décimales",
       "NUMBER_OUT_OF_RANGE": "{field} est trop grand",
       "TEXT_TOO_LONG": "{field} est trop long",
       "FORMULA_WITHOUT_RESULT": "{field} est une formule sans résultat enregistré ; ouvrez et enregistrez le fichier dans Excel",
+      "INVALID_WORK_TYPE": "Type de travaux « {value} » inconnu ; autorisés : Génie civil, Installation ou Planification",
       "DUPLICATE_CODE": "Ce code est répété aux lignes {otherRows}",
       "AMOUNT_MISMATCH": "Le montant de la feuille diffère de quantité × prix unitaire"
     },

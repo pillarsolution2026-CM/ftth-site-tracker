@@ -1,4 +1,11 @@
-import { Decimal4StringSchema, type WorkOrderItem, type WorkOrderItemInput } from '@ftth/shared';
+import {
+  Decimal4StringSchema,
+  Decimal6StringSchema,
+  ITEM_TEXT_LIMITS,
+  WorkTypeSchema,
+  type WorkOrderItem,
+  type WorkOrderItemInput,
+} from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
 import { normalizeDecimalInput } from '@/shared/lib/decimal';
 
@@ -8,6 +15,8 @@ export interface ItemFormValues {
   unit: string;
   quantity: string;
   unitPrice: string;
+  /** '' until the user picks one of WORK_TYPES (required, ADR-016). */
+  workType: string;
 }
 
 export type ItemFormErrors = Partial<Record<keyof ItemFormValues, MessageKey>>;
@@ -18,13 +27,16 @@ export const EMPTY_ITEM_FORM: ItemFormValues = {
   unit: '',
   quantity: '',
   unitPrice: '',
+  workType: '',
 };
 
-const LIMITS: Record<'code' | 'description' | 'unit', number> = {
-  code: 64,
-  description: 2000,
-  unit: 32,
-};
+const LIMITS: Record<'code' | 'description' | 'unit', number> = ITEM_TEXT_LIMITS;
+
+/** Quantities keep 4 decimals, unit prices 6 (ADR-016). */
+const DECIMAL_SCHEMAS = {
+  quantity: Decimal4StringSchema,
+  unitPrice: Decimal6StringSchema,
+} as const;
 
 export function itemToFormValues(item: WorkOrderItem): ItemFormValues {
   return {
@@ -33,6 +45,8 @@ export function itemToFormValues(item: WorkOrderItem): ItemFormValues {
     unit: item.unit,
     quantity: item.quantity,
     unitPrice: item.unitPrice,
+    // Items saved before ADR-016 have none: the user must pick one before saving.
+    workType: item.workType ?? '',
   };
 }
 
@@ -55,15 +69,23 @@ export function validateItemForm(values: ItemFormValues): ItemValidation {
   const decimal = (field: 'quantity' | 'unitPrice'): string => {
     const value = normalizeDecimalInput(values[field]);
     if (value === '') errors[field] = 'validation.required';
-    else if (!Decimal4StringSchema.safeParse(value).success) errors[field] = 'validation.decimal';
+    else if (!DECIMAL_SCHEMAS[field].safeParse(value).success) {
+      errors[field] = field === 'unitPrice' ? 'validation.priceDecimal' : 'validation.decimal';
+    }
     return value;
   };
   const quantity = decimal('quantity');
   const unitPrice = decimal('unitPrice');
 
-  return Object.keys(errors).length > 0
+  const workType = WorkTypeSchema.safeParse(values.workType);
+  if (!workType.success) errors.workType = 'validation.required';
+
+  return Object.keys(errors).length > 0 || !workType.success
     ? { ok: false, errors }
-    : { ok: true, data: { code, description, unit, quantity, unitPrice } };
+    : {
+        ok: true,
+        data: { code, description, unit, quantity, unitPrice, workType: workType.data },
+      };
 }
 
 /** An existing line that already uses this code (the line being edited is ignored). */

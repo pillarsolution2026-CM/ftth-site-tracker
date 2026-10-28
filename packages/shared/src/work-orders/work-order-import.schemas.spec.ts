@@ -6,6 +6,8 @@ import {
   IMPORT_HEADER_SYNONYMS,
   IMPORT_ROW_ISSUE_CODES,
   IMPORT_ROW_ISSUE_SEVERITY,
+  REQUIRED_IMPORT_FIELDS,
+  WORK_TYPE_SYNONYMS,
   ImportInvalidDetailsSchema,
   ImportPreviewRowSchema,
   WorkOrderImportCommitPayloadSchema,
@@ -13,7 +15,7 @@ import {
 } from './work-order-import.schemas.js';
 
 const SHA = 'a'.repeat(64);
-const mapping = { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4 };
+const mapping = { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, workType: 5 };
 
 describe('column mapping', () => {
   it('allows unmapped (null) fields in a suggestion', () => {
@@ -23,20 +25,25 @@ describe('column mapping', () => {
       unit: null,
       quantity: 3,
       unitPrice: null,
+      workType: null,
       amount: null,
     };
     expect(ColumnMappingSchema.safeParse(suggestion).success).toBe(true);
   });
 
-  it('requires the five required fields when confirming; amount defaults to null', () => {
+  it('requires the six required fields when confirming; amount defaults to null', () => {
     expect(ConfirmedColumnMappingSchema.parse(mapping).amount).toBeNull();
-    const missing = { code: 0, description: 1, unit: 2, quantity: 3 };
+    const missing = { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4 };
     expect(ConfirmedColumnMappingSchema.safeParse(missing).success).toBe(false);
+  });
+
+  it('makes the work type a required field (ADR-016)', () => {
+    expect(REQUIRED_IMPORT_FIELDS).toContain('workType');
   });
 
   it('rejects a column mapped to two fields', () => {
     expect(ConfirmedColumnMappingSchema.safeParse({ ...mapping, amount: 4 }).success).toBe(false);
-    expect(ConfirmedColumnMappingSchema.safeParse({ ...mapping, amount: 5 }).success).toBe(true);
+    expect(ConfirmedColumnMappingSchema.safeParse({ ...mapping, amount: 6 }).success).toBe(true);
   });
 
   it('rejects negative column indexes', () => {
@@ -63,6 +70,15 @@ describe('header synonyms', () => {
       expect.arrayContaining(['السعر', 'سعر الوحدة', 'unit price']),
     );
     expect(IMPORT_HEADER_SYNONYMS.amount).toEqual(expect.arrayContaining(['القيمة', 'amount']));
+    expect(IMPORT_HEADER_SYNONYMS.workType).toEqual(
+      expect.arrayContaining(['نوع الأعمال', 'work type']),
+    );
+  });
+
+  it('accepts the Arabic work type labels set by the owner (ADR-016)', () => {
+    expect(WORK_TYPE_SYNONYMS.civil).toContain('مدني');
+    expect(WORK_TYPE_SYNONYMS.installation).toContain('تركيبات');
+    expect(WORK_TYPE_SYNONYMS.planning).toContain('تخطيط');
   });
 
   it('never maps one synonym to two fields', () => {
@@ -97,6 +113,7 @@ describe('preview', () => {
         unit: 'm',
         quantity: '12,5x',
         unitPrice: '10',
+        workType: 'مدني',
         amount: null,
       },
       code: 'C-1',
@@ -104,6 +121,7 @@ describe('preview', () => {
       unit: 'm',
       quantity: null,
       unitPrice: '10',
+      workType: 'civil',
       sheetAmount: null,
       amount: null,
       issues: [{ code: 'INVALID_NUMBER', severity: 'error', field: 'quantity' }],

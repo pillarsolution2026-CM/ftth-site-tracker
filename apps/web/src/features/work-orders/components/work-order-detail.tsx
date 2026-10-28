@@ -135,6 +135,7 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
             <tr>
               <Th>{t('items.lineNo')}</Th>
               <Th>{t('items.code')}</Th>
+              <Th>{t('items.workType')}</Th>
               <Th>{t('items.description')}</Th>
               <Th>{t('items.unit')}</Th>
               <Th>{t('items.quantity')}</Th>
@@ -158,8 +159,16 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
                     </span>
                   ) : null}
                 </Td>
+                <Td>
+                  {item.workType ? (
+                    t(`items.workTypes.${item.workType}`)
+                  ) : (
+                    <span className="text-(--status-rejected)">{t('items.workTypeNone')}</span>
+                  )}
+                </Td>
                 <Td>{item.description}</Td>
-                <Td>{item.unit}</Td>
+                {/* Units can be up to 64 characters: wrap inside a bounded column (ADR-016). */}
+                <Td className="max-w-48 min-w-24 wrap-break-word">{item.unit}</Td>
                 <Td>
                   <Ltr>{formatDecimal(item.quantity, locale)}</Ltr>
                 </Td>

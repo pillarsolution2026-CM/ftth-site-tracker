@@ -69,6 +69,12 @@ function toNewItem(row: ImportPreviewRow): NewItem {
     unit: row.unit ?? '',
     quantity: Decimal.parse(row.quantity ?? '0'),
     unitPrice: Decimal.parse(row.unitPrice ?? '0'),
+    // Never defaulted: a work type is a business value (ADR-016). Rows without errors have one.
+    workType:
+      row.workType ??
+      (() => {
+        throw new Error(`Row ${row.rowNumber} has no work type`);
+      })(),
     sourceRow: row.rowNumber,
   };
 }

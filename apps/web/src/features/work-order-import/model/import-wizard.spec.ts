@@ -25,12 +25,21 @@ function row(
 ): ImportPreviewRow {
   return {
     rowNumber,
-    raw: { code, description: 'd', unit: 'm', quantity: '1', unitPrice: '1', amount: null },
+    raw: {
+      code,
+      description: 'd',
+      unit: 'm',
+      quantity: '1',
+      unitPrice: '1',
+      workType: 'مدني',
+      amount: null,
+    },
     code,
     description: 'd',
     unit: 'm',
     quantity: '1',
     unitPrice: '1',
+    workType: 'civil',
     sheetAmount: null,
     amount,
     issues,
@@ -49,6 +58,16 @@ const missingQuantity: ImportPreviewRow['issues'][number] = {
   field: 'quantity',
 };
 
+const MAPPING = {
+  code: 0,
+  description: 1,
+  unit: 2,
+  quantity: 3,
+  unitPrice: 4,
+  workType: 5,
+  amount: null,
+};
+
 function preview(
   overrides: Partial<WorkOrderImportPreviewResponse> = {},
 ): WorkOrderImportPreviewResponse {
@@ -58,8 +77,8 @@ function preview(
     sheetName: 'Sheet1',
     headerRow: 1,
     columns: [],
-    suggestedMapping: { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, amount: null },
-    mapping: { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, amount: null },
+    suggestedMapping: MAPPING,
+    mapping: MAPPING,
     fileIssues: [],
     rows: [
       row(2, 'A-1', '10.5'),
@@ -192,7 +211,7 @@ describe('commit gating', () => {
     const bad = preview({
       headerRow: null,
       fileIssues: [{ code: 'HEADER_ROW_NOT_FOUND', field: null }],
-      mapping: { code: null, description: 1, unit: 2, quantity: 3, unitPrice: 3, amount: null },
+      mapping: { ...MAPPING, code: null, unitPrice: 3 },
       rows: [],
     });
     const state = run([{ type: 'previewLoaded', preview: bad }, withHeader]);
@@ -207,14 +226,14 @@ describe('mapping draft', () => {
     let state = run([
       { type: 'previewLoaded', preview: preview() },
       { type: 'toggleRow', rowNumber: 2 },
-      { type: 'setMapping', field: 'amount', column: 5 },
+      { type: 'setMapping', field: 'amount', column: 6 },
     ]);
     expect(isDraftApplied(state)).toBe(false);
     expect(commitBlockers(state)).toContain('draftNotApplied');
 
     state = wizardReducer(state, {
       type: 'previewLoaded',
-      preview: preview({ mapping: { ...preview().mapping, amount: 5 } }),
+      preview: preview({ mapping: { ...preview().mapping, amount: 6 } }),
     });
     expect(isDraftApplied(state)).toBe(true);
     expect(state.excludedRows).toEqual([]);

@@ -15,6 +15,7 @@ const item = {
   unit: 'm',
   quantity: '120.5',
   unitPrice: '35.25',
+  workType: 'civil',
 };
 
 describe('WorkOrderItemInputSchema', () => {
@@ -22,7 +23,7 @@ describe('WorkOrderItemInputSchema', () => {
     expect(WorkOrderItemInputSchema.parse({ ...item, code: '  C-101 ' }).code).toBe('C-101');
   });
 
-  it.each(['code', 'description', 'unit', 'quantity', 'unitPrice'] as const)(
+  it.each(['code', 'description', 'unit', 'quantity', 'unitPrice', 'workType'] as const)(
     'requires %s',
     (field) => {
       const partial = Object.fromEntries(Object.entries(item).filter(([key]) => key !== field));
@@ -33,8 +34,39 @@ describe('WorkOrderItemInputSchema', () => {
   it('rejects negative, float and over-precise money', () => {
     expect(WorkOrderItemInputSchema.safeParse({ ...item, quantity: '-1' }).success).toBe(false);
     expect(WorkOrderItemInputSchema.safeParse({ ...item, unitPrice: 35.25 }).success).toBe(false);
-    const overPrecise = { ...item, unitPrice: '1.00001' };
+    const overPrecise = { ...item, unitPrice: '1.0000001' };
     expect(WorkOrderItemInputSchema.safeParse(overPrecise).success).toBe(false);
+  });
+
+  it('keeps 4 decimals for quantities and 6 for unit prices (ADR-016)', () => {
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, unitPrice: '5.59936' }).success).toBe(
+      true,
+    );
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, unitPrice: '1.000001' }).success).toBe(
+      true,
+    );
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, quantity: '1.0001' }).success).toBe(true);
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, quantity: '1.00001' }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts units up to 64 characters (ADR-016)', () => {
+    const unit = 'BULDING (more than 8 unit/flat per building)';
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, unit }).success).toBe(true);
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, unit: 'u'.repeat(64) }).success).toBe(
+      true,
+    );
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, unit: 'u'.repeat(65) }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts only the fixed work types', () => {
+    for (const workType of ['civil', 'installation', 'planning'])
+      expect(WorkOrderItemInputSchema.safeParse({ ...item, workType }).success).toBe(true);
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, workType: 'مدني' }).success).toBe(false);
+    expect(WorkOrderItemInputSchema.safeParse({ ...item, workType: 'other' }).success).toBe(false);
   });
 
   it('rejects blank text after trimming', () => {

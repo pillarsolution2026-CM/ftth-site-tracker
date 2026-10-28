@@ -173,10 +173,12 @@ export const workOrderItems = pgTable(
     description: text('description').notNull(),
     unit: text('unit').notNull(),
     quantity: numeric('quantity', { precision: 18, scale: 4 }).notNull(),
-    unitPrice: numeric('unit_price', { precision: 18, scale: 4 }).notNull(),
-    amount: numeric('amount', { precision: 36, scale: 8 }).generatedAlwaysAs(
+    unitPrice: numeric('unit_price', { precision: 20, scale: 6 }).notNull(),
+    amount: numeric('amount', { precision: 38, scale: 10 }).generatedAlwaysAs(
       sql`quantity * unit_price`,
     ),
+    /** null only for items saved before migration 0004 (ADR-016). */
+    workType: text('work_type').$type<'civil' | 'installation' | 'planning'>(),
     source: text('source').$type<'manual' | 'import'>().notNull().default('manual'),
     sourceRow: integer('source_row'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -191,6 +193,7 @@ export const workOrderItems = pgTable(
     unique('work_order_items_line_no_key').on(table.workOrderId, table.lineNo),
     unique('work_order_items_project_id_id_key').on(table.projectId, table.id),
     index('work_order_items_order_code_idx').on(table.workOrderId, table.code),
+    index('work_order_items_order_work_type_idx').on(table.workOrderId, table.workType),
   ],
 );
 

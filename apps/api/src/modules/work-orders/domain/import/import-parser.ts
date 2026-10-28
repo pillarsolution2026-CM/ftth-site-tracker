@@ -1,9 +1,15 @@
 import {
   IMPORT_FIELDS,
   IMPORT_ROW_ISSUE_SEVERITY,
+  ITEM_TEXT_LIMITS,
   MAX_IMPORT_ROWS,
+  QUANTITY_MAX_DECIMALS,
   REQUIRED_IMPORT_FIELDS,
+  UNIT_PRICE_MAX_DECIMALS,
+  WORK_TYPE_SYNONYMS,
+  WORK_TYPES,
   type ColumnMapping,
+  type WorkType,
   type ImportColumn,
   type ImportFileIssue,
   type ImportPreviewRow,
@@ -14,7 +20,12 @@ import {
 } from '@ftth/shared';
 import { Decimal } from '../decimal.js';
 import { cellText, parseInputDecimal, parseSheetAmount } from './cell-values.js';
-import { detectHeaderRow, EMPTY_MAPPING, matchHeaderRow } from './header-matching.js';
+import {
+  detectHeaderRow,
+  EMPTY_MAPPING,
+  matchHeaderRow,
+  normalizeHeader,
+} from './header-matching.js';
 import { annotateDuplicateCodes, summarize } from './import-summary.js';
 import {
   columnLetter,
@@ -28,7 +39,19 @@ import {
 export type ParsedImport = Omit<WorkOrderImportPreviewResponse, 'file'>;
 
 /** Longest accepted text per field (same limits as the work_order_items CHECK constraints). */
-const TEXT_LIMITS = { code: 64, description: 2000, unit: 32 } as const;
+const TEXT_LIMITS = ITEM_TEXT_LIMITS;
+
+const MAX_DECIMALS = {
+  quantity: QUANTITY_MAX_DECIMALS,
+  unitPrice: UNIT_PRICE_MAX_DECIMALS,
+} as const;
+
+/** Normalised cell text → work type, built from WORK_TYPE_SYNONYMS (ADR-016). */
+const WORK_TYPE_BY_TEXT: ReadonlyMap<string, WorkType> = new Map(
+  WORK_TYPES.flatMap((type) =>
+    WORK_TYPE_SYNONYMS[type].map((text) => [normalizeHeader(text), type] as const),
+  ),
+);
 
 const issue = (
   code: ImportRowIssueCode,
@@ -101,9 +124,25 @@ function numberField(
   cell: RawCell | undefined,
   field: 'quantity' | 'unitPrice',
 ): { value: string | null; issue?: ImportRowIssue } {
-  const parsed = parseInputDecimal(cell);
+  const parsed = parseInputDecimal(cell, MAX_DECIMALS[field]);
   if (parsed.ok) return { value: parsed.value };
   return { value: null, issue: issue(parsed.code, field, parsed.params) };
+}
+
+/** One of the fixed work types; the cell must name one exactly (after normalisation). */
+function workTypeField(cell: RawCell | undefined): {
+  value: WorkType | null;
+  issue?: ImportRowIssue;
+} {
+  if (cell?.kind === 'unresolved')
+    return { value: null, issue: issue('FORMULA_WITHOUT_RESULT', 'workType') };
+  const text = cellText(cell);
+  if (text === null || text === '')
+    return { value: null, issue: issue('MISSING_VALUE', 'workType') };
+  const type = WORK_TYPE_BY_TEXT.get(normalizeHeader(text));
+  return type
+    ? { value: type }
+    : { value: null, issue: issue('INVALID_WORK_TYPE', 'workType', { value: text }) };
 }
 
 function decimalsOf(text: string): number {
@@ -161,6 +200,7 @@ function parseRow(
   const unit = collect('unit', textField(at('unit'), 'unit'));
   const quantity = collect('quantity', numberField(at('quantity'), 'quantity'));
   const unitPrice = collect('unitPrice', numberField(at('unitPrice'), 'unitPrice'));
+  const workType = collect('workType', workTypeField(at('workType')));
 
   const computed =
     quantity.value !== null && unitPrice.value !== null
@@ -180,6 +220,7 @@ function parseRow(
       unit: raw('unit'),
       quantity: raw('quantity'),
       unitPrice: raw('unitPrice'),
+      workType: raw('workType'),
       amount: raw('amount'),
     },
     code: code.value,
@@ -187,6 +228,7 @@ function parseRow(
     unit: unit.value,
     quantity: quantity.value,
     unitPrice: unitPrice.value,
+    workType: workType.value,
     sheetAmount: amount.sheetAmount,
     amount: computed?.toString() ?? null,
     issues,

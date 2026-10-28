@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CurrencyCodeSchema, Decimal4StringSchema, DecimalStringSchema } from './decimal.js';
+import {
+  CurrencyCodeSchema,
+  Decimal4StringSchema,
+  Decimal6StringSchema,
+  DecimalStringSchema,
+} from './decimal.js';
 
 describe('Decimal4StringSchema (inputs: quantity, unit price)', () => {
   it.each(['0', '1', '12.5', '0.0001', '99999999999999.9999', '1.50'])('accepts %s', (value) => {
@@ -15,6 +20,20 @@ describe('Decimal4StringSchema (inputs: quantity, unit price)', () => {
 
   it('rejects numbers: money never travels as a float', () => {
     expect(Decimal4StringSchema.safeParse(12.5).success).toBe(false);
+  });
+});
+
+describe('Decimal6StringSchema (input: unit price, ADR-016)', () => {
+  it.each(['0', '12.5', '5.59936', '0.000001', '99999999999999.999999'])('accepts %s', (value) => {
+    expect(Decimal6StringSchema.safeParse(value).success).toBe(true);
+  });
+
+  it.each(['-1', '1.1234567', '100000000000000', '1e3', '.5', '01', ''])('rejects %j', (value) => {
+    expect(Decimal6StringSchema.safeParse(value).success).toBe(false);
+  });
+
+  it('rejects numbers', () => {
+    expect(Decimal6StringSchema.safeParse(5.59936).success).toBe(false);
   });
 });
 

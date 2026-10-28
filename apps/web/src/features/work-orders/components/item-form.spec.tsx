@@ -27,6 +27,7 @@ function existing(overrides: Partial<WorkOrderItem> = {}): WorkOrderItem {
     quantity: '10',
     unitPrice: '2.5',
     amount: '25',
+    workType: 'civil',
     source: 'manual',
     sourceRow: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -42,6 +43,7 @@ async function fill(code: string, quantity = '1', unitPrice = '1') {
   await user.type(screen.getByLabelText('Unit'), 'm');
   await user.type(screen.getByLabelText('Quantity'), quantity);
   await user.type(screen.getByLabelText('Unit price'), unitPrice);
+  await user.selectOptions(screen.getByLabelText('Work type'), 'installation');
   return user;
 }
 
@@ -72,7 +74,8 @@ describe('ItemForm', () => {
     await user.type(screen.getByLabelText('Quantity'), '1.23456');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getAllByText('This field is required').length).toBeGreaterThanOrEqual(3);
+    // code, description, unit, unit price and work type
+    expect(screen.getAllByText('This field is required').length).toBeGreaterThanOrEqual(5);
     expect(screen.getByText(/at most 4 decimal places/)).toBeInTheDocument();
     expect(addMutate).not.toHaveBeenCalled();
   });
@@ -80,7 +83,7 @@ describe('ItemForm', () => {
   it('sends amounts as exact strings and normalises Arabic digits', async () => {
     const user = await (async () => {
       renderForm();
-      return fill('B-9', '١٢٫٥', '99999999999999.9999');
+      return fill('B-9', '١٢٫٥', '99999999999999.999999');
     })();
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -90,9 +93,48 @@ describe('ItemForm', () => {
       description: 'Something',
       unit: 'm',
       quantity: '12.5',
-      unitPrice: '99999999999999.9999',
+      unitPrice: '99999999999999.999999',
+      workType: 'installation',
       acceptDuplicateCode: false,
     });
+  });
+
+  it('allows 6 decimals on the unit price but 4 on the quantity (ADR-016)', async () => {
+    renderForm();
+    const user = await fill('P-1', '1.00001', '5.5993612');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText(/at most 4 decimal places/)).toBeInTheDocument();
+    expect(screen.getByText(/at most 6 decimal places/)).toBeInTheDocument();
+    expect(addMutate).not.toHaveBeenCalled();
+  });
+
+  it('accepts a 64-character unit and refuses a longer one', async () => {
+    renderForm();
+    const user = await fill('U-1');
+    const unit = screen.getByLabelText('Unit');
+    // Pasted, not typed key by key: 129 keystrokes are slow under a parallel test run.
+    await user.clear(unit);
+    await user.paste('u'.repeat(65));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText('The text is too long')).toBeInTheDocument();
+
+    await user.clear(unit);
+    await user.paste('u'.repeat(64));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(addMutate.mock.calls[0]?.[0]).toMatchObject({ unit: 'u'.repeat(64) });
+  });
+
+  it('makes the user pick a work type for an item saved before ADR-016', async () => {
+    const legacy = existing({ workType: null });
+    renderForm([legacy], legacy);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText('This field is required')).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+
+    await user.selectOptions(screen.getByLabelText('Work type'), 'planning');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(updateMutate.mock.calls[0]?.[0]).toMatchObject({ body: { workType: 'planning' } });
   });
 
   it('asks before keeping a duplicate code and only then sends acceptDuplicateCode', async () => {

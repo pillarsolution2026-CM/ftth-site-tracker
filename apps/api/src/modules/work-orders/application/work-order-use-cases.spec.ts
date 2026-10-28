@@ -25,6 +25,7 @@ const MAPPING: WorkOrderImportCommitPayload['mapping'] = {
   unit: 2,
   quantity: 3,
   unitPrice: 4,
+  workType: 5,
   amount: null,
 };
 
@@ -47,8 +48,15 @@ beforeEach(() => {
 const request = (overrides: Partial<CreateWorkOrderRequest> = {}): CreateWorkOrderRequest => ({
   number: 'WO-1',
   items: [
-    { code: 'A', description: 'd', unit: 'm', quantity: '2', unitPrice: '10.5' },
-    { code: 'B', description: 'd', unit: 'm', quantity: '1', unitPrice: '0.25' },
+    { code: 'A', description: 'd', unit: 'm', quantity: '2', unitPrice: '10.5', workType: 'civil' },
+    {
+      code: 'B',
+      description: 'd',
+      unit: 'm',
+      quantity: '1',
+      unitPrice: '0.25',
+      workType: 'planning',
+    },
   ],
   acceptedDuplicateCodes: [],
   ...overrides,
@@ -152,6 +160,7 @@ describe('work order use cases', () => {
         unit: 'u',
         quantity: '1',
         unitPrice: '1',
+        workType: 'installation',
         acceptDuplicateCode: false,
       },
     });
@@ -173,6 +182,7 @@ describe('work order use cases', () => {
         unit: 'u',
         quantity: '1',
         unitPrice: '1',
+        workType: 'installation',
         acceptDuplicateCode: false,
       },
     });
@@ -271,7 +281,16 @@ describe('attachments', () => {
 
 describe('Excel import', () => {
   const sheet = (rows: unknown[][]) =>
-    buildXlsx([{ name: 'S', rows: [ENGLISH_HEADER.slice(0, 5), ...rows] as never }]);
+    buildXlsx([
+      {
+        name: 'S',
+        // Every data row gets a work type in column F (ADR-016).
+        rows: [
+          [...ENGLISH_HEADER.slice(0, 5), 'Work Type'],
+          ...rows.map((cells) => (cells.length > 0 ? [...cells, 'مدني'] : cells)),
+        ] as never,
+      },
+    ]);
   const payload = (
     file: Buffer,
     overrides: Partial<WorkOrderImportCommitPayload> = {},

@@ -19,6 +19,7 @@ export function toItemDto(item: WorkOrderItem, workOrderId: string): ItemDto {
     quantity: item.quantity.toString(),
     unitPrice: item.unitPrice.toString(),
     amount: itemAmount(item).toString(),
+    workType: item.workType,
     source: item.source,
     sourceRow: item.sourceRow,
     createdAt: item.createdAt.toISOString(),

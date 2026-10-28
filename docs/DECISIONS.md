@@ -108,3 +108,17 @@ Hostnames (A records at the `projectflow.site` registrar):
 **Context:** redis-py 8 applies a 5 s socket timeout by default. The worker blocks in `BLMOVE` for 5 s, so an idle worker died with "Timeout reading from socket" and queued files stayed `queued`. The unit and integration tests used 1 s waits and did not see it.
 **Decision:** The broker sets a 35 s socket timeout (longer than any blocking wait), a 5 s connect timeout and a health-check interval; the consumer loop converts Redis connection errors into `BrokerUnavailableError` and retries with exponential backoff (1 s up to 30 s) instead of crashing. Regression tests cover both.
 **Consequences:** An idle worker survives indefinitely and recovers from a Redis restart. Lesson recorded: run the full API → Redis → worker → database path before closing a phase.
+
+## ADR-016: Item work type, unit-price decimals and unit length — Accepted (2026-10-28)
+**Context:** Testing the owner's real BOQ sheet (`boq_restored3_errors_yellow.xlsx`, 199 rows) against the 1a import rules showed three gaps: its "نوع الاعمال" column was ignored, 22 unit prices have 5 decimals (e.g. 5.59936), and 6 units are longer than 32 characters (e.g. "BULDING (more than 8 unit/flat per building)", 45 characters). The owner decided (2026-10-28):
+1. Every item has a **work type** from a fixed list: `civil` (مدني), `installation` (تركيبات), `planning` (تخطيط). It is required on every item that has code, description, unit, quantity and price; it will be used for payment certificates, invoices, filtering and reports. The Arabic labels in the sheet are kept as they are, including items under section 2 labelled مدني.
+2. **Unit prices** keep up to **6 decimals**; quantities stay at 4.
+3. **Units** may be up to **64 characters**, and tables wrap long units instead of widening.
+Section headings (rows without unit, quantity and price), empty quantities and the "مسلسل" header (not a code synonym) stay as they are.
+
+**Decision:**
+- Contracts (`packages/shared`): `WORK_TYPES` / `WorkTypeSchema`; `WorkOrderItemInputSchema.workType` required; `Decimal6StringSchema` for unit prices (`Decimal4StringSchema` stays for quantities); `ITEM_TEXT_LIMITS.unit = 64`. Import: `workType` is a required import field with header synonyms (نوع الأعمال, نوع العمل, work type, type of work, type de travaux); cell values must match `WORK_TYPE_SYNONYMS` after header normalisation, else the new row error `INVALID_WORK_TYPE`. `TOO_MANY_DECIMALS` carries `params.max` (4 or 6).
+- Migration `0004`: `unit_price numeric(20,6)`; `amount` recreated as `numeric(38,10)` generated (4 + 6 decimals, still exact, never rounded); unit CHECK ≤ 64; `work_type text` with CHECK on the three codes and an index `(work_order_id, work_type)`.
+- Items saved before 0004 have `work_type NULL` (no value is invented). The API returns `workType: null` for them and refuses an edit that does not set one (`VALIDATION_FAILED`, `reason: WORK_TYPE_REQUIRED`); the web form makes the user pick one.
+- Web: work type select in the item form, a work type column in the item and import tables, and the unit column wraps (`max-w-48 wrap-break-word`). Mobile has no work-order screens yet; the same wrapping applies when they are built (Phase 3).
+**Consequences:** Old Excel files without a work type column now fail with `REQUIRED_FIELD_UNMAPPED` (intended: the field is required). Line amounts may show up to 10 decimals until the rounding rule is decided for invoicing (Phase 5). Per-type totals and filters are built in Phases 2 and 5 on top of this column.
