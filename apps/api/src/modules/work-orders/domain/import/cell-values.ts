@@ -1,4 +1,4 @@
-import type { ImportRowIssueCode } from '@ftth/shared';
+import { INPUT_MAX_INTEGER_DIGITS, type ImportRowIssueCode } from '@ftth/shared';
 import { isBlank, type RawCell } from './raw-workbook.js';
 
 /**
@@ -43,8 +43,7 @@ export function normalizeNumericText(text: string): string {
 }
 
 const PLAIN_NUMBER = /^(-?)(\d*)(?:\.(\d+))?$/;
-const MAX_INTEGER_DIGITS = 14;
-const MAX_FRACTION_DIGITS = 4;
+const MAX_INTEGER_DIGITS = INPUT_MAX_INTEGER_DIGITS;
 
 export type NumberParse =
   | { ok: true; value: string }
@@ -71,8 +70,14 @@ function numericSource(cell: RawCell | undefined): string | null {
   return cell.kind === 'text' ? normalizeNumericText(cell.value) : null;
 }
 
-/** Quantity or unit price: non-negative, ≤ 14 integer digits, ≤ 4 decimals (never rounded). */
-export function parseInputDecimal(cell: RawCell | undefined): NumberParse {
+/**
+ * Quantity or unit price: non-negative, ≤ 14 integer digits, ≤ `maxFractionDigits` decimals
+ * (4 for quantities, 6 for unit prices, ADR-016). Never rounded.
+ */
+export function parseInputDecimal(
+  cell: RawCell | undefined,
+  maxFractionDigits: number,
+): NumberParse {
   if (cell?.kind === 'unresolved') return { ok: false, code: 'FORMULA_WITHOUT_RESULT' };
   const source = numericSource(cell);
   if (source === null) return { ok: false, code: 'MISSING_VALUE' };
@@ -88,8 +93,8 @@ export function parseInputDecimal(cell: RawCell | undefined): NumberParse {
       params: { maxIntegerDigits: MAX_INTEGER_DIGITS },
     };
   }
-  if (parts.fraction.length > MAX_FRACTION_DIGITS) {
-    return { ok: false, code: 'TOO_MANY_DECIMALS', params: { max: MAX_FRACTION_DIGITS } };
+  if (parts.fraction.length > maxFractionDigits) {
+    return { ok: false, code: 'TOO_MANY_DECIMALS', params: { max: maxFractionDigits } };
   }
   return { ok: true, value: parts.fraction ? `${parts.integer}.${parts.fraction}` : parts.integer };
 }

@@ -2,11 +2,23 @@ import { z } from 'zod';
 import {
   CurrencyCodeSchema,
   Decimal4StringSchema,
+  Decimal6StringSchema,
   DecimalStringSchema,
 } from '../common/decimal.js';
 
 /** Upper bound for items in one request (create or import). Technical limit, not a business rule. */
 export const MAX_WORK_ORDER_ITEMS = 5000;
+
+/** Longest accepted text per item field (same limits as the work_order_items CHECK constraints). */
+export const ITEM_TEXT_LIMITS = { code: 64, description: 2000, unit: 64 } as const;
+
+/**
+ * Work type (نوع الأعمال) of an item, a fixed list set by the owner (ADR-016):
+ * civil = مدني, installation = تركيبات, planning = تخطيط. Stored as these codes; labels come from i18n.
+ */
+export const WORK_TYPES = ['civil', 'installation', 'planning'] as const;
+export const WorkTypeSchema = z.enum(WORK_TYPES);
+export type WorkType = z.infer<typeof WorkTypeSchema>;
 
 export const WORK_ORDER_SOURCES = ['manual', 'import'] as const;
 export const WorkOrderSourceSchema = z.enum(WORK_ORDER_SOURCES);
@@ -26,13 +38,14 @@ export const WorkOrderHeaderInputSchema = z.object({
 });
 export type WorkOrderHeaderInput = z.infer<typeof WorkOrderHeaderInputSchema>;
 
-/** Required item fields (ADR-011 assumption): code, description, unit, quantity, unitPrice. */
+/** Required item fields (ADR-011, ADR-016): code, description, unit, quantity, unitPrice, workType. */
 export const WorkOrderItemInputSchema = z.object({
-  code: z.string().trim().min(1).max(64),
-  description: z.string().trim().min(1).max(2000),
-  unit: z.string().trim().min(1).max(32),
+  code: z.string().trim().min(1).max(ITEM_TEXT_LIMITS.code),
+  description: z.string().trim().min(1).max(ITEM_TEXT_LIMITS.description),
+  unit: z.string().trim().min(1).max(ITEM_TEXT_LIMITS.unit),
   quantity: Decimal4StringSchema,
-  unitPrice: Decimal4StringSchema,
+  unitPrice: Decimal6StringSchema,
+  workType: WorkTypeSchema,
 });
 export type WorkOrderItemInput = z.infer<typeof WorkOrderItemInputSchema>;
 
@@ -101,7 +114,8 @@ export const UpdateWorkOrderItemRequestSchema = WorkOrderItemInputSchema.partial
       request.description !== undefined ||
       request.unit !== undefined ||
       request.quantity !== undefined ||
-      request.unitPrice !== undefined,
+      request.unitPrice !== undefined ||
+      request.workType !== undefined,
     { message: 'Nothing to update' },
   );
 export type UpdateWorkOrderItemRequest = z.infer<typeof UpdateWorkOrderItemRequestSchema>;
@@ -147,6 +161,8 @@ export const WorkOrderItemSchema = z.object({
   unitPrice: DecimalStringSchema,
   /** quantity × unitPrice, exact (no rounding). */
   amount: DecimalStringSchema,
+  /** null only for items saved before ADR-016; new items need one and an edit must set it. */
+  workType: WorkTypeSchema.nullable(),
   source: WorkOrderSourceSchema,
   /** Excel row number when imported. */
   sourceRow: z.number().int().min(1).nullable(),

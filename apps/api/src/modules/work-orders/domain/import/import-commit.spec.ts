@@ -13,11 +13,12 @@ const mapping: ColumnMapping = {
   unit: 2,
   quantity: 3,
   unitPrice: 4,
+  workType: 5,
   amount: null,
 };
 
 function workbook(rows: RawCell[][]): RawWorkbook {
-  const header = ['Code', 'Description', 'Unit', 'Quantity', 'Unit Price'].map(text);
+  const header = ['Code', 'Description', 'Unit', 'Quantity', 'Unit Price', 'Work Type'].map(text);
   return { sheets: [{ name: 'S', rows: new Map([header, ...rows].map((r, i) => [i + 1, r])) }] };
 }
 const row = (code: string, quantity: number | string = 1): RawCell[] => [
@@ -26,6 +27,7 @@ const row = (code: string, quantity: number | string = 1): RawCell[] => [
   text('m'),
   typeof quantity === 'number' ? num(quantity) : text(quantity),
   num(2),
+  text('مدني'),
 ];
 const select = (rows: RawCell[][], payload: { excluded?: number[]; accepted?: string[] } = {}) =>
   selectRowsForCommit(parseImport(workbook(rows), { headerRow: 1, mapping }), {

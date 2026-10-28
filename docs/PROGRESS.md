@@ -83,4 +83,9 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - Arabic street names (legacy `xarb.shx` fonts) are stored as raw ASCII key codes and flagged `readable=false`; a full character table is needed (the lowercase keys follow the Arabic 101 keyboard layout). Alternative: re-export those texts as Unicode from AutoCAD.
   - Drawing units are inches (`$INSUNITS=1`) while the plan assumes metres: confirm in 1b before lengths are used for quantities.
   - S3 adapter only unit-tested; the web was tested against a mock API only (the API path above was checked with curl).
-  - Owner decisions pending (ADR-011): required item fields, duplicate-code handling, visibility of prices to supervisors, and the real work-order Excel sample.
+  - Owner decisions pending (ADR-011): visibility of prices to supervisors, header fields, hard delete. Confirmed 2026-10-28: required item fields (plus work type, ADR-016) and duplicate-code handling (never merged, explicit decision). The real work-order Excel sample was received and tested.
+- **Change after review — ADR-016 (2026-10-28, branch `feat/work-order-work-type`):**
+  - Item work type (مدني / تركيبات / تخطيط) required on every item and in the import; unit prices with 6 decimals (quantities stay at 4); units up to 64 characters, wrapped in web tables. Migration `0004`.
+  - Owner's sheet (199 rows): 153 clean rows (was 129), total 78,900,610.328; the 46 remaining error rows are section headings, empty quantities and one heading without description — left as they are by the owner's decision. Work type column detected automatically.
+  - Test report (local, Windows + Docker): unit shared 103, i18n 4, ui-tokens 2, api 202, web 115; web e2e 9; API integration 91 (Linux container + PostGIS 16 + Redis, like CI). Build, typecheck, lint and format check pass.
+  - Note: API integration tests cannot run directly on a Windows host (`STORAGE_FS_ROOT` must be a POSIX path); run them in Linux/CI.

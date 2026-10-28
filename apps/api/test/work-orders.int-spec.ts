@@ -60,6 +60,7 @@ const item = (code: string, quantity = '2', unitPrice = '10.5') => ({
   unit: 'م.ط',
   quantity,
   unitPrice,
+  workType: 'civil',
 });
 
 async function createOrder(
@@ -112,6 +113,9 @@ describe('work order CRUD', () => {
         item('C', '12.5', '4'),
         item('D', '99999999999999.9999', '0.0001'),
         item('E', '0.0001', '0.0001'),
+        // Unit prices keep 6 decimals (ADR-016); the largest exact product still fits numeric(38,10).
+        item('F', '3', '5.59936'),
+        item('G', '99999999999999.9999', '99999999999999.999999'),
       ],
     });
     const { rows } = await ctx.pool.query<{ total: string; matches: boolean }>(
@@ -126,7 +130,71 @@ describe('work order CRUD', () => {
     );
     const summary = list.items.find((s) => s.id === order.id);
     expect(summary?.total).toBe(order.total);
-    expect(summary?.itemCount).toBe(5);
+    expect(summary?.itemCount).toBe(7);
+    expect(order.items.find((i) => i.code === 'F')).toMatchObject({
+      unitPrice: '5.59936',
+      amount: '16.79808',
+      workType: 'civil',
+    });
+  });
+
+  it('stores the work type and long units, and the database enforces both (ADR-016)', async () => {
+    const unit = 'BULDING (more than 8 unit/flat per building)';
+    const order = await createOrder(pm, {
+      items: [{ ...item('W-1'), unit, workType: 'planning' }],
+    });
+    expect(order.items[0]).toMatchObject({ unit, workType: 'planning' });
+
+    const missing = await http()
+      .post(base(projectA))
+      .set('Authorization', `Bearer ${pm}`)
+      .send({ number: uniqueNumber(), items: [{ ...item('W-2'), workType: undefined }] });
+    expect(missing.status).toBe(400);
+    const unknown = await http()
+      .post(base(projectA))
+      .set('Authorization', `Bearer ${pm}`)
+      .send({ number: uniqueNumber(), items: [{ ...item('W-3'), workType: 'مدني' }] });
+    expect(unknown.status).toBe(400);
+
+    const itemId = order.items[0]?.id;
+    await expect(
+      ctx.pool.query(`UPDATE work_order_items SET work_type = 'other' WHERE id = $1`, [itemId]),
+    ).rejects.toThrow(/work_order_items_work_type_check/);
+    await expect(
+      ctx.pool.query(`UPDATE work_order_items SET unit = repeat('u', 65) WHERE id = $1`, [itemId]),
+    ).rejects.toThrow(/work_order_items_unit_check/);
+
+    const edited = await http()
+      .patch(`${base(projectA)}/${order.id}/items/${itemId}`)
+      .set('Authorization', `Bearer ${pm}`)
+      .send({ workType: 'installation' });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    expect(edited.body.workType).toBe('installation');
+  });
+
+  it('makes the first edit of an item saved before ADR-016 set a work type', async () => {
+    const order = await createOrder(pm, { items: [item('L-1')] });
+    const itemId = order.items[0]?.id;
+    await ctx.pool.query(`UPDATE work_order_items SET work_type = NULL WHERE id = $1`, [itemId]);
+
+    const detail = await http()
+      .get(`${base(projectA)}/${order.id}`)
+      .set('Authorization', `Bearer ${pm}`);
+    expect(detail.body.items[0].workType).toBeNull();
+
+    const url = `${base(projectA)}/${order.id}/items/${itemId}`;
+    const refused = await http()
+      .patch(url)
+      .set('Authorization', `Bearer ${pm}`)
+      .send({ quantity: '3' });
+    expect(refused.status).toBe(400);
+    expect(refused.body.details).toEqual({ reason: 'WORK_TYPE_REQUIRED' });
+    const fixed = await http()
+      .patch(url)
+      .set('Authorization', `Bearer ${pm}`)
+      .send({ quantity: '3', workType: 'civil' });
+    expect(fixed.status).toBe(200);
+    expect(fixed.body).toMatchObject({ quantity: '3', workType: 'civil' });
   });
 
   it('lists work orders ordered by number and never shows another project', async () => {
@@ -515,7 +583,11 @@ describe('PDF attachments', () => {
 });
 
 describe('Excel import', () => {
-  const sheetRows = (rows: unknown[][]) => [ENGLISH_HEADER.slice(0, 5), ...rows];
+  // Column F holds the work type of every data row (ADR-016).
+  const sheetRows = (rows: unknown[][]) => [
+    [...ENGLISH_HEADER.slice(0, 5), 'Work Type'],
+    ...rows.map((cells) => (cells.length > 0 ? [...cells, 'مدني'] : cells)),
+  ];
   const xlsx = (rows: unknown[][]) => buildXlsx([{ name: 'BOQ', rows: sheetRows(rows) as never }]);
 
   const preview = (file: Buffer, payload: object = {}, token = pm) =>
@@ -535,7 +607,15 @@ describe('Excel import', () => {
     fileSha256: createHash('sha256').update(file).digest('hex'),
     sheetName: 'BOQ',
     headerRow: 1,
-    mapping: { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, amount: null },
+    mapping: {
+      code: 0,
+      description: 1,
+      unit: 2,
+      quantity: 3,
+      unitPrice: 4,
+      workType: 5,
+      amount: null,
+    },
     workOrder: { number: uniqueNumber('IMP'), title: 'Imported' },
     ...overrides,
   });
@@ -553,7 +633,15 @@ describe('Excel import', () => {
     expect(parsed).toMatchObject({
       sheetName: 'BOQ',
       headerRow: 1,
-      mapping: { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, amount: null },
+      mapping: {
+        code: 0,
+        description: 1,
+        unit: 2,
+        quantity: 3,
+        unitPrice: 4,
+        workType: 5,
+        amount: null,
+      },
       summary: { rowCount: 2, errorRowCount: 0, total: '605' },
       file: {
         name: 'boq.xlsx',
@@ -638,7 +726,7 @@ describe('Excel import', () => {
     const file = await xlsx([
       ['E-1', 'a', 'm', 1, 5],
       ['E-2', 'b', 'm', 'abc', 5],
-      ['E-3', 'c', 'm', 1.23456, 5],
+      ['E-3', 'c', 'm', 1, 1.2345678],
     ]);
     const number = uniqueNumber('ERR');
     const refused = await commit(file, commitPayload(file, { workOrder: { number } }));

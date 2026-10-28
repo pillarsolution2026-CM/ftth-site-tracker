@@ -33,10 +33,11 @@ export function useItemForm({ items, editing, onSubmit }: UseItemFormOptions) {
     duplicates: WorkOrderItem[];
   } | null>(null);
 
-  const onChange = (field: keyof ItemFormValues) => (event: ChangeEvent<HTMLInputElement>) => {
-    setValues((current) => ({ ...current, [field]: event.target.value }));
-    setPending(null);
-  };
+  const onChange =
+    (field: keyof ItemFormValues) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setValues((current) => ({ ...current, [field]: event.target.value }));
+      setPending(null);
+    };
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();

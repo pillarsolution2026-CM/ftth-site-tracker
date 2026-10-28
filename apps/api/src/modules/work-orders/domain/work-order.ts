@@ -1,4 +1,4 @@
-import { unacceptedDuplicateCodes, type DuplicateCode } from '@ftth/shared';
+import { unacceptedDuplicateCodes, type DuplicateCode, type WorkType } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { IdGenerator } from '../../../common/clock.js';
 import type { Decimal } from './decimal.js';
@@ -14,6 +14,8 @@ export interface WorkOrderItem {
   unit: string;
   quantity: Decimal;
   unitPrice: Decimal;
+  /** null only for items saved before ADR-016; an edit must set it. */
+  workType: WorkType | null;
   source: WorkOrderSource;
   /** Excel row number when imported. */
   sourceRow: number | null;
@@ -48,6 +50,7 @@ export interface ItemValues {
   unit: string;
   quantity: Decimal;
   unitPrice: Decimal;
+  workType: WorkType;
 }
 
 export interface NewItem extends ItemValues {
@@ -118,6 +121,7 @@ export class WorkOrder {
       unit: item.unit,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
+      workType: item.workType,
       source: input.source,
       sourceRow: item.sourceRow ?? null,
       createdAt: now,
@@ -196,6 +200,13 @@ export class WorkOrder {
     if (patch.code !== undefined && patch.code !== before.code) {
       this.assertCodeAllowed(patch.code, itemId, acceptDuplicateCode);
     }
+    const workType = patch.workType ?? before.workType;
+    // Items saved before ADR-016 have no work type; the first edit must give one.
+    if (workType === null) {
+      throw new AppError('VALIDATION_FAILED', 'The item needs a work type', {
+        reason: 'WORK_TYPE_REQUIRED',
+      });
+    }
     return {
       before,
       after: {
@@ -205,6 +216,7 @@ export class WorkOrder {
         unit: patch.unit ?? before.unit,
         quantity: patch.quantity ?? before.quantity,
         unitPrice: patch.unitPrice ?? before.unitPrice,
+        workType,
         updatedAt: now,
       },
     };

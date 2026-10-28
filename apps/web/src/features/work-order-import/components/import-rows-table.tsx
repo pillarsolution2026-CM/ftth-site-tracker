@@ -84,6 +84,7 @@ export function ImportRowsTable({
               <Th>{t('import.rows.include')}</Th>
               <Th>{t('import.rows.rowNumber')}</Th>
               <Th>{t('items.code')}</Th>
+              <Th>{t('items.workType')}</Th>
               <Th>{t('items.description')}</Th>
               <Th>{t('items.unit')}</Th>
               <Th>{t('items.quantity')}</Th>
@@ -115,8 +116,14 @@ export function ImportRowsTable({
                   <Td>
                     <Ltr>{row.raw.code ?? '—'}</Ltr>
                   </Td>
+                  <Td>
+                    {row.workType
+                      ? t(`items.workTypes.${row.workType}`)
+                      : (row.raw.workType ?? '—')}
+                  </Td>
                   <Td>{row.raw.description ?? '—'}</Td>
-                  <Td>{row.raw.unit ?? '—'}</Td>
+                  {/* Units can be up to 64 characters: wrap inside a bounded column (ADR-016). */}
+                  <Td className="max-w-48 min-w-24 wrap-break-word">{row.raw.unit ?? '—'}</Td>
                   <Td>
                     <Ltr>{row.raw.quantity ?? '—'}</Ltr>
                   </Td>

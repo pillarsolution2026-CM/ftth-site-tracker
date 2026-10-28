@@ -58,6 +58,7 @@ export const EMPTY_MAPPING: ColumnMapping = {
   unit: null,
   quantity: null,
   unitPrice: null,
+  workType: null,
   amount: null,
 };
 

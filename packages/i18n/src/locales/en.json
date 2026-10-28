@@ -69,6 +69,7 @@
     "required": "This field is required",
     "tooLong": "The text is too long",
     "decimal": "Enter a non-negative number with at most 4 decimal places",
+    "priceDecimal": "Enter a non-negative number with at most 6 decimal places",
     "date": "Invalid date"
   },
   "nav": {
@@ -120,6 +121,14 @@
     "unit": "Unit",
     "quantity": "Quantity",
     "unitPrice": "Unit price",
+    "workType": "Work type",
+    "workTypeChoose": "— Choose a work type —",
+    "workTypeNone": "Not set",
+    "workTypes": {
+      "civil": "Civil",
+      "installation": "Installation",
+      "planning": "Planning"
+    },
     "amount": "Amount",
     "confirmDelete": "Delete this item?",
     "duplicateBadge": "Repeated code",
@@ -168,6 +177,7 @@
       "unit": "Unit",
       "quantity": "Quantity",
       "unitPrice": "Unit price",
+      "workType": "Work type",
       "amount": "Amount (cross-check)"
     },
     "summary": {
@@ -240,10 +250,11 @@
       "MISSING_VALUE": "Missing value: {field}",
       "INVALID_NUMBER": "Not a valid number in {field}",
       "NEGATIVE_NUMBER": "{field} cannot be negative",
-      "TOO_MANY_DECIMALS": "{field} has more than 4 decimal places",
+      "TOO_MANY_DECIMALS": "{field} has more than {max} decimal places",
       "NUMBER_OUT_OF_RANGE": "{field} is too large",
       "TEXT_TOO_LONG": "{field} is too long",
       "FORMULA_WITHOUT_RESULT": "{field} is a formula with no saved result; open and save the file in Excel",
+      "INVALID_WORK_TYPE": "Unknown work type \"{value}\"; allowed: Civil, Installation or Planning",
       "DUPLICATE_CODE": "This code is repeated in rows {otherRows}",
       "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price"
     },

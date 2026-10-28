@@ -1,9 +1,10 @@
 'use client';
 
 import type { ChangeEvent, FormEvent } from 'react';
-import type { WorkOrderItem, WorkOrderItemInput } from '@ftth/shared';
+import { WORK_TYPES, type WorkOrderItem, type WorkOrderItemInput } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { ErrorNotice } from '@/shared/ui/error-notice';
+import { Select } from '@/shared/ui/form-controls';
 import { Input } from '@/shared/ui/input';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -20,7 +21,9 @@ export interface ItemFormViewProps {
   errorCode: ClientErrorCode | null;
   duplicateCode: string | null;
   duplicateLines: number[] | null;
-  onChange: (field: keyof ItemFormValues) => (event: ChangeEvent<HTMLInputElement>) => void;
+  onChange: (
+    field: keyof ItemFormValues,
+  ) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
   onSubmit: (event: FormEvent) => void;
   onConfirmDuplicate: () => void;
   onCancelDuplicate: () => void;
@@ -95,6 +98,20 @@ export function ItemFormView({
         onChange={onChange('description')}
         error={err('description')}
       />
+      <Select
+        id="item-workType"
+        label={t('items.workType')}
+        value={values.workType}
+        onChange={onChange('workType')}
+        error={err('workType')}
+      >
+        <option value="">{t('items.workTypeChoose')}</option>
+        {WORK_TYPES.map((type) => (
+          <option key={type} value={type}>
+            {t(`items.workTypes.${type}`)}
+          </option>
+        ))}
+      </Select>
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
           id="item-quantity"

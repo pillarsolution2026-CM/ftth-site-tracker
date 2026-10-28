@@ -40,6 +40,7 @@ const toItem = (row: ItemRow): WorkOrderItem => ({
   unit: row.unit,
   quantity: Decimal.parse(row.quantity),
   unitPrice: Decimal.parse(row.unitPrice),
+  workType: row.workType ?? null,
   source: row.source,
   sourceRow: row.sourceRow,
   createdAt: row.createdAt,
@@ -56,6 +57,7 @@ const itemValues = (projectId: string, workOrderId: string, item: WorkOrderItem)
   unit: item.unit,
   quantity: item.quantity.toString(),
   unitPrice: item.unitPrice.toString(),
+  workType: item.workType,
   source: item.source,
   sourceRow: item.sourceRow,
 });
@@ -199,6 +201,7 @@ export class DrizzleWorkOrderRepository implements WorkOrderRepository {
         unit: values.unit,
         quantity: values.quantity,
         unitPrice: values.unitPrice,
+        workType: values.workType,
       })
       .where(
         and(

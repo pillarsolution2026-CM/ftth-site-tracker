@@ -15,6 +15,7 @@ const item = (code: string, quantity: string, unitPrice: string): NewItem => ({
   unit: 'm',
   quantity: Decimal.parse(quantity),
   unitPrice: Decimal.parse(unitPrice),
+  workType: 'civil',
 });
 
 function orderWith(items: NewItem[], accepted: string[] = []): WorkOrder {
@@ -123,6 +124,33 @@ describe('WorkOrder', () => {
   it('answers NOT_FOUND for an unknown item', () => {
     expect(() => orderWith([]).findItem('x')).toThrow(
       expect.objectContaining({ code: 'NOT_FOUND' }),
+    );
+  });
+
+  it('keeps the work type on edits and lets an edit change it', () => {
+    const order = orderWith([item('A', '1', '1')]);
+    const id = order.items[0]?.id ?? '';
+    expect(order.changeItem(id, { unit: 'km' }, false, now).after.workType).toBe('civil');
+    expect(order.changeItem(id, { workType: 'planning' }, false, now).after.workType).toBe(
+      'planning',
+    );
+  });
+
+  it('makes the first edit of an item saved before ADR-016 set a work type', () => {
+    const created = orderWith([item('A', '1', '1')]);
+    const legacy = new WorkOrder(
+      created.header,
+      created.items.map((existing) => ({ ...existing, workType: null })),
+    );
+    const id = legacy.items[0]?.id ?? '';
+    expect(() => legacy.changeItem(id, { unit: 'km' }, false, now)).toThrow(
+      expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        details: { reason: 'WORK_TYPE_REQUIRED' },
+      }),
+    );
+    expect(legacy.changeItem(id, { workType: 'installation' }, false, now).after.workType).toBe(
+      'installation',
     );
   });
 });

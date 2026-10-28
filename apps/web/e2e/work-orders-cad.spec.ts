@@ -8,12 +8,12 @@ function xlsxFixture(): Buffer {
   const sheets = [
     {
       name: 'BOQ',
-      header: ['Code', 'Description', 'Unit', 'Quantity', 'Unit price'],
+      header: ['Code', 'Description', 'Unit', 'Quantity', 'Unit price', 'Work type'],
       rows: [
-        ['A-1', 'Trench 40x60', 'm', '10', '2.5'],
-        ['D-7', 'Duct 24/7', 'm', '5', '1.2'],
-        ['D-7', 'Duct 24/7 (second line)', 'm', '3', '1.2'],
-        ['E-5', 'Row without a quantity', 'm', '', '4'],
+        ['A-1', 'Trench 40x60', 'm', '10', '2.5', 'مدني'],
+        ['D-7', 'Duct 24/7', 'm', '5', '1.2', 'تركيبات'],
+        ['D-7', 'Duct 24/7 (second line)', 'm', '3', '1.2', 'تركيبات'],
+        ['E-5', 'Row without a quantity', 'm', '', '4', 'مدني'],
       ],
     },
   ];
@@ -58,6 +58,7 @@ test('create a work order by hand, add items with a duplicate code, attach a PDF
   await page.getByLabel('Unit', { exact: true }).fill('m');
   await page.getByLabel('Quantity').fill('10');
   await page.getByLabel('Unit price').fill('2.5');
+  await page.getByLabel('Work type').selectOption('civil');
   await page.getByRole('button', { name: 'Save' }).click();
   const table = page.getByRole('table', { name: 'Items' });
   await expect(table.getByRole('row', { name: /A-1/ })).toContainText('25.00');
@@ -69,6 +70,7 @@ test('create a work order by hand, add items with a duplicate code, attach a PDF
   await page.getByLabel('Unit', { exact: true }).fill('m');
   await page.getByLabel('Quantity').fill('1');
   await page.getByLabel('Unit price').fill('1');
+  await page.getByLabel('Work type').selectOption('civil');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Code A-1 already exists on lines 1')).toBeVisible();
   await expect(table.getByRole('row')).toHaveCount(2);
@@ -108,6 +110,7 @@ test('import an xlsx with a duplicate code and a bad row, then commit', async ({
   await expect(page.getByRole('heading', { name: '2. Sheet and columns' })).toBeVisible();
   await expect(page.locator('#map-code')).toHaveValue('0');
   await expect(page.locator('#map-unitPrice')).toHaveValue('4');
+  await expect(page.locator('#map-workType')).toHaveValue('5');
   await expect(page.getByText('Missing value: Quantity')).toBeVisible();
   await expect(page.getByText('This code is repeated in rows 4').first()).toBeVisible();
 
@@ -126,6 +129,9 @@ test('import an xlsx with a duplicate code and a bad row, then commit', async ({
   await expect(page.getByRole('heading', { name: /Work order\s+WO-200/ })).toBeVisible();
   const items = page.getByRole('table', { name: 'Items' });
   await expect(items.getByRole('row')).toHaveCount(4); // header + A-1 + two D-7 lines
+  // Work types read from the sheet's Arabic labels (ADR-016).
+  await expect(items.getByRole('cell', { name: 'Civil', exact: true })).toHaveCount(1);
+  await expect(items.getByRole('cell', { name: 'Installation', exact: true })).toHaveCount(2);
   await expect(page.getByText('The import source cannot be deleted')).toBeVisible();
 });
 

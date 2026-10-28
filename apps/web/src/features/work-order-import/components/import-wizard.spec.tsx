@@ -37,6 +37,7 @@ function row(
       unit: 'm',
       quantity: '1',
       unitPrice: '1',
+      workType: 'مدني',
       amount: null,
     },
     code,
@@ -44,13 +45,22 @@ function row(
     unit: 'm',
     quantity: '1',
     unitPrice: '1',
+    workType: 'civil',
     sheetAmount: null,
     amount,
     issues,
   };
 }
 
-const mapping = { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, amount: null };
+const mapping = {
+  code: 0,
+  description: 1,
+  unit: 2,
+  quantity: 3,
+  unitPrice: 4,
+  workType: 5,
+  amount: null,
+};
 
 function preview(): WorkOrderImportPreviewResponse {
   return {
@@ -58,10 +68,10 @@ function preview(): WorkOrderImportPreviewResponse {
     sheets: [{ name: 'BOQ', rowCount: 5 }],
     sheetName: 'BOQ',
     headerRow: 1,
-    columns: ['A', 'B', 'C', 'D', 'E'].map((letter, index) => ({
+    columns: ['A', 'B', 'C', 'D', 'E', 'F'].map((letter, index) => ({
       index,
       letter,
-      header: ['Code', 'Description', 'Unit', 'Qty', 'Price'][index] ?? '',
+      header: ['Code', 'Description', 'Unit', 'Qty', 'Price', 'Work type'][index] ?? '',
     })),
     suggestedMapping: mapping,
     mapping,

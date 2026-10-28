@@ -35,4 +35,34 @@ describe('import issue messages', () => {
     );
     expect(text).toContain('12, 30');
   });
+
+  it('names the decimal limit of each field (ADR-016)', () => {
+    const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
+      translate('en', key, params);
+    const price = rowIssueText(
+      { code: 'TOO_MANY_DECIMALS', severity: 'error', field: 'unitPrice', params: { max: 6 } },
+      t,
+    );
+    expect(price).toBe('Unit price has more than 6 decimal places');
+    const quantity = rowIssueText(
+      { code: 'TOO_MANY_DECIMALS', severity: 'error', field: 'quantity', params: { max: 4 } },
+      t,
+    );
+    expect(quantity).toBe('Quantity has more than 4 decimal places');
+  });
+
+  it('shows the unknown work type value', () => {
+    const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
+      translate('ar', key, params);
+    const text = rowIssueText(
+      {
+        code: 'INVALID_WORK_TYPE',
+        severity: 'error',
+        field: 'workType',
+        params: { value: 'صيانة' },
+      },
+      t,
+    );
+    expect(text).toContain('صيانة');
+  });
 });

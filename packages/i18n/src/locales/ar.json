@@ -69,6 +69,7 @@
     "required": "هذا الحقل مطلوب",
     "tooLong": "النص أطول من المسموح",
     "decimal": "أدخل رقمًا غير سالب بحد أقصى 4 خانات عشرية",
+    "priceDecimal": "أدخل رقمًا غير سالب بحد أقصى 6 خانات عشرية",
     "date": "تاريخ غير صحيح"
   },
   "nav": {
@@ -120,6 +121,14 @@
     "unit": "الوحدة",
     "quantity": "الكمية",
     "unitPrice": "سعر الوحدة",
+    "workType": "نوع الأعمال",
+    "workTypeChoose": "— اختر نوع الأعمال —",
+    "workTypeNone": "غير محدد",
+    "workTypes": {
+      "civil": "مدني",
+      "installation": "تركيبات",
+      "planning": "تخطيط"
+    },
     "amount": "القيمة",
     "confirmDelete": "حذف هذا البند؟",
     "duplicateBadge": "كود مكرر",
@@ -168,6 +177,7 @@
       "unit": "الوحدة",
       "quantity": "الكمية",
       "unitPrice": "سعر الوحدة",
+      "workType": "نوع الأعمال",
       "amount": "القيمة (للمطابقة)"
     },
     "summary": {
@@ -240,10 +250,11 @@
       "MISSING_VALUE": "قيمة مفقودة: {field}",
       "INVALID_NUMBER": "رقم غير صالح في {field}",
       "NEGATIVE_NUMBER": "{field} لا يمكن أن يكون سالبًا",
-      "TOO_MANY_DECIMALS": "{field} به أكثر من 4 خانات عشرية",
+      "TOO_MANY_DECIMALS": "{field} به أكثر من {max} خانات عشرية",
       "NUMBER_OUT_OF_RANGE": "{field} أكبر من المسموح",
       "TEXT_TOO_LONG": "{field} أطول من المسموح",
       "FORMULA_WITHOUT_RESULT": "{field} معادلة بلا نتيجة محفوظة؛ افتح الملف في Excel واحفظه",
+      "INVALID_WORK_TYPE": "نوع الأعمال \"{value}\" غير معروف؛ المسموح: مدني أو تركيبات أو تخطيط",
       "DUPLICATE_CODE": "الكود مكرر في الصفوف {otherRows}",
       "AMOUNT_MISMATCH": "القيمة في الملف تختلف عن الكمية × سعر الوحدة"
     },

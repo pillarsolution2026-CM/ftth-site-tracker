@@ -22,8 +22,13 @@ import {
   CadLayerListResponseSchema,
   CadTextPageSchema,
   Decimal4StringSchema,
+  Decimal6StringSchema,
   IMPORT_FIELDS,
   IMPORT_HEADER_SYNONYMS,
+  WORK_TYPE_SYNONYMS,
+  WORK_TYPES,
+  WorkTypeSchema,
+  type WorkType,
   WorkOrderAttachmentListResponseSchema,
   WorkOrderAttachmentSchema,
   WorkOrderDetailSchema,
@@ -158,6 +163,7 @@ interface ItemRecord {
   unit: string;
   quantity: string;
   unitPrice: string;
+  workType: WorkType | null;
   source: 'manual' | 'import';
   sourceRow: number | null;
 }
@@ -199,6 +205,7 @@ function itemOut(workOrderId: string, item: ItemRecord) {
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     amount: mulDec(item.quantity, item.unitPrice),
+    workType: item.workType,
     source: item.source,
     sourceRow: item.sourceRow,
     createdAt: now,
@@ -332,13 +339,21 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
       IMPORT_FIELDS.map((field) => [field, cell(row, field)]),
     ) as Record<(typeof IMPORT_FIELDS)[number], string | null>;
     const issues: unknown[] = [];
-    for (const field of ['code', 'description', 'unit', 'quantity', 'unitPrice'] as const) {
+    for (const field of [
+      'code',
+      'description',
+      'unit',
+      'quantity',
+      'unitPrice',
+      'workType',
+    ] as const) {
       if (raw[field] === null) issues.push({ code: 'MISSING_VALUE', severity: 'error', field });
     }
     const decimal = (field: 'quantity' | 'unitPrice') => {
       const value = raw[field];
       if (value === null) return null;
-      if (!Decimal4StringSchema.safeParse(value).success) {
+      const schema = field === 'quantity' ? Decimal4StringSchema : Decimal6StringSchema;
+      if (!schema.safeParse(value).success) {
         issues.push({ code: 'INVALID_NUMBER', severity: 'error', field });
         return null;
       }
@@ -346,6 +361,15 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
     };
     const quantity = decimal('quantity');
     const unitPrice = decimal('unitPrice');
+    const typeText = raw.workType === null ? null : normalise(raw.workType);
+    const workType =
+      typeText === null
+        ? null
+        : (WORK_TYPES.find((type) => WORK_TYPE_SYNONYMS[type].map(normalise).includes(typeText)) ??
+          null);
+    if (typeText !== null && workType === null) {
+      issues.push({ code: 'INVALID_WORK_TYPE', severity: 'error', field: 'workType' });
+    }
     return {
       rowNumber: index + 2,
       raw,
@@ -354,6 +378,7 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
       unit: raw.unit,
       quantity,
       unitPrice,
+      workType,
       sheetAmount: raw.amount,
       amount: quantity !== null && unitPrice !== null ? mulDec(quantity, unitPrice) : null,
       issues,
@@ -687,6 +712,7 @@ async function handleItems(
       unit: String(body.unit),
       quantity: String(body.quantity),
       unitPrice: String(body.unitPrice),
+      workType: WorkTypeSchema.parse(body.workType),
       source: 'manual',
       sourceRow: null,
     };
@@ -708,6 +734,7 @@ async function handleItems(
     for (const field of ['code', 'description', 'unit', 'quantity', 'unitPrice'] as const) {
       if (typeof body[field] === 'string') item[field] = body[field];
     }
+    if (body.workType !== undefined) item.workType = WorkTypeSchema.parse(body.workType);
     touch();
     return send(res, 200, itemOut(workOrder.id, item));
   }
@@ -810,6 +837,7 @@ function commitImport(res: ServerResponse, file: Part, payload: Record<string, a
     unit: row.unit as string,
     quantity: row.quantity as string,
     unitPrice: row.unitPrice as string,
+    workType: row.workType,
     source: 'import',
     sourceRow: row.rowNumber,
   }));

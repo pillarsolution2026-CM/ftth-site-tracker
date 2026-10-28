@@ -27,9 +27,9 @@ describe('xlsx import parsing: headers', () => {
       {
         name: 'BOQ',
         rows: [
-          ARABIC_HEADER,
-          ['A-1', 'حفر خندق', 'م.ط', 10, 25.5, 255],
-          ['A-2', 'مواسير', 'م.ط', 3, 100, 300],
+          [...ARABIC_HEADER, 'نوع الأعمال'],
+          ['A-1', 'حفر خندق', 'م.ط', 10, 25.5, 255, 'مدني'],
+          ['A-2', 'مواسير', 'م.ط', 3, 100, 300, 'تركيبات'],
         ],
       },
     ]);
@@ -41,12 +41,15 @@ describe('xlsx import parsing: headers', () => {
       unit: 2,
       quantity: 3,
       unitPrice: 4,
+      workType: 6,
       amount: 5,
     });
-    expect(parsed.rows.map((r) => [r.code, r.quantity, r.unitPrice, r.amount])).toEqual([
-      ['A-1', '10', '25.5', '255'],
-      ['A-2', '3', '100', '300'],
-    ]);
+    expect(parsed.rows.map((r) => [r.code, r.quantity, r.unitPrice, r.amount, r.workType])).toEqual(
+      [
+        ['A-1', '10', '25.5', '255', 'civil'],
+        ['A-2', '3', '100', '300', 'installation'],
+      ],
+    );
     expect(parsed.summary).toMatchObject({ rowCount: 2, errorRowCount: 0, total: '555' });
   });
 
@@ -57,8 +60,16 @@ describe('xlsx import parsing: headers', () => {
       {
         name: 'S',
         rows: [
-          ['Code', 'Désignation', 'Unité', 'Quantité', 'Prix unitaire', 'Montant'],
-          ['X', 'd', 'u', 1, 2, 2],
+          [
+            'Code',
+            'Désignation',
+            'Unité',
+            'Quantité',
+            'Prix unitaire',
+            'Montant',
+            'Type de travaux',
+          ],
+          ['X', 'd', 'u', 1, 2, 2, 'planification'],
         ],
       },
     ]);
@@ -68,8 +79,10 @@ describe('xlsx import parsing: headers', () => {
       unit: 2,
       quantity: 3,
       unitPrice: 4,
+      workType: 6,
       amount: 5,
     });
+    expect(french.rows[0]?.workType).toBe('planning');
   });
 
   it('prefers the longest synonym: "سعر الوحدة" is the price, not the unit', async () => {
@@ -155,7 +168,15 @@ describe('xlsx import parsing: headers', () => {
     const parsed = await parse(sheets, {
       sheetName: 'data',
       headerRow: 1,
-      mapping: { code: 2, description: 3, unit: 4, quantity: 0, unitPrice: 1, amount: null },
+      mapping: {
+        code: 2,
+        description: 3,
+        unit: 4,
+        quantity: 0,
+        unitPrice: 1,
+        workType: null,
+        amount: null,
+      },
     });
     expect(parsed.sheets).toEqual([
       { name: 'cover', rowCount: 1 },
@@ -187,7 +208,15 @@ describe('xlsx import parsing: headers', () => {
 
     const twice = await parse([{ name: 'S', rows: [ENGLISH_HEADER, ['X', 'd', 'u', 1, 2, 2]] }], {
       headerRow: 1,
-      mapping: { code: 0, description: 0, unit: 2, quantity: 3, unitPrice: 4, amount: null },
+      mapping: {
+        code: 0,
+        description: 0,
+        unit: 2,
+        quantity: 3,
+        unitPrice: 4,
+        workType: null,
+        amount: null,
+      },
     });
     expect(twice.fileIssues).toContainEqual({ code: 'COLUMN_MAPPED_TWICE', field: 'description' });
   });
@@ -337,9 +366,9 @@ describe('xlsx import parsing: rows', () => {
   });
 
   it('reports an empty data area and an empty sheet', async () => {
-    expect((await parse([{ name: 'S', rows: [ENGLISH_HEADER] }])).fileIssues).toEqual([
-      { code: 'NO_ITEM_ROWS', field: null },
-    ]);
+    expect(
+      (await parse([{ name: 'S', rows: [[...ENGLISH_HEADER, 'Work Type']] }])).fileIssues,
+    ).toEqual([{ code: 'NO_ITEM_ROWS', field: null }]);
     expect((await parse([{ name: 'S', rows: [] }])).fileIssues).toEqual([
       { code: 'SHEET_EMPTY', field: null },
     ]);
@@ -355,6 +384,116 @@ describe('xlsx import parsing: rows', () => {
       [4, 'E', 'Unit Price'],
       [5, 'F', 'Amount'],
     ]);
+  });
+});
+
+describe('xlsx import parsing: work type, price decimals, unit length (ADR-016)', () => {
+  // Same layout as the owner's BOQ sheet: serial, work type, description, unit, qty, price, total.
+  const OWNER_HEADER = [
+    'مسلسل',
+    'نوع الاعمال',
+    'البيـــــــان',
+    'الوحدة',
+    'الكمية',
+    'سعر الوحدة \nجم بدون الضريبة',
+    'الاجمالي بدون الضريبة',
+  ];
+  const ownerSheet = (rows: unknown[][]) =>
+    parse([{ name: 'S', rows: [OWNER_HEADER, ...rows] as never }], {
+      headerRow: 1,
+      mapping: {
+        code: 0,
+        workType: 1,
+        description: 2,
+        unit: 3,
+        quantity: 4,
+        unitPrice: 5,
+        amount: 6,
+      },
+    });
+
+  it('detects the work type column from the Arabic header', async () => {
+    const parsed = await parse([
+      { name: 'S', rows: [OWNER_HEADER, ['1-1', 'مدني', 'd', 'م3', 1, 2, 2]] },
+    ]);
+    expect(parsed.suggestedMapping).toMatchObject({
+      workType: 1,
+      description: 2,
+      unit: 3,
+      quantity: 4,
+      unitPrice: 5,
+      amount: 6,
+    });
+    // "مسلسل" is not a code synonym: the user maps column A by hand (unchanged behaviour).
+    expect(parsed.suggestedMapping.code).toBeNull();
+  });
+
+  it('reads the three work types and rejects anything else', async () => {
+    const parsed = await ownerSheet([
+      ['1', 'مدني', 'd', 'عدد', 1, 2, 2],
+      ['2', 'تركيبات', 'd', 'عدد', 1, 2, 2],
+      ['3', ' تخطيط ', 'd', 'عدد', 1, 2, 2],
+      ['4', 'صيانة', 'd', 'عدد', 1, 2, 2],
+      ['5', null, 'd', 'عدد', 1, 2, 2],
+    ]);
+    expect(parsed.rows.map((r) => r.workType)).toEqual([
+      'civil',
+      'installation',
+      'planning',
+      null,
+      null,
+    ]);
+    expect(parsed.rows[3]?.issues).toEqual([
+      expect.objectContaining({ code: 'INVALID_WORK_TYPE', field: 'workType', severity: 'error' }),
+    ]);
+    expect(issueCodes(parsed, 4)).toEqual(['MISSING_VALUE']);
+  });
+
+  it('requires the work type column to be mapped', async () => {
+    const parsed = await parse([{ name: 'S', rows: [ENGLISH_HEADER, ['A', 'd', 'u', 1, 2, 2]] }]);
+    expect(parsed.fileIssues).toEqual([{ code: 'REQUIRED_FIELD_UNMAPPED', field: 'workType' }]);
+  });
+
+  it('accepts unit prices with up to 6 decimals and keeps quantities at 4', async () => {
+    const parsed = await ownerSheet([
+      ['2-2-1', 'مدني', 'd', 'م.ط', 21000, 5.59936, 117586.56],
+      ['2-7-5-1', 'مدني', 'd', 'م.ط', 1500, 4.06624, 6099.36],
+      ['X', 'مدني', 'd', 'م.ط', 1, 1.1234567, null],
+      ['Y', 'مدني', 'd', 'م.ط', 1.23456, 1, null],
+    ]);
+    expect(parsed.rows[0]).toMatchObject({
+      unitPrice: '5.59936',
+      amount: '117586.56',
+      issues: [],
+    });
+    expect(parsed.rows[1]).toMatchObject({ unitPrice: '4.06624', amount: '6099.36', issues: [] });
+    expect(parsed.rows[2]?.issues).toEqual([
+      expect.objectContaining({
+        code: 'TOO_MANY_DECIMALS',
+        field: 'unitPrice',
+        params: { max: 6 },
+      }),
+    ]);
+    expect(parsed.rows[3]?.issues).toEqual([
+      expect.objectContaining({ code: 'TOO_MANY_DECIMALS', field: 'quantity', params: { max: 4 } }),
+    ]);
+  });
+
+  it('accepts units up to 64 characters', async () => {
+    const longest = 'BULDING\n\n(more than 8 unit/flat per building)';
+    const parsed = await ownerSheet([
+      ['4-2-4', 'تخطيط', 'd', longest, 3750, 77.25856, 289719.6],
+      ['Z', 'تخطيط', 'd', 'u'.repeat(65), 1, 1, null],
+    ]);
+    expect(parsed.rows[0]).toMatchObject({ unit: longest, issues: [] });
+    expect(parsed.rows[1]?.issues).toEqual([
+      expect.objectContaining({ code: 'TEXT_TOO_LONG', field: 'unit', params: { max: 64 } }),
+    ]);
+  });
+
+  it('still flags section headings without unit, quantity or price', async () => {
+    const parsed = await ownerSheet([['1-1', 'مدني', 'غرف التفتيش', null, null, null, null]]);
+    expect(issueCodes(parsed, 0)).toEqual(['MISSING_VALUE', 'MISSING_VALUE', 'MISSING_VALUE']);
   });
 });
 
