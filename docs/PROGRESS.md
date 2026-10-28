@@ -11,7 +11,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | 1b Mapping, text linking, features, tiles | Not started | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
-| 4 As-Built editing | Not started | — |
+| 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phases 1b and 3 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
@@ -89,3 +89,22 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - Owner's sheet (199 rows): 153 clean rows (was 129), total 78,900,610.328; the 46 remaining error rows are section headings, empty quantities and one heading without description — left as they are by the owner's decision. Work type column detected automatically.
   - Test report (local, Windows + Docker): unit shared 103, i18n 4, ui-tokens 2, api 202, web 115; web e2e 9; API integration 91 (Linux container + PostGIS 16 + Redis, like CI). Build, typecheck, lint and format check pass.
   - Note: API integration tests cannot run directly on a Windows host (`STORAGE_FS_ROOT` must be a POSIX path); run them in Linux/CI.
+
+### Phase 4 (early start) — Geometry engine `packages/geo` (PR #5)
+Started ahead of Phases 1b–3 at the owner's request; only the part with no dependency on CAD mapping or the mobile app. Package decisions G-1..G-7 are in `packages/geo/DECISIONS.md`.
+- **Done:**
+  - `@ftth/geo`: pure TypeScript, no DOM or DB; the only runtime dependency is `proj4`.
+  - Measure: `polylineLength` in planar metres in the project CRS (same as PostGIS `ST_Length`), `distanceToSegment`, `closestPointOnSegment`.
+  - Grips and edits: vertex and segment-midpoint grips; `EditOperation` (move, insert, remove vertex, translate) as plain data, applied immutably; a route never drops below 2 vertices.
+  - Snap: endpoint / vertex / symbol, nearest within tolerance wins; `SNAP_TOLERANCE_PX = 14` converted to metres per zoom with `toleranceFromPixels`; the dragged feature or vertex is excluded.
+  - History: `EditSession` with unlimited, exact undo (stored snapshots, no float drift) and deterministic redo; `appliedOperations` are what the device will send as As-Built events.
+  - Arc/bulge flattening ported from `workers/cad/cad_worker/domain/flatten.py` (1 mm sagitta, max 2048 segments), so devices and the worker produce the same vertices; exact arc length via `bulgePolylineLength`.
+  - CRS: project CRS ↔ WGS84 for WGS 84 / UTM (EPSG 326xx / 327xx) only; the single TypeScript CRS conversion point.
+  - Typed `GeometryError` codes: `NON_FINITE_COORDINATE`, `TOO_FEW_VERTICES`, `VERTEX_OUT_OF_RANGE`, `INVALID_TOLERANCE`, `INVALID_BULGE`, `UNSUPPORTED_CRS`, `COORDINATE_OUT_OF_RANGE`.
+- **Bug found by testing and fixed:** proj4 silently returns a wrong point for impossible WGS84 input (e.g. lat 1e10, lon 213, as a GPS glitch could produce); `fromWgs84` now rejects it with `COORDINATE_OUT_OF_RANGE`.
+- **Test report:** `pnpm --filter @ftth/geo test:cov` — 60 tests pass, 11 of them fast-check properties at 10,000 runs each; CRS matches pyproj 3.8 to the millimetre; coverage 100% (threshold 90%). Lint, typecheck, build, format: pass. `pnpm test` (whole repo): 10/10 tasks pass. CI green on merge `a1e766b`.
+- **Not done (blocked on Phases 1b and 3):** mobile editing tools, web design-vs-As-Built review, As-Built DXF export.
+- **Decisions to confirm (owner):**
+  - Snap tie order endpoint → symbol → vertex (a UX choice, not in the plan).
+  - Supported CRSs limited to WGS 84 / UTM; other EPSG codes are rejected until a project needs them.
+- **Note:** PR #6 is an earlier, smaller version of the same package and conflicts with `main`; it is superseded by PR #5.
