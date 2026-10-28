@@ -1,6 +1,12 @@
 import { Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { CAD_QUEUE_KEYS, CadImportJobSchema, type CadImportJob } from '@ftth/shared';
+import {
+  CAD_QUEUE_KEYS,
+  CadBuildRevisionJobSchema,
+  CadImportJobSchema,
+  type CadBuildRevisionJob,
+  type CadImportJob,
+} from '@ftth/shared';
 import type { JobQueue } from '../application/ports.js';
 
 const COMMAND_TIMEOUT_MS = 5_000;
@@ -27,6 +33,11 @@ export class RedisJobQueue implements JobQueue {
   async enqueueCadImport(job: CadImportJob): Promise<void> {
     // Never push a message the worker would reject.
     const message = JSON.stringify(CadImportJobSchema.parse(job));
+    await this.redis.lpush(CAD_QUEUE_KEYS.jobs, message);
+  }
+
+  async enqueueBuildRevision(job: CadBuildRevisionJob): Promise<void> {
+    const message = JSON.stringify(CadBuildRevisionJobSchema.parse(job));
     await this.redis.lpush(CAD_QUEUE_KEYS.jobs, message);
   }
 

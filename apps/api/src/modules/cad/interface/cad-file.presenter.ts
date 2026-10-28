@@ -31,6 +31,7 @@ export function toDetailDto(file: CadFile): CadFileDetail {
     converterVersion: file.converterVersion,
     insUnits: file.insUnits,
     extents: file.extents,
+    crsDetection: file.crsDetection,
     warnings: file.warnings,
     errorMessage: file.errorMessage,
     queuedAt: file.queuedAt?.toISOString() ?? null,
