@@ -32,6 +32,7 @@ from cad_worker.application.ports import (
     RevisionRepository,
     RevisionRows,
     TextLinkRow,
+    TileLimitError,
 )
 from cad_worker.domain.design import FEATURE_TYPES, DesignFeatureDraft, FeatureKey
 from cad_worker.domain.design_build import (
@@ -52,6 +53,11 @@ from cad_worker.domain.text_links import (
 )
 
 log = logging.getLogger(__name__)
+
+# Fixed texts for `design_revisions.error_message`, which every `design:read` user can see.
+TILES_TOO_LARGE_MESSAGE = "Tile generation failed: the drawing covers too many tiles."
+TILES_FAILED_MESSAGE = "Tile generation failed."
+INTERNAL_MESSAGE = "Internal error while building the revision."
 
 Outcome = Literal["built", "failed", "superseded"]
 
@@ -89,7 +95,8 @@ def run_build(job: CadBuildRevisionJob, deps: BuildDeps, worker_id: str) -> Outc
         return _fail(deps, job, failure)
     except Exception as exc:
         log.exception("build job %s crashed", job.id)
-        return _fail(deps, job, BuildFailure("INTERNAL", f"{type(exc).__name__}: {exc}"))
+        detail = f"{type(exc).__name__}: {exc}"
+        return _fail(deps, job, BuildFailure("INTERNAL", INTERNAL_MESSAGE, detail))
     log.info("build job %s %s in %.1fs", job.id, outcome, time.monotonic() - started)
     return outcome
 
@@ -223,8 +230,12 @@ def _tiles(
             if stats.tiles == 0:
                 return None, "tiles: none (nothing to draw)"
             deps.storage.upload(path, key)
+    except TileLimitError as exc:
+        raise BuildFailure("TILES_FAILED", TILES_TOO_LARGE_MESSAGE, f"tiles: {exc}") from exc
     except Exception as exc:
-        raise BuildFailure("TILES_FAILED", f"{type(exc).__name__}: {exc}") from exc
+        # Readers see a fixed message; exception text (paths, SQL) goes to the log only (review L3).
+        detail = f"tiles: {type(exc).__name__}: {exc}"
+        raise BuildFailure("TILES_FAILED", TILES_FAILED_MESSAGE, detail) from exc
     took = time.monotonic() - started
     return key, f"tiles: {stats.tiles} tiles, {stats.bytes} bytes, {took:.1f}s"
 

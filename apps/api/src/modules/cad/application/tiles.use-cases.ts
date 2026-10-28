@@ -1,6 +1,7 @@
 import {
   TILE_SOURCE_DESIGN_FEATURES,
   TILE_URL_TTL_SECONDS,
+  type DesignRevisionStatus,
   type TileUrlResponse,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
@@ -12,6 +13,8 @@ import type { DesignRevisionRepository } from '../domain/design-revision.reposit
 import { signTile, verifyTileUri } from '../domain/tile-signature.js';
 import { requireRevision } from './design-revision-queries.use-cases.js';
 import type { TileConfig } from './ports.js';
+
+const SERVABLE_STATUSES: ReadonlySet<DesignRevisionStatus> = new Set(['draft', 'published']);
 
 /** Streams the revision's PMTiles archive after the normal permission checks (Range supported). */
 export class GetRevisionTilesUseCase {
@@ -26,7 +29,10 @@ export class GetRevisionTilesUseCase {
     rangeHeader: string | undefined,
   ): Promise<RangedObjectResponse> {
     const revision = await requireRevision(this.revisions, projectId, revisionId);
-    if (!revision.tilesStorageKey) throw new AppError('NOT_FOUND', 'The revision has no tiles');
+    // Same rule as the tile URL and the SQL function: only draft and published revisions.
+    if (!revision.tilesStorageKey || !SERVABLE_STATUSES.has(revision.status)) {
+      throw new AppError('NOT_FOUND', 'The revision has no tiles');
+    }
     const stored = await this.storage.stat(revision.tilesStorageKey);
     if (!stored) throw new AppError('NOT_FOUND', 'The revision has no tiles');
 
@@ -63,7 +69,7 @@ export class CreateTileUrlUseCase {
     // Not configured → the endpoint does not exist for this deployment.
     if (!this.config) throw new AppError('NOT_FOUND', 'Tiles are not available');
     const revision = await requireRevision(this.revisions, projectId, revisionId);
-    if (revision.status !== 'draft' && revision.status !== 'published') {
+    if (!SERVABLE_STATUSES.has(revision.status)) {
       throw new AppError('NOT_FOUND', 'Tiles are not available for this revision');
     }
 

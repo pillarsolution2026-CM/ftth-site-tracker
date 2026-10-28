@@ -64,3 +64,55 @@ def test_revision_without_anything_to_draw_has_no_archive(
     assert row is not None and row[:2] == ("draft", None)
     assert row[2]["routeLengthM"] == "0.000"
     assert not (tmp_path / "projects").exists()
+
+
+def _status(db: psycopg.Connection[Any], revision_id: object) -> tuple[Any, ...]:
+    row = db.execute(
+        "SELECT status, error_code, error_message, tiles_storage_key FROM design_revisions "
+        "WHERE id = %s",
+        (revision_id,),
+    ).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+def test_too_many_tiles_fails_the_build_instead_of_running_unbounded(
+    db: psycopg.Connection[Any], database_url: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Security review M1: a drawing spread over a huge area must not stall the worker."""
+    from cad_worker.adapters import pmtiles_writer
+
+    monkeypatch.setattr(pmtiles_writer, "MAX_TILES", 3)
+    revision = queue_revision(db, seed_processed_file(db))
+    deps = BuildDeps(PostgresRevisionRepository(database_url), FsStorage(tmp_path))
+    assert run_build(revision.job(), deps, "w1") == "failed"
+    status, code, message, key = _status(db, revision.revision_id)
+    assert (status, code, key) == ("failed", "TILES_FAILED", None)
+    # Security review L3: a fixed message, no exception text, paths or SQL for readers.
+    assert message == "Tile generation failed: the drawing covers too many tiles."
+
+
+def test_too_many_seed_tiles_fails_before_cutting(
+    db: psycopg.Connection[Any], database_url: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    from cad_worker.adapters import pmtiles_writer
+
+    monkeypatch.setattr(pmtiles_writer, "MAX_SEED_TILES", 0)
+    revision = queue_revision(db, seed_processed_file(db))
+    deps = BuildDeps(PostgresRevisionRepository(database_url), FsStorage(tmp_path))
+    assert run_build(revision.job(), deps, "w1") == "failed"
+    assert _status(db, revision.revision_id)[1] == "TILES_FAILED"
+
+
+def test_temp_tables_never_touch_a_permanent_table_of_the_same_name(
+    db: psycopg.Connection[Any], database_url: str, tmp_path: Path
+) -> None:
+    """Security review L2: `DROP TABLE IF EXISTS pm_network` must not resolve to `public`."""
+    db.execute("CREATE TABLE IF NOT EXISTS public.pm_network (keep int)")
+    try:
+        revision = queue_revision(db, seed_processed_file(db))
+        deps = BuildDeps(PostgresRevisionRepository(database_url), FsStorage(tmp_path))
+        assert run_build(revision.job(), deps, "w1") == "built"
+        assert db.execute("SELECT to_regclass('public.pm_network')").fetchone() == ("pm_network",)
+    finally:
+        db.execute("DROP TABLE IF EXISTS public.pm_network")

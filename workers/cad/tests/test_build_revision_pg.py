@@ -247,7 +247,12 @@ def test_tile_upload_failure_rolls_back_everything(
     assert run_build(revision.job(), deps, "w1") == "failed"
     row = revision_row(db, revision)
     assert (row["status"], row["error_code"]) == ("failed", "TILES_FAILED")
-    assert "disk full" in row["error_message"] and row["counts"] is None
+    # Readers get a fixed message; the exception text is kept in the log only (review L3).
+    assert row["error_message"] == "Tile generation failed." and row["counts"] is None
+    log = db.execute(
+        "SELECT log FROM design_revisions WHERE id = %s", (revision.revision_id,)
+    ).fetchone()
+    assert log is not None and "disk full" in log[0]
     assert count(db, "design_features", revision) == 0
     assert count(db, "revision_diff_items", revision) == 0
 

@@ -252,6 +252,24 @@ $$;
 CREATE TRIGGER features_no_update BEFORE UPDATE ON features
   FOR EACH ROW EXECUTE FUNCTION features_reject_update();
 
+-- Row triggers do not fire on TRUNCATE; block it on every design table (security review L5).
+CREATE FUNCTION design_tables_reject_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION '% is immutable design data (TRUNCATE rejected)', TG_TABLE_NAME
+    USING ERRCODE = 'restrict_violation';
+END;
+$$;
+CREATE TRIGGER design_revisions_no_truncate BEFORE TRUNCATE ON design_revisions
+  FOR EACH STATEMENT EXECUTE FUNCTION design_tables_reject_truncate();
+CREATE TRIGGER features_no_truncate BEFORE TRUNCATE ON features
+  FOR EACH STATEMENT EXECUTE FUNCTION design_tables_reject_truncate();
+CREATE TRIGGER design_features_no_truncate BEFORE TRUNCATE ON design_features
+  FOR EACH STATEMENT EXECUTE FUNCTION design_tables_reject_truncate();
+CREATE TRIGGER text_links_no_truncate BEFORE TRUNCATE ON text_links
+  FOR EACH STATEMENT EXECUTE FUNCTION design_tables_reject_truncate();
+CREATE TRIGGER revision_diff_items_no_truncate BEFORE TRUNCATE ON revision_diff_items
+  FOR EACH STATEMENT EXECUTE FUNCTION design_tables_reject_truncate();
+
 -- ---------- tiles (ADR-021): Martin reads ONLY through this function ----------
 
 CREATE SCHEMA IF NOT EXISTS tiles;

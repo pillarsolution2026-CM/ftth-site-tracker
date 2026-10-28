@@ -20,7 +20,7 @@ import psycopg
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import Writer
 
-from cad_worker.application.ports import TileStats
+from cad_worker.application.ports import TileLimitError, TileStats
 from cad_worker.domain.design_build import BackgroundSelection
 from cad_worker.domain.geo import lonlat_to_tile, project_crs
 
@@ -28,6 +28,12 @@ MIN_ZOOM = 12
 MAX_ZOOM = 18
 EXTENT = 4096
 BUFFER = 64
+# Hard limits so one drawing spread over a huge area cannot stall the worker or exhaust memory
+# (security review M1). A z12 tile is ~8 km wide at Egypt's latitudes, so 1,024 seed tiles cover
+# far more than any project area; Qalyub sector 1 needs about 4 seed tiles and a few hundred tiles.
+MAX_SEED_TILES = 1024
+MAX_TILES = 100_000
+MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 
 _NETWORK_SQL = """
 CREATE TEMP TABLE pm_network ON COMMIT DROP AS
@@ -110,7 +116,8 @@ def write_revision_pmtiles(
 
 
 def _prepare(conn: psycopg.Connection[Any], s: TileSource) -> None:
-    conn.execute("DROP TABLE IF EXISTS pm_network, pm_background")
+    # Schema-qualified: an unqualified name could resolve to a permanent table (review L2).
+    conn.execute("DROP TABLE IF EXISTS pg_temp.pm_network, pg_temp.pm_background")
     conn.execute(_NETWORK_SQL, {"revision": s.revision_id, "project": s.project_id})
     conn.execute(
         _BACKGROUND_SQL,
@@ -142,8 +149,11 @@ def _cut(
     min_lon, min_lat, max_lon, max_lat = bounds
     x0, y0 = lonlat_to_tile(min_lon, max_lat, MIN_ZOOM)  # tile y grows southwards
     x1, y1 = lonlat_to_tile(max_lon, min_lat, MIN_ZOOM)
+    if (x1 - x0 + 1) * (y1 - y0 + 1) > MAX_SEED_TILES:
+        raise TileLimitError(f"extent needs {(x1 - x0 + 1) * (y1 - y0 + 1)} z{MIN_ZOOM} tiles")
     pending = [(MIN_ZOOM, x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
     tiles: dict[int, bytes] = {}
+    total_bytes = 0
     while pending:
         z, x, y = pending.pop()
         row = conn.execute(_TILE_SQL, {"z": z, "x": x, "y": y}).fetchone()
@@ -151,7 +161,11 @@ def _cut(
             continue
         mvt = bytes(row[0] or b"") + bytes(row[1] or b"")
         if mvt:
-            tiles[zxy_to_tileid(z, x, y)] = gzip.compress(mvt, mtime=0)
+            data = gzip.compress(mvt, mtime=0)
+            tiles[zxy_to_tileid(z, x, y)] = data
+            total_bytes += len(data)
+            if len(tiles) > MAX_TILES or total_bytes > MAX_ARCHIVE_BYTES:
+                raise TileLimitError(f"more than {len(tiles)} tiles / {total_bytes} bytes")
         if z < MAX_ZOOM:
             pending.extend((z + 1, 2 * x + dx, 2 * y + dy) for dx in (0, 1) for dy in (0, 1))
     return tiles

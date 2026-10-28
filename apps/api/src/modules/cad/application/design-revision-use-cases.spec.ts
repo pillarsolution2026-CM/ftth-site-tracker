@@ -614,6 +614,7 @@ describe('tile use cases', () => {
     it('streams the whole archive, one range, or reports an unsatisfiable range', async () => {
       uow.revisions.rows.set(revisionId, {
         ...must(uow.revisions.rows.get(revisionId)),
+        status: 'draft',
         tilesStorageKey: KEY,
       });
       const full = await download();
@@ -626,6 +627,17 @@ describe('tile use cases', () => {
 
       expect(await download('bytes=50-')).toEqual({ kind: 'unsatisfiable', sizeBytes: 10 });
       expect(await reason(download(undefined, OTHER_PROJECT))).toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('serves only draft and published revisions, like the tile URL (security review L4)', async () => {
+      for (const status of ['discarded', 'failed', 'building'] as const) {
+        uow.revisions.rows.set(revisionId, {
+          ...must(uow.revisions.rows.get(revisionId)),
+          status,
+          tilesStorageKey: KEY,
+        });
+        expect(await reason(download())).toMatchObject({ code: 'NOT_FOUND' });
+      }
     });
   });
 });

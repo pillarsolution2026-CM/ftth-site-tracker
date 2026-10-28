@@ -1200,6 +1200,21 @@ describe('further revisions', () => {
       `UPDATE design_revisions SET queued_at = now() - interval '20 minutes' WHERE id = $1`,
       [created.id],
     );
+    // A worker stuck while holding the row lock must not hang the API (security review M1):
+    // the lock wait times out and the request answers 409 REVISION_BUSY.
+    const holder = await ctx.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM design_revisions WHERE id = $1 FOR UPDATE', [created.id]);
+      const started = Date.now();
+      const busy = await as(pm)(http().post(`${url}/discard`));
+      expect(busy.status, JSON.stringify(busy.body)).toBe(409);
+      expect(busy.body.details).toMatchObject({ reason: 'REVISION_BUSY' });
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
     const stale = await as(pm)(http().post(`${url}/discard`));
     expect(stale.status, JSON.stringify(stale.body)).toBe(200);
     expect(stale.body.status).toBe('discarded');

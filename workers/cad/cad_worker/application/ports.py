@@ -168,6 +168,10 @@ RevisionFailureCode = Literal[
 ]
 
 
+class TileLimitError(Exception):
+    """The revision would need more tiles or bytes than the tile writer allows."""
+
+
 class BuildFailure(Exception):
     """A handled build failure: the revision is marked `failed` with this code (no retry)."""
 

@@ -1,9 +1,9 @@
 import { DesignRevisionCountsSchema, DiffCountsSchema, TextLinkCountsSchema } from '@ftth/shared';
-import { and, desc, eq, inArray, max } from 'drizzle-orm';
+import { and, desc, eq, inArray, max, sql } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import { toDecimalText } from '../../../common/decimal-text.js';
 import type { DbHandle } from '../../../db/db.module.js';
-import { uniqueViolation } from '../../../db/pg-errors.js';
+import { lockNotAvailable, uniqueViolation } from '../../../db/pg-errors.js';
 import { cadFiles, designRevisions } from '../../../db/schema.js';
 import type { DesignRevision } from '../domain/design-revision.js';
 import type {
@@ -12,6 +12,11 @@ import type {
 } from '../domain/design-revision.repository.js';
 
 const OPEN_INDEX = 'design_revisions_one_open_idx';
+/**
+ * The worker holds the revision row for the whole build. A request that needs the row waits at
+ * most this long and then answers 409 REVISION_BUSY instead of hanging (security review M1).
+ */
+const LOCK_TIMEOUT = sql.raw(`SET LOCAL lock_timeout = '5s'`);
 
 const columns = {
   row: designRevisions,
@@ -88,11 +93,19 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
   ): Promise<DesignRevision | null> {
     if (options?.lock) {
       // FOR UPDATE cannot lock the nullable side of a join; lock the revision row on its own.
-      await this.db
-        .select({ id: designRevisions.id })
-        .from(designRevisions)
-        .where(inProject(projectId, revisionId))
-        .for('update');
+      await this.db.execute(LOCK_TIMEOUT);
+      try {
+        await this.db
+          .select({ id: designRevisions.id })
+          .from(designRevisions)
+          .where(inProject(projectId, revisionId))
+          .for('update');
+      } catch (error) {
+        if (!lockNotAvailable(error)) throw error;
+        throw new AppError('CONFLICT', 'The revision is being built; try again shortly', {
+          reason: 'REVISION_BUSY',
+        });
+      }
     }
     const [row] = await this.selectJoined().where(inProject(projectId, revisionId));
     return row ? toRevision(row) : null;

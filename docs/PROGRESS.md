@@ -104,12 +104,20 @@ Contracts: `docs/phase-1b-contracts.md`. ADRs: 017 (mapping, revisions), 018 (dr
   - **Web**: mapping screen (CRS/unit panel with the units warning, layers, blocks, text rules, save, build) and design-revision list/detail (counts, text review list, diff, publish with acknowledgement, discard). ar/en/fr.
 - **Verified end to end (local, real PostGIS + Redis + built API + worker, synthetic DXF on UTM 36N with `$INSUNITS=1`):** import → `projected_utm`, suggested 32636, `unitsConflict=true`, warning `UNITS_CRS_MISMATCH`; mapping saved with unit `m`; revision built: 2 routes (180 m), 1 box coded `1-1` from its linked text, 1 HHI from the `NEW-HHI` text rule, 2 links auto; PMTiles Range request → 206; signed tile URL → `/tiles/verify` 204, tampered → 401; publish → rev 1; a direct `UPDATE` on a published feature → rejected by the trigger. Second drawing (box moved 3 m, one route extended 10 m) → box `moved` and route `reshaped`, both kept their ids; published as rev 2.
 - **Bug found by the end-to-end run and fixed (failing test first):** a route extended from 80 m to 90 m lost its id (removed + added) because its Hausdorff distance exceeded the 5 m tolerance. Routes now also match when the shorter lies within tolerance of the longer and covers ≥ 80 % of it (ADR-020).
+- **Security review (Opus) — no critical or high findings; fixed in this phase (each with a failing test first):**
+  - M1: tile generation is capped (≤ 1,024 z12 seed tiles, ≤ 100,000 tiles, ≤ 256 MiB) and fails with `TILES_FAILED`; build statements time out after 120 s; API requests that need a revision row being built wait at most 5 s and answer 409 `REVISION_BUSY` instead of hanging.
+  - L1: a `change-me` `TILE_URL_SECRET` is refused in production; empty `TILE_URL_SECRET=` / `TILES_PUBLIC_URL=` lines mean "not set" instead of stopping the API.
+  - L2: temporary tile tables are dropped schema-qualified (`pg_temp.`), so a permanent table of the same name can never be dropped.
+  - L3: `TILES_FAILED` and `INTERNAL` build failures show a fixed message; exception text (paths, SQL) goes to the revision log only.
+  - L4: the PMTiles archive is served only for `draft`/`published` revisions, like the tile URL and the SQL function.
+  - L5: `TRUNCATE` is rejected on every design table.
+  - Accepted as is (documented): tile signatures appear in tile-server access logs (valid 1 h); the read-only setting of `ftth_tiles` is not the boundary (its missing privileges are); supervisors read design data project-wide (ADR-011 assumption); the app still connects as the table owner (least-privilege roles are Phase 7).
 - **Test report (local, Linux, PostGIS 16-3.4, Redis 7):**
   - `pnpm format:check`, `pnpm build`, `pnpm lint`, `pnpm typecheck`: pass.
-  - Unit: shared 134, i18n 4, ui-tokens 2, geo 60, api 281, web 179, mobile 11 — all pass.
-  - API integration (real PostGIS + Redis): 127 pass (30 new for 1b, incl. RBAC/IDOR, publish lock, rev numbers, Range download, signed URLs, and the `ftth_tiles` role: table reads denied, matching tile non-empty, other project empty).
+  - Unit: shared 137, i18n 4, ui-tokens 2, geo 60, api 282, web 179, mobile 11 — all pass.
+  - API integration (real PostGIS + Redis): 131 pass (30 new for 1b, incl. RBAC/IDOR, publish lock, rev numbers, Range download, signed URLs, and the `ftth_tiles` role: table reads denied, matching tile non-empty, other project empty).
   - Web e2e (Playwright, mock API): 10 pass (new: mapping → unit → save → build → review → publish).
-  - CAD worker: ruff, ruff format, mypy --strict: pass; pytest 205 pass, 5 skipped (golden — drawings not in the repo); coverage 95 %.
+  - CAD worker: ruff, ruff format, mypy --strict: pass; pytest 208 pass, 5 skipped (golden — drawings not in the repo); coverage 95 %.
   - Docker images: not built here (Docker Hub rate limit in the sandbox); checked by CI.
 - **Golden run on the real drawings (one command, for someone who has them):**
   ```bash

@@ -49,6 +49,15 @@ describe('events table is append-only', () => {
   });
 });
 
+describe('design revision tables (security review L5)', () => {
+  it.each(['text_links', 'revision_diff_items', 'design_features, text_links', 'features CASCADE'])(
+    'rejects TRUNCATE %s',
+    async (tables) => {
+      await expect(pool.query(`TRUNCATE ${tables}`)).rejects.toThrow(/immutable/);
+    },
+  );
+});
+
 describe('schema', () => {
   it('has PostGIS', async () => {
     const { rows } = await pool.query<{ postgis_version: string }>(

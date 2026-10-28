@@ -57,6 +57,7 @@ CLEANUP_SQL = (
     "DELETE FROM design_features WHERE revision_id = %s AND project_id = %s",
     "DELETE FROM features WHERE first_revision_id = %s AND project_id = %s",
 )
+BUILD_STATEMENT_TIMEOUT_SQL = "SET LOCAL statement_timeout = '120s'"
 FILE_STATUS_SQL = "SELECT status FROM cad_files WHERE id = %s AND project_id = %s FOR SHARE"
 CURVES_SQL = """
 SELECT handle, layer, ST_AsBinary(ST_Force2D(geom)) FROM cad_curves
@@ -160,6 +161,9 @@ class PostgresRevisionRepository:
     def open_build(self, job: CadBuildRevisionJob) -> Iterator[PostgresRevisionBuild | None]:
         conn = self._connect()
         try:
+            # No single statement of the build (incl. a tile query) may hold the revision row
+            # lock indefinitely (security review M1); a timeout fails the job instead.
+            conn.execute(BUILD_STATEMENT_TIMEOUT_SQL)
             row = conn.execute(LOCK_SQL, (job.revision_id, job.project_id, job.id)).fetchone()
             if row is None:
                 conn.rollback()
