@@ -32,6 +32,13 @@ export const ApiEnvSchema = z
     AUTH_LOGIN_RATE_LIMIT: z.coerce.number().int().positive().default(5),
     AUTH_REFRESH_RATE_LIMIT: z.coerce.number().int().positive().default(30),
     AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+    /**
+     * HMAC key for signed Martin tile URLs (ADR-021). When absent, the tile-url endpoint answers
+     * 404 and /tiles/verify rejects everything. At least 32 characters.
+     */
+    TILE_URL_SECRET: z.string().min(32).optional(),
+    /** Public base URL of Martin behind Caddy, e.g. https://tiles.staging.ftthtracker.projectflow.site */
+    TILES_PUBLIC_URL: z.url().optional(),
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')

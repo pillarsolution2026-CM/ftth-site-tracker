@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CrsDetectionSchema } from './crs-detection.schemas.js';
 
 export const CAD_FORMATS = ['dwg', 'dxf'] as const;
 export const CadFormatSchema = z.enum(CAD_FORMATS);
@@ -59,6 +60,8 @@ export const CAD_WARNING_CODES = [
   'UNITS_UNSPECIFIED',
   'EMPTY_MODELSPACE',
   'CURVE_APPROXIMATED',
+  /** `$INSUNITS` declares a unit that disagrees with the CRS detected from the extents (ADR-018). */
+  'UNITS_CRS_MISMATCH',
 ] as const;
 export const CadWarningCodeSchema = z.enum(CAD_WARNING_CODES);
 export type CadWarningCode = z.infer<typeof CadWarningCodeSchema>;
@@ -117,6 +120,8 @@ export const CadFileDetailSchema = CadFileSummarySchema.extend({
   /** DXF $INSUNITS header value (0 = unitless). */
   insUnits: z.number().int().nullable(),
   extents: CadExtentsSchema.nullable(),
+  /** CRS suggested from the extents (Phase 1b); null for files processed before 1b. */
+  crsDetection: CrsDetectionSchema.nullable(),
   warnings: z.array(CadWarningSchema),
   /** Technical message for failed files (not translated; the UI shows errorCode). */
   errorMessage: z.string().nullable(),
