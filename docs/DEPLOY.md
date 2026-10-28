@@ -10,6 +10,7 @@
 - كل merge على `main` بيشغّل workflow اسمه **Publish images**. الـworkflow بيبني الـimages (api وweb وcad-worker) ويرفعها على GHCR.
 - السيرفر بيشيّك كل دقيقتين من خلال `ftth-autodeploy.timer`. لو فيه commit جديد والـimages بتاعته اترفعت، بيشغّله لوحده. لو التشغيل فشل، بيرجع للإصدار اللي قبله تلقائيًا.
 - مفيش أي أسرار أو مفاتيح للسيرفر متخزنة في GitHub، ومفيش SSH داخل للسيرفر علشان الـdeploy.
+- دي **الطريقة الوحيدة** للنشر (قرار المالك 2026-10-28). الـworkflow اللي كان بينشر بـSSH من غير Docker (`deploy.yml`) اتشال، فلو secrets `FTTH_HOST` و`FTTH_USER` و`FTTH_SSH_KEY` و`FTTH_KNOWN_HOSTS` لسه موجودة في GitHub، امسحها.
 - الـCaddy الموجود على السيرفر هو اللي بيعمل HTTPS، من خلال سطر `import` واحد لملف `/srv/ftth/ftthtracker.caddy`. باقي المواقع مابتتلمسش.
 - الـstack بتاعنا اسمه `ftth-staging`، وليه قاعدة بيانات وRedis منفصلين عن باقي التطبيقات. كل حاجة تخصه موجودة في `/srv/ftth`، وبيشتغل بالمستخدم `ftth-deploy`.
 
