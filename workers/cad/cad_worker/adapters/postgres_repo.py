@@ -26,6 +26,7 @@ SELECT 1 FROM cad_files
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'processing'
 FOR UPDATE
 """
+PROJECT_EPSG_SQL = "SELECT crs_epsg FROM projects WHERE id = %s"
 FAIL_SQL = """
 UPDATE cad_files SET status = 'failed', error_code = %s, error_message = %s,
   log = COALESCE(NULLIF(%s, ''), log)
@@ -33,7 +34,7 @@ WHERE id = %s AND project_id = %s AND current_job_id = %s AND status IN ('queued
 """
 
 
-def _pg_text(value: str) -> str:
+def pg_text(value: str) -> str:
     """Error text may echo file content; PostgreSQL text cannot hold NUL or lone surrogates."""
     return value.replace("\x00", "�").encode("utf-8", "replace").decode("utf-8")
 
@@ -74,7 +75,9 @@ class PostgresCadRepository:
                 return
             for table in CHILD_TABLES:
                 conn.execute(f"DELETE FROM {table} WHERE cad_file_id = %s", (job.cad_file_id,))
-            sink = PostgresSink(conn, job, self._batch)
+            project = conn.execute(PROJECT_EPSG_SQL, (job.project_id,)).fetchone()
+            epsg = int(project[0]) if project and project[0] is not None else None
+            sink = PostgresSink(conn, job, self._batch, epsg)
             yield sink
             if not sink.committed:
                 conn.rollback()
@@ -85,8 +88,8 @@ class PostgresCadRepository:
             conn.close()
 
     def fail(self, job: CadImportJob, code: FailureCode, message: str, log: str = "") -> bool:
-        text = _pg_text(message)[:ERROR_MESSAGE_LIMIT]
-        log = _pg_text(log)
+        text = pg_text(message)[:ERROR_MESSAGE_LIMIT]
+        log = pg_text(log)
         with self._connect() as conn:
             cur = conn.execute(FAIL_SQL, (code, text, log, job.cad_file_id, job.project_id, job.id))
             if cur.rowcount != 1:

@@ -1,17 +1,48 @@
 {
-  "_comment": "Legacy Arabic SHX fonts (xarb.shx, xarab.shx) store text as ASCII key codes that the font draws as Arabic glyphs. The real codes cannot be recovered from the DXF alone, so `mappings` is intentionally EMPTY and every such string is reported readable=false. Fill `mappings` (one character -> Unicode string) only after the owner confirms the table against the font; the decoder then decodes a string only when EVERY character is either a digit/space or in `mappings`. See `candidates` for the evidence gathered from the three Qalyub drawings (not applied).",
-  "fonts": ["xarb.shx", "xarab.shx"],
-  "font_name_markers": ["arab", "xarb"],
-  "mappings": {},
-  "candidates": {
-    "status": "unconfirmed",
-    "evidence": "Lowercase keys follow the Windows Arabic 101 keyboard layout in logical order: lrhfv = مقابر, ,vam = ورشة, lk,v = منور, fb' = بلط, fg,; 5 = بلوك 5, ahvU = شارع. Upper-case and punctuation keys select other glyph forms (e.g. U = ع, H = ا, F/D/K/M/L = final forms) and are not derivable from the data.",
-    "lowercase": {
-      "q": "ض", "w": "ص", "e": "ث", "r": "ق", "t": "ف", "y": "غ", "u": "ع", "i": "ه",
-      "o": "خ", "p": "ح", "[": "ج", "]": "د", "a": "ش", "s": "س", "d": "ي", "f": "ب",
-      "g": "ل", "h": "ا", "j": "ت", "k": "ن", "l": "م", ";": "ك", "'": "ط", "z": "ئ",
-      "x": "ء", "c": "ؤ", "v": "ر", "b": "لا", "n": "ى", "m": "ة", ",": "و", ".": "ز",
-      "/": "ظ"
-    }
-  }
+  "_comment": "Legacy Arabic SHX fonts (xarb.shx, xarab.shx) store text as ASCII key codes that the font draws as Arabic glyphs. On 2026-10-28 the owner chose the conversion-table approach (ADR-019): `mappings` holds the lowercase keys of the Windows Arabic 101 keyboard layout (q -> ض ... / -> ظ, b -> لا). A text in a legacy font is decoded only when EVERY character is a digit, a space or a key in `mappings`; any other character (upper-case keys and punctuation such as U, H, F, or the backtick) keeps the whole text readable=false for review. Extend the table only with forms confirmed by the owner.",
+  "status": "confirmed 2026-10-28 (owner): lowercase Arabic 101 table; upper-case/punctuation keys and the backtick (ذ) are deliberately absent",
+  "fonts": [
+    "xarb.shx",
+    "xarab.shx"
+  ],
+  "font_name_markers": [
+    "arab",
+    "xarb"
+  ],
+  "mappings": {
+    "q": "ض",
+    "w": "ص",
+    "e": "ث",
+    "r": "ق",
+    "t": "ف",
+    "y": "غ",
+    "u": "ع",
+    "i": "ه",
+    "o": "خ",
+    "p": "ح",
+    "[": "ج",
+    "]": "د",
+    "a": "ش",
+    "s": "س",
+    "d": "ي",
+    "f": "ب",
+    "g": "ل",
+    "h": "ا",
+    "j": "ت",
+    "k": "ن",
+    "l": "م",
+    ";": "ك",
+    "'": "ط",
+    "z": "ئ",
+    "x": "ء",
+    "c": "ؤ",
+    "v": "ر",
+    "b": "لا",
+    "n": "ى",
+    "m": "ة",
+    ",": "و",
+    ".": "ز",
+    "/": "ظ"
+  },
+  "evidence": "Lowercase keys follow the Windows Arabic 101 keyboard layout in logical order: lrhfv = مقابر, ,vam = ورشة, lk,v = منور, fb' = بلط, fg,; 5 = بلوك 5, ahvU = شارع. Upper-case and punctuation keys select other glyph forms (e.g. U = ع, H = ا, F/D/K/M/L = final forms) and are not derivable from the data."
 }

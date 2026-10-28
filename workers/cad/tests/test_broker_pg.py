@@ -13,13 +13,16 @@ import redis
 
 from cad_worker.adapters.ezdxf_reader import EzdxfReader
 from cad_worker.adapters.postgres_repo import PostgresCadRepository
+from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepository
 from cad_worker.adapters.queue import RedisJobBroker
 from cad_worker.adapters.storage import FsStorage
+from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.import_job import ImportDeps
 from tests.conftest import QueuedFile
 from tests.support.dxf_samples import write_sample
 from tests.support.fakes import FailingConverter
+from tests.support.revisions import queue_revision, seed_processed_file
 
 WORKER = "worker-a"
 
@@ -47,7 +50,8 @@ def consumer(database_url: str, redis_client: redis.Redis, tmp_path: Path) -> Co
         converter=FailingConverter(),
         reader=EzdxfReader(),
     )
-    return Consumer(RedisJobBroker(redis_client, WORKER), deps, WORKER)
+    build = BuildDeps(PostgresRevisionRepository(database_url), FsStorage(tmp_path / "storage"))
+    return Consumer(RedisJobBroker(redis_client, WORKER), deps, WORKER, build)
 
 
 @pytest.fixture
@@ -208,3 +212,52 @@ def test_idle_claim_longer_than_redis_py_default_socket_timeout(redis_server_url
     broker = RedisJobBroker.from_url(redis_server_url, f"idle-{uuid.uuid4().hex[:6]}")
 
     assert broker.claim(6) is None
+
+
+def revision_status(db: psycopg.Connection[Any], revision_id: uuid.UUID) -> tuple[Any, ...]:
+    row = db.execute(
+        "SELECT status, error_code FROM design_revisions WHERE id = %s", (revision_id,)
+    ).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+def test_build_revision_job_is_dispatched_and_acked(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    revision = queue_revision(db, seed_processed_file(db))
+    redis_client.lpush("cad:jobs", revision.message())
+    assert consumer.process_one(timeout_s=1) is True
+    assert revision_status(db, revision.revision_id) == ("draft", None)
+    assert redis_client.llen(f"cad:processing:{WORKER}") == 0
+
+
+def test_orphaned_build_job_is_requeued_with_attempt_bumped(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    revision = queue_revision(db, seed_processed_file(db))
+    redis_client.lpush("cad:processing:dead-2", revision.message(attempt=2))
+    consumer.recover(include_own=False)
+    requeued = json.loads(redis_client.lrange("cad:jobs", 0, -1)[0])
+    assert requeued["attempt"] == 3 and requeued["type"] == "cad.build_revision"
+
+
+def test_third_crash_marks_revision_failed(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    revision = queue_revision(db, seed_processed_file(db))
+    db.execute(
+        "UPDATE design_revisions SET status = 'building' WHERE id = %s", (revision.revision_id,)
+    )
+    redis_client.lpush("cad:processing:dead-3", revision.message(attempt=3))
+    consumer.recover(include_own=False)
+    assert revision_status(db, revision.revision_id) == ("failed", "MAX_ATTEMPTS_EXCEEDED")
+    assert redis_client.llen("cad:processing:dead-3") == 0 and redis_client.llen("cad:jobs") == 0
+    types = [
+        r[0]
+        for r in db.execute(
+            "SELECT type FROM events WHERE entity = 'design_revision' AND entity_id = %s",
+            (str(revision.revision_id),),
+        ).fetchall()
+    ]
+    assert types == ["design_revision.failed"]

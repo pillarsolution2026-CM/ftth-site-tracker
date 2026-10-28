@@ -10,7 +10,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from cad_worker.adapters.job_message import CadHealthJob, parse_job
+from cad_worker.adapters.job_message import (
+    CadBuildRevisionJob,
+    CadHealthJob,
+    CadImportJob,
+    parse_job,
+)
+from cad_worker.application.build_revision import BuildDeps, run_build
 from cad_worker.application.health import check_health
 from cad_worker.application.import_job import ImportDeps, run_import
 from cad_worker.application.ports import BrokerUnavailableError, JobBroker
@@ -32,10 +38,12 @@ class Consumer:
         broker: JobBroker,
         deps: ImportDeps,
         worker_id: str,
+        build: BuildDeps,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._broker = broker
         self._deps = deps
+        self._build = build
         self._worker_id = worker_id
         self._sleep = sleep
 
@@ -50,6 +58,8 @@ class Consumer:
             return
         if isinstance(job, CadHealthJob):
             self._broker.put_result(job.id, handle_health(job))
+        elif isinstance(job, CadBuildRevisionJob):
+            run_build(job, self._build, self._worker_id)
         else:
             run_import(job, self._deps, self._worker_id)
         self._broker.ack(raw)
@@ -62,9 +72,15 @@ class Consumer:
         return True
 
     def recover(self, *, include_own: bool) -> None:
+        """ADR-013 for both durable job types: at MAX_ATTEMPTS the file or the revision is
+        marked failed (`MAX_ATTEMPTS_EXCEEDED`) before the orphan is dropped."""
         for orphan in self._broker.recover(include_own=include_own):
-            msg = f"job {orphan.job.id} lost {orphan.job.attempt} times (worker crashed)"
-            self._deps.repo.fail(orphan.job, "MAX_ATTEMPTS_EXCEEDED", msg)
+            job = orphan.job
+            msg = f"job {job.id} lost {job.attempt} times (worker crashed)"
+            if isinstance(job, CadImportJob):
+                self._deps.repo.fail(job, "MAX_ATTEMPTS_EXCEEDED", msg)
+            else:
+                self._build.repo.fail(job, "MAX_ATTEMPTS_EXCEEDED", msg)
             self._broker.ack_orphan(orphan)
 
     def run(self, should_stop: Callable[[], bool], timeout_s: int = 5) -> None:
