@@ -5,9 +5,9 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | Phase | Status | Approved |
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
-| 0 Foundation | Done — merged (PR #1, #2), awaiting approval | — |
+| 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
 | Staging (Hetzner) | Ready — server bootstrap pending (owner runs one command) | — |
-| 1a Work orders + CAD upload & extraction | Done — awaiting approval | — |
+| 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Not started | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
