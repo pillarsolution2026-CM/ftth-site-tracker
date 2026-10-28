@@ -3,7 +3,10 @@
 Per feature type, one-to-one, in this order:
 1. same source handle (and kind) and within tolerance;
 2. same non-empty code, unique among the still unmatched features on both sides;
-3. nearest within tolerance (points: distance; routes: Hausdorff), greedy by ascending distance.
+3. nearest within tolerance (points: distance; routes: Hausdorff, or — for a route that was
+   extended or shortened — the deviation of the shorter route from the longer one, when the
+   shorter lies within tolerance of the longer and covers ≥ ROUTE_MIN_SHARED of its length),
+   greedy by ascending distance.
    When another unmatched base feature is within tolerance and no farther than the best + 0.5 m,
    the match is a `conflict`: it keeps the nearest id and lists the others.
 Matched features are `unchanged` (≤ 1 mm and same code), `moved` (points), `reshaped` (routes) or
@@ -51,6 +54,10 @@ DIFF_CHANGES: tuple[DiffChange, ...] = (
 MATCH_TOLERANCE_M = 5.0
 CONFLICT_MARGIN_M = 0.5
 UNCHANGED_MAX_M = 0.001
+# A route extended or shortened keeps its id while the common part is at least this share of the
+# longer route (regression from the 1b end-to-end run: 80 m → 90 m lost its id).
+ROUTE_MIN_SHARED = 0.8
+ROUTE_SAMPLE_STEP_M = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,8 +169,8 @@ class _TypeMatcher:
 
     def distance(self, i: int, j: int) -> float:
         a, b = self._new_geom[i], self._base_geom[j]
-        if isinstance(a, LineString):
-            return float(shapely.hausdorff_distance(a, b))
+        if isinstance(a, LineString) and isinstance(b, LineString):
+            return _route_distance(a, b)
         return float(a.distance(b))
 
     def _take(self, i: int, j: int, distance: float, candidates: tuple[UUID, ...] = ()) -> None:
@@ -212,6 +219,24 @@ class _TypeMatcher:
                 if k != j and k in self._open_base and dk <= d + CONFLICT_MARGIN_M
             )
             self._take(i, j, d, others)
+
+
+def _route_distance(a: LineString, b: LineString) -> float:
+    """Hausdorff distance, or the partial-overlap deviation described in the module docstring."""
+    full = float(shapely.hausdorff_distance(a, b))
+    if full <= MATCH_TOLERANCE_M:
+        return full
+    short, long = (a, b) if a.length <= b.length else (b, a)
+    if long.length == 0:
+        return full
+    samples = shapely.points(
+        shapely.get_coordinates(shapely.segmentize(short, ROUTE_SAMPLE_STEP_M))
+    )
+    deviation = float(shapely.distance(samples, long).max())
+    if deviation > MATCH_TOLERANCE_M:
+        return full
+    shared = float(long.intersection(short.buffer(MATCH_TOLERANCE_M)).length)
+    return deviation if shared >= ROUTE_MIN_SHARED * long.length else full
 
 
 def _classify(feature: DesignFeatureDraft, match: _Match) -> DiffEntry:

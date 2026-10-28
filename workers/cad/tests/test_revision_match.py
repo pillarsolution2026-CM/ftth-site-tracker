@@ -170,3 +170,32 @@ def test_types_never_cross_match() -> None:
     result = run([new("A", (0, 0), kind="hhi")], [old(1, "A", (0, 0), kind="box")])
     assert entry(result, "A").change == "added"
     assert [e.feature_type for e in result.entries if e.change == "removed"] == ["box"]
+
+
+def test_extended_route_keeps_its_id() -> None:
+    """Regression from the 1b end-to-end run: a 80 m route extended to 90 m (Hausdorff 10 m) was
+    reported as removed + added and lost its id."""
+    result = run(
+        [new("R2", (100, 0), (100, 90), kind="route")],
+        [old(1, "R1", (100, 0), (100, 80), kind="route")],
+    )
+    e = entry(result, "R2")
+    assert (e.change, e.feature_id, e.distance_m) == ("reshaped", IDS[1], Decimal("0.000"))
+    assert result.new_ids == frozenset()
+
+
+def test_shortened_route_keeps_its_id() -> None:
+    result = run(
+        [new("R2", (0, 0), (85, 0), kind="route")],
+        [old(1, "R1", (0, 0), (100, 0), kind="route")],
+    )
+    assert entry(result, "R2").feature_id == IDS[1]
+
+
+def test_route_overlapping_only_a_small_part_is_a_new_route() -> None:
+    """A new 100 m route that shares only its first 20 m with an old one is not the same route."""
+    result = run(
+        [new("R2", (0, 0), (20, 0), (20, 80), kind="route")],
+        [old(1, "R1", (0, 0), (100, 0), kind="route")],
+    )
+    assert entry(result, "R2").change == "added"
