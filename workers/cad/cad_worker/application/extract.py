@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from typing import Literal
 
 from cad_worker.application.ports import DrawingSource, ExtractionResult, ResultSink
+from cad_worker.domain.crs_detect import detect_crs
 from cad_worker.domain.extents import ExtentsAccumulator
 from cad_worker.domain.flatten import FLATTEN_TOLERANCE
 from cad_worker.domain.model import (
@@ -39,6 +40,7 @@ def extract(
     converter_version: str | None,
     converted_storage_key: str | None,
     converter_log: str,
+    project_epsg: int | None = None,
 ) -> ExtractionResult:
     meta = source.meta
     warnings = WarningCollector()
@@ -99,12 +101,18 @@ def extract(
         warnings.add("XREF_NOT_RESOLVED", name=name)
     if converter != "none":
         warnings.add("DWG_CONVERTED", converter=converter)
+    drawing_extents = extents.result()
+    crs = detect_crs(drawing_extents, meta.ins_units, project_epsg)
+    if crs.units_conflict and crs.declared_unit and crs.implied_unit:
+        warnings.add("UNITS_CRS_MISMATCH", declared=crs.declared_unit, implied=crs.implied_unit)
 
     log = [
         converter_log.strip(),
         f"extraction: layers={len(layers)} inserts={n_insert} texts={n_text} curves={n_curve} "
         f"entities={total} flatten_tolerance={FLATTEN_TOLERANCE}",
         f"recover: fixes={meta.recover_fixes} errors={meta.recover_errors}",
+        f"crs: {crs.kind} {crs.reason} suggested={crs.suggested_epsg} "
+        f"implied={crs.implied_unit} declared={crs.declared_unit}",
     ]
     if renamed:
         log.append(f"duplicate handles renamed: {renamed}")
@@ -113,7 +121,7 @@ def extract(
         insert_count=n_insert,
         text_count=n_text,
         curve_count=n_curve,
-        extents=extents.result(),
+        extents=drawing_extents,
         warnings=warnings.result(),
         log="\n".join(line for line in log if line),
         dxf_version=meta.dxf_version,
@@ -121,6 +129,7 @@ def extract(
         converter=converter,
         converter_version=converter_version,
         converted_storage_key=converted_storage_key,
+        crs_detection=crs,
     )
 
 

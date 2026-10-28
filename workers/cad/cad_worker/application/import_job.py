@@ -92,6 +92,7 @@ def _process(job: CadImportJob, deps: ImportDeps, started: float) -> Outcome:
                 converter_version=converter_version,
                 converted_storage_key=converted,
                 converter_log=converter_log,
+                project_epsg=sink.project_epsg,
             )
             sink.commit(result)
     return "processed"

@@ -8,3 +8,8 @@ from pathlib import PurePosixPath
 def converted_key(original_key: str) -> str:
     """`projects/<p>/cad/<f>/original.dwg` -> `projects/<p>/cad/<f>/converted.dxf`."""
     return str(PurePosixPath(original_key).with_name("converted.dxf"))
+
+
+def revision_tiles_key(project_id: object, revision_id: object) -> str:
+    """PMTiles archive of a design revision (Phase 1b contract, ADR-021)."""
+    return f"projects/{project_id}/revisions/{revision_id}/design.pmtiles"

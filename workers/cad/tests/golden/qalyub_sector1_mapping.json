@@ -1,0 +1,30 @@
+{
+  "comment": "Golden run mapping for Qalyub sector 1 (rules from the build plan's known content). drawingUnit 'm' is a TEST PARAMETER of the golden run only, NOT a product default: the drawing unit has no default and is chosen by the PM per drawing (ADR-018, still awaiting the technical office; the drawing declares $INSUNITS=1 inches while its coordinates read as UTM 36N metres). expected.routes and expected.routeLengthM stay null until regenerated with the real drawing (UPDATE_GOLDEN=1 scripts/golden.sh).",
+  "file": "General_القطاع_الاول_قليوب.dwg",
+  "crsEpsg": 32636,
+  "drawingUnit": "m",
+  "metresPerUnit": "1",
+  "rules": [
+    { "source": "layer", "layer": "N_DUC_CBL", "target": "route" },
+    { "source": "block", "block": "sub", "target": "box" },
+    { "source": "block", "block": "JONT 144", "target": "joint" },
+    { "source": "text", "layer": "RRR", "text": "NEW-HHI", "target": "hhi" },
+    { "source": "layer", "layer": "CAP F36", "target": "label" },
+    { "source": "layer", "layer": "CAP F144", "target": "label" },
+    { "source": "layer", "layer": "N-CABLE-TXT", "target": "label" },
+    { "source": "layer", "layer": "E_CAB_TXT", "target": "label" },
+    { "source": "layer", "layer": "tx", "target": "background" },
+    { "source": "layer", "layer": "building", "target": "background" },
+    { "source": "layer", "layer": "road", "target": "background" },
+    { "source": "layer", "layer": "canal", "target": "background" },
+    { "source": "layer", "layer": "door", "target": "background" }
+  ],
+  "expected": {
+    "boxes": 17,
+    "joints": 4,
+    "hhi": 6,
+    "suggestedEpsg": 32636,
+    "routes": null,
+    "routeLengthM": null
+  }
+}

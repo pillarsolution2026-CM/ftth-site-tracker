@@ -37,16 +37,33 @@ class CadImportJob(_Message):
     enqueued_at: datetime = Field(alias="enqueuedAt")
 
 
+class CadBuildRevisionJob(_Message):
+    """Build a design revision (Phase 1b, ADR-017). The mapping, CRS and drawing unit are read
+    from the `design_revisions` row (frozen copy), never from the message."""
+
+    id: UUID
+    type: Literal["cad.build_revision"]
+    revision_id: UUID = Field(alias="revisionId")
+    project_id: UUID = Field(alias="projectId")
+    cad_file_id: UUID = Field(alias="cadFileId")
+    attempt: int = Field(ge=1, le=CAD_JOB_MAX_ATTEMPTS)
+    enqueued_at: datetime = Field(alias="enqueuedAt")
+
+
 class CadHealthJob(_Message):
     id: str = Field(min_length=1)
     type: Literal["health"]
 
 
-CadJob = Annotated[CadImportJob | CadHealthJob, Field(discriminator="type")]
+# Jobs that touch the database and are redelivered after a crash (ADR-013).
+DurableJob = CadImportJob | CadBuildRevisionJob
+AnyJob = CadImportJob | CadBuildRevisionJob | CadHealthJob
 
-CAD_JOB_ADAPTER: TypeAdapter[CadImportJob | CadHealthJob] = TypeAdapter(CadJob)
+CadJob = Annotated[AnyJob, Field(discriminator="type")]
+
+CAD_JOB_ADAPTER: TypeAdapter[AnyJob] = TypeAdapter(CadJob)
 
 
-def parse_job(raw: str) -> CadImportJob | CadHealthJob:
+def parse_job(raw: str) -> AnyJob:
     """Parse a raw Redis list item. Raises pydantic.ValidationError on a malformed message."""
     return CAD_JOB_ADAPTER.validate_json(raw)

@@ -12,9 +12,11 @@ from types import FrameType
 from cad_worker.adapters.ezdxf_reader import EzdxfReader
 from cad_worker.adapters.libredwg_converter import LibreDwgWasmConverter, default_script
 from cad_worker.adapters.postgres_repo import PostgresCadRepository
+from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepository
 from cad_worker.adapters.queue import RedisJobBroker
 from cad_worker.adapters.settings import Settings
 from cad_worker.adapters.storage import build_storage
+from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.health import check_health
 from cad_worker.application.import_job import ImportDeps
@@ -31,9 +33,10 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings()
+    storage = build_storage(settings)
     deps = ImportDeps(
         repo=PostgresCadRepository(settings.database_url),
-        storage=build_storage(settings),
+        storage=storage,
         converter=LibreDwgWasmConverter(
             default_script(),
             timeout_s=settings.converter_timeout_s,
@@ -41,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         reader=EzdxfReader(),
     )
+    build = BuildDeps(repo=PostgresRevisionRepository(settings.database_url), storage=storage)
     broker = RedisJobBroker.from_url(settings.redis_url, settings.worker_id)
     stop = False
 
@@ -50,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
-    Consumer(broker, deps, settings.worker_id).run(lambda: stop)
+    Consumer(broker, deps, settings.worker_id, build).run(lambda: stop)
     return 0
 
 

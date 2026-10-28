@@ -5,10 +5,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal, Protocol
+from uuid import UUID
 
-from cad_worker.adapters.job_message import CadImportJob
+from cad_worker.adapters.job_message import CadBuildRevisionJob, CadImportJob, DurableJob
+from cad_worker.domain.crs_detect import CrsDetection
+from cad_worker.domain.design_build import BackgroundSelection, DrawingData
 from cad_worker.domain.extents import Extents
 from cad_worker.domain.model import (
     CadWarning,
@@ -19,6 +23,7 @@ from cad_worker.domain.model import (
     LayerRow,
     TextRow,
 )
+from cad_worker.domain.revision_match import BaseFeature
 
 FailureCode = Literal[
     "FILE_MISSING",
@@ -88,13 +93,20 @@ class ExtractionResult:
     converter: Literal["libredwg", "oda", "none"]
     converter_version: str | None
     converted_storage_key: str | None
+    crs_detection: CrsDetection
 
 
 class ResultSink(Protocol):
+    @property
+    def project_epsg(self) -> int | None:
+        """`projects.crs_epsg`, read in the import transaction (input of the CRS detection)."""
+        ...
+
     def add(self, row: InsertRow | TextRow | CurveRow) -> None: ...
 
     def commit(self, result: ExtractionResult) -> None:
-        """Flush, write layers and file metadata, append `cad_file.processed`, commit."""
+        """Flush, write layers, file metadata and `crs_detection`, append `cad_file.processed`,
+        commit."""
         ...
 
 
@@ -142,4 +154,149 @@ class RecoveredJob:
 
     raw: str
     owner: str
-    job: CadImportJob
+    job: DurableJob
+
+
+# ---------- design revisions (Phase 1b, ADR-017) ----------
+
+RevisionFailureCode = Literal[
+    "MAPPING_INVALID",
+    "CAD_FILE_NOT_PROCESSED",
+    "TILES_FAILED",
+    "MAX_ATTEMPTS_EXCEEDED",
+    "INTERNAL",
+]
+
+
+class BuildFailure(Exception):
+    """A handled build failure: the revision is marked `failed` with this code (no retry)."""
+
+    def __init__(self, code: RevisionFailureCode, message: str, log: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.log = log
+
+
+@dataclass(frozen=True, slots=True)
+class RevisionInputs:
+    """The frozen inputs of a revision, read under the row lock."""
+
+    revision_id: UUID
+    project_id: UUID
+    cad_file_id: UUID
+    base_revision_id: UUID | None
+    rules: object
+    crs_epsg: int
+    drawing_unit: str
+    metres_per_unit: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class FeatureRow:
+    """A design feature ready to be written (ids assigned, metres, revision CRS)."""
+
+    feature_id: UUID
+    feature_type: str
+    code: str | None
+    layer: str
+    block_name: str | None
+    source_kind: str
+    source_handle: str
+    # Routes: the polyline; points: one position (the adapter writes WKT with the revision SRID).
+    coords: tuple[tuple[float, float], ...]
+    attrs: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class TextLinkRow:
+    text_handle: str
+    layer: str
+    text: str | None
+    raw_text: str
+    readable: bool
+    position: tuple[float, float]
+    height_m: float
+    kind: str
+    status: str
+    feature_id: UUID | None
+    distance_m: Decimal | None
+    confidence: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class DiffRow:
+    feature_id: UUID
+    feature_type: str
+    change: str
+    code: str | None
+    previous_code: str | None
+    distance_m: Decimal | None
+    candidate_ids: tuple[UUID, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RevisionRows:
+    new_feature_ids: tuple[tuple[UUID, str], ...]  # (id, feature_type) inserted into `features`
+    features: tuple[FeatureRow, ...]
+    text_links: tuple[TextLinkRow, ...]
+    diff: tuple[DiffRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TileStats:
+    tiles: int
+    bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class BuildSummary:
+    counts: dict[str, object]
+    text_link_counts: dict[str, int]
+    diff_counts: dict[str, int]
+    tiles_storage_key: str | None
+    warnings: list[dict[str, object]]
+    log: str
+
+
+class RevisionBuild(Protocol):
+    """One open transaction on a locked `building` revision (guarded by `current_job_id`)."""
+
+    inputs: RevisionInputs
+
+    def load_drawing(self, curve_layers: frozenset[str]) -> DrawingData:
+        """Rows of the revision's CAD file (drawing units). Raises
+        BuildFailure(CAD_FILE_NOT_PROCESSED). Only curves on `curve_layers` are read."""
+        ...
+
+    def load_base(self) -> tuple[BaseFeature, ...]:
+        """The base revision's features in this revision's CRS (empty without a base)."""
+        ...
+
+    def write(self, rows: RevisionRows) -> Decimal:
+        """Insert features, design features, text links and diff; return Σ route `length_m`."""
+        ...
+
+    def render_tiles(self, dest: Path, background: BackgroundSelection) -> TileStats:
+        """Write the PMTiles archive of the (uncommitted) revision to `dest`."""
+        ...
+
+    def finish(self, summary: BuildSummary) -> None:
+        """Set `draft`, counts, tiles key, append `design_revision.built`, commit."""
+        ...
+
+
+class RevisionRepository(Protocol):
+    def start_build(self, job: CadBuildRevisionJob, worker_id: str) -> bool:
+        """`queued` -> `building` + event; False when the job is not current (superseded)."""
+        ...
+
+    def open_build(self, job: CadBuildRevisionJob) -> AbstractContextManager[RevisionBuild | None]:
+        """Lock the revision and clear previous partial rows; None when superseded."""
+        ...
+
+    def fail(
+        self, job: CadBuildRevisionJob, code: RevisionFailureCode, message: str, log: str = ""
+    ) -> bool:
+        """Mark `failed` + event, guarded by `current_job_id`. False when superseded."""
+        ...

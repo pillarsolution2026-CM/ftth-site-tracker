@@ -34,7 +34,7 @@ UPDATE cad_files SET status = 'processed', processed_at = now(), error_code = NU
   error_message = NULL, converter = %s, converter_version = %s, converted_storage_key = %s,
   dxf_version = %s, ins_units = %s, extents_min_x = %s, extents_min_y = %s, extents_max_x = %s,
   extents_max_y = %s, layer_count = %s, insert_count = %s, text_count = %s, curve_count = %s,
-  warnings = %s, log = %s
+  warnings = %s, log = %s, crs_detection = %s
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'processing'
 """
 
@@ -50,8 +50,15 @@ def insert_event(
 
 
 class PostgresSink:
-    def __init__(self, conn: psycopg.Connection[Any], job: CadImportJob, batch_size: int) -> None:
+    def __init__(
+        self,
+        conn: psycopg.Connection[Any],
+        job: CadImportJob,
+        batch_size: int,
+        project_epsg: int | None = None,
+    ) -> None:
         self._conn = conn
+        self._project_epsg = project_epsg
         self._job = job
         self._batch = batch_size
         self._ids = (str(job.project_id), str(job.cad_file_id))
@@ -59,6 +66,10 @@ class PostgresSink:
         self._texts: list[tuple[Any, ...]] = []
         self._curves: list[tuple[Any, ...]] = []
         self.committed = False
+
+    @property
+    def project_epsg(self) -> int | None:
+        return self._project_epsg
 
     def add(self, row: InsertRow | TextRow | CurveRow) -> None:
         if isinstance(row, InsertRow):
@@ -98,6 +109,7 @@ class PostgresSink:
                 result.curve_count,
                 Jsonb([w.to_json() for w in result.warnings]),
                 result.log,
+                Jsonb(result.crs_detection.to_json()),
                 self._job.cad_file_id,
                 self._job.project_id,
                 self._job.id,
@@ -120,6 +132,7 @@ class PostgresSink:
                 },
                 "warningCount": len(result.warnings),
                 "converter": result.converter,
+                "crsDetection": result.crs_detection.to_json(),
             },
         )
         self._conn.commit()

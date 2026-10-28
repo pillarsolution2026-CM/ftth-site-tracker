@@ -9,7 +9,9 @@ from ezdxf.filemanagement import new as new_dxf
 
 ARABIC = "مقابر"
 MOJIBAKE = "Ù…Ø­Ù„"  # "محل" encoded as UTF-8 and read as cp1252
-LEGACY_SHX = "lrhfv"  # xarb.shx key codes
+LEGACY_SHX = "lrhfv"  # xarb.shx key codes: decoded by the Arabic 101 table
+LEGACY_SHX_DECODED = "مقابر"
+LEGACY_SHX_UNREADABLE = "12 M"  # upper-case key: outside the table, never guessed
 
 
 def sample_doc() -> Drawing:
@@ -33,7 +35,8 @@ def sample_doc() -> Drawing:
     arabic_insert = doc.modelspace().add_blockref("sub", (110, 210), dxfattribs={"layer": "CABLE"})
     arabic_insert.add_attrib("NAME", ARABIC, (110, 210), dxfattribs={"style": "Arabic"})
     doc.blocks.new("JONT 144")
-    doc.modelspace().add_blockref("JONT 144", (120, 220), dxfattribs={"layer": "CABLE"})
+    joint = doc.modelspace().add_blockref("JONT 144", (120, 220), dxfattribs={"layer": "CABLE"})
+    joint.add_attrib("NAME", LEGACY_SHX, (120, 220), dxfattribs={"style": "x"})
     _add_texts(doc)
     _add_curves(doc)
     return doc
@@ -45,7 +48,11 @@ def _add_texts(doc: Drawing) -> None:
         ARABIC, height=2.5, dxfattribs={"layer": "TX", "style": "Arabic", "insert": (1, 2)}
     )
     msp.add_text(LEGACY_SHX, height=2.5, dxfattribs={"layer": "TX", "style": "x", "insert": (3, 4)})
-    msp.add_text("12 m", height=2.5, dxfattribs={"layer": "TX", "style": "x", "insert": (5, 6)})
+    msp.add_text(
+        LEGACY_SHX_UNREADABLE,
+        height=2.5,
+        dxfattribs={"layer": "TX", "style": "x", "insert": (5, 6)},
+    )
     msp.add_text(MOJIBAKE, height=2.5, dxfattribs={"layer": "TX", "insert": (7, 8)})
     msp.add_text("45%%d", height=1, dxfattribs={"layer": "TX", "insert": (9, 10)})
     msp.add_mtext("{\\fArial|b1;Hello}\\Pworld", dxfattribs={"layer": "TX", "insert": (11, 12)})
@@ -69,6 +76,15 @@ def _add_curves(doc: Drawing) -> None:
 
 def write_sample(path: Path) -> Path:
     sample_doc().saveas(path)
+    return path
+
+
+def write_utm_sample(path: Path, ins_units: int = 1) -> Path:
+    """Qalyub-like drawing: UTM 36N metre coordinates while `$INSUNITS` may say otherwise."""
+    doc = new_dxf("R2018")
+    doc.header["$INSUNITS"] = ins_units
+    doc.modelspace().add_line((325_000, 3_340_000), (325_030, 3_340_040))
+    doc.saveas(path)
     return path
 
 
