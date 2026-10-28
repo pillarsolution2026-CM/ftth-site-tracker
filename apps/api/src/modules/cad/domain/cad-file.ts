@@ -5,6 +5,7 @@ import {
   type CadFileStatus,
   type CadFormat,
   type CadWarning,
+  type CrsDetection,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 
@@ -26,6 +27,8 @@ export interface CadFile {
   dxfVersion: string | null;
   insUnits: number | null;
   extents: CadExtents | null;
+  /** CRS suggested by the worker from the extents; null for files processed before Phase 1b. */
+  crsDetection: CrsDetection | null;
   counts: CadFileCounts | null;
   warnings: CadWarning[];
   errorCode: string | null;

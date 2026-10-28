@@ -22,13 +22,15 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string = code,
     readonly details?: unknown,
+    /** Overrides the default status of `code`, e.g. 422 for a semantically invalid VALIDATION_FAILED. */
+    private readonly statusOverride?: number,
   ) {
     super(message);
     this.name = 'AppError';
   }
 
   get httpStatus(): number {
-    return STATUS_BY_CODE[this.code];
+    return this.statusOverride ?? STATUS_BY_CODE[this.code];
   }
 }
 

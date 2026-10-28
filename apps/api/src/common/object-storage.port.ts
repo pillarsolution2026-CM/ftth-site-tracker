@@ -10,6 +10,12 @@ export interface StoredObject {
   sha256: string;
 }
 
+/** Inclusive byte range, as in `Content-Range: bytes start-end/size`. */
+export interface ByteRange {
+  start: number;
+  end: number;
+}
+
 export interface PutOptions {
   contentType: string;
   /** Abort and clean up once more bytes than this arrive → AppError FILE_TOO_LARGE. */
@@ -23,8 +29,11 @@ export interface ObjectStorage {
    * partial object at `key`.
    */
   put(key: string, body: Readable, options: PutOptions): Promise<StoredObject>;
-  /** Throws AppError NOT_FOUND if absent. */
-  get(key: string): Promise<Readable>;
+  /**
+   * Throws AppError NOT_FOUND if absent. With `range` only those bytes are streamed (inclusive
+   * `start`/`end`, already validated against the object size by the caller).
+   */
+  get(key: string, range?: ByteRange): Promise<Readable>;
   /** null if absent. */
   stat(key: string): Promise<{ sizeBytes: number } | null>;
   /** Idempotent: deleting a missing key succeeds. */

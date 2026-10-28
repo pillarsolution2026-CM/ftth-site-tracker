@@ -13,13 +13,26 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { CadWarning } from '@ftth/shared';
+import type {
+  CadWarning,
+  CrsDetection,
+  DesignRevisionCounts,
+  DiffChange,
+  DiffCounts,
+  DrawingUnit,
+  FeatureType,
+  MappingRule,
+  TextLinkCounts,
+  TextLinkKind,
+  TextLinkStatus,
+} from '@ftth/shared';
 
 /** PostGIS geometry in the project CRS. Spatial queries use `sql` templates in repositories only. */
 const multiPolygon = customType<{ data: string }>({
@@ -260,6 +273,8 @@ export const cadFiles = pgTable(
     log: text('log'),
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
+    /** Written by the worker (migration 0005); NULL for files processed before Phase 1b. */
+    crsDetection: jsonb('crs_detection').$type<CrsDetection>(),
     uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -395,6 +410,194 @@ export const cadCurves = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------------------------
+// Phase 1b (migration 0005): mapping, design revisions, stable features, text links, diff.
+// The CAD worker writes features, design_features, text_links and revision_diff_items; the API
+// reads them and only changes text-link reviews, box codes and the revision's workflow columns.
+// `length_m` is generated: never insert or update it.
+// ---------------------------------------------------------------------------------------------
+
+/** Geometry in the revision CRS (WGS 84 / UTM, metres). Spatial work uses `sql` in repositories. */
+const geometry = customType<{ data: string }>({ dataType: () => 'geometry' });
+const geometryPoint = customType<{ data: string }>({ dataType: () => 'geometry(Point)' });
+
+export const cadMappings = pgTable(
+  'cad_mappings',
+  {
+    cadFileId: uuid('cad_file_id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    rules: jsonb('rules').$type<MappingRule[]>().notNull(),
+    crsEpsg: integer('crs_epsg').notNull(),
+    drawingUnit: text('drawing_unit').$type<DrawingUnit>().notNull(),
+    metresPerUnit: numeric('metres_per_unit', { precision: 12, scale: 6 }).notNull(),
+    version: integer('version').notNull().default(1),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'cad_mappings_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }).onDelete('cascade'),
+  ],
+);
+
+export const designRevisions = pgTable(
+  'design_revisions',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id),
+    cadFileId: uuid('cad_file_id').notNull(),
+    revNo: integer('rev_no'),
+    status: text('status')
+      .$type<'queued' | 'building' | 'draft' | 'failed' | 'published' | 'discarded'>()
+      .notNull()
+      .default('queued'),
+    currentJobId: uuid('current_job_id').notNull(),
+    baseRevisionId: uuid('base_revision_id'),
+    rules: jsonb('rules').$type<MappingRule[]>().notNull(),
+    mappingVersion: integer('mapping_version').notNull(),
+    crsEpsg: integer('crs_epsg').notNull(),
+    drawingUnit: text('drawing_unit').$type<DrawingUnit>().notNull(),
+    metresPerUnit: numeric('metres_per_unit', { precision: 12, scale: 6 }).notNull(),
+    insUnits: integer('ins_units'),
+    unitsConflict: boolean('units_conflict').notNull().default(false),
+    counts: jsonb('counts').$type<DesignRevisionCounts>(),
+    textLinkCounts: jsonb('text_link_counts').$type<TextLinkCounts>(),
+    diffCounts: jsonb('diff_counts').$type<DiffCounts>(),
+    tilesStorageKey: text('tiles_storage_key'),
+    warnings: jsonb('warnings').$type<CadWarning[]>().notNull().default([]),
+    log: text('log'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+    buildStartedAt: timestamp('build_started_at', { withTimezone: true }),
+    builtAt: timestamp('built_at', { withTimezone: true }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    publishedBy: uuid('published_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (table) => [
+    unique('design_revisions_project_id_id_key').on(table.projectId, table.id),
+    unique('design_revisions_rev_no_key').on(table.projectId, table.revNo),
+    foreignKey({
+      name: 'design_revisions_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }).onDelete('restrict'),
+    index('design_revisions_project_created_idx').on(table.projectId, table.createdAt),
+  ],
+);
+
+export const features = pgTable(
+  'features',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id),
+    featureType: text('feature_type').$type<FeatureType>().notNull(),
+    firstRevisionId: uuid('first_revision_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('features_project_id_id_key').on(table.projectId, table.id)],
+);
+
+export const designFeatures = pgTable(
+  'design_features',
+  {
+    revisionId: uuid('revision_id').notNull(),
+    featureId: uuid('feature_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    featureType: text('feature_type').$type<FeatureType>().notNull(),
+    code: text('code'),
+    layer: text('layer').notNull(),
+    blockName: text('block_name'),
+    sourceKind: text('source_kind').$type<'curve' | 'insert' | 'text'>().notNull(),
+    sourceHandle: text('source_handle').notNull(),
+    geom: geometry('geom').notNull(),
+    /** Generated: metres, routes only. Read-only. */
+    lengthM: numeric('length_m', { precision: 14, scale: 3 }).generatedAlwaysAs(
+      sql`CASE WHEN feature_type = 'route' THEN round(ST_Length(geom)::numeric, 3) END`,
+    ),
+    attrs: jsonb('attrs').$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => [
+    primaryKey({ columns: [table.revisionId, table.featureId] }),
+    index('design_features_revision_type_idx').on(table.revisionId, table.featureType),
+  ],
+);
+
+export const textLinks = pgTable(
+  'text_links',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id').notNull(),
+    revisionId: uuid('revision_id').notNull(),
+    textHandle: text('text_handle').notNull(),
+    layer: text('layer').notNull(),
+    text: text('text'),
+    rawText: text('raw_text').notNull(),
+    readable: boolean('readable').notNull(),
+    position: geometryPoint('position').notNull(),
+    heightM: doublePrecision('height_m').notNull(),
+    kind: text('kind').$type<TextLinkKind>().notNull(),
+    status: text('status').$type<TextLinkStatus>().notNull(),
+    featureId: uuid('feature_id'),
+    distanceM: numeric('distance_m', { precision: 12, scale: 3 }),
+    confidence: numeric('confidence', { precision: 4, scale: 3 }).notNull().default('0'),
+    reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('text_links_handle_key').on(table.revisionId, table.textHandle),
+    index('text_links_review_idx').on(
+      table.revisionId,
+      table.status,
+      table.confidence,
+      table.textHandle,
+    ),
+  ],
+);
+
+export const revisionDiffItems = pgTable(
+  'revision_diff_items',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id').notNull(),
+    revisionId: uuid('revision_id').notNull(),
+    featureId: uuid('feature_id').notNull(),
+    featureType: text('feature_type').$type<FeatureType>().notNull(),
+    change: text('change').$type<DiffChange>().notNull(),
+    code: text('code'),
+    previousCode: text('previous_code'),
+    distanceM: numeric('distance_m', { precision: 14, scale: 3 }),
+    lengthDeltaM: numeric('length_delta_m', { precision: 14, scale: 3 }),
+    candidateFeatureIds: uuid('candidate_feature_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+  },
+  (table) => [
+    unique('revision_diff_items_feature_key').on(table.revisionId, table.featureId),
+    index('revision_diff_items_change_idx').on(table.revisionId, table.change),
+  ],
+);
+
 export const schema = {
   users,
   refreshTokens,
@@ -410,4 +613,10 @@ export const schema = {
   cadInserts,
   cadTexts,
   cadCurves,
+  cadMappings,
+  designRevisions,
+  features,
+  designFeatures,
+  textLinks,
+  revisionDiffItems,
 };

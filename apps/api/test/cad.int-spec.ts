@@ -13,18 +13,17 @@ import {
 } from '@ftth/shared';
 import { Redis } from 'ioredis';
 import request from 'supertest';
-import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { eventTypes, ensureMember, loginAs, projectIds, SEED_LOGINS } from './support/helpers.js';
+import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
-const REDIS_IMAGE = 'redis:7.4-alpine';
 const DXF = Buffer.from(
   '  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1032\n  0\nENDSEC\n  0\nEOF\n',
 );
 const DWG = Buffer.concat([Buffer.from('AC1032'), Buffer.alloc(2000, 1)]);
 
-let redisContainer: StartedTestContainer;
+let testRedis: TestRedis;
 let redis: Redis;
 let ctx: TestContext;
 let brokenQueueCtx: TestContext;
@@ -36,9 +35,8 @@ let supervisor: string;
 let contractor: string;
 
 beforeAll(async () => {
-  process.env.TESTCONTAINERS_RYUK_DISABLED ??= 'true';
-  redisContainer = await new GenericContainer(REDIS_IMAGE).withExposedPorts(6379).start();
-  const redisUrl = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`;
+  testRedis = await startRedis();
+  const redisUrl = testRedis.url;
   redis = new Redis(redisUrl);
 
   ctx = await createTestContext(inject('databaseUrl'), { REDIS_URL: redisUrl, MAX_UPLOAD_MB: '1' });
@@ -67,7 +65,7 @@ afterAll(async () => {
   await ctx?.close();
   await brokenQueueCtx?.close();
   redis?.disconnect();
-  await redisContainer?.stop();
+  await testRedis?.stop();
 });
 
 const http = (context: TestContext = ctx) => request(context.app.getHttpServer());

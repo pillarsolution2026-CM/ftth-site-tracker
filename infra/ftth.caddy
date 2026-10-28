@@ -11,3 +11,22 @@ ftth.example.com {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:3200
 }
+
+# Tiles host (Phase 1b, ADR-021). Martin listens on 127.0.0.1:3003 (production compose, not published
+# elsewhere). Every tile request is authorised by the API: Caddy sends it a subrequest to
+# /tiles/verify with the original URI in X-Forwarded-Uri; 2xx lets the request through, anything else
+# is returned to the client. No cookies or headers need to be copied. Martin sets its own compression.
+tiles.ftth.example.com {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	# Browsers call this from the web origin with MapLibre.
+	header Access-Control-Allow-Origin "https://ftth.example.com"
+	forward_auth 127.0.0.1:3201 {
+		uri /tiles/verify
+	}
+	reverse_proxy 127.0.0.1:3003
+}

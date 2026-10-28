@@ -56,6 +56,45 @@ IMAGE_TAG=$(cat /srv/ftth/deployed-sha) $C logs -f api
 
 الملفات المرفوعة (رسومات الكاد DWG/DXF وملفات PDF وإكسل أوامر التكليف) على staging بتتخزن على volume اسمه `ftth-storage` (مثبّت على `/var/lib/ftth/storage` في الـapi والـworker). الـvolume ده **مش داخل في نسخة قاعدة البيانات الليلية**، فلازم يتاخد منه نسخة احتياطية بنفس الاهتمام (مثلاً `docker run --rm -v ftth-staging_ftth-storage:/data -v /srv/ftth/backups:/out alpine tar czf /out/storage-$(date +%F).tgz -C /data .`). لما نعدي على object storage هنغيّر `STORAGE_DRIVER` لـ`s3`.
 
+## Tiles (Phase 1b)
+**مش متفعّلة على staging دلوقتي** (ADR-010 وADR-021). الـAPI من غير `TILE_URL_SECRET` و`TILES_PUBLIC_URL` بيرد 404 على `tile-url` وبيرفض أي طلب على `/tiles/verify`، وتنزيل ملف الـPMTiles (`tiles.pmtiles`) شغال عادي من غير Martin. لما نحب نفعّل Martin على staging، الخطوات دي بالترتيب. **ماتعملش حاجة منها قبل ما الـmigration `0005` تتطبّق** (الـAPI بيطبّقها لوحده عند التشغيل)، لأن الـrole `ftth_tiles` بيتعمل فيها.
+
+1. **الأسرار** (على السيرفر في `/srv/ftth/.env`، من غير ما تتسجّل في أي مكان تاني):
+   ```bash
+   echo "TILE_URL_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> /srv/ftth/.env
+   echo "FTTH_TILES_PASSWORD=$(openssl rand -hex 24)" >> /srv/ftth/.env
+   echo "TILES_PUBLIC_URL=https://tiles.staging.ftthtracker.projectflow.site" >> /srv/ftth/.env
+   ```
+   الـ`TILE_URL_SECRET` لازم يكون 32 حرف على الأقل. لو اتغيّر، كل اللينكات اللي اتطلعت قبل كده بتبطل (ساعة صلاحية أصلًا).
+2. **كلمة سر الـrole**: الـrole `ftth_tiles` بيتعمل من غير login. من داخل الـpostgres بتاع staging (بصلاحية الأدمن بتاعه):
+   ```bash
+   cd /srv/ftth/app && C="docker compose --env-file /srv/ftth/.env -f infra/staging/docker-compose.yml"
+   set -a; . /srv/ftth/.env; set +a
+   echo "ALTER ROLE ftth_tiles LOGIN PASSWORD :'pw'" | IMAGE_TAG=$(cat /srv/ftth/deployed-sha) $C exec -T postgres \
+     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -v pw="$FTTH_TILES_PASSWORD"
+   ```
+   (اسم الـservice وأسماء المتغيرات حسب `infra/staging/docker-compose.yml`؛ راجعهم قبل التشغيل.)
+3. **خدمة Martin في compose بتاع staging**: أضف service جديد زي `martin` في `infra/docker-compose.yml`:
+   - الـimage: `ghcr.io/maplibre/martin` بإصدار محدد (جرّب إصدار وثبّته بعد أول تشغيل ناجح؛ في dev هو `latest` لأن مفيش إصدار اتأكدنا منه).
+   - الأمر: `--config /config/config.yaml`، والـvolume: `infra/martin/config.yaml` للقراءة بس.
+   - المتغير: `TILES_DATABASE_URL=postgres://ftth_tiles:${FTTH_TILES_PASSWORD}@<service-postgres>:5432/${POSTGRES_DB}`.
+   - البورت: `127.0.0.1:<MARTIN_PORT>:3000` (loopback بس، ومن غير ما يتنشر على أي interface تاني). متغيرات `TILE_URL_SECRET` و`TILES_PUBLIC_URL` تتضاف كمان لـservice الـapi.
+4. **Caddy**: أضف في `infra/staging/ftthtracker.caddy.template` موقع جديد (وبعدها شغّل `bootstrap.sh` تاني، هو اللي بيعمل validate وreload وrollback):
+   ```
+   tiles.staging.ftthtracker.projectflow.site {
+   	import ftth_headers
+   	forward_auth 127.0.0.1:__API_PORT__ {
+   		uri /tiles/verify
+   	}
+   	reverse_proxy 127.0.0.1:__MARTIN_PORT__
+   }
+   ```
+   وضيف سجل DNS للدومين ده. مثال production كامل في `infra/ftth.caddy`.
+5. **تأكيد**:
+   - `curl -i https://tiles.../design_features/14/1/1` من غير توقيع لازم يرجّع 401.
+   - اطلب `POST /projects/<p>/design-revisions/<r>/tile-url` بتوكن PM، واستبدل `{z}/{x}/{y}` بأرقام، ولازم يرجّع 200 بملف MVT (أو tile فاضي برا الرسم).
+   - تأكد إن `ftth_tiles` مش بيقرا جداول: `psql "postgres://ftth_tiles:...@.../db" -c "select 1 from users"` لازم يفشل بـ`permission denied`.
+
 ## إلغاء كل حاجة
 ```bash
 systemctl disable --now ftth-autodeploy.timer

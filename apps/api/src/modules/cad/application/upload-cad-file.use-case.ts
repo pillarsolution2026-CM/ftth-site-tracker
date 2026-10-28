@@ -60,6 +60,7 @@ export class UploadCadFileUseCase {
       dxfVersion: null,
       insUnits: null,
       extents: null,
+      crsDetection: null,
       counts: null,
       warnings: [],
       errorCode: null,

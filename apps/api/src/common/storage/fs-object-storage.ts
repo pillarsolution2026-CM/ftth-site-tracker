@@ -6,6 +6,7 @@ import { type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from '../app-error.js';
 import {
+  type ByteRange,
   isValidStorageKey,
   type ObjectStorage,
   type PutOptions,
@@ -46,10 +47,12 @@ export class FsObjectStorage implements ObjectStorage {
     return { sizeBytes: meter.sizeBytes, sha256: meter.digest() };
   }
 
-  async get(key: string): Promise<Readable> {
+  async get(key: string, range?: ByteRange): Promise<Readable> {
     const path = this.pathFor(key);
     if ((await this.stat(key)) === null) throw new AppError('NOT_FOUND', 'File not found');
-    return createReadStream(path);
+    return range
+      ? createReadStream(path, { start: range.start, end: range.end })
+      : createReadStream(path);
   }
 
   async stat(key: string): Promise<{ sizeBytes: number } | null> {

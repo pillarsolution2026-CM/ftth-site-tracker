@@ -1,3 +1,4 @@
+import { CrsDetectionSchema } from '@ftth/shared';
 import { and, desc, eq } from 'drizzle-orm';
 import type { DbHandle } from '../../../db/db.module.js';
 import { cadFiles } from '../../../db/schema.js';
@@ -40,6 +41,8 @@ function toCadFile(row: Row): CadFile {
           maxY: row.extentsMaxY ?? 0,
         }
       : null,
+    // A value the contract does not recognise (newer worker) is treated as "no detection".
+    crsDetection: CrsDetectionSchema.safeParse(row.crsDetection).data ?? null,
     counts: hasCounts
       ? {
           layers: row.layerCount ?? 0,

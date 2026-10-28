@@ -9,6 +9,7 @@ import { PassThrough, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from '../app-error.js';
 import {
+  type ByteRange,
   isValidStorageKey,
   type ObjectStorage,
   type PutOptions,
@@ -72,11 +73,15 @@ export class S3ObjectStorage implements ObjectStorage {
     return { sizeBytes: meter.sizeBytes, sha256: meter.digest() };
   }
 
-  async get(key: string): Promise<Readable> {
+  async get(key: string, range?: ByteRange): Promise<Readable> {
     this.assertKey(key);
     try {
       const response = await this.client.send(
-        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          ...(range ? { Range: `bytes=${range.start}-${range.end}` } : {}),
+        }),
       );
       if (!(response.Body instanceof Readable)) throw new AppError('NOT_FOUND', 'File not found');
       return response.Body;
