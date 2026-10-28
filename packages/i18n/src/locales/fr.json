@@ -76,7 +76,8 @@
     "menu": "Menu du projet",
     "content": "Contenu du projet",
     "workOrders": "Ordres de travail",
-    "cadFiles": "Fichiers CAO"
+    "cadFiles": "Fichiers CAO",
+    "designRevisions": "Révisions de conception"
   },
   "project": {
     "switcher": "Projet",
@@ -340,7 +341,8 @@
       "UNREADABLE_TEXT": "Certains textes ne peuvent pas être décodés de façon fiable",
       "UNITS_UNSPECIFIED": "Les unités du dessin ne sont pas précisées",
       "EMPTY_MODELSPACE": "Le dessin n'a pas de contenu dans l'espace objet",
-      "CURVE_APPROXIMATED": "Certaines courbes ont été approchées par des segments droits"
+      "CURVE_APPROXIMATED": "Certaines courbes ont été approchées par des segments droits",
+      "UNITS_CRS_MISMATCH": "Le fichier déclare {declared} ($INSUNITS) mais ses coordonnées correspondent à {implied} ; choisissez l'unité dans l'écran de mapping"
     },
     "layers": {
       "search": "Rechercher un calque",
@@ -394,6 +396,259 @@
       "vertices": "Sommets",
       "closed": "Fermé",
       "approximated": "Approché"
+    },
+    "mappingLink": "Mapping"
+  },
+  "featureType": {
+    "route": "Tracé",
+    "box": "Boîtier",
+    "hhi": "Chambre (HHI)",
+    "joint": "Jonction",
+    "mh": "Regard (MH)"
+  },
+  "mapping": {
+    "title": "Mapping du fichier CAO",
+    "backToFile": "Retour au fichier",
+    "notProcessed": "Le fichier doit être traité avant de pouvoir être mappé",
+    "readOnly": "Vous pouvez consulter ce mapping sans le modifier",
+    "target": {
+      "label": "Étiquette (liaison des textes)",
+      "background": "Fond de plan",
+      "ignore": "Ignorer"
+    },
+    "crs": {
+      "title": "Système de coordonnées et unité du dessin",
+      "detected": "Système de coordonnées détecté",
+      "notDetected": "Aucun résultat de détection pour ce fichier",
+      "kind": {
+        "projected_utm": "Projeté (UTM)",
+        "geographic": "Géographique (degrés)",
+        "local": "Coordonnées locales",
+        "unknown": "Inconnu"
+      },
+      "reason": {
+        "MATCHES_PROJECT_CRS": "L'emprise est dans la zone UTM du projet",
+        "UTM_ZONE_UNKNOWN": "L'emprise ressemble à de l'UTM mais la zone n'est pas confirmée",
+        "LONLAT_RANGE": "Les valeurs ressemblent à des longitudes et latitudes ; non pris en charge pour les révisions",
+        "SMALL_LOCAL_COORDINATES": "Petites coordonnées locales ; un géoréférencement est nécessaire",
+        "NO_EXTENTS": "Le dessin n'a pas d'emprise",
+        "OUT_OF_KNOWN_RANGES": "L'emprise est hors de toutes les plages connues"
+      },
+      "suggestedEpsg": "EPSG suggéré",
+      "projectEpsg": "EPSG du projet",
+      "insUnits": "INSUNITS",
+      "declaredUnit": "Unité déclarée par le fichier",
+      "impliedUnit": "Unité déduite de l'emprise",
+      "none": "Aucune",
+      "epsgLabel": "Code EPSG",
+      "epsgHint": "WGS 84 / UTM uniquement, par exemple 32636",
+      "epsgRequired": "Saisissez un code EPSG",
+      "epsgUnsupported": "Seuls les codes WGS 84 / UTM sont pris en charge (32601-32660, 32701-32760)",
+      "unitLabel": "Unité du dessin",
+      "unitHint": "Ce que représente une unité du dessin dans la réalité. Il n'y a pas de valeur par défaut : vous devez la choisir.",
+      "unitPlaceholder": "Choisir une unité",
+      "unitRequired": "Choisissez l'unité du dessin pour activer l'enregistrement",
+      "factor": "{factor} m par unité"
+    },
+    "unit": {
+      "m": "Mètre (m)",
+      "cm": "Centimètre (cm)",
+      "mm": "Millimètre (mm)",
+      "km": "Kilomètre (km)",
+      "in": "Pouce (in)",
+      "ft": "Pied (ft)"
+    },
+    "warning": {
+      "title": "Vérifiez l'unité du dessin",
+      "conflict": "Le fichier déclare {declared} mais les coordonnées correspondent à {implied} dans le système détecté. Soyez sûr de l'unité avant d'enregistrer.",
+      "differsDeclared": "L'unité choisie ({chosen}) diffère de l'unité déclarée par le fichier ({declared}).",
+      "differsImplied": "L'unité choisie ({chosen}) diffère de l'unité déduite de l'emprise ({implied})."
+    },
+    "layers": {
+      "title": "Calques",
+      "name": "Calque",
+      "color": "Couleur",
+      "entities": "Entités",
+      "target": "Devient",
+      "none": "Le dessin n'a pas de calques",
+      "suggested": "Suggéré",
+      "suggestedHint": "Suggéré d'après le nom du calque ; enregistré seulement quand vous enregistrez"
+    },
+    "blocks": {
+      "title": "Blocs",
+      "name": "Bloc",
+      "count": "Insertions",
+      "layers": "Calques",
+      "target": "Devient",
+      "follow": "Suivre le calque",
+      "none": "Le dessin n'a pas de blocs"
+    },
+    "texts": {
+      "title": "Règles de textes",
+      "hint": "Un texte qui devient un objet ponctuel, par exemple NEW-HHI sur le calque RRR devient une chambre.",
+      "layer": "Calque",
+      "text": "Texte",
+      "count": "Nombre",
+      "target": "Type de point",
+      "noRule": "Aucune règle",
+      "none": "Aucun texte lisible",
+      "limited": "Seuls les textes les plus fréquents sont listés ({limit})"
+    },
+    "save": "Enregistrer le mapping",
+    "saving": "Enregistrement…",
+    "saved": "Mapping enregistré (version {version})",
+    "savedVersion": "Version enregistrée",
+    "build": "Construire la révision",
+    "building": "Construction…",
+    "unsaved": "Vous avez des modifications non enregistrées. Enregistrez avant de construire une révision.",
+    "noSavedMapping": "Enregistrez d'abord le mapping pour construire une révision",
+    "error": {
+      "VERSION_MISMATCH": "Le mapping a été modifié par quelqu'un d'autre. Rechargez pour voir la dernière version ; vos modifications sur cette page seront perdues.",
+      "NOT_PROCESSED": "Le fichier n'est pas encore traité",
+      "NO_MAPPING": "Enregistrez le mapping avant de construire une révision",
+      "MAPPING_VERSION_MISMATCH": "Le mapping a changé depuis votre ouverture. Rechargez puis reconstruisez.",
+      "REVISION_IN_PROGRESS": "Une autre révision de ce projet est en construction ou en attente de relecture",
+      "reload": "Recharger"
+    }
+  },
+  "design": {
+    "listTitle": "Révisions de conception",
+    "empty": "Aucune révision de conception. Enregistrez un mapping puis construisez une révision depuis un fichier CAO traité.",
+    "revision": "Révision",
+    "draftLabel": "Brouillon",
+    "file": "Fichier source",
+    "crs": "EPSG",
+    "unit": "Unité du dessin",
+    "createdAt": "Créée",
+    "builtAt": "Construite",
+    "publishedAt": "Publiée",
+    "status": {
+      "queued": "En attente",
+      "building": "En construction",
+      "draft": "Brouillon",
+      "failed": "Échec",
+      "published": "Publiée",
+      "discarded": "Abandonnée"
+    },
+    "detailTitle": "Révision de conception",
+    "backToList": "Retour aux révisions",
+    "autoRefresh": "Actualisation automatique toutes les 3 secondes",
+    "notBuilt": "Les totaux, la relecture des textes et les changements apparaissent une fois la construction terminée",
+    "factor": "Mètres par unité",
+    "insUnits": "INSUNITS",
+    "base": "Révision de base",
+    "baseNone": "Aucune (première révision)",
+    "baseRev": "Dernière révision publiée",
+    "unitsConflict": "Le dessin déclare une unité qui contredit ses coordonnées. Les longueurs utilisent l'unité choisie par le chef de projet ({unit}).",
+    "failure": {
+      "MAPPING_INVALID": "Le mapping est invalide",
+      "CAD_FILE_NOT_PROCESSED": "Le fichier CAO n'a pas été traité",
+      "TILES_FAILED": "Les tuiles de la carte n'ont pas pu être construites",
+      "MAX_ATTEMPTS_EXCEEDED": "La construction a échoué après plusieurs tentatives",
+      "ENQUEUE_FAILED": "Impossible de mettre la construction en file",
+      "INTERNAL": "Erreur de construction inattendue"
+    },
+    "counts": {
+      "title": "Objets du réseau",
+      "routeLength": "Longueur des tracés (m)"
+    },
+    "linkCounts": {
+      "title": "Liens de textes"
+    },
+    "linkStatus": {
+      "auto": "Lié automatiquement",
+      "review": "À relire",
+      "confirmed": "Confirmé",
+      "rejected": "Rejeté",
+      "unlinked": "Non lié"
+    },
+    "diffCounts": {
+      "title": "Changements par rapport à la révision de base"
+    },
+    "change": {
+      "added": "Ajouté",
+      "removed": "Supprimé",
+      "unchanged": "Inchangé",
+      "moved": "Déplacé",
+      "reshaped": "Forme modifiée",
+      "attributes_changed": "Code modifié",
+      "conflict": "Conflit"
+    },
+    "actions": {
+      "publish": "Publier",
+      "publishing": "Publication…",
+      "discard": "Abandonner",
+      "discarding": "Abandon…",
+      "discardTitle": "Abandonner cette révision ?",
+      "discardText": "Une révision abandonnée ne peut plus être publiée.",
+      "discardConfirm": "Abandonner la révision",
+      "cancel": "Annuler"
+    },
+    "publish": {
+      "title": "Points ouverts",
+      "text": "{links} liens de textes restent à relire et {conflicts} changements sont des conflits. La publication verrouille la révision en l'état.",
+      "acknowledge": "Je comprends et je veux publier avec des points ouverts",
+      "confirm": "Publier quand même"
+    },
+    "error": {
+      "NOT_DRAFT": "Seule une révision en brouillon peut être publiée",
+      "NOT_DISCARDABLE": "Cette révision ne peut pas être abandonnée maintenant",
+      "REVISION_LOCKED": "La révision n'est plus un brouillon : les liens ne peuvent plus être modifiés",
+      "FEATURE_TYPE_NOT_ALLOWED": "Ce type d'objet n'est pas autorisé pour ce type de texte",
+      "FEATURE_REQUIRED": "Choisissez d'abord un objet"
+    },
+    "review": {
+      "title": "Relecture des textes",
+      "statusFilter": "Statut",
+      "kindFilter": "Type",
+      "all": "Tous",
+      "text": "Texte",
+      "kind": "Type",
+      "layer": "Calque",
+      "feature": "Objet proposé",
+      "noFeature": "Aucun candidat",
+      "distance": "Distance (m)",
+      "confidence": "Confiance",
+      "status": "Statut",
+      "unreadable": "Illisible",
+      "rawText": "Texte brut",
+      "confirm": "Confirmer",
+      "reject": "Rejeter",
+      "reassign": "Réaffecter",
+      "none": "Aucun texte ne correspond à ce filtre",
+      "kinds": {
+        "cable": "Câble",
+        "duct": "Conduit",
+        "length": "Longueur",
+        "box_id": "Numéro de boîtier",
+        "box_bpu": "Boîtier B/P/U",
+        "other": "Autre",
+        "unreadable": "Illisible"
+      },
+      "reassignTitle": "Réaffecter le lien du texte {text}",
+      "searchLabel": "Rechercher des objets par code",
+      "featureTypeLabel": "Type d'objet",
+      "search": "Rechercher",
+      "useFeature": "Utiliser cet objet",
+      "noFeatures": "Aucun objet correspondant",
+      "closeReassign": "Fermer",
+      "featureCode": "Code",
+      "featureLayer": "Calque",
+      "featureHandle": "Handle",
+      "featureLength": "Longueur (m)"
+    },
+    "diff": {
+      "title": "Changements",
+      "changedOnly": "Modifiés seulement",
+      "changeFilter": "Changement",
+      "all": "Tous",
+      "change": "Changement",
+      "type": "Type",
+      "code": "Code",
+      "previousCode": "Code précédent",
+      "distance": "Distance (m)",
+      "lengthDelta": "Écart de longueur (m)",
+      "none": "Aucun changement à afficher"
     }
   }
 }

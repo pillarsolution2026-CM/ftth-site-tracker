@@ -76,7 +76,8 @@
     "menu": "قائمة المشروع",
     "content": "محتوى المشروع",
     "workOrders": "أوامر التكليف",
-    "cadFiles": "ملفات الكاد"
+    "cadFiles": "ملفات الكاد",
+    "designRevisions": "مراجعات التصميم"
   },
   "project": {
     "switcher": "المشروع",
@@ -340,7 +341,8 @@
       "UNREADABLE_TEXT": "تعذّر فك ترميز بعض النصوص بشكل موثوق",
       "UNITS_UNSPECIFIED": "وحدات الرسم غير محددة",
       "EMPTY_MODELSPACE": "لا يوجد محتوى في فضاء النموذج",
-      "CURVE_APPROXIMATED": "تم تقريب بعض المنحنيات بقطع مستقيمة"
+      "CURVE_APPROXIMATED": "تم تقريب بعض المنحنيات بقطع مستقيمة",
+      "UNITS_CRS_MISMATCH": "الملف يعلن الوحدة {declared} ($INSUNITS) لكن إحداثياته تناسب {implied}؛ اختر الوحدة في شاشة الربط"
     },
     "layers": {
       "search": "بحث باسم الطبقة",
@@ -394,6 +396,259 @@
       "vertices": "عدد النقاط",
       "closed": "مغلق",
       "approximated": "مقرَّب"
+    },
+    "mappingLink": "الربط (Mapping)"
+  },
+  "featureType": {
+    "route": "مسار",
+    "box": "صندوق",
+    "hhi": "غرفة يدوية (HHI)",
+    "joint": "وصلة",
+    "mh": "غرفة تفتيش (MH)"
+  },
+  "mapping": {
+    "title": "ربط ملف الكاد",
+    "backToFile": "العودة إلى الملف",
+    "notProcessed": "يجب أن تكتمل معالجة الملف قبل ربطه",
+    "readOnly": "يمكنك عرض هذا الربط دون تعديله",
+    "target": {
+      "label": "تسمية (لربط النصوص)",
+      "background": "خلفية",
+      "ignore": "تجاهل"
+    },
+    "crs": {
+      "title": "نظام الإحداثيات ووحدة الرسم",
+      "detected": "نظام الإحداثيات المكتشف",
+      "notDetected": "لا توجد نتيجة اكتشاف لهذا الملف",
+      "kind": {
+        "projected_utm": "مسقط (UTM)",
+        "geographic": "جغرافي (درجات)",
+        "local": "إحداثيات محلية",
+        "unknown": "غير معروف"
+      },
+      "reason": {
+        "MATCHES_PROJECT_CRS": "حدود الرسم تقع داخل نطاق UTM الخاص بالمشروع",
+        "UTM_ZONE_UNKNOWN": "حدود الرسم تشبه UTM لكن تعذّر تأكيد النطاق",
+        "LONLAT_RANGE": "القيم تشبه خطوط الطول والعرض؛ غير مدعومة للمراجعات",
+        "SMALL_LOCAL_COORDINATES": "إحداثيات محلية صغيرة؛ يلزم الإسناد الجغرافي",
+        "NO_EXTENTS": "الرسم بلا حدود",
+        "OUT_OF_KNOWN_RANGES": "حدود الرسم خارج كل النطاقات المعروفة"
+      },
+      "suggestedEpsg": "EPSG المقترح",
+      "projectEpsg": "EPSG المشروع",
+      "insUnits": "INSUNITS",
+      "declaredUnit": "الوحدة المعلنة في الملف",
+      "impliedUnit": "الوحدة التي تدل عليها الحدود",
+      "none": "لا يوجد",
+      "epsgLabel": "رمز EPSG",
+      "epsgHint": "WGS 84 / UTM فقط، مثل 32636",
+      "epsgRequired": "أدخل رمز EPSG",
+      "epsgUnsupported": "المدعوم رموز WGS 84 / UTM فقط (32601-32660، 32701-32760)",
+      "unitLabel": "وحدة الرسم",
+      "unitHint": "ماذا تعني وحدة واحدة في الرسم على أرض الواقع. لا توجد قيمة افتراضية: يجب أن تختارها.",
+      "unitPlaceholder": "اختر الوحدة",
+      "unitRequired": "اختر وحدة الرسم لتفعيل الحفظ",
+      "factor": "{factor} متر لكل وحدة"
+    },
+    "unit": {
+      "m": "متر (m)",
+      "cm": "سنتيمتر (cm)",
+      "mm": "ملليمتر (mm)",
+      "km": "كيلومتر (km)",
+      "in": "بوصة (in)",
+      "ft": "قدم (ft)"
+    },
+    "warning": {
+      "title": "تحقق من وحدة الرسم",
+      "conflict": "الملف يعلن الوحدة {declared} لكن الإحداثيات تناسب {implied} في نظام الإحداثيات المكتشف. تأكد من الوحدة قبل الحفظ.",
+      "differsDeclared": "الوحدة المختارة ({chosen}) تختلف عن الوحدة المعلنة في الملف ({declared}).",
+      "differsImplied": "الوحدة المختارة ({chosen}) تختلف عن الوحدة التي تدل عليها حدود الرسم ({implied})."
+    },
+    "layers": {
+      "title": "الطبقات",
+      "name": "الطبقة",
+      "color": "اللون",
+      "entities": "الكيانات",
+      "target": "تصبح",
+      "none": "لا توجد طبقات في الرسم",
+      "suggested": "مقترح",
+      "suggestedHint": "مقترح من اسم الطبقة؛ لا يُحفظ إلا عند الضغط على حفظ"
+    },
+    "blocks": {
+      "title": "الكتل",
+      "name": "الكتلة",
+      "count": "عدد الإدراجات",
+      "layers": "الطبقات",
+      "target": "تصبح",
+      "follow": "حسب الطبقة",
+      "none": "لا توجد كتل في الرسم"
+    },
+    "texts": {
+      "title": "قواعد النصوص",
+      "hint": "نص يتحول إلى عنصر نقطي، مثل NEW-HHI على الطبقة RRR يصبح غرفة يدوية.",
+      "layer": "الطبقة",
+      "text": "النص",
+      "count": "العدد",
+      "target": "نوع النقطة",
+      "noRule": "بلا قاعدة",
+      "none": "لا توجد نصوص مقروءة",
+      "limited": "تُعرض النصوص الأكثر تكرارًا فقط ({limit})"
+    },
+    "save": "حفظ الربط",
+    "saving": "جارٍ الحفظ…",
+    "saved": "تم حفظ الربط (النسخة {version})",
+    "savedVersion": "النسخة المحفوظة",
+    "build": "بناء مراجعة",
+    "building": "جارٍ البناء…",
+    "unsaved": "لديك تعديلات غير محفوظة. احفظ قبل بناء مراجعة.",
+    "noSavedMapping": "احفظ الربط أولًا لتتمكن من بناء مراجعة",
+    "error": {
+      "VERSION_MISMATCH": "تم تعديل الربط بواسطة شخص آخر. أعد التحميل لرؤية آخر نسخة؛ ستفقد تعديلاتك في هذه الصفحة.",
+      "NOT_PROCESSED": "لم تكتمل معالجة الملف بعد",
+      "NO_MAPPING": "احفظ الربط قبل بناء مراجعة",
+      "MAPPING_VERSION_MISMATCH": "تغيّر الربط منذ فتحته. أعد التحميل ثم ابنِ من جديد.",
+      "REVISION_IN_PROGRESS": "توجد مراجعة أخرى لهذا المشروع قيد البناء أو بانتظار المراجعة",
+      "reload": "إعادة التحميل"
+    }
+  },
+  "design": {
+    "listTitle": "مراجعات التصميم",
+    "empty": "لا توجد مراجعات تصميم بعد. احفظ الربط ثم ابنِ مراجعة من ملف كاد تمت معالجته.",
+    "revision": "المراجعة",
+    "draftLabel": "مسودة",
+    "file": "الملف المصدر",
+    "crs": "EPSG",
+    "unit": "وحدة الرسم",
+    "createdAt": "أُنشئت",
+    "builtAt": "اكتمل بناؤها",
+    "publishedAt": "نُشرت",
+    "status": {
+      "queued": "في الانتظار",
+      "building": "قيد البناء",
+      "draft": "مسودة",
+      "failed": "فشلت",
+      "published": "منشورة",
+      "discarded": "مهملة"
+    },
+    "detailTitle": "مراجعة التصميم",
+    "backToList": "العودة إلى المراجعات",
+    "autoRefresh": "يتم التحديث تلقائيًا كل 3 ثوانٍ",
+    "notBuilt": "تظهر الأعداد ومراجعة النصوص والتغييرات بعد اكتمال البناء",
+    "factor": "متر لكل وحدة",
+    "insUnits": "INSUNITS",
+    "base": "المراجعة الأساسية",
+    "baseNone": "لا توجد (أول مراجعة)",
+    "baseRev": "آخر مراجعة منشورة",
+    "unitsConflict": "الرسم يعلن وحدة تخالف إحداثياته. الأطوال تستخدم الوحدة التي اختارها مدير المشروع ({unit}).",
+    "failure": {
+      "MAPPING_INVALID": "الربط غير صالح",
+      "CAD_FILE_NOT_PROCESSED": "لم تتم معالجة ملف الكاد",
+      "TILES_FAILED": "تعذّر بناء بلاطات الخريطة",
+      "MAX_ATTEMPTS_EXCEEDED": "فشل البناء بعد عدة محاولات",
+      "ENQUEUE_FAILED": "تعذّر وضع البناء في الطابور",
+      "INTERNAL": "خطأ غير متوقع في البناء"
+    },
+    "counts": {
+      "title": "عناصر الشبكة",
+      "routeLength": "طول المسارات (م)"
+    },
+    "linkCounts": {
+      "title": "ربط النصوص"
+    },
+    "linkStatus": {
+      "auto": "مربوط تلقائيًا",
+      "review": "يحتاج مراجعة",
+      "confirmed": "مؤكَّد",
+      "rejected": "مرفوض",
+      "unlinked": "غير مربوط"
+    },
+    "diffCounts": {
+      "title": "التغييرات مقارنة بالمراجعة الأساسية"
+    },
+    "change": {
+      "added": "مضاف",
+      "removed": "محذوف",
+      "unchanged": "دون تغيير",
+      "moved": "منقول",
+      "reshaped": "تغيّر شكله",
+      "attributes_changed": "تغيّر الكود",
+      "conflict": "تعارض"
+    },
+    "actions": {
+      "publish": "نشر",
+      "publishing": "جارٍ النشر…",
+      "discard": "إهمال",
+      "discarding": "جارٍ الإهمال…",
+      "discardTitle": "إهمال هذه المراجعة؟",
+      "discardText": "لا يمكن نشر المراجعة المهملة بعد ذلك.",
+      "discardConfirm": "إهمال المراجعة",
+      "cancel": "إلغاء"
+    },
+    "publish": {
+      "title": "بنود مفتوحة",
+      "text": "ما زال هناك {links} رابط نص يحتاج مراجعة و{conflicts} تعارض في التغييرات. النشر يقفل المراجعة كما هي.",
+      "acknowledge": "أفهم ذلك وأريد النشر مع وجود بنود مفتوحة",
+      "confirm": "انشر على أي حال"
+    },
+    "error": {
+      "NOT_DRAFT": "لا يمكن نشر إلا المراجعة التي في حالة مسودة",
+      "NOT_DISCARDABLE": "لا يمكن إهمال هذه المراجعة الآن",
+      "REVISION_LOCKED": "المراجعة لم تعد مسودة، لذا لا يمكن تغيير الروابط",
+      "FEATURE_TYPE_NOT_ALLOWED": "هذا النوع من العناصر غير مسموح لهذا النوع من النصوص",
+      "FEATURE_REQUIRED": "اختر عنصرًا أولًا"
+    },
+    "review": {
+      "title": "مراجعة النصوص",
+      "statusFilter": "الحالة",
+      "kindFilter": "النوع",
+      "all": "الكل",
+      "text": "النص",
+      "kind": "النوع",
+      "layer": "الطبقة",
+      "feature": "العنصر المقترح",
+      "noFeature": "لا يوجد مرشح",
+      "distance": "المسافة (م)",
+      "confidence": "الثقة",
+      "status": "الحالة",
+      "unreadable": "غير مقروء",
+      "rawText": "النص الخام",
+      "confirm": "تأكيد",
+      "reject": "رفض",
+      "reassign": "إعادة ربط",
+      "none": "لا توجد نصوص مطابقة لهذا الفلتر",
+      "kinds": {
+        "cable": "كابل",
+        "duct": "ماسورة",
+        "length": "طول",
+        "box_id": "رقم الصندوق",
+        "box_bpu": "الصندوق B/P/U",
+        "other": "أخرى",
+        "unreadable": "غير مقروء"
+      },
+      "reassignTitle": "إعادة ربط النص {text}",
+      "searchLabel": "بحث عن عناصر بالكود",
+      "featureTypeLabel": "نوع العنصر",
+      "search": "بحث",
+      "useFeature": "استخدم هذا العنصر",
+      "noFeatures": "لا توجد عناصر مطابقة",
+      "closeReassign": "إغلاق",
+      "featureCode": "الكود",
+      "featureLayer": "الطبقة",
+      "featureHandle": "المعرّف",
+      "featureLength": "الطول (م)"
+    },
+    "diff": {
+      "title": "التغييرات",
+      "changedOnly": "المتغيّر فقط",
+      "changeFilter": "التغيير",
+      "all": "الكل",
+      "change": "التغيير",
+      "type": "النوع",
+      "code": "الكود",
+      "previousCode": "الكود السابق",
+      "distance": "المسافة (م)",
+      "lengthDelta": "فرق الطول (م)",
+      "none": "لا توجد تغييرات للعرض"
     }
   }
 }

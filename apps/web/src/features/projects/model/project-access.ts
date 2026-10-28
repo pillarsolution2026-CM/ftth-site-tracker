@@ -31,7 +31,7 @@ export function can(access: ProjectAccess, permission: Permission): boolean {
 }
 
 export interface NavItem {
-  id: 'workOrders' | 'cadFiles';
+  id: 'workOrders' | 'cadFiles' | 'designRevisions';
   labelKey: MessageKey;
   /** Path below `/{locale}/projects/{projectId}`. */
   segment: string;
@@ -47,6 +47,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permission: 'work_orders:read',
   },
   { id: 'cadFiles', labelKey: 'nav.cadFiles', segment: 'cad-files', permission: 'cad_files:read' },
+  {
+    id: 'designRevisions',
+    labelKey: 'nav.designRevisions',
+    segment: 'design-revisions',
+    permission: 'design:read',
+  },
 ];
 
 export function visibleNavItems(access: ProjectAccess): NavItem[] {
