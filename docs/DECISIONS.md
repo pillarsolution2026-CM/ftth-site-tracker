@@ -134,13 +134,14 @@ Section headings (rows without unit, quantity and price), empty quantities and t
 - Geometry: drawing coordinates × `metres_per_unit`, SRID = revision EPSG, 2D. `length_m` is a generated column (`ST_Length`, 3 decimals).
 **Consequences:** Reprocessing a CAD file never changes a revision (revisions copy what they need, and the file cannot be deleted while a revision uses it). Fixing a published revision means building a new one. Drawings in local coordinates (not UTM) cannot become revisions until georeferencing is built (out of scope v1).
 
-## ADR-018: Drawing units are a per-drawing setting — Proposed, awaiting the technical office (2026-10-28)
+## ADR-018: Drawing units are a per-drawing setting — Accepted; Qalyub drawings are metres (owner, 2026-10-28)
 **Context:** The Qalyub drawings declare `$INSUNITS=1` (inches), but their coordinates are clearly metres on UTM zone 36N (easting ≈ 325,000, northing ≈ 3,340,000; routes ≈ 3,700 m as planned). The owner has asked the technical office which is right; until then neither may be hard-coded.
-**Decision (proposed):**
+**Owner decision (2026-10-28):** the drawings are in **metres**. `$INSUNITS=1` in the files is wrong and must not be used for lengths; the PM picks `m` on the mapping screen.
+**Decision:**
 - The drawing unit (`m`, `cm`, `mm`, `km`, `in`, `ft`) is chosen by the PM on the mapping screen, with **no default**. It is stored on the mapping and copied, with its exact factor (`metres_per_unit`, e.g. 0.0254), onto every design revision; the database checks factor = unit.
 - The worker's CRS detection records the unit implied by the extents (UTM → metres) and the unit declared by `$INSUNITS`. When they differ it sets `unitsConflict` and adds the file warning `UNITS_CRS_MISMATCH`; the mapping screen shows both and the revision keeps `units_conflict`.
 - Every metric value (feature geometry, `length_m`, link distances, matching tolerances) is computed after scaling by the revision factor, so later quantities go through this setting.
-**Open:** whether the unit should become a per-project default once the technical office answers. Revisions built before that keep the unit they were built with.
+**Open:** whether `m` should become a per-project default (pre-selected on the mapping screen) instead of a choice with no default. Not implemented; the per-drawing choice and the `UNITS_CRS_MISMATCH` warning stay, so a future drawing in another unit is still caught. Revisions keep the unit they were built with.
 
 ## ADR-019: Text linking and Arabic SHX conversion — Accepted (2026-10-28)
 **Context:** Free texts near features carry their data (`F 36 C`, `1X2Way16/12`, `150.0M`, box ids `1-1`, B/P/U codes). Street names on layer `tx` use the legacy `xarb.shx` font and are stored as ASCII key codes.

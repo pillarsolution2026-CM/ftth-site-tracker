@@ -3,7 +3,7 @@
 Schemas: `packages/shared/src/cad/{drawing-units,crs-detection.schemas,cad-mapping.schemas}.ts`,
 `packages/shared/src/design/{feature-types,text-link,design-revision.schemas}.ts`, job
 `CadBuildRevisionJobSchema`. Migration: `apps/api/src/db/migrations/0005_design_revisions.sql`.
-ADRs: 017 (mapping, revisions), 018 (drawing units — Proposed), 019 (text linking, SHX), 020
+ADRs: 017 (mapping, revisions), 018 (drawing units — Accepted: metres), 019 (text linking, SHX), 020
 (matching), 021 (tiles). Common rules of `docs/phase-1a-contracts.md` still apply (guards, errors,
 events in the same transaction, `project_id` in every query, lists ordered).
 
