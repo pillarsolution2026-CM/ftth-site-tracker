@@ -8,7 +8,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
 | Staging (Hetzner) | Ready — server bootstrap pending (owner runs one command) | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
-| 1b Mapping, text linking, features, tiles | Not started | — |
+| 1b Mapping, text linking, features, tiles | Done — PR open, awaiting approval | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
 | 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phases 1b and 3 | — |
@@ -89,6 +89,46 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
   - Owner's sheet (199 rows): 153 clean rows (was 129), total 78,900,610.328; the 46 remaining error rows are section headings, empty quantities and one heading without description — left as they are by the owner's decision. Work type column detected automatically.
   - Test report (local, Windows + Docker): unit shared 103, i18n 4, ui-tokens 2, api 202, web 115; web e2e 9; API integration 91 (Linux container + PostGIS 16 + Redis, like CI). Build, typecheck, lint and format check pass.
   - Note: API integration tests cannot run directly on a Windows host (`STORAGE_FS_ROOT` must be a POSIX path); run them in Linux/CI.
+
+### Phase 1b — Mapping, text linking, design revisions, tiles
+Contracts: `docs/phase-1b-contracts.md`. ADRs: 017 (mapping, revisions), 018 (drawing units — **Proposed, awaiting the technical office**), 019 (text linking, SHX), 020 (matching), 021 (tiles). Migration `0005`.
+- **Done:**
+  - **Mapping** (`cad_mappings`, one per file, versioned): rules by layer, block or exact text on a layer → `route` / `box` / `hhi` / `joint` / `mh`, or `label` / `background` / `ignore`. Name suggestions from the plan's examples only (`N_DUC_CBL` → route, `sub` → box, `NEW-HHI` → hhi, `JONT 144` → joint); the PM saves every rule.
+  - **EPSG detection** at import (`cad_files.crs_detection`): UTM ranges + the project's zone → suggested EPSG; lon/lat, local and unknown are recognised and not offered. The PM confirms the EPSG (WGS 84 / UTM only).
+  - **Drawing units (owner decision pending):** a per-drawing setting with no default (`m`, `cm`, `mm`, `km`, `in`, `ft`), stored with the exact factor on the mapping and on every revision. When `$INSUNITS` disagrees with the CRS detection, the file gets `UNITS_CRS_MISMATCH`, the mapping screen shows a warning and the revision keeps `units_conflict`. All geometry and lengths are scaled by the chosen factor.
+  - **Arabic SHX** (`xarb.shx`): conversion table = the 33 lowercase keys of the Arabic 101 layout. Any other character keeps the whole text `readable=false`; unreadable texts go to the review list and are never guessed.
+  - **Text linking**: plan patterns (`F 36 C`, `1X2Way16/12`, `150.0M`, `1-1`, `12B`), nearest allowed feature within 15 × text height, confidence 0..1; ≥ 0.8 auto, else review. Box codes come from their best `1-1`-style link.
+  - **Design revisions**: build job `cad.build_revision` on the existing Redis protocol → `draft` with features, text links, diff and a PMTiles archive; review list (least confident first), confirm / reassign / reject; publish → `rev_no`, locked by database triggers (revision, its features, links and diff). Stable feature ids (`features` + `design_features`).
+  - **Revision matching** against the last published revision (handle → code → distance, 5 m) with a diff report: added, removed, unchanged, moved, reshaped, attributes changed, conflict.
+  - **Tiles**: PMTiles per revision (layers `network` and `background`, zoom 12–18) streamed with HTTP Range; Martin config with `auto_publish: false` and only the function source `tiles.design_features`, read-only role `ftth_tiles` (execute that function only), signed tile URLs (HMAC, 1 h) checked by the API at `/tiles/verify` for Caddy `forward_auth`.
+  - **Web**: mapping screen (CRS/unit panel with the units warning, layers, blocks, text rules, save, build) and design-revision list/detail (counts, text review list, diff, publish with acknowledgement, discard). ar/en/fr.
+- **Verified end to end (local, real PostGIS + Redis + built API + worker, synthetic DXF on UTM 36N with `$INSUNITS=1`):** import → `projected_utm`, suggested 32636, `unitsConflict=true`, warning `UNITS_CRS_MISMATCH`; mapping saved with unit `m`; revision built: 2 routes (180 m), 1 box coded `1-1` from its linked text, 1 HHI from the `NEW-HHI` text rule, 2 links auto; PMTiles Range request → 206; signed tile URL → `/tiles/verify` 204, tampered → 401; publish → rev 1; a direct `UPDATE` on a published feature → rejected by the trigger. Second drawing (box moved 3 m, one route extended 10 m) → box `moved` and route `reshaped`, both kept their ids; published as rev 2.
+- **Bug found by the end-to-end run and fixed (failing test first):** a route extended from 80 m to 90 m lost its id (removed + added) because its Hausdorff distance exceeded the 5 m tolerance. Routes now also match when the shorter lies within tolerance of the longer and covers ≥ 80 % of it (ADR-020).
+- **Test report (local, Linux, PostGIS 16-3.4, Redis 7):**
+  - `pnpm format:check`, `pnpm build`, `pnpm lint`, `pnpm typecheck`: pass.
+  - Unit: shared 134, i18n 4, ui-tokens 2, geo 60, api 281, web 179, mobile 11 — all pass.
+  - API integration (real PostGIS + Redis): 127 pass (30 new for 1b, incl. RBAC/IDOR, publish lock, rev numbers, Range download, signed URLs, and the `ftth_tiles` role: table reads denied, matching tile non-empty, other project empty).
+  - Web e2e (Playwright, mock API): 10 pass (new: mapping → unit → save → build → review → publish).
+  - CAD worker: ruff, ruff format, mypy --strict: pass; pytest 205 pass, 5 skipped (golden — drawings not in the repo); coverage 95 %.
+  - Docker images: not built here (Docker Hub rate limit in the sandbox); checked by CI.
+- **Golden run on the real drawings (one command, for someone who has them):**
+  ```bash
+  CAD_FIXTURES_DIR=/path/to/drawings workers/cad/scripts/golden.sh
+  ```
+  It needs Docker (or `TEST_DATABASE_URL`) and Node 22, installs the DWG converter if missing, imports every drawing named in `workers/cad/tests/golden/*.json`, and for Qalyub sector 1 builds a revision with `tests/golden/qalyub_sector1_mapping.json` (drawing unit `m` as a **test parameter** only) and prints routes, route metres, boxes, HHI, joints, EPSG, units conflict and seconds. Add `UPDATE_GOLDEN=1` once to record the route count, route metres and the new unreadable-text counts (left empty in the repo because the drawings were not available).
+- **Not done:**
+  - Golden run against the real Qalyub drawings (not in the repo).
+  - Martin not run (image could not be pulled here); its config follows the docs and is untested. The SQL function and role were tested directly in PostGIS. Martin and the tiles host are not deployed on staging (steps in `docs/DEPLOY.md`).
+  - No map preview on the mapping screen (MapLibre comes with Phase 2's CAD viewer); the web was tested against a mock API only (the API path was checked with curl, above).
+  - Manual resolution of diff conflicts (choose another base feature) — conflicts are listed and must be acknowledged on publish.
+  - Correcting the text of an unreadable label by hand.
+  - Street-name texts (`tx`) are not drawn in the background tiles yet (curves and blocks only).
+- **Known issues:**
+  - `Deploy` workflow fails on every push to `main` ("node is not available" for the server SSH user) — known, not touched in 1b.
+  - `design_features.attrs.texts` records the links found at build time; after the PM's review only box codes are recomputed (diff rows keep the build-time code).
+  - API integration tests need a fresh database per run (a 1a test leaves memberships behind) — CI uses a fresh service database.
+  - Revision `warnings` may contain `ROUTE_ZERO_LENGTH_SKIPPED`, which has no shared enum yet (not shown in the UI).
+- **Acceptance criteria met:** **not verified — needs the drawings.** Qalyub → ~25 routes (~3,700 m), 17 boxes, 6 HHI, 4 joints, UTM 36N in under a minute: the golden test asserts 17 boxes, 4 joints, 6 HHI, EPSG 32636 and < 60 s, and prints routes/metres, but it has not been run against the real files. From the 1a extraction, layer `N_DUC_CBL` has 28 polylines, 3 lines and 1 arc (32 curves, 3,782.53 drawing units), so the route count will likely be 32 rather than ~25 unless the technical office says some of them are not routes.
 
 ### Phase 4 (early start) — Geometry engine `packages/geo` (PR #5)
 Started ahead of Phases 1b–3 at the owner's request; only the part with no dependency on CAD mapping or the mobile app. Package decisions G-1..G-7 are in `packages/geo/DECISIONS.md`.
