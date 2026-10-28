@@ -3,6 +3,11 @@ import { z } from 'zod';
 /** Default JWT secret shipped in infra/docker-compose.yml for local development only. */
 export const DEV_DEFAULT_JWT_ACCESS_SECRET = 'dev-only-secret-change-me-dev-only-secret-change-me';
 
+/** `KEY=` in an env file means "not set" for optional settings. */
+function emptyToUndefined(value: unknown): unknown {
+  return value === '' ? undefined : value;
+}
+
 /** API process environment. Parsed once at startup; the process fails fast on invalid config. */
 export const ApiEnvSchema = z
   .object({
@@ -32,6 +37,13 @@ export const ApiEnvSchema = z
     AUTH_LOGIN_RATE_LIMIT: z.coerce.number().int().positive().default(5),
     AUTH_REFRESH_RATE_LIMIT: z.coerce.number().int().positive().default(30),
     AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+    /**
+     * HMAC key for signed Martin tile URLs (ADR-021). When absent, the tile-url endpoint answers
+     * 404 and /tiles/verify rejects everything. At least 32 characters.
+     */
+    TILE_URL_SECRET: z.preprocess(emptyToUndefined, z.string().min(32).optional()),
+    /** Public base URL of Martin behind Caddy, e.g. https://tiles.staging.ftthtracker.projectflow.site */
+    TILES_PUBLIC_URL: z.preprocess(emptyToUndefined, z.url().optional()),
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')
@@ -54,6 +66,13 @@ export const ApiEnvSchema = z
         code: 'custom',
         path: ['JWT_ACCESS_SECRET'],
         message: 'JWT_ACCESS_SECRET must be a real secret in production (dev placeholder rejected)',
+      });
+    }
+    if (env.TILE_URL_SECRET?.includes('change-me')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TILE_URL_SECRET'],
+        message: 'TILE_URL_SECRET must be a real secret in production (dev placeholder rejected)',
       });
     }
   });

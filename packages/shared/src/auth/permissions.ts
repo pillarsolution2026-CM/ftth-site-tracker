@@ -9,10 +9,12 @@ export const PERMISSIONS = [
   'work_orders:write',
   'cad_files:read',
   'cad_files:write',
+  'design:read',
+  'design:write',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
-const READ: readonly Permission[] = ['work_orders:read', 'cad_files:read'];
+const READ: readonly Permission[] = ['work_orders:read', 'cad_files:read', 'design:read'];
 
 /** Role → permissions inside a project. Platform admins (`isAdmin`) always pass. */
 export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {

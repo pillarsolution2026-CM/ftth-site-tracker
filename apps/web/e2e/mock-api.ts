@@ -36,6 +36,13 @@ import {
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
 } from '@ftth/shared';
+import {
+  MOCK_DETECTION,
+  handleDesignRevisions,
+  handleMapping,
+  type Helpers,
+  type MockCadFile,
+} from './mock-design.ts';
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 3101);
 const EMAIL = 'pm@example.com';
@@ -508,9 +515,12 @@ function cadDetail(file: CadRecord) {
     dxfVersion: processed ? 'AC1032' : null,
     converter: processed ? 'none' : null,
     converterVersion: null,
-    insUnits: processed ? 6 : null,
+    insUnits: processed ? 1 : null,
+    crsDetection: processed ? MOCK_DETECTION : null,
     extents: processed ? { minX: 0, minY: 0, maxX: 1500.5, maxY: 980.25 } : null,
-    warnings: processed ? [{ code: 'UNITS_UNSPECIFIED', count: 1 }] : [],
+    warnings: processed
+      ? [{ code: 'UNITS_CRS_MISMATCH', count: 1, params: { declared: 'in', implied: 'm' } }]
+      : [],
     errorMessage: null,
     queuedAt: new Date(file.queuedAt).toISOString(),
     processingStartedAt: null,
@@ -596,6 +606,31 @@ function cadCurves() {
   }));
 }
 
+// ---------- mapping / design revisions (see mock-design.ts) ----------
+
+const helpers: Helpers = { send, sendError, readJson, page };
+
+function mockCad(file: CadRecord): MockCadFile {
+  return {
+    id: file.id,
+    projectId: PROJECT_ID,
+    originalName: file.originalName,
+    processed: cadStatus(file) === 'processed',
+    userId: ME.id,
+    layers: LAYERS.map((layer) => ({
+      name: layer.name,
+      aciColor: layer.aciColor,
+      counts: Object.fromEntries(Object.entries(layer.counts)) as Record<string, number>,
+    })),
+    inserts: cadInserts().map((insert) => ({ blockName: insert.blockName, layer: insert.layer })),
+    texts: cadTexts().map((text) => ({
+      layer: text.layer,
+      text: text.text,
+      readable: text.readable,
+    })),
+  };
+}
+
 // ---------- routing ----------
 
 const tokens = { accessToken: ACCESS, refreshToken: REFRESH, expiresIn: 900 };
@@ -613,6 +648,12 @@ async function handleProject(
   if (resource === 'work-orders')
     return handleWorkOrders(req, res, method, [id, sub, subId, subSub]);
   if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub]);
+  if (resource === 'design-revisions') {
+    return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {
+      const record = cadFiles.get(cadId);
+      return record ? mockCad(record) : undefined;
+    });
+  }
   return sendError(res, 404, 'NOT_FOUND');
 }
 
@@ -897,6 +938,7 @@ async function handleCad(
     });
     return void res.end(file.data ?? Buffer.alloc(0));
   }
+  if (sub === 'mapping') return handleMapping(req, res, method, mockCad(file), helpers);
   if (sub === 'log')
     return send(res, 200, CadFileLogResponseSchema.parse({ log: 'ezdxf: recovered 0 issues\n' }));
   if (sub === 'reprocess' && method === 'POST') {

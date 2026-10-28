@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { AppError } from '../app-error.js';
 import {
+  type ByteRange,
   isValidStorageKey,
   type ObjectStorage,
   type PutOptions,
@@ -22,10 +23,10 @@ export class InMemoryObjectStorage implements ObjectStorage {
     return { sizeBytes: meter.sizeBytes, sha256: meter.digest() };
   }
 
-  async get(key: string): Promise<Readable> {
+  async get(key: string, range?: ByteRange): Promise<Readable> {
     const object = this.objects.get(key);
     if (!object) throw new AppError('NOT_FOUND', 'File not found');
-    return Readable.from([object]);
+    return Readable.from([range ? object.subarray(range.start, range.end + 1) : object]);
   }
 
   async stat(key: string): Promise<{ sizeBytes: number } | null> {

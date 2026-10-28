@@ -6,7 +6,7 @@
     "texts": 13725,
     "curves": 6952
   },
-  "unreadable_texts": 832,
+  "unreadable_texts": null,
   "entity_counts_by_layer": {
     "0": {
       "TEXT": 3,

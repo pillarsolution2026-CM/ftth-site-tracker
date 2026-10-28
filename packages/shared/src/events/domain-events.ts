@@ -7,6 +7,9 @@ export const EVENT_ENTITIES = {
   workOrderItem: 'work_order_item',
   workOrderAttachment: 'work_order_attachment',
   cadFile: 'cad_file',
+  cadMapping: 'cad_mapping',
+  designRevision: 'design_revision',
+  textLink: 'text_link',
 } as const;
 
 export const EVENT_TYPES = {
@@ -27,5 +30,16 @@ export const EVENT_TYPES = {
   cadFileProcessingStarted: 'cad_file.processing_started',
   cadFileProcessed: 'cad_file.processed',
   cadFileFailed: 'cad_file.failed',
+  /** Payload: version, crsEpsg, drawingUnit, rule count. */
+  cadMappingSaved: 'cad_mapping.saved',
+  designRevisionQueued: 'design_revision.queued',
+  /** Written by the worker (actor_id NULL). */
+  designRevisionBuildStarted: 'design_revision.build_started',
+  designRevisionBuilt: 'design_revision.built',
+  designRevisionFailed: 'design_revision.failed',
+  designRevisionPublished: 'design_revision.published',
+  designRevisionDiscarded: 'design_revision.discarded',
+  /** Payload: { before: {status, featureId}, after: {status, featureId} }. */
+  textLinkReviewed: 'text_link.reviewed',
 } as const;
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

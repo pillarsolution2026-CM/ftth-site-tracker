@@ -15,10 +15,13 @@ from cad_worker.domain.model import CurveRow, InsertRow, TextRow
 from tests.support.dxf_samples import (
     ARABIC,
     LEGACY_SHX,
+    LEGACY_SHX_DECODED,
+    LEGACY_SHX_UNREADABLE,
     MOJIBAKE,
     write_corrupt,
     write_empty,
     write_sample,
+    write_utm_sample,
 )
 
 
@@ -26,6 +29,10 @@ class ListSink:
     def __init__(self) -> None:
         self.rows: list[InsertRow | TextRow | CurveRow] = []
         self.result: ExtractionResult | None = None
+
+    @property
+    def project_epsg(self) -> int | None:
+        return 32636
 
     def add(self, row: InsertRow | TextRow | CurveRow) -> None:
         self.rows.append(row)
@@ -43,6 +50,7 @@ def run(path: Path) -> tuple[ListSink, ExtractionResult]:
         converter_version=None,
         converted_storage_key=None,
         converter_log="",
+        project_epsg=sink.project_epsg,
     )
     return sink, result
 
@@ -71,6 +79,13 @@ def test_inserts_with_attributes(sample: tuple[ListSink, ExtractionResult]) -> N
     assert first.rotation == 90 and first.scale == (2.0, 1.0, 1.0)
     arabic = next(i for i in inserts if i.attributes and i.attributes[0].raw_value == ARABIC)
     assert arabic.attributes[0].readable and arabic.attributes[0].tag == "NAME"
+    joint = next(i for i in inserts if i.block_name == "JONT 144")
+    legacy = joint.attributes[0]  # attributes go through the same SHX table as texts
+    assert (legacy.raw_value, legacy.value, legacy.readable) == (
+        LEGACY_SHX,
+        LEGACY_SHX_DECODED,
+        True,
+    )
 
 
 def texts(sink: ListSink) -> dict[str, TextRow]:
@@ -81,8 +96,9 @@ def test_texts_readable_and_not(sample: tuple[ListSink, ExtractionResult]) -> No
     by_raw = texts(sample[0])
     assert by_raw[ARABIC].readable and by_raw[ARABIC].text == ARABIC
     legacy = by_raw[LEGACY_SHX]
-    assert not legacy.readable and legacy.font == "xarb.shx" and legacy.text == LEGACY_SHX
-    assert by_raw["12 m"].readable is False  # letters under a legacy font
+    assert legacy.readable and legacy.font == "xarb.shx" and legacy.text == LEGACY_SHX_DECODED
+    unreadable = by_raw[LEGACY_SHX_UNREADABLE]  # upper-case key under a legacy font
+    assert not unreadable.readable and unreadable.text == LEGACY_SHX_UNREADABLE
     assert not by_raw[MOJIBAKE].readable
     assert by_raw["45%%d"].text == "45°"
     mtext = next(t for t in by_raw.values() if t.kind == "mtext")
@@ -135,7 +151,7 @@ def test_warnings_and_counts(sample: tuple[ListSink, ExtractionResult]) -> None:
         == 1
     )
     unreadable = sum(w.count for w in result.warnings if w.code == "UNREADABLE_TEXT")
-    assert unreadable == 3  # legacy word, "12 m" under the legacy font, mojibake
+    assert unreadable == 2  # "12 M" (upper-case key under the legacy font), mojibake
     assert any(w.code == "CURVE_APPROXIMATED" for w in result.warnings)
     assert not any(w.code in ("UNITS_UNSPECIFIED", "EMPTY_MODELSPACE") for w in result.warnings)
     assert (result.insert_count, result.text_count, result.curve_count) == (5, 6, 8)
@@ -192,3 +208,21 @@ def test_extrusion_mirrored_arc_is_converted_to_wcs(tmp_path: Path) -> None:
     arc = next(r for r in sink.rows if isinstance(r, CurveRow))
     assert arc.points[0] == pytest.approx((-15, 0, 0), abs=1e-9)
     assert arc.points[-1] == pytest.approx((-5, 0, 0), abs=1e-9)
+
+
+def test_crs_detection_and_units_mismatch_warning(tmp_path: Path) -> None:
+    _, result = run(write_utm_sample(tmp_path / "utm.dxf", ins_units=1))
+    crs = result.crs_detection.to_json()
+    assert crs["kind"] == "projected_utm" and crs["suggestedEpsg"] == 32636
+    assert crs["unitsConflict"] is True
+    mismatch = [w for w in result.warnings if w.code == "UNITS_CRS_MISMATCH"]
+    assert [w.to_json() for w in mismatch] == [
+        {"code": "UNITS_CRS_MISMATCH", "count": 1, "params": {"declared": "in", "implied": "m"}}
+    ]
+    assert "crs: projected_utm MATCHES_PROJECT_CRS" in result.log
+
+
+def test_no_mismatch_warning_when_units_agree(tmp_path: Path) -> None:
+    _, result = run(write_utm_sample(tmp_path / "utm.dxf", ins_units=6))
+    assert result.crs_detection.units_conflict is False
+    assert not any(w.code == "UNITS_CRS_MISMATCH" for w in result.warnings)

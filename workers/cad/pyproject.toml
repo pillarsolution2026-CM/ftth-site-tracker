@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings",
     "psycopg[binary]",
     "boto3>=1.43.119",
+    "pmtiles>=3.8.1",
 ]
 
 [dependency-groups]
@@ -43,6 +44,12 @@ files = ["cad_worker", "tests"]
 # Ignores only for third-party libraries that ship no type information.
 [[tool.mypy.overrides]]
 module = ["ezdxf", "ezdxf.*", "shapely", "shapely.*", "boto3", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+# pmtiles ships py.typed but most of its functions are unannotated: treat it as untyped.
+[[tool.mypy.overrides]]
+module = ["pmtiles", "pmtiles.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

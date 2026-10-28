@@ -1,0 +1,20 @@
+# Martin tile server (ADR-021). Mounted read-only at /config/config.yaml; start with `--config`.
+#
+# Security model: Martin connects as the restricted role `ftth_tiles` (migration 0005): no table
+# privileges, EXECUTE on tiles.design_features only, read-only transactions. Nothing is
+# auto-published, so no table can ever become a tile source by accident. The signed URL is checked
+# by the API (GET /tiles/verify) through Caddy forward_auth before a request reaches Martin.
+#
+# NOT VERIFIED against a running Martin here (the image was not pulled in the build sandbox): the
+# `${VAR}` interpolation and the `functions` keys follow the Martin config reference; check
+# `docker compose logs martin` on first start.
+listen_addresses: '0.0.0.0:3000'
+
+postgres:
+  # postgres://ftth_tiles:<password>@<host>:5432/<db>, supplied by the environment.
+  connection_string: '${TILES_DATABASE_URL}'
+  auto_publish: false
+  functions:
+    design_features:
+      schema: tiles
+      function: design_features

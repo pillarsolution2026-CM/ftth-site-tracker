@@ -14,7 +14,7 @@ from cad_worker.adapters.postgres_repo import PostgresCadRepository
 from cad_worker.adapters.storage import FsStorage
 from cad_worker.application.import_job import ImportDeps, run_import
 from tests.conftest import QueuedFile
-from tests.support.dxf_samples import write_corrupt, write_sample
+from tests.support.dxf_samples import write_corrupt, write_sample, write_utm_sample
 from tests.support.fakes import CopyConverter, FailingConverter, HookReader, make_job
 
 
@@ -97,7 +97,7 @@ def test_dxf_job_processes_into_postgis(
         "SELECT readable, text, raw_text FROM cad_texts WHERE cad_file_id = %s AND raw_text = 'lrhfv'",
         (f.cad_file_id,),
     ).fetchone()
-    assert readable == (False, "lrhfv", "lrhfv")
+    assert readable == (True, "مقابر", "lrhfv")
     attrs = db.execute(
         'SELECT attributes FROM cad_inserts WHERE cad_file_id = %s AND attributes @> \'[{"rawValue": "S1"}]\'',
         (f.cad_file_id,),
@@ -250,3 +250,56 @@ def test_failed_processing_rolls_back_partial_rows(
     ).fetchone()
     assert row == ("failed", "INTERNAL")
     assert count(db, "cad_curves", f) == 0 and count(db, "cad_inserts", f) == 0
+
+
+def test_crs_detection_is_written_with_the_project_epsg(
+    database_url: str,
+    db: psycopg.Connection[Any],
+    make_cad_file: Any,
+    storage_root: Path,
+    tmp_path: Path,
+) -> None:
+    f = make_cad_file(write_utm_sample(tmp_path / "u.dxf").read_bytes(), "dxf", storage_root)
+    db.execute("UPDATE projects SET crs_epsg = 32636 WHERE id = %s", (f.project_id,))
+    assert run_import(job_of(f), deps_for(database_url, storage_root), "w1") == "processed"
+    row = db.execute(
+        "SELECT crs_detection, warnings FROM cad_files WHERE id = %s", (f.cad_file_id,)
+    ).fetchone()
+    assert row is not None
+    assert row[0] == {
+        "kind": "projected_utm",
+        "reason": "MATCHES_PROJECT_CRS",
+        "suggestedEpsg": 32636,
+        "projectEpsg": 32636,
+        "impliedUnit": "m",
+        "insUnits": 1,
+        "declaredUnit": "in",
+        "unitsConflict": True,
+    }
+    assert {
+        "code": "UNITS_CRS_MISMATCH",
+        "count": 1,
+        "params": {"declared": "in", "implied": "m"},
+    } in row[1]
+    payload = db.execute(
+        "SELECT payload FROM events WHERE entity_id = %s AND type = 'cad_file.processed'",
+        (str(f.cad_file_id),),
+    ).fetchone()
+    assert payload is not None and payload[0]["crsDetection"]["suggestedEpsg"] == 32636
+
+
+def test_local_drawing_detection(
+    database_url: str,
+    db: psycopg.Connection[Any],
+    make_cad_file: Any,
+    storage_root: Path,
+    tmp_path: Path,
+) -> None:
+    f = make_cad_file(write_sample(tmp_path / "s.dxf").read_bytes(), "dxf", storage_root)
+    assert run_import(job_of(f), deps_for(database_url, storage_root), "w1") == "processed"
+    row = db.execute(
+        "SELECT crs_detection->>'kind', crs_detection->>'reason', crs_detection->'unitsConflict' "
+        "FROM cad_files WHERE id = %s",
+        (f.cad_file_id,),
+    ).fetchone()
+    assert row == ("local", "SMALL_LOCAL_COORDINATES", False)

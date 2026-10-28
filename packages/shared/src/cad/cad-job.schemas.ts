@@ -37,6 +37,22 @@ export const CadImportJobSchema = z.object({
 });
 export type CadImportJob = z.infer<typeof CadImportJobSchema>;
 
+/**
+ * Build a design revision from a processed CAD file (Phase 1b, ADR-017). The mapping, CRS and
+ * drawing unit are read from the `design_revisions` row (frozen copy), not from the message.
+ */
+export const CadBuildRevisionJobSchema = z.object({
+  /** Equals design_revisions.current_job_id; a job whose id is no longer current is dropped. */
+  id: z.uuid(),
+  type: z.literal('cad.build_revision'),
+  revisionId: z.uuid(),
+  projectId: z.uuid(),
+  cadFileId: z.uuid(),
+  attempt: z.number().int().min(1).max(CAD_JOB_MAX_ATTEMPTS),
+  enqueuedAt: z.iso.datetime(),
+});
+export type CadBuildRevisionJob = z.infer<typeof CadBuildRevisionJobSchema>;
+
 /** Existing liveness probe job (Phase 0). */
 export const CadHealthJobSchema = z.object({
   id: z.string().min(1),
@@ -44,5 +60,9 @@ export const CadHealthJobSchema = z.object({
 });
 export type CadHealthJob = z.infer<typeof CadHealthJobSchema>;
 
-export const CadJobSchema = z.discriminatedUnion('type', [CadImportJobSchema, CadHealthJobSchema]);
+export const CadJobSchema = z.discriminatedUnion('type', [
+  CadImportJobSchema,
+  CadBuildRevisionJobSchema,
+  CadHealthJobSchema,
+]);
 export type CadJob = z.infer<typeof CadJobSchema>;

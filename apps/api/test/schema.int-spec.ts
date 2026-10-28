@@ -6,7 +6,13 @@ import {
   cadFiles,
   cadInserts,
   cadLayers,
+  cadMappings,
   cadTexts,
+  designFeatures,
+  designRevisions,
+  features,
+  revisionDiffItems,
+  textLinks,
   workOrderAttachments,
   workOrderItems,
   workOrders,
@@ -20,7 +26,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-describe('Drizzle schema matches migration 0003', () => {
+describe('Drizzle schema matches migrations 0003 and 0005', () => {
   it.each([
     workOrders,
     workOrderItems,
@@ -30,6 +36,12 @@ describe('Drizzle schema matches migration 0003', () => {
     cadInserts,
     cadTexts,
     cadCurves,
+    cadMappings,
+    designRevisions,
+    features,
+    designFeatures,
+    textLinks,
+    revisionDiffItems,
   ] as PgTable[])('table %#: same columns as the database', async (table) => {
     const config = getTableConfig(table);
     const { rows } = await pool.query<{ column_name: string }>(

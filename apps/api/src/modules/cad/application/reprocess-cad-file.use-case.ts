@@ -27,6 +27,12 @@ export class ReprocessCadFileUseCase {
       const found = await tx.files.find(projectId, cadFileId, { lock: true });
       if (!found) throw new AppError('NOT_FOUND', 'CAD file not found');
       assertCanReprocess(found, now);
+      // A running build reads this file's extraction rows, which a reprocess would replace.
+      if (await tx.revisions.hasInProgressForFile(projectId, cadFileId)) {
+        throw new AppError('CONFLICT', 'A design revision is being built from this file', {
+          reason: 'REVISION_IN_PROGRESS',
+        });
+      }
 
       await tx.files.markQueued(projectId, cadFileId, jobId, now);
       await tx.events.append({

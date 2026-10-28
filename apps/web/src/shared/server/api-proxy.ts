@@ -24,16 +24,25 @@ export interface ProxyDeps {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SAFE_SEGMENT = /^[A-Za-z0-9._~-]{1,128}$/;
 /** Resources a project-scoped proxied call may reach (everything else is not exposed). */
-const ALLOWED_RESOURCES = new Set(['work-orders', 'cad-files']);
-const METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE']);
+const ALLOWED_RESOURCES = new Set(['work-orders', 'cad-files', 'design-revisions']);
+const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
-const FORWARDED_REQUEST_HEADERS = ['content-type', 'content-length', 'accept', 'accept-language'];
+// `range` lets PMTiles clients read byte ranges of `…/tiles.pmtiles` (the API answers 206).
+const FORWARDED_REQUEST_HEADERS = [
+  'content-type',
+  'content-length',
+  'accept',
+  'accept-language',
+  'range',
+];
 const FORWARDED_RESPONSE_HEADERS = [
   'content-type',
   'content-length',
   'content-disposition',
   'etag',
   'last-modified',
+  'content-range',
+  'accept-ranges',
 ];
 
 function errorResponse(status: number, code: string, message: string): Response {

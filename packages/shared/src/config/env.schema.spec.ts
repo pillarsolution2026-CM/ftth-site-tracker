@@ -85,3 +85,27 @@ describe('ApiEnvSchema storage and uploads', () => {
     );
   });
 });
+
+describe('ApiEnvSchema tile URL settings (security review L1)', () => {
+  const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: REAL_SECRET } as const;
+
+  it('rejects a change-me tile secret in production', () => {
+    const result = ApiEnvSchema.safeParse({
+      ...prod,
+      TILE_URL_SECRET: 'dev-only-tile-secret-change-me-dev-only-tile-secret',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a real tile secret in production', () => {
+    const result = ApiEnvSchema.safeParse({ ...prod, TILE_URL_SECRET: REAL_SECRET });
+    expect(result.success).toBe(true);
+  });
+
+  it('treats empty tile settings as unset (as left in ftth.env.example)', () => {
+    const result = ApiEnvSchema.safeParse({ ...prod, TILE_URL_SECRET: '', TILES_PUBLIC_URL: '' });
+    expect(result.success).toBe(true);
+    expect(result.data?.TILE_URL_SECRET).toBeUndefined();
+    expect(result.data?.TILES_PUBLIC_URL).toBeUndefined();
+  });
+});

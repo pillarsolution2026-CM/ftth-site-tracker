@@ -6,7 +6,7 @@
     "texts": 672,
     "curves": 3786
   },
-  "unreadable_texts": 488,
+  "unreadable_texts": null,
   "entity_counts_by_layer": {
     "19_total Users": {
       "TEXT": 1

@@ -20,6 +20,8 @@ WarningCode = Literal[
     "UNITS_UNSPECIFIED",
     "EMPTY_MODELSPACE",
     "CURVE_APPROXIMATED",
+    # `$INSUNITS` declares a unit that disagrees with the CRS detected from the extents (ADR-018).
+    "UNITS_CRS_MISMATCH",
 ]
 
 

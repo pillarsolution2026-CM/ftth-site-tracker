@@ -9,6 +9,11 @@ import type {
 } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { CadFile } from './cad-file.js';
+import type {
+  CadMappingRepository,
+  DesignRevisionRepository,
+  TextLinkRepository,
+} from './design-revision.repository.js';
 
 /** Every method filters by `projectId` (IDOR defence): another project's id is "not found". */
 export interface CadFileRepository {
@@ -46,6 +51,9 @@ export interface CadExtractionQueries {
 
 export interface CadTx {
   files: CadFileRepository;
+  mappings: CadMappingRepository;
+  revisions: DesignRevisionRepository;
+  links: TextLinkRepository;
   events: EventLog;
 }
 

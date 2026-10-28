@@ -6,7 +6,10 @@ import json
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
+from cad_worker.adapters.job_message import CadBuildRevisionJob, parse_job
+from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.import_job import ImportDeps
 from cad_worker.application.ports import BrokerUnavailableError, RecoveredJob
@@ -45,7 +48,7 @@ class ExplodingRepo:
 
 def make_consumer(broker: MemoryBroker, repo: Any = None) -> Consumer:
     deps = ImportDeps(repo=repo, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
-    return Consumer(broker, deps, "w")
+    return Consumer(broker, deps, "w", BuildDeps(repo=repo, storage=None))  # type: ignore[arg-type]
 
 
 def test_health_job_result_then_ack() -> None:
@@ -99,9 +102,49 @@ def test_loop_survives_a_queue_outage_with_growing_backoff() -> None:
     broker = FlakyBroker(failures=3)
     sleeps: list[float] = []
     deps = ImportDeps(repo=None, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
-    consumer = Consumer(broker, deps, "w", sleep=sleeps.append)
+    build = BuildDeps(repo=None, storage=None)  # type: ignore[arg-type]
+    consumer = Consumer(broker, deps, "w", build, sleep=sleeps.append)
 
     consumer.run(lambda: broker.claims >= 5)
 
     assert sleeps == [1.0, 2.0, 4.0]
     assert broker.claims == 5
+
+
+BUILD_MESSAGE = {
+    "id": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a21",
+    "type": "cad.build_revision",
+    "revisionId": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a22",
+    "projectId": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a23",
+    "cadFileId": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a24",
+    "attempt": 1,
+    "enqueuedAt": "2026-10-28T10:00:00.000Z",
+    "future": "ignored",
+}
+
+
+def test_build_job_message_mirrors_the_zod_schema() -> None:
+    job = parse_job(json.dumps(BUILD_MESSAGE))
+    assert isinstance(job, CadBuildRevisionJob)
+    assert str(job.revision_id).endswith("22") and str(job.cad_file_id).endswith("24")
+    for broken in (
+        {**BUILD_MESSAGE, "attempt": 4},
+        {**BUILD_MESSAGE, "revisionId": "nope"},
+        {k: v for k, v in BUILD_MESSAGE.items() if k != "cadFileId"},
+    ):
+        with pytest.raises(ValidationError):
+            parse_job(json.dumps(broken))
+
+
+class ExplodingRevisionRepo:
+    def start_build(self, *_: Any) -> bool:
+        raise ConnectionError("database down")
+
+
+def test_build_job_infrastructure_error_leaves_job_in_flight() -> None:
+    broker = MemoryBroker()
+    deps = ImportDeps(repo=None, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
+    build = BuildDeps(repo=ExplodingRevisionRepo(), storage=None)  # type: ignore[arg-type]
+    with pytest.raises(ConnectionError):
+        Consumer(broker, deps, "w", build).process_raw(json.dumps(BUILD_MESSAGE))
+    assert broker.acked == [] and broker.dead == []

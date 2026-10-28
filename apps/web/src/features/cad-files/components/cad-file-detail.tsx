@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRef, type KeyboardEvent } from 'react';
+import { ltr } from '@ftth/i18n';
 import type { CadFileDetail } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -111,6 +112,8 @@ function Overview({ file }: { file: CadFileDetail }) {
                   {t(`cad.warning.${warning.code}`, {
                     entityType: String(warning.params?.entityType ?? ''),
                     font: String(warning.params?.font ?? ''),
+                    declared: ltr(String(warning.params?.declared ?? '—')),
+                    implied: ltr(String(warning.params?.implied ?? '—')),
                   })}
                   {warning.count > 1 ? (
                     <>
@@ -187,6 +190,14 @@ export function CadFileDetailScreen({
         >
           {t('cad.downloadOriginal')}
         </a>
+        {state.processed ? (
+          <Link
+            href={`${listPath}/${cadFileId}/mapping`}
+            className="inline-flex min-h-11 items-center rounded-md border border-(--color-brand) px-4 font-semibold text-(--color-brand) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)"
+          >
+            {t('cad.mappingLink')}
+          </Link>
+        ) : null}
         {state.canWrite ? (
           <Button
             variant="outline"

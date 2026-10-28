@@ -34,8 +34,16 @@ export function errorCodeOf(error: unknown): ClientErrorCode {
   return error instanceof ApiClientError ? error.code : 'INTERNAL';
 }
 
+/** `details.reason` of a 409/422 (e.g. VERSION_MISMATCH, OPEN_ITEMS); null when absent. */
+export function errorReasonOf(error: unknown): string | null {
+  if (!(error instanceof ApiClientError)) return null;
+  const details = error.details;
+  if (typeof details !== 'object' || details === null || !('reason' in details)) return null;
+  return typeof details.reason === 'string' ? details.reason : null;
+}
+
 interface JsonOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal | undefined;
 }

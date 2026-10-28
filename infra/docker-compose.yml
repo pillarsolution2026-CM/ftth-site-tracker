@@ -83,16 +83,40 @@ services:
       mc mb --ignore-existing local/$${S3_BUCKET}
       "
 
-  # Vector tiles straight from PostGIS tables/functions (auto-discovered).
-  # DEV ONLY: tiles are unauthenticated and auto-publish tables, so it is bound to loopback until
-  # tile access is gated (see "Tiles security" in docs/ROADMAP.md Phase 1).
+  # One-shot, DEV ONLY: gives the restricted tile role (created by migration 0005, which the api runs
+  # at startup) a login password. Production sets it once by hand: see "Tiles (Phase 1b)" in docs/DEPLOY.md.
+  tiles-role-init:
+    image: postgis/postgis:16-3.4
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: 'no'
+    environment:
+      PGHOST: postgis
+      PGUSER: ${POSTGRES_USER:-ftth}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ftth}
+      PGDATABASE: ${POSTGRES_DB:-ftth}
+      FTTH_TILES_PASSWORD: ${FTTH_TILES_PASSWORD:-ftth-tiles-dev}
+    entrypoint: >
+      /bin/sh -c "
+      echo \"ALTER ROLE ftth_tiles LOGIN PASSWORD :'pw'\" | psql -v ON_ERROR_STOP=1 -v pw=\"$$FTTH_TILES_PASSWORD\"
+      "
+
+  # Vector tiles (ADR-021). Reads only through tiles.design_features as role ftth_tiles; config in
+  # infra/martin/config.yaml (auto_publish: false). The image tag stays `latest` because no version
+  # could be verified here: pin one after the first successful run.
+  # DEV ONLY: bound to loopback and WITHOUT the Caddy forward_auth signature check, so anyone on this
+  # machine can read tiles for any project/revision id they know.
   martin:
     image: ghcr.io/maplibre/martin:latest
+    command: ['--config', '/config/config.yaml']
     depends_on:
-      postgis:
-        condition: service_healthy
+      tiles-role-init:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-ftth}:${POSTGRES_PASSWORD:-ftth}@postgis:5432/${POSTGRES_DB:-ftth}
+      TILES_DATABASE_URL: postgres://ftth_tiles:${FTTH_TILES_PASSWORD:-ftth-tiles-dev}@postgis:5432/${POSTGRES_DB:-ftth}
+    volumes:
+      - ./martin/config.yaml:/config/config.yaml:ro
     ports:
       - '127.0.0.1:3002:3000'
 
@@ -117,6 +141,9 @@ services:
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # Signed tile URLs (ADR-021). DEV ONLY default secret; production generates its own (docs/DEPLOY.md).
+      TILE_URL_SECRET: ${TILE_URL_SECRET:-dev-only-tile-secret-change-me-dev-only-tile-secret}
+      TILES_PUBLIC_URL: ${TILES_PUBLIC_URL:-http://localhost:3002}
     command:
       - sh
       - -c
