@@ -6,12 +6,12 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | Ready — server bootstrap pending (owner runs one command) | — |
+| Staging (Hetzner) | Blocked — push-to-`main` SSH deploy (`deploy.yml`, PR #7) fails: "node is not available" for the server SSH user; server bootstrap still pending | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
-| 1b Mapping, text linking, features, tiles | Done — PR open, awaiting approval | — |
+| 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | Not started | — |
 | 3 Supervisor app (offline) | Not started | — |
-| 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phases 1b and 3 | — |
+| 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phase 3 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
@@ -151,7 +151,7 @@ Started ahead of Phases 1b–3 at the owner's request; only the part with no dep
   - Typed `GeometryError` codes: `NON_FINITE_COORDINATE`, `TOO_FEW_VERTICES`, `VERTEX_OUT_OF_RANGE`, `INVALID_TOLERANCE`, `INVALID_BULGE`, `UNSUPPORTED_CRS`, `COORDINATE_OUT_OF_RANGE`.
 - **Bug found by testing and fixed:** proj4 silently returns a wrong point for impossible WGS84 input (e.g. lat 1e10, lon 213, as a GPS glitch could produce); `fromWgs84` now rejects it with `COORDINATE_OUT_OF_RANGE`.
 - **Test report:** `pnpm --filter @ftth/geo test:cov` — 60 tests pass, 11 of them fast-check properties at 10,000 runs each; CRS matches pyproj 3.8 to the millimetre; coverage 100% (threshold 90%). Lint, typecheck, build, format: pass. `pnpm test` (whole repo): 10/10 tasks pass. CI green on merge `a1e766b`.
-- **Not done (blocked on Phases 1b and 3):** mobile editing tools, web design-vs-As-Built review, As-Built DXF export.
+- **Not done (blocked on Phase 3):** mobile editing tools, web design-vs-As-Built review, As-Built DXF export.
 - **Decisions to confirm (owner):**
   - Snap tie order endpoint → symbol → vertex (a UX choice, not in the plan).
   - Supported CRSs limited to WGS 84 / UTM; other EPSG codes are rejected until a project needs them.
