@@ -27,13 +27,18 @@ const membership = (projectId: string, role: MeResponse['memberships'][number]['
 describe('project access and navigation', () => {
   it('shows every section to a project manager', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'pm')] }), P1);
-    expect(visibleNavItems(access).map((item) => item.id)).toEqual(['workOrders', 'cadFiles']);
+    expect(visibleNavItems(access).map((item) => item.id)).toEqual([
+      'workOrders',
+      'cadFiles',
+      'designRevisions',
+    ]);
     expect(can(access, 'work_orders:write')).toBe(true);
   });
 
   it('gives a QC user read access but no write actions', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'qc')] }), P1);
-    expect(visibleNavItems(access)).toHaveLength(2);
+    expect(visibleNavItems(access)).toHaveLength(3);
+    expect(can(access, 'design:write')).toBe(false);
     expect(can(access, 'work_orders:write')).toBe(false);
     expect(can(access, 'cad_files:write')).toBe(false);
   });

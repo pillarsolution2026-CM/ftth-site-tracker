@@ -110,6 +110,15 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows design revisions, including the PMTiles archive', () => {
+    expect(upstreamPath([PROJECT, 'design-revisions', 'abc-1', 'tiles.pmtiles'])).toBe(
+      `/projects/${PROJECT}/design-revisions/abc-1/tiles.pmtiles`,
+    );
+    expect(upstreamPath([PROJECT, 'cad-files', 'abc-1', 'mapping'])).toBe(
+      `/projects/${PROJECT}/cad-files/abc-1/mapping`,
+    );
+  });
+
   it('rejects other resources, bad project ids and traversal', () => {
     expect(upstreamPath([PROJECT, 'members'])).toBeNull();
     expect(upstreamPath([PROJECT])).toBeNull();
@@ -249,11 +258,11 @@ describe('createApiProxy', () => {
     const proxy = createApiProxy({ apiUrl, session: session('access-1') });
     const members = await proxy(request('GET', `${PROJECT}/members`), [PROJECT, 'members']);
     expect(members.status).toBe(404);
-    const put = await proxy(
-      request('PUT', `${PROJECT}/work-orders`, { headers: jsonHeaders, body: '{}' }),
-      [PROJECT, 'work-orders'],
-    );
-    expect(put.status).toBe(405);
+    const options = await proxy(request('OPTIONS', `${PROJECT}/work-orders`), [
+      PROJECT,
+      'work-orders',
+    ]);
+    expect(options.status).toBe(405);
     expect(seen).toHaveLength(0);
   });
 
@@ -274,6 +283,63 @@ describe('createApiProxy', () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ code: 'CONFLICT', message: 'taken' });
     expect(seen[0]?.bytes).toBe('{"number":"WO-1"}'.length);
+  });
+
+  it('forwards PUT with a JSON body (mapping save)', async () => {
+    const proxy = createApiProxy({ apiUrl, session: session('access-1') });
+    const response = await proxy(
+      request('PUT', `${PROJECT}/cad-files/m1/mapping`, {
+        headers: jsonHeaders,
+        body: '{"version":null}',
+      }),
+      [PROJECT, 'cad-files', 'm1', 'mapping'],
+    );
+    expect(response.status).toBe(200);
+    expect(seen[0]?.method).toBe('PUT');
+    expect(seen[0]?.bytes).toBe('{"version":null}'.length);
+  });
+
+  it('forwards Range and passes a 206 with Content-Range and Accept-Ranges for tiles.pmtiles', async () => {
+    const archive = Buffer.from('0123456789');
+    upstream = (req, res) => {
+      const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? '');
+      if (!range) {
+        res.writeHead(200, { 'content-type': 'application/vnd.pmtiles', 'accept-ranges': 'bytes' });
+        res.end(archive);
+        return;
+      }
+      const [from, to] = [Number(range[1]), Number(range[2])];
+      const part = archive.subarray(from, to + 1);
+      res
+        .writeHead(206, {
+          'content-type': 'application/vnd.pmtiles',
+          'content-range': `bytes ${from}-${to}/${archive.length}`,
+          'accept-ranges': 'bytes',
+          'content-length': String(part.length),
+        })
+        .end(part);
+    };
+    const proxy = createApiProxy({ apiUrl, session: session('access-1') });
+    const segments = [PROJECT, 'design-revisions', 'r1', 'tiles.pmtiles'];
+    const response = await proxy(
+      request('GET', `${PROJECT}/design-revisions/r1/tiles.pmtiles`, {
+        headers: { range: 'bytes=2-5' },
+      }),
+      segments,
+    );
+    expect(seen[0]?.headers.range).toBe('bytes=2-5');
+    expect(response.status).toBe(206);
+    expect(response.headers.get('content-range')).toBe('bytes 2-5/10');
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(Buffer.from(await response.arrayBuffer()).toString()).toBe('2345');
+
+    const whole = await proxy(
+      request('GET', `${PROJECT}/design-revisions/r1/tiles.pmtiles`),
+      segments,
+    );
+    expect(whole.status).toBe(200);
+    expect(whole.headers.get('accept-ranges')).toBe('bytes');
+    expect(seen[1]?.headers.range).toBeUndefined();
   });
 
   it('passes 204 without a body', async () => {

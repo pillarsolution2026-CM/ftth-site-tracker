@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { ApiClientError, bffJson, bffVoid, projectApiPath } from './bff-client';
+import { ApiClientError, bffJson, bffVoid, errorReasonOf, projectApiPath } from './bff-client';
 
 const schema = z.object({ ok: z.literal(true) });
 
@@ -86,5 +86,18 @@ describe('bffVoid', () => {
 describe('projectApiPath', () => {
   it('encodes the project id', () => {
     expect(projectApiPath('a/b', '/work-orders')).toBe('/api/projects/a%2Fb/work-orders');
+  });
+});
+
+describe('errorReasonOf', () => {
+  it('reads details.reason of an API error', () => {
+    const error = new ApiClientError('CONFLICT', 409, { reason: 'VERSION_MISMATCH' });
+    expect(errorReasonOf(error)).toBe('VERSION_MISMATCH');
+  });
+
+  it('is null without details, with other details or for other errors', () => {
+    expect(errorReasonOf(new ApiClientError('CONFLICT', 409))).toBeNull();
+    expect(errorReasonOf(new ApiClientError('CONFLICT', 409, { reason: 3 }))).toBeNull();
+    expect(errorReasonOf(new Error('x'))).toBeNull();
   });
 });

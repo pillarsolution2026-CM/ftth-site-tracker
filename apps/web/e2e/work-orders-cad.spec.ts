@@ -154,7 +154,7 @@ test('upload a DXF and watch it go queued, processing, processed; inspect layers
 
   await row.getByRole('link', { name: 'route-14.dxf' }).click();
   await expect(page.getByRole('heading', { name: 'route-14.dxf' })).toBeVisible();
-  await expect(page.getByText('Drawing units are not specified')).toBeVisible();
+  await expect(page.getByText(/choose the unit on the mapping screen/)).toBeVisible();
 
   await page.getByRole('tab', { name: 'Layers' }).click();
   const layers = page.getByRole('table', { name: 'Layers' });
@@ -216,4 +216,73 @@ test('Arabic is right-to-left with the sidebar and navigation', async ({ page })
   await expect(page.getByRole('link', { name: 'أوامر التكليف', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'ملفات الكاد', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/ar\/projects\/.+\/work-orders$/);
+});
+
+test('mapping to a published design revision: unit, save, build, review, publish', async ({
+  page,
+}) => {
+  await login(page);
+  await openProject(page, 'CAD files');
+
+  await page.locator('#cad-file-input').setInputFiles({
+    name: 'mapping-1.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n'),
+  });
+  const row = page.getByRole('row', { name: /mapping-1\.dxf/ });
+  await expect(row.getByText('Processed')).toBeVisible({ timeout: 20_000 });
+  await row.getByRole('link', { name: 'mapping-1.dxf' }).click();
+
+  // The mapping link exists once the file is processed.
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  await expect(page).toHaveURL(/\/cad-files\/[^/]+\/mapping$/);
+  await expect(page.getByRole('heading', { name: 'CAD mapping', exact: true })).toBeVisible();
+
+  // The drawing unit has no default; the file contradicts its own coordinates (inches vs UTM metres).
+  const unit = page.getByLabel('Drawing unit', { exact: true });
+  await expect(unit).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Save mapping' })).toBeDisabled();
+  await expect(page.getByText(/The file declares/)).toBeVisible();
+  await expect(page.getByLabel('EPSG code', { exact: true })).toHaveValue('32636');
+
+  await unit.selectOption('m');
+  await expect(page.getByText(/differs from the unit declared by the file/)).toBeVisible();
+  await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
+  await expect(page.getByRole('button', { name: 'Build revision' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Save mapping' }).click();
+  await expect(page.getByText('Mapping saved (version 1)')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
+  await expect(page.getByText('Refreshing automatically every 3 seconds')).toBeVisible();
+
+  // Draft: counts, units warning, text review in "needs review", diff.
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Lengths use the unit chosen by the project manager/)).toBeVisible();
+  const counts = page.getByRole('region', { name: 'Network features' });
+  await expect(counts).toContainText('361.5');
+  await expect(page.getByLabel('Status', { exact: true })).toHaveValue('review');
+  const links = page.getByRole('table', { name: 'Text review' });
+  await expect(links.getByRole('row')).toHaveCount(4); // header + 3 in review
+  await expect(links.getByText('%%U\\M+ABCD')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Changes' }).getByRole('row')).toHaveCount(6);
+
+  await links.getByRole('button', { name: 'Confirm: F 36 C' }).click();
+  await expect(links.getByRole('row')).toHaveCount(3);
+
+  // Publish is refused while links are still in review: acknowledge the counts, then publish.
+  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('2');
+  await expect(dialog).toContainText('text links still need review');
+  const publishAnyway = dialog.getByRole('button', { name: 'Publish anyway' });
+  await expect(publishAnyway).toBeDisabled();
+  await dialog.getByLabel(/I understand/).check();
+  await publishAnyway.click();
+
+  await expect(page.getByRole('heading', { name: /Design revision\s+#1/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Design revisions', exact: true }).first().click();
+  await expect(page.getByRole('table', { name: 'Design revisions' })).toContainText('Published');
 });

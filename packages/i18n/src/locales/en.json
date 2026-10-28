@@ -76,7 +76,8 @@
     "menu": "Project menu",
     "content": "Project content",
     "workOrders": "Work orders",
-    "cadFiles": "CAD files"
+    "cadFiles": "CAD files",
+    "designRevisions": "Design revisions"
   },
   "project": {
     "switcher": "Project",
@@ -340,7 +341,8 @@
       "UNREADABLE_TEXT": "Some text could not be decoded reliably",
       "UNITS_UNSPECIFIED": "Drawing units are not specified",
       "EMPTY_MODELSPACE": "The drawing has no model-space content",
-      "CURVE_APPROXIMATED": "Some curves were approximated by straight segments"
+      "CURVE_APPROXIMATED": "Some curves were approximated by straight segments",
+      "UNITS_CRS_MISMATCH": "The file declares {declared} ($INSUNITS) but its coordinates fit {implied}; choose the unit on the mapping screen"
     },
     "layers": {
       "search": "Search layer name",
@@ -394,6 +396,259 @@
       "vertices": "Vertices",
       "closed": "Closed",
       "approximated": "Approximated"
+    },
+    "mappingLink": "Mapping"
+  },
+  "featureType": {
+    "route": "Route",
+    "box": "Box",
+    "hhi": "Handhole",
+    "joint": "Joint",
+    "mh": "Manhole"
+  },
+  "mapping": {
+    "title": "CAD mapping",
+    "backToFile": "Back to the file",
+    "notProcessed": "The file must be processed before it can be mapped",
+    "readOnly": "You can view this mapping but not change it",
+    "target": {
+      "label": "Label (text links)",
+      "background": "Background",
+      "ignore": "Ignore"
+    },
+    "crs": {
+      "title": "Coordinate system and drawing unit",
+      "detected": "Detected coordinate system",
+      "notDetected": "No detection result for this file",
+      "kind": {
+        "projected_utm": "Projected (UTM)",
+        "geographic": "Geographic (degrees)",
+        "local": "Local coordinates",
+        "unknown": "Unknown"
+      },
+      "reason": {
+        "MATCHES_PROJECT_CRS": "The extents fall inside the project's UTM zone",
+        "UTM_ZONE_UNKNOWN": "The extents look like UTM but the zone cannot be confirmed",
+        "LONLAT_RANGE": "The values look like longitude and latitude; not supported for revisions",
+        "SMALL_LOCAL_COORDINATES": "Small local coordinates; georeferencing is needed",
+        "NO_EXTENTS": "The drawing has no extents",
+        "OUT_OF_KNOWN_RANGES": "The extents are outside every known range"
+      },
+      "suggestedEpsg": "Suggested EPSG",
+      "projectEpsg": "Project EPSG",
+      "insUnits": "INSUNITS",
+      "declaredUnit": "Unit declared by the file",
+      "impliedUnit": "Unit implied by the extents",
+      "none": "None",
+      "epsgLabel": "EPSG code",
+      "epsgHint": "WGS 84 / UTM only, for example 32636",
+      "epsgRequired": "Enter an EPSG code",
+      "epsgUnsupported": "Only WGS 84 / UTM codes are supported (32601-32660, 32701-32760)",
+      "unitLabel": "Drawing unit",
+      "unitHint": "What one drawing unit means in the real world. There is no default: you must choose it.",
+      "unitPlaceholder": "Choose a unit",
+      "unitRequired": "Choose the drawing unit to enable saving",
+      "factor": "{factor} m per unit"
+    },
+    "unit": {
+      "m": "Metre (m)",
+      "cm": "Centimetre (cm)",
+      "mm": "Millimetre (mm)",
+      "km": "Kilometre (km)",
+      "in": "Inch (in)",
+      "ft": "Foot (ft)"
+    },
+    "warning": {
+      "title": "Check the drawing unit",
+      "conflict": "The file declares {declared} but the coordinates fit {implied} on the detected coordinate system. Be sure of the unit before saving.",
+      "differsDeclared": "The chosen unit ({chosen}) differs from the unit declared by the file ({declared}).",
+      "differsImplied": "The chosen unit ({chosen}) differs from the unit implied by the extents ({implied})."
+    },
+    "layers": {
+      "title": "Layers",
+      "name": "Layer",
+      "color": "Colour",
+      "entities": "Entities",
+      "target": "Becomes",
+      "none": "The drawing has no layers",
+      "suggested": "Suggested",
+      "suggestedHint": "Suggested from the layer name; saved only when you save"
+    },
+    "blocks": {
+      "title": "Blocks",
+      "name": "Block",
+      "count": "Inserts",
+      "layers": "Layers",
+      "target": "Becomes",
+      "follow": "Follow the layer",
+      "none": "The drawing has no blocks"
+    },
+    "texts": {
+      "title": "Text rules",
+      "hint": "A text that becomes a point feature, for example NEW-HHI on layer RRR becomes a handhole.",
+      "layer": "Layer",
+      "text": "Text",
+      "count": "Count",
+      "target": "Point type",
+      "noRule": "No rule",
+      "none": "No readable texts",
+      "limited": "Only the most frequent texts are listed ({limit})"
+    },
+    "save": "Save mapping",
+    "saving": "Saving…",
+    "saved": "Mapping saved (version {version})",
+    "savedVersion": "Saved version",
+    "build": "Build revision",
+    "building": "Building…",
+    "unsaved": "You have unsaved changes. Save before building a revision.",
+    "noSavedMapping": "Save the mapping first to build a revision",
+    "error": {
+      "VERSION_MISMATCH": "The mapping was changed by someone else. Reload to see the latest version; your edits on this page will be lost.",
+      "NOT_PROCESSED": "The file is not processed yet",
+      "NO_MAPPING": "Save the mapping before building a revision",
+      "MAPPING_VERSION_MISMATCH": "The mapping changed since you opened it. Reload and build again.",
+      "REVISION_IN_PROGRESS": "Another revision of this project is still being built or waiting for review",
+      "reload": "Reload"
+    }
+  },
+  "design": {
+    "listTitle": "Design revisions",
+    "empty": "No design revisions yet. Save a mapping and build a revision from a processed CAD file.",
+    "revision": "Revision",
+    "draftLabel": "Draft",
+    "file": "Source file",
+    "crs": "EPSG",
+    "unit": "Drawing unit",
+    "createdAt": "Created",
+    "builtAt": "Built",
+    "publishedAt": "Published",
+    "status": {
+      "queued": "Queued",
+      "building": "Building",
+      "draft": "Draft",
+      "failed": "Failed",
+      "published": "Published",
+      "discarded": "Discarded"
+    },
+    "detailTitle": "Design revision",
+    "backToList": "Back to the revisions",
+    "autoRefresh": "Refreshing automatically every 3 seconds",
+    "notBuilt": "Counts, text review and changes appear once the build has finished",
+    "factor": "Metres per unit",
+    "insUnits": "INSUNITS",
+    "base": "Base revision",
+    "baseNone": "None (first revision)",
+    "baseRev": "Last published revision",
+    "unitsConflict": "The drawing declares a unit that disagrees with its coordinates. Lengths use the unit chosen by the project manager ({unit}).",
+    "failure": {
+      "MAPPING_INVALID": "The mapping is invalid",
+      "CAD_FILE_NOT_PROCESSED": "The CAD file was not processed",
+      "TILES_FAILED": "The map tiles could not be built",
+      "MAX_ATTEMPTS_EXCEEDED": "The build failed after several attempts",
+      "ENQUEUE_FAILED": "Could not queue the build",
+      "INTERNAL": "Unexpected build error"
+    },
+    "counts": {
+      "title": "Network features",
+      "routeLength": "Route length (m)"
+    },
+    "linkCounts": {
+      "title": "Text links"
+    },
+    "linkStatus": {
+      "auto": "Linked automatically",
+      "review": "Needs review",
+      "confirmed": "Confirmed",
+      "rejected": "Rejected",
+      "unlinked": "Not linked"
+    },
+    "diffCounts": {
+      "title": "Changes against the base revision"
+    },
+    "change": {
+      "added": "Added",
+      "removed": "Removed",
+      "unchanged": "Unchanged",
+      "moved": "Moved",
+      "reshaped": "Reshaped",
+      "attributes_changed": "Code changed",
+      "conflict": "Conflict"
+    },
+    "actions": {
+      "publish": "Publish",
+      "publishing": "Publishing…",
+      "discard": "Discard",
+      "discarding": "Discarding…",
+      "discardTitle": "Discard this revision?",
+      "discardText": "A discarded revision can no longer be published.",
+      "discardConfirm": "Discard revision",
+      "cancel": "Cancel"
+    },
+    "publish": {
+      "title": "Open items",
+      "text": "{links} text links still need review and {conflicts} changes are conflicts. Publishing locks the revision as it is.",
+      "acknowledge": "I understand and want to publish with open items",
+      "confirm": "Publish anyway"
+    },
+    "error": {
+      "NOT_DRAFT": "Only a draft revision can be published",
+      "NOT_DISCARDABLE": "This revision cannot be discarded now",
+      "REVISION_LOCKED": "The revision is no longer a draft, so links cannot be changed",
+      "FEATURE_TYPE_NOT_ALLOWED": "That feature type is not allowed for this kind of text",
+      "FEATURE_REQUIRED": "Choose a feature first"
+    },
+    "review": {
+      "title": "Text review",
+      "statusFilter": "Status",
+      "kindFilter": "Kind",
+      "all": "All",
+      "text": "Text",
+      "kind": "Kind",
+      "layer": "Layer",
+      "feature": "Proposed feature",
+      "noFeature": "No candidate",
+      "distance": "Distance (m)",
+      "confidence": "Confidence",
+      "status": "Status",
+      "unreadable": "Unreadable",
+      "rawText": "Raw text",
+      "confirm": "Confirm",
+      "reject": "Reject",
+      "reassign": "Reassign",
+      "none": "No texts match this filter",
+      "kinds": {
+        "cable": "Cable",
+        "duct": "Duct",
+        "length": "Length",
+        "box_id": "Box id",
+        "box_bpu": "Box B/P/U",
+        "other": "Other",
+        "unreadable": "Unreadable"
+      },
+      "reassignTitle": "Reassign the link of {text}",
+      "searchLabel": "Search features by code",
+      "featureTypeLabel": "Feature type",
+      "search": "Search",
+      "useFeature": "Use this feature",
+      "noFeatures": "No matching features",
+      "closeReassign": "Close",
+      "featureCode": "Code",
+      "featureLayer": "Layer",
+      "featureHandle": "Handle",
+      "featureLength": "Length (m)"
+    },
+    "diff": {
+      "title": "Changes",
+      "changedOnly": "Changed only",
+      "changeFilter": "Change",
+      "all": "All",
+      "change": "Change",
+      "type": "Type",
+      "code": "Code",
+      "previousCode": "Previous code",
+      "distance": "Distance (m)",
+      "lengthDelta": "Length difference (m)",
+      "none": "No changes to show"
     }
   }
 }

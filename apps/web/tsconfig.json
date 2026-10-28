@@ -12,6 +12,7 @@
     "allowJs": false,
     "incremental": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./src/*"] }
   },
