@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check secrets
+        env:
+          FTTH_HOST: ${{ secrets.FTTH_HOST }}
+          FTTH_USER: ${{ secrets.FTTH_USER }}
+          FTTH_SSH_KEY: ${{ secrets.FTTH_SSH_KEY }}
+          FTTH_KNOWN_HOSTS: ${{ secrets.FTTH_KNOWN_HOSTS }}
+        run: |
+          for v in FTTH_HOST FTTH_USER FTTH_SSH_KEY FTTH_KNOWN_HOSTS; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is missing"; exit 1; }
+          done
+
+      - name: Deploy over SSH
+        env:
+          FTTH_HOST: ${{ secrets.FTTH_HOST }}
+          FTTH_USER: ${{ secrets.FTTH_USER }}
+          FTTH_SSH_KEY: ${{ secrets.FTTH_SSH_KEY }}
+          FTTH_KNOWN_HOSTS: ${{ secrets.FTTH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$FTTH_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$FTTH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # TODO: replace with the real deploy command once the project is set up on the server
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes -o ConnectTimeout=20 \
+            "$FTTH_USER@$FTTH_HOST" 'whoami && hostname && ls -ld /srv/ftthtracker'
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
