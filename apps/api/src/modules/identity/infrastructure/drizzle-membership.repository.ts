@@ -1,7 +1,7 @@
 import { RoleSchema } from '@ftth/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../../../db/db.module.js';
-import { assignments, projects } from '../../../db/schema.js';
+import { assignments, projects, users } from '../../../db/schema.js';
 import type { AssignmentRow, MembershipRepository } from '../domain/membership.js';
 
 export class DrizzleMembershipRepository implements MembershipRepository {
@@ -26,6 +26,8 @@ export class DrizzleMembershipRepository implements MembershipRepository {
       })
       .from(assignments)
       .innerJoin(projects, eq(projects.id, assignments.projectId))
+      // A deactivated user keeps their assignments but they grant nothing (ADR-025).
+      .innerJoin(users, and(eq(users.id, assignments.userId), eq(users.isActive, true)))
       .where(where)
       .orderBy(projects.name, assignments.role);
     return rows.map((row) => ({ ...row, role: RoleSchema.parse(row.role) }));

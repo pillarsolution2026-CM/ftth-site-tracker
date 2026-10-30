@@ -4,6 +4,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter.js';
 import { ConfigModule } from './config/config.module.js';
 import { DbModule } from './db/db.module.js';
 import { HealthController } from './health/health.controller.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 import { IdentityModule } from './modules/identity/identity.module.js';
 import { ProjectsModule } from './modules/projects/projects.module.js';
 import { CadModule } from './modules/cad/cad.module.js';
@@ -15,6 +16,7 @@ import { StorageModule } from './common/storage/storage.module.js';
     ConfigModule,
     DbModule,
     StorageModule,
+    AdminModule,
     IdentityModule,
     ProjectsModule,
     WorkOrdersModule,

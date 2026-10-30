@@ -1,8 +1,18 @@
-import { Module } from '@nestjs/common';
+import { Module, type Provider } from '@nestjs/common';
 import type { ApiEnv } from '@ftth/shared';
 import { EVENT_LOG, type EventLog } from '../../common/event-log.port.js';
 import { APP_ENV } from '../../config/config.module.js';
 import { DB, type Database } from '../../db/db.module.js';
+import {
+  CreateAssignmentUseCase,
+  ListAssignmentsUseCase,
+  RemoveAssignmentUseCase,
+} from './application/admin-assignments.use-cases.js';
+import {
+  CreateUserUseCase,
+  ListUsersUseCase,
+  SetUserActiveUseCase,
+} from './application/admin-users.use-cases.js';
 import { FixedWindowRateLimiter } from './application/fixed-window-rate-limiter.js';
 import { GetMeUseCase } from './application/get-me.use-case.js';
 import { LoginUseCase } from './application/login.use-case.js';
@@ -14,11 +24,13 @@ import { SessionIssuer } from './application/session-issuer.js';
 import type { MembershipRepository } from './domain/membership.js';
 import type { RefreshTokenRepository } from './domain/refresh-token.js';
 import type { UserRepository } from './domain/user.js';
+import type { IdentityAdminUnitOfWork } from './domain/user-admin.js';
 import {
   ACCESS_TOKENS,
   AUTH_RATE_LIMITER,
   AUTH_RATE_LIMITS,
   GET_ME_USE_CASE,
+  IDENTITY_ADMIN_UNIT_OF_WORK,
   LOGIN_USE_CASE,
   LOGOUT_USE_CASE,
   MEMBERSHIP_REPOSITORY,
@@ -29,6 +41,11 @@ import {
 } from './identity.tokens.js';
 import { Argon2PasswordHasher } from './infrastructure/argon2-password-hasher.js';
 import { CryptoRefreshTokenFactory } from './infrastructure/crypto-refresh-token.factory.js';
+import {
+  DrizzleAssignmentAdminRepository,
+  DrizzleIdentityAdminUnitOfWork,
+  DrizzleUserAdminRepository,
+} from './infrastructure/drizzle-identity-admin.repository.js';
 import { DrizzleMembershipRepository } from './infrastructure/drizzle-membership.repository.js';
 import { DrizzleRefreshTokenRepository } from './infrastructure/drizzle-refresh-token.repository.js';
 import { DrizzleUserRepository } from './infrastructure/drizzle-user.repository.js';
@@ -36,15 +53,59 @@ import { JwtAccessTokenService } from './infrastructure/jwt-access-token.service
 import { AuthRateLimitGuard, type AuthRateLimits } from './interface/auth-rate-limit.guard.js';
 import { AuthController } from './interface/auth.controller.js';
 import { JwtAuthGuard } from './interface/jwt-auth.guard.js';
+import { PlatformAdminGuard } from './interface/platform-admin.guard.js';
 import { ProjectScopeGuard } from './interface/project-scope.guard.js';
 import { RolesGuard } from './interface/roles.guard.js';
 
 const systemClock: Clock = { now: () => new Date() };
 const refreshFactory = new CryptoRefreshTokenFactory();
 
+/** Admin setup (ADR-025): users and assignments, used by the admin module's controllers. */
+const adminProviders: Provider[] = [
+  PlatformAdminGuard,
+  {
+    provide: IDENTITY_ADMIN_UNIT_OF_WORK,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleIdentityAdminUnitOfWork(db),
+  },
+  {
+    provide: ListUsersUseCase,
+    inject: [DB],
+    useFactory: (db: Database) => new ListUsersUseCase(new DrizzleUserAdminRepository(db)),
+  },
+  {
+    provide: CreateUserUseCase,
+    inject: [IDENTITY_ADMIN_UNIT_OF_WORK],
+    useFactory: (uow: IdentityAdminUnitOfWork) =>
+      new CreateUserUseCase(uow, new Argon2PasswordHasher()),
+  },
+  {
+    provide: SetUserActiveUseCase,
+    inject: [IDENTITY_ADMIN_UNIT_OF_WORK],
+    useFactory: (uow: IdentityAdminUnitOfWork) => new SetUserActiveUseCase(uow, systemClock),
+  },
+  {
+    provide: ListAssignmentsUseCase,
+    inject: [DB],
+    useFactory: (db: Database) =>
+      new ListAssignmentsUseCase(new DrizzleAssignmentAdminRepository(db)),
+  },
+  {
+    provide: CreateAssignmentUseCase,
+    inject: [IDENTITY_ADMIN_UNIT_OF_WORK],
+    useFactory: (uow: IdentityAdminUnitOfWork) => new CreateAssignmentUseCase(uow),
+  },
+  {
+    provide: RemoveAssignmentUseCase,
+    inject: [IDENTITY_ADMIN_UNIT_OF_WORK],
+    useFactory: (uow: IdentityAdminUnitOfWork) => new RemoveAssignmentUseCase(uow),
+  },
+];
+
 @Module({
   controllers: [AuthController],
   providers: [
+    ...adminProviders,
     JwtAuthGuard,
     ProjectScopeGuard,
     RolesGuard,
@@ -149,6 +210,14 @@ const refreshFactory = new CryptoRefreshTokenFactory();
     JwtAuthGuard,
     ProjectScopeGuard,
     RolesGuard,
+    USER_REPOSITORY,
+    PlatformAdminGuard,
+    ListUsersUseCase,
+    CreateUserUseCase,
+    SetUserActiveUseCase,
+    ListAssignmentsUseCase,
+    CreateAssignmentUseCase,
+    RemoveAssignmentUseCase,
   ],
 })
 export class IdentityModule {}

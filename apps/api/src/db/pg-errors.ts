@@ -25,3 +25,9 @@ export function uniqueViolation(error: unknown): string | null {
 export function lockNotAvailable(error: unknown): boolean {
   return pgErrorOf(error)?.code === '55P03';
 }
+
+/** Name of the violated foreign key, or null when `error` is not a foreign-key violation (23503). */
+export function foreignKeyViolation(error: unknown): string | null {
+  const pgError = pgErrorOf(error);
+  return pgError?.code === '23503' ? (pgError.constraint ?? '') : null;
+}

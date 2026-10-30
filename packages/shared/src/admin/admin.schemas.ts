@@ -162,3 +162,18 @@ export type Assignment = z.infer<typeof AssignmentSchema>;
 
 export const AssignmentListResponseSchema = z.object({ items: z.array(AssignmentSchema) });
 export type AssignmentListResponse = z.infer<typeof AssignmentListResponseSchema>;
+
+/** `events.entity` / `events.type` written by the admin routes (kept here to stay out of Phase 3 files). */
+export const ADMIN_EVENT_TYPES = {
+  projectCreated: 'project.created',
+  /** Payload: `{ before, after }` of the changed fields. */
+  projectUpdated: 'project.updated',
+  zoneCreated: 'zone.created',
+  /** Payload never contains the password or its hash. */
+  userCreated: 'user.created',
+  userDeactivated: 'user.deactivated',
+  userReactivated: 'user.reactivated',
+  assignmentCreated: 'assignment.created',
+  /** Payload is the removed row (the row is hard-deleted). */
+  assignmentRemoved: 'assignment.removed',
+} as const;
