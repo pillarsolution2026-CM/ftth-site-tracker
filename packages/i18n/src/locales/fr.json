@@ -673,8 +673,7 @@
       "offline": "Hors ligne — envoi automatique plus tard",
       "unauthorized": "Session expirée — reconnectez-vous pour synchroniser",
       "forbidden": "Vous n'avez plus accès à ce projet",
-      "serverError": "Serveur indisponible — nouvel essai automatique",
-      "storageWarning": "Les photos non envoyées occupent {size} Mo — synchronisez une fois en ligne"
+      "serverError": "Serveur indisponible — nouvel essai automatique"
     },
     "cad": {
       "layers": "Calques",

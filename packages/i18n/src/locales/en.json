@@ -673,8 +673,7 @@
       "offline": "Offline — will send automatically",
       "unauthorized": "Session expired — sign in again to sync",
       "forbidden": "You no longer have access to this project",
-      "serverError": "Server unavailable — will retry automatically",
-      "storageWarning": "Unsent photos take {size} MB — sync when online"
+      "serverError": "Server unavailable — will retry automatically"
     },
     "cad": {
       "layers": "Layers",
