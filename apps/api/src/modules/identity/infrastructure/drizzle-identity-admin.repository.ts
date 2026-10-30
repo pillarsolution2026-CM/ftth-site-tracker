@@ -3,7 +3,7 @@ import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
-import { foreignKeyViolation, uniqueViolation } from '../../../db/pg-errors.js';
+import { foreignKeyViolation, redactedDbError, uniqueViolation } from '../../../db/pg-errors.js';
 import { assignments, refreshTokens, users, zones } from '../../../db/schema.js';
 import type {
   AssignmentAdminRepository,
@@ -74,7 +74,8 @@ export class DrizzleUserAdminRepository implements UserAdminRepository {
           reason: 'EMAIL_TAKEN',
         });
       }
-      throw error;
+      // The driver error lists the query params, which include the password hash: never log them.
+      throw redactedDbError(error, 'user insert');
     }
   }
 
@@ -138,8 +139,13 @@ export class DrizzleAssignmentAdminRepository implements AssignmentAdminReposito
     const where = and(eq(assignments.id, assignmentId), eq(assignments.projectId, projectId));
     const [view] = await this.query(where);
     if (!view) return null;
-    await this.db.delete(assignments).where(where);
-    return view;
+    // Only the request whose DELETE removed the row reports it, so a concurrent removal cannot
+    // write a second `assignment.removed` event.
+    const deleted = await this.db
+      .delete(assignments)
+      .where(where)
+      .returning({ id: assignments.id });
+    return deleted.length > 0 ? view : null;
   }
 
   // The zone name is read for display only; zones are written by the projects module.

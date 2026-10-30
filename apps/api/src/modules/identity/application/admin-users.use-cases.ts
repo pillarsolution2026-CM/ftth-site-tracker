@@ -61,7 +61,11 @@ export class SetUserActiveUseCase {
       const current = await tx.users.findById(input.userId);
       if (!current) throw new AppError('NOT_FOUND', 'User not found');
       if (current.isAdmin) throw new AppError('FORBIDDEN', 'Admins are managed by the CLI');
-      if (current.isActive === input.active) return current;
+      if (current.isActive === input.active) {
+        // Idempotent, but a repeated deactivation still ends any session left over.
+        if (!input.active) await tx.users.revokeSessions(input.userId, this.clock.now());
+        return current;
+      }
 
       const updated = await tx.users.setActive(input.userId, input.active);
       if (!updated) throw new AppError('NOT_FOUND', 'User not found');

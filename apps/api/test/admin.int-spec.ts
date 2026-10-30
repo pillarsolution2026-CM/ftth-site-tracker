@@ -476,4 +476,19 @@ describe('assignments', () => {
     ]);
     expect(rows).toHaveLength(1);
   });
+
+  it('two concurrent removals of one assignment write exactly one removal event', async () => {
+    const user = await createUser();
+    const created = await assign(seeded.a, { userId: user.id, role: 'qc' });
+    const del = () =>
+      http()
+        .delete(`/admin/projects/${seeded.a}/assignments/${created.body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+    const statuses = (await Promise.all([del(), del(), del()])).map((res) => res.status).sort();
+    expect(statuses).toEqual([204, 404, 404]);
+    expect(await eventTypes(ctx.pool, created.body.id)).toEqual([
+      'assignment.created',
+      'assignment.removed',
+    ]);
+  });
 });

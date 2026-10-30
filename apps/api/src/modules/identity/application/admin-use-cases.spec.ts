@@ -43,6 +43,14 @@ describe('SetUserActiveUseCase', () => {
     expect(uow.events.events).toEqual([]);
   });
 
+  it('still ends the sessions of a user already marked inactive (e.g. flipped in SQL)', async () => {
+    const target = makeSummary({ isActive: false });
+    const uow = new InMemoryIdentityAdminUow([target]);
+    await run(uow, target.id, false);
+    expect(uow.users.revoked).toEqual([target.id]);
+    expect(uow.events.events).toEqual([]);
+  });
+
   it('refuses admins, yourself and unknown users', async () => {
     const admin = makeSummary({ isAdmin: true });
     const uow = new InMemoryIdentityAdminUow([admin]);
