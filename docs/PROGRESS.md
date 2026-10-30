@@ -6,7 +6,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | Docker + autodeploy is the only deploy path (owner, 2026-10-28); the SSH deploy of PR #7 (`deploy.yml`, failing with "node is not available") was removed. Server bootstrap still pending (owner runs one command) | — |
+| Staging (Hetzner) | SSH push deploy restored on top of the Docker stack (owner, 2026-10-30, ADR-022): `Deploy (SSH)` runs `infra/staging/ssh-deploy.sh` → `bootstrap.sh` after each image publish. Needs the `FTTH_*` secrets for a root/sudo user; not yet confirmed on the real server | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | Not started | — |
@@ -132,7 +132,7 @@ Contracts: `docs/phase-1b-contracts.md`. ADRs: 017 (mapping, revisions), 018 (dr
   - Correcting the text of an unreadable label by hand.
   - Street-name texts (`tx`) are not drawn in the background tiles yet (curves and blocks only).
 - **Known issues:**
-  - `Deploy` workflow fails on every push to `main` ("node is not available" for the server SSH user) — known, not touched in 1b.
+  - `Deploy` workflow failed on every push to `main` ("node is not available" for the server SSH user); removed after 1b and replaced by the Docker-based `Deploy (SSH)` (ADR-022).
   - `design_features.attrs.texts` records the links found at build time; after the PM's review only box codes are recomputed (diff rows keep the build-time code).
   - API integration tests need a fresh database per run (a 1a test leaves memberships behind) — CI uses a fresh service database.
   - Revision `warnings` may contain `ROUTE_ZERO_LENGTH_SKIPPED`, which has no shared enum yet (not shown in the UI).

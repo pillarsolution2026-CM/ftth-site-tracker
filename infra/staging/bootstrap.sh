@@ -138,12 +138,19 @@ echo "running commit $deployed"
 
 step "First admin / أول أدمن"
 admin_password=""
+admin_password_supplied=""
 if [[ -f "$ROOT/.admin-created" ]]; then
   echo "admin already created earlier (password was shown then)"
 elif [[ -z "${ADMIN_EMAIL:-}" ]]; then
   warn "ADMIN_EMAIL not set; skipped. Re-run with ADMIN_EMAIL=you@example.com"
 else
-  admin_password="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)"
+  if [[ -n "${ADMIN_PASSWORD_FILE:-}" ]]; then
+    # Supplied by ssh-deploy.sh (GitHub secret): used as is and never printed, because Actions logs are public.
+    admin_password="$(cat "$ADMIN_PASSWORD_FILE")"
+    admin_password_supplied=1
+  else
+    admin_password="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)"
+  fi
   (cd "$APP" && as_deploy env IMAGE_TAG="$deployed" docker compose --env-file "$ENV_FILE" \
     -f infra/staging/docker-compose.yml run --rm --no-deps \
     -e ADMIN_EMAIL="$ADMIN_EMAIL" -e ADMIN_PASSWORD="$admin_password" -e ADMIN_NAME="${ADMIN_NAME:-Administrator}" \
@@ -166,7 +173,9 @@ printf '\n\033[1;32m==== Done / تم ====\033[0m\n'
 echo "Web:   https://$APP_DOMAIN"
 echo "API:   https://$API_DOMAIN/health"
 echo "Commit: $deployed"
-if [[ -n "$admin_password" ]]; then
+if [[ -n "$admin_password" && -n "$admin_password_supplied" ]]; then
+  echo "Admin: ${ADMIN_EMAIL} (password = GitHub secret FTTH_ADMIN_PASSWORD)"
+elif [[ -n "$admin_password" ]]; then
   echo "Admin: ${ADMIN_EMAIL}"
   echo "Password (shown once, save it now / احفظه دلوقتي): $admin_password"
 fi

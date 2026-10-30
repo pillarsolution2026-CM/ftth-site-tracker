@@ -9,8 +9,15 @@
 ## إزاي بيشتغل
 - كل merge على `main` بيشغّل workflow اسمه **Publish images**. الـworkflow بيبني الـimages (api وweb وcad-worker) ويرفعها على GHCR.
 - السيرفر بيشيّك كل دقيقتين من خلال `ftth-autodeploy.timer`. لو فيه commit جديد والـimages بتاعته اترفعت، بيشغّله لوحده. لو التشغيل فشل، بيرجع للإصدار اللي قبله تلقائيًا.
-- مفيش أي أسرار أو مفاتيح للسيرفر متخزنة في GitHub، ومفيش SSH داخل للسيرفر علشان الـdeploy.
-- دي **الطريقة الوحيدة** للنشر (قرار المالك 2026-10-28). الـworkflow اللي كان بينشر بـSSH (`deploy.yml` و`infra/remote-deploy.sh`) اتشال، فلو secrets `FTTH_HOST` و`FTTH_USER` و`FTTH_SSH_KEY` و`FTTH_KNOWN_HOSTS` لسه موجودة في GitHub، امسحها. الملفين `infra/ftth.caddy` و`infra/ftth.env.example` فاضلين كمثال لـproduction.
+- **بالإضافة لكده فيه نشر بالـSSH (قرار المالك 2026-10-30، ADR-022):** بعد ما **Publish images** يخلص بنجاح على `main`، بيشتغل workflow اسمه **Deploy (SSH)**. الـworkflow ده بيدخل السيرفر بالـSSH، ويشغّل `infra/staging/ssh-deploy.sh`، اللي بيعمل كده حسب صلاحية المستخدم:
+  - لو root أو عنده sudo من غير باسورد: يشغّل `bootstrap.sh` بتاع نفس الـcommit. ده بيعمل التجهيز أول مرة وبعدها النشر، وآمن لو اتكرر.
+  - لو المستخدم هو `ftth-deploy`: يشغّل `ftth-autodeploy` بس.
+  - غير كده: بيقف ويقول الصلاحية الناقصة إيه.
+  - الـtimer بيفضل شغال كاحتياطي. الاتنين مستخدمين نفس الـlock، فمايتصادموش.
+- الـsecrets بتاعة GitHub (Settings ← Secrets and variables ← Actions):
+  - **إجباري:** `FTTH_HOST` و`FTTH_USER` (يفضّل `root`) و`FTTH_SSH_KEY` و`FTTH_KNOWN_HOSTS`.
+  - **اختياري، علشان أول أدمن:** `FTTH_ADMIN_EMAIL` و`FTTH_ADMIN_PASSWORD` (12 حرف على الأقل). الباسورد بيتبعت على stdin، ومابيتطبعش في الـlog، لأن الـlogs بتاعة الريبو ده public.
+- تقدر تشغّله بإيدك من Actions ← **Deploy (SSH)** ← **Run workflow**.
 - الـCaddy الموجود على السيرفر هو اللي بيعمل HTTPS، من خلال سطر `import` واحد لملف `/srv/ftth/ftthtracker.caddy`. باقي المواقع مابتتلمسش.
 - الـstack بتاعنا اسمه `ftth-staging`، وليه قاعدة بيانات وRedis منفصلين عن باقي التطبيقات. كل حاجة تخصه موجودة في `/srv/ftth`، وبيشتغل بالمستخدم `ftth-deploy`.
 
