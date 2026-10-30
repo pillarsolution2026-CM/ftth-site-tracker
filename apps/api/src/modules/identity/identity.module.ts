@@ -60,7 +60,7 @@ import { RolesGuard } from './interface/roles.guard.js';
 const systemClock: Clock = { now: () => new Date() };
 const refreshFactory = new CryptoRefreshTokenFactory();
 
-/** Admin setup (ADR-025): users and assignments, used by the admin module's controllers. */
+/** Admin setup (ADR-026): users and assignments, used by the admin module's controllers. */
 const adminProviders: Provider[] = [
   PlatformAdminGuard,
   {

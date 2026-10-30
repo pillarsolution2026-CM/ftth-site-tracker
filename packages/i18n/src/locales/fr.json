@@ -735,5 +735,114 @@
       "lengthDelta": "Écart de longueur (m)",
       "none": "Aucun changement à afficher"
     }
+  },
+  "field": {
+    "title": "Travaux du jour",
+    "chooseProject": "Choisir un projet",
+    "download": "Télécharger le plan pour travailler hors ligne",
+    "downloading": "Téléchargement du plan…",
+    "refresh": "Actualiser le plan",
+    "noRevision": "Aucune révision de conception n'est encore publiée pour ce projet.",
+    "noFeatures": "Aucun élément dans vos zones. Vérifiez que vous êtes affecté à une zone délimitée.",
+    "downloadFailed": "Échec du téléchargement. Réessayez une fois en ligne.",
+    "revision": "Révision de conception {revNo}",
+    "sync": {
+      "pending": "{count} non synchronisées",
+      "photosWaiting": "{count} photos en attente",
+      "rejected": "{count} rejetées à revoir",
+      "allSynced": "Tout est synchronisé",
+      "lastSync": "Dernière synchronisation : {time}",
+      "never": "Jamais synchronisé",
+      "syncNow": "Synchroniser",
+      "syncing": "Synchronisation…",
+      "offline": "Hors ligne — envoi automatique plus tard",
+      "unauthorized": "Session expirée — reconnectez-vous pour synchroniser",
+      "forbidden": "Vous n'avez plus accès à ce projet",
+      "serverError": "Serveur indisponible — nouvel essai automatique"
+    },
+    "cad": {
+      "layers": "Calques",
+      "day": "Jour",
+      "night": "Nuit",
+      "fit": "Tout afficher",
+      "coordinates": "E {e}   N {n}",
+      "nothingUnderCrosshair": "Déplacez le plan jusqu'à placer un élément sous le réticule",
+      "update": "Mise à jour",
+      "designLength": "Longueur de conception {length} m",
+      "updatesOnFeature": "{count} mises à jour sur cet élément"
+    },
+    "steps": {
+      "activity": "Activité",
+      "work": "Travaux",
+      "materials": "Matériels",
+      "location": "Label et position",
+      "photos": "Photos",
+      "review": "Vérification"
+    },
+    "update": {
+      "stepOf": "Étape {current} sur {total}",
+      "back": "Retour",
+      "next": "Suivant",
+      "save": "Enregistrer",
+      "saved": "Enregistré sur l'appareil — envoi dès que le réseau revient",
+      "cancel": "Annuler",
+      "noItems": "Aucun article de bon de commande pour cette activité.",
+      "phase2Items": "Tous les articles de l'activité sont affichés : le lien article–type d'élément et la séparation travaux/matériels arrivent avec la phase 2.",
+      "suggestedUnavailable": "Pas de quantité suggérée avant les règles de la phase 2.",
+      "recorded": "Enregistré {recorded} sur {quantity} {unit}",
+      "label": "Label",
+      "note": "Remarques",
+      "gpsLocating": "Localisation…",
+      "gpsAccuracy": "±{accuracy} m",
+      "gpsDistance": "{distance} m de l'élément",
+      "gpsUnavailable": "Position indisponible",
+      "gpsRetry": "Relocaliser",
+      "takePhoto": "Prendre une photo",
+      "photoRequired": "{count} requise(s) ({key})",
+      "photosComplete": "Photos obligatoires complètes",
+      "phase2Photos": "Les photos requises par activité arrivent avec les règles de la phase 2 ; pour l'instant au moins une photo.",
+      "processingPhoto": "Préparation de la photo…",
+      "acknowledge": "Compris, enregistrer quand même",
+      "summaryLines": "{count} articles",
+      "summaryPhotos": "{count} photos"
+    },
+    "warnings": {
+      "GPS_FAR": "Vous êtes à plus de {distance} m de l'élément",
+      "GPS_UNAVAILABLE": "Pas de position GPS pour cette mise à jour",
+      "ITEM_OVERRUN": "La quantité dépasse le reste du bon de commande"
+    },
+    "problems": {
+      "NO_ACTIVITY": "Choisissez l'activité",
+      "NO_LINES": "Ajoutez au moins un article",
+      "LABEL_TOO_LONG": "Le label est trop long",
+      "NOTE_TOO_LONG": "Les remarques sont trop longues",
+      "PHOTOS_MISSING": "Des photos obligatoires manquent"
+    },
+    "pending": {
+      "title": "En attente",
+      "empty": "Aucune mise à jour sur cet appareil.",
+      "attempts": "{count} tentatives",
+      "states": {
+        "pending": "Non envoyée",
+        "applied": "Sur le serveur",
+        "rejected": "Rejetée"
+      },
+      "rejections": {
+        "OP_ID_REUSED": "Conflit d'identifiant d'opération",
+        "PHOTO_ID_REUSED": "Conflit d'identifiant de photo",
+        "FEATURE_NOT_FOUND": "Élément introuvable",
+        "FEATURE_OUT_OF_SCOPE": "Élément hors de votre zone",
+        "REVISION_NOT_PUBLISHED": "Révision de conception non publiée",
+        "ITEM_NOT_FOUND": "Article introuvable",
+        "ITEM_WORK_TYPE_MISMATCH": "L'article n'appartient pas à cette activité",
+        "VALIDATION_FAILED": "Données invalides"
+      },
+      "updateStatus": {
+        "pending": "En attente de validation",
+        "approved": "Approuvée",
+        "rejected": "Rejetée"
+      },
+      "reviewReason": "Motif : {reason}"
+    }
   }
 }

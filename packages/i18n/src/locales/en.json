@@ -735,5 +735,114 @@
       "lengthDelta": "Length difference (m)",
       "none": "No changes to show"
     }
+  },
+  "field": {
+    "title": "Today's work",
+    "chooseProject": "Choose a project",
+    "download": "Download the drawing for offline work",
+    "downloading": "Downloading the drawing…",
+    "refresh": "Refresh the drawing",
+    "noRevision": "No design revision has been published for this project yet.",
+    "noFeatures": "No features in your zones. Check that you are assigned to a zone with a boundary.",
+    "downloadFailed": "Download failed. Try again when you are online.",
+    "revision": "Design revision {revNo}",
+    "sync": {
+      "pending": "{count} not synced yet",
+      "photosWaiting": "{count} photos waiting",
+      "rejected": "{count} rejected, need attention",
+      "allSynced": "Everything is synced",
+      "lastSync": "Last sync: {time}",
+      "never": "Never synced",
+      "syncNow": "Sync now",
+      "syncing": "Syncing…",
+      "offline": "Offline — will send automatically",
+      "unauthorized": "Session expired — sign in again to sync",
+      "forbidden": "You no longer have access to this project",
+      "serverError": "Server unavailable — will retry automatically"
+    },
+    "cad": {
+      "layers": "Layers",
+      "day": "Day",
+      "night": "Night",
+      "fit": "Show all",
+      "coordinates": "E {e}   N {n}",
+      "nothingUnderCrosshair": "Move the drawing until a feature is under the crosshair",
+      "update": "Update",
+      "designLength": "Design length {length} m",
+      "updatesOnFeature": "{count} updates on this feature"
+    },
+    "steps": {
+      "activity": "Activity",
+      "work": "Work items",
+      "materials": "Materials",
+      "location": "Label & location",
+      "photos": "Photos",
+      "review": "Review"
+    },
+    "update": {
+      "stepOf": "Step {current} of {total}",
+      "back": "Back",
+      "next": "Next",
+      "save": "Save update",
+      "saved": "Saved on the device — it will be sent when online",
+      "cancel": "Cancel",
+      "noItems": "No work-order items for this activity.",
+      "phase2Items": "All items of the activity are shown: matching items to feature types and separating work from materials comes with Phase 2.",
+      "suggestedUnavailable": "No suggested quantity before the Phase 2 rules.",
+      "recorded": "Recorded {recorded} of {quantity} {unit}",
+      "label": "Label",
+      "note": "Notes",
+      "gpsLocating": "Locating…",
+      "gpsAccuracy": "±{accuracy} m",
+      "gpsDistance": "{distance} m from the feature",
+      "gpsUnavailable": "Location unavailable",
+      "gpsRetry": "Locate again",
+      "takePhoto": "Take photo",
+      "photoRequired": "{count} required ({key})",
+      "photosComplete": "Required photos complete",
+      "phase2Photos": "Required photos per activity come with the Phase 2 rules; for now at least one photo.",
+      "processingPhoto": "Preparing the photo…",
+      "acknowledge": "Understood, save anyway",
+      "summaryLines": "{count} items",
+      "summaryPhotos": "{count} photos"
+    },
+    "warnings": {
+      "GPS_FAR": "You are more than {distance} m from the feature",
+      "GPS_UNAVAILABLE": "No GPS location for this update",
+      "ITEM_OVERRUN": "The quantity exceeds what is left in the work order"
+    },
+    "problems": {
+      "NO_ACTIVITY": "Choose the activity",
+      "NO_LINES": "Add at least one item",
+      "LABEL_TOO_LONG": "The label is too long",
+      "NOTE_TOO_LONG": "The notes are too long",
+      "PHOTOS_MISSING": "Mandatory photos are missing"
+    },
+    "pending": {
+      "title": "Pending",
+      "empty": "No updates on this device.",
+      "attempts": "{count} attempts",
+      "states": {
+        "pending": "Not sent",
+        "applied": "On the server",
+        "rejected": "Rejected"
+      },
+      "rejections": {
+        "OP_ID_REUSED": "Operation id conflict",
+        "PHOTO_ID_REUSED": "Photo id conflict",
+        "FEATURE_NOT_FOUND": "Feature not found",
+        "FEATURE_OUT_OF_SCOPE": "Feature outside your zone",
+        "REVISION_NOT_PUBLISHED": "Design revision not published",
+        "ITEM_NOT_FOUND": "Item not found",
+        "ITEM_WORK_TYPE_MISMATCH": "Item does not belong to this activity",
+        "VALIDATION_FAILED": "Invalid data"
+      },
+      "updateStatus": {
+        "pending": "Awaiting review",
+        "approved": "Approved",
+        "rejected": "Rejected"
+      },
+      "reviewReason": "Reason: {reason}"
+    }
   }
 }

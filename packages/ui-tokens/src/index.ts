@@ -25,6 +25,35 @@ export const colors = {
   cadDay: '#F7F7F2',
 } as const;
 
+/**
+ * CAD screen palettes per feature type (Phase 3). Night: dark model space as in AutoCAD; day:
+ * light paper for direct sun (plan). Original ACI layer colours are not in the offline bundle yet.
+ * Every pair keeps ≥ 4.5:1 contrast against its background.
+ */
+export const cadPalette = {
+  night: {
+    background: colors.cadNight,
+    route: '#33C3F0',
+    box: '#FFD400',
+    hhi: '#FF8A80',
+    joint: '#7CFC00',
+    mh: '#D7A6FF',
+    crosshair: '#FFFFFF',
+    text: '#E8EDF3',
+  },
+  day: {
+    background: colors.cadDay,
+    route: '#005A9C',
+    box: '#7A5200',
+    hhi: '#B3261E',
+    joint: '#2E6B30',
+    mh: '#6A1B9A',
+    crosshair: '#000000',
+    text: '#1B2430',
+  },
+} as const;
+export type CadMode = keyof typeof cadPalette;
+
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
 export const radius = { sm: 4, md: 8, lg: 12 } as const;

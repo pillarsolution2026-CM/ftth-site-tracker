@@ -36,6 +36,10 @@ describe('ProjectScopeGuard', () => {
       projectId: PROJECT_A,
       roles: ['supervisor'],
       scope: { kind: 'zones', zoneIds: [ZONE_1, ZONE_2] },
+      grants: [
+        { role: 'supervisor', zoneId: ZONE_1 },
+        { role: 'supervisor', zoneId: ZONE_2 },
+      ],
     });
   });
 

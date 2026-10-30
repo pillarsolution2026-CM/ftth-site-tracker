@@ -17,7 +17,7 @@ import {
 import { ProjectsController } from './interface/projects.controller.js';
 import { GET_PROJECT_USE_CASE, PROJECT_ADMIN_UNIT_OF_WORK } from './projects.tokens.js';
 
-/** Admin setup (ADR-025): used by the admin module's controllers. */
+/** Admin setup (ADR-026): used by the admin module's controllers. */
 const adminProviders: Provider[] = [
   {
     provide: PROJECT_ADMIN_UNIT_OF_WORK,

@@ -26,7 +26,7 @@ export class DrizzleMembershipRepository implements MembershipRepository {
       })
       .from(assignments)
       .innerJoin(projects, eq(projects.id, assignments.projectId))
-      // A deactivated user keeps their assignments but they grant nothing (ADR-025).
+      // A deactivated user keeps their assignments but they grant nothing (ADR-026).
       .innerJoin(users, and(eq(users.id, assignments.userId), eq(users.isActive, true)))
       .where(where)
       .orderBy(projects.name, assignments.role);

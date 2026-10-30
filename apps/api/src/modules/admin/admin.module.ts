@@ -5,7 +5,7 @@ import { AdminProjectsController } from './interface/admin-projects.controller.j
 import { AdminUsersController } from './interface/admin-users.controller.js';
 
 /**
- * Admin setup (owner request, ADR-025). Interface only: it owns no tables and composes the
+ * Admin setup (owner request, ADR-026). Interface only: it owns no tables and composes the
  * application services that identity (users, assignments) and projects (projects, zones) export.
  */
 @Module({

@@ -13,7 +13,7 @@ export interface Project {
 
 export type NewProject = Omit<Project, 'id'>;
 
-/** Fields an admin may change after creation; the CRS and the currency are fixed (ADR-025). */
+/** Fields an admin may change after creation; the CRS and the currency are fixed (ADR-026). */
 export type ProjectChanges = Partial<Pick<Project, 'name' | 'client' | 'locale'>>;
 
 export interface ProjectRepository {

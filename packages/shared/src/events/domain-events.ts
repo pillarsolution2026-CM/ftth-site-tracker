@@ -10,6 +10,8 @@ export const EVENT_ENTITIES = {
   cadMapping: 'cad_mapping',
   designRevision: 'design_revision',
   textLink: 'text_link',
+  executionUpdate: 'execution_update',
+  executionPhoto: 'execution_photo',
 } as const;
 
 export const EVENT_TYPES = {
@@ -41,5 +43,9 @@ export const EVENT_TYPES = {
   designRevisionDiscarded: 'design_revision.discarded',
   /** Payload: { before: {status, featureId}, after: {status, featureId} }. */
   textLinkReviewed: 'text_link.reviewed',
+  /** Payload: clientOpId, deviceId, featureId, lines, flags (Phase 3). */
+  executionUpdateRecorded: 'execution_update.recorded',
+  /** Payload: updateId, sha256, sizeBytes. */
+  executionPhotoStored: 'execution_photo.stored',
 } as const;
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

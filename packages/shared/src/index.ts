@@ -18,3 +18,6 @@ export * from './cad/cad-mapping.schemas.js';
 export * from './design/feature-types.js';
 export * from './design/text-link.js';
 export * from './design/design-revision.schemas.js';
+export * from './execution/execution.constants.js';
+export * from './execution/execution.schemas.js';
+export * from './execution/sync.schemas.js';

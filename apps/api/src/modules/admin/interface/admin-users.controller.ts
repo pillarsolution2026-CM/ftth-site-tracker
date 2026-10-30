@@ -32,7 +32,7 @@ import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { PlatformAdminGuard } from '../../identity/interface/platform-admin.guard.js';
 import { toAdminUserDto } from './admin.presenter.js';
 
-/** Platform-admin only (ADR-025). Creates non-admin users; admins come from the CLI only. */
+/** Platform-admin only (ADR-026). Creates non-admin users; admins come from the CLI only. */
 @ApiTags('admin')
 @ApiBearerAuth()
 @Controller('admin/users')

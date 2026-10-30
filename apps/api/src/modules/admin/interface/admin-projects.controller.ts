@@ -55,7 +55,7 @@ import {
 } from '../../projects/application/admin-projects.use-cases.js';
 import { toAssignmentDto } from './admin.presenter.js';
 
-/** Platform-admin only (ADR-025): projects, zone names and assignments. */
+/** Platform-admin only (ADR-026): projects, zone names and assignments. */
 @ApiTags('admin')
 @ApiBearerAuth()
 @Controller('admin/projects')

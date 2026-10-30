@@ -124,6 +124,22 @@ describe('auth api client', () => {
     });
   });
 
+  it('exposes the access token and refreshes the session for the sync client', async () => {
+    const { api, storage } = setup((url) =>
+      url.endsWith('/auth/refresh') ? json(200, NEW) : json(500, {}),
+    );
+    expect(await api.accessToken()).toBe('old-access');
+    expect(await api.refreshSession()).toBe(true);
+    expect(await api.accessToken()).toBe('new-access');
+    expect(await storage.read()).toEqual(NEW);
+  });
+
+  it('reports a refused refresh as the end of the session', async () => {
+    const { api } = setup(() => json(401, { code: 'REFRESH_TOKEN_REUSED', message: 'x' }));
+    expect(await api.refreshSession()).toBe(false);
+    expect(await api.accessToken()).toBeNull();
+  });
+
   it('logout clears local tokens even when the server call fails', async () => {
     const { api, storage } = setup(() => json(500, { code: 'INTERNAL', message: 'x' }));
     await api.logout();

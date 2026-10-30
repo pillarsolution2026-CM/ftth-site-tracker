@@ -4,7 +4,7 @@ import { ProjectEpsgSchema } from '../cad/crs-detection.schemas.js';
 import { CurrencyCodeSchema } from '../common/decimal.js';
 
 /**
- * Platform-admin setup (owner request 2026-10-30, ADR-025): projects, zones (name only), users and
+ * Platform-admin setup (owner request 2026-10-30, ADR-026): projects, zones (name only), users and
  * assignments. Every route under `/admin` is platform-admin only, enforced by the API.
  */
 
@@ -44,7 +44,7 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
 /**
  * PATCH /admin/projects/:projectId. The CRS and the currency are fixed at creation: geometry is
- * stored in the CRS and work orders copy the currency (ADR-025, owner to confirm).
+ * stored in the CRS and work orders copy the currency (ADR-026, owner to confirm).
  */
 export const UpdateProjectRequestSchema = z
   .strictObject({

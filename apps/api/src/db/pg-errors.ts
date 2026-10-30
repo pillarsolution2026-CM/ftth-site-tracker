@@ -21,15 +21,15 @@ export function uniqueViolation(error: unknown): string | null {
   return pgError?.code === '23505' ? (pgError.constraint ?? '') : null;
 }
 
-/** True when a lock wait hit `lock_timeout` (55P03 lock_not_available). */
-export function lockNotAvailable(error: unknown): boolean {
-  return pgErrorOf(error)?.code === '55P03';
-}
-
 /** Name of the violated foreign key, or null when `error` is not a foreign-key violation (23503). */
 export function foreignKeyViolation(error: unknown): string | null {
   const pgError = pgErrorOf(error);
   return pgError?.code === '23503' ? (pgError.constraint ?? '') : null;
+}
+
+/** True when a lock wait hit `lock_timeout` (55P03 lock_not_available). */
+export function lockNotAvailable(error: unknown): boolean {
+  return pgErrorOf(error)?.code === '55P03';
 }
 
 /**

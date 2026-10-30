@@ -30,6 +30,21 @@ describe('AllExceptionsFilter', () => {
     expect(run(malformed)).toMatchObject({ status: 400, body: { code: 'VALIDATION_FAILED' } });
   });
 
+  it('maps a delete blocked by recorded execution to 409, other foreign keys to 500', () => {
+    const blocked = new Error('Failed query', {
+      cause: Object.assign(new Error('fk'), {
+        code: '23503',
+        constraint: 'execution_update_lines_item_fkey',
+      }),
+    });
+    expect(run(blocked)).toMatchObject({
+      status: 409,
+      body: { code: 'CONFLICT', details: { reason: 'HAS_EXECUTION' } },
+    });
+    const other = Object.assign(new Error('fk'), { code: '23503', constraint: 'other_fkey' });
+    expect(run(other)).toMatchObject({ status: 500, body: { code: 'INTERNAL' } });
+  });
+
   it('keeps the existing mappings', () => {
     expect(run(new BadRequestException('x')).body).toMatchObject({ code: 'VALIDATION_FAILED' });
     expect(run(new AppError('IMPORT_INVALID', 'm', { reason: 'FILE_CHANGED' }))).toEqual({
