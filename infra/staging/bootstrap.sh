@@ -34,6 +34,8 @@ next_free_port() {
 
 step "Preflight / فحص السيرفر"
 [[ $EUID -eq 0 ]] || die "Run as root (sudo). / شغّل الأمر كـ root."
+# runuser keeps the caller's cwd; ftth-deploy can't read /root, so docker compose fails with "stat .: permission denied".
+cd /
 command -v docker >/dev/null || die "Docker is not installed. / Docker مش متثبت."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is missing. / docker compose مش موجود."
 command -v caddy >/dev/null || die "Caddy binary not found on the host. / Caddy مش متثبت على السيرفر."
