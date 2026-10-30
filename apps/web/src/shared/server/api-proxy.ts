@@ -19,6 +19,8 @@ export interface ProxyDeps {
   apiUrl: string;
   fetchImpl?: typeof fetch;
   session: SessionStore;
+  /** Maps the catch-all segments to an upstream path (null = not exposed). Default: `upstreamPath`. */
+  resolvePath?: (segments: readonly string[]) => string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -158,7 +160,7 @@ export function createApiProxy(deps: ProxyDeps) {
     if (!METHODS.has(request.method)) {
       return errorResponse(405, 'FORBIDDEN', 'Method not allowed');
     }
-    const path = upstreamPath(segments);
+    const path = (deps.resolvePath ?? upstreamPath)(segments);
     if (!path) return errorResponse(404, 'NOT_FOUND', 'Not found');
     if (request.method !== 'GET' && !isTrustedProxyMutation(request)) {
       return errorResponse(403, 'FORBIDDEN', 'Forbidden');

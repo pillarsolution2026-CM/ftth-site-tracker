@@ -31,3 +31,15 @@ export function foreignKeyViolation(error: unknown): string | null {
 export function lockNotAvailable(error: unknown): boolean {
   return pgErrorOf(error)?.code === '55P03';
 }
+
+/**
+ * A plain error carrying only the operation, pg code and constraint. drizzle's query errors embed
+ * the query parameters in their message; use this where a parameter is secret (password hashes).
+ */
+export function redactedDbError(error: unknown, operation: string): Error {
+  const pgError = pgErrorOf(error);
+  const detail = pgError
+    ? `pg ${pgError.code ?? '?'}${pgError.constraint ? ` on ${pgError.constraint}` : ''}`
+    : 'unknown cause';
+  return new Error(`${operation} failed (${detail})`);
+}

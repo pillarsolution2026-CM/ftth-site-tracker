@@ -1,6 +1,7 @@
 export * from './auth/roles.js';
 export * from './auth/auth.schemas.js';
 export * from './auth/permissions.js';
+export * from './admin/admin.schemas.js';
 export * from './errors/error-codes.js';
 export * from './config/env.schema.js';
 export * from './common/decimal.js';
