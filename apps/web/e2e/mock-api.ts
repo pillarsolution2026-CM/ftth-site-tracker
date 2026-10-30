@@ -37,6 +37,14 @@ import {
   WorkOrderListResponseSchema,
 } from '@ftth/shared';
 import {
+  ADMIN_ACCESS,
+  ADMIN_EMAIL,
+  ADMIN_ME,
+  ADMIN_REFRESH,
+  createAdminState,
+  handleAdmin,
+} from './mock-admin.ts';
+import {
   MOCK_DETECTION,
   handleDesignRevisions,
   handleMapping,
@@ -964,6 +972,9 @@ async function handleCad(
   return sendError(res, 404, 'NOT_FOUND');
 }
 
+const adminTokens = { accessToken: ADMIN_ACCESS, refreshToken: ADMIN_REFRESH, expiresIn: 900 };
+const adminState = createAdminState({ id: PROJECT_ID, name: ME.memberships[0]?.projectName ?? '' });
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', 'http://mock');
@@ -971,24 +982,33 @@ createServer(async (req, res) => {
     if (route === 'POST /auth/login') {
       const body = await readJson(req);
       if (body.email === EMAIL && body.password === PASSWORD) return send(res, 200, tokens);
+      if (body.email === ADMIN_EMAIL && body.password === PASSWORD) {
+        return send(res, 200, adminTokens);
+      }
       return sendError(res, 401, 'INVALID_CREDENTIALS');
     }
     if (route === 'POST /auth/refresh') {
       const body = await readJson(req);
       if (body.refreshToken === REFRESH) return send(res, 200, tokens);
+      if (body.refreshToken === ADMIN_REFRESH) return send(res, 200, adminTokens);
       return sendError(res, 401, 'TOKEN_INVALID');
     }
     if (route === 'GET /health') return send(res, 200, { ok: true });
     if (route === 'POST /auth/logout') return send(res, 204);
 
-    const authorised = req.headers.authorization === `Bearer ${ACCESS}`;
+    const isAdmin = req.headers.authorization === `Bearer ${ADMIN_ACCESS}`;
+    const authorised = isAdmin || req.headers.authorization === `Bearer ${ACCESS}`;
     if (!authorised) {
       req.resume();
       return sendError(res, 401, 'TOKEN_EXPIRED');
     }
-    if (route === 'GET /auth/me') return send(res, 200, ME);
+    if (route === 'GET /auth/me') return send(res, 200, isAdmin ? ADMIN_ME : ME);
 
     const segments = url.pathname.split('/').filter(Boolean);
+    if (segments[0] === 'admin') {
+      if (!isAdmin) return sendError(res, 403, 'FORBIDDEN');
+      return await handleAdmin(req, res, segments, adminState, helpers);
+    }
     if (segments[0] === 'projects') return await handleProject(req, res, url, segments);
     return sendError(res, 404, 'NOT_FOUND');
   } catch (error) {
