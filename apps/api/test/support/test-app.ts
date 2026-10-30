@@ -42,6 +42,8 @@ export async function createTestContext(
     // Generous by default so suites that log in repeatedly never trip the limiter.
     AUTH_LOGIN_RATE_LIMIT: '10000',
     AUTH_REFRESH_RATE_LIMIT: '10000',
+    SYNC_RATE_LIMIT: '100000',
+    SYNC_UPLOAD_RATE_LIMIT: '100000',
     ...overrides,
   });
 

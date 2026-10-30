@@ -20,17 +20,23 @@ export class ResolveProjectAccessUseCase {
     const rows = all.filter((row) => grantsAccess(row, PROJECT_WIDE_ROLES));
     if (rows.length === 0) {
       if (input.isAdmin) {
-        return { projectId: input.projectId, roles: ['admin'], scope: { kind: 'project' } };
+        return {
+          projectId: input.projectId,
+          roles: ['admin'],
+          scope: { kind: 'project' },
+          grants: [],
+        };
       }
       throw new AppError('FORBIDDEN', 'No access to this project');
     }
 
     const roles = [...new Set(rows.map((row) => row.role))];
+    const grants = rows.map((row) => ({ role: row.role, zoneId: row.zoneId }));
     // Any project-wide role (admin/pm/qc) lifts the zone restriction.
     if (roles.some((role) => PROJECT_WIDE_ROLES.includes(role))) {
-      return { projectId: input.projectId, roles, scope: { kind: 'project' } };
+      return { projectId: input.projectId, roles, scope: { kind: 'project' }, grants };
     }
     const zoneIds = [...new Set(rows.flatMap((row) => (row.zoneId ? [row.zoneId] : [])))];
-    return { projectId: input.projectId, roles, scope: { kind: 'zones', zoneIds } };
+    return { projectId: input.projectId, roles, scope: { kind: 'zones', zoneIds }, grants };
   }
 }

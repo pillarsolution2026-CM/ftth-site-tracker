@@ -7,11 +7,19 @@ interface ButtonProps {
   onPress: () => void;
   variant?: 'primary' | 'secondary';
   busy?: boolean;
+  disabled?: boolean;
   testID?: string;
 }
 
 /** Primary buttons are large (56dp); every variant meets the 44dp minimum touch target. */
-export function Button({ label, onPress, variant = 'primary', busy = false, testID }: ButtonProps) {
+export function Button({
+  label,
+  onPress,
+  variant = 'primary',
+  busy = false,
+  disabled = false,
+  testID,
+}: ButtonProps) {
   const theme = useTheme();
   const primary = variant === 'primary';
   return (
@@ -19,8 +27,8 @@ export function Button({ label, onPress, variant = 'primary', busy = false, test
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: busy, busy }}
-      disabled={busy}
+      accessibilityState={{ disabled: busy || disabled, busy }}
+      disabled={busy || disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.base,
@@ -28,7 +36,7 @@ export function Button({ label, onPress, variant = 'primary', busy = false, test
           minHeight: primary ? 56 : minTouchTarget,
           backgroundColor: primary ? theme.brand : 'transparent',
           borderColor: primary ? theme.brand : theme.text,
-          opacity: pressed || busy ? 0.8 : 1,
+          opacity: disabled ? 0.45 : pressed || busy ? 0.8 : 1,
         },
       ]}
     >

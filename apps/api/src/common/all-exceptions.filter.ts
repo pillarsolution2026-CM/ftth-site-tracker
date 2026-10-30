@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { ApiError, ErrorCode } from '@ftth/shared';
 import type { Response } from 'express';
+import { foreignKeyViolation } from '../db/pg-errors.js';
 import { AppError, httpStatusFor } from './app-error.js';
 
 function codeForHttpStatus(status: number): ErrorCode {
@@ -22,6 +23,12 @@ function codeForHttpStatus(status: number): ErrorCode {
   if (status === 429) return 'RATE_LIMITED';
   return 'INTERNAL';
 }
+
+/**
+ * Work-order items referenced by recorded execution cannot be deleted (ADR-024). Every path that
+ * deletes items (order delete, item removal, import replace) hits the same foreign key.
+ */
+const EXECUTION_REFERENCE_KEYS = new Set(['execution_update_lines_item_fkey']);
 
 function isClientHttpError(error: unknown): error is Error & { status: number } {
   if (!(error instanceof Error)) return false;
@@ -46,6 +53,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = exception.getStatus();
       const code = codeForHttpStatus(status);
       body = { code, message: status < 500 ? exception.message : 'Internal server error' };
+    } else if (EXECUTION_REFERENCE_KEYS.has(foreignKeyViolation(exception) ?? '')) {
+      status = httpStatusFor('CONFLICT');
+      body = {
+        code: 'CONFLICT',
+        message: 'Items with recorded execution cannot be deleted',
+        details: { reason: 'HAS_EXECUTION' },
+      };
     } else if (isClientHttpError(exception)) {
       // body-parser / raw-body errors (e.g. JSON larger than the limit) are plain http-errors.
       status = exception.status;

@@ -6,10 +6,48 @@
     "version": "0.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "ios": { "bundleIdentifier": "com.ftth.sitetracker", "supportsTablet": false },
-    "android": { "package": "com.ftth.sitetracker" },
-    "web": { "bundler": "metro", "output": "single" },
-    "plugins": ["expo-router", "expo-secure-store", "expo-dev-client"],
-    "experiments": { "typedRoutes": true }
+    "ios": {
+      "bundleIdentifier": "com.ftth.sitetracker",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.ftth.sitetracker",
+      "allowBackup": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-dev-client",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Used to record where each update and photo was taken."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Used to take the mandatory photos of each update."
+        }
+      ],
+      "@morrowdigital/watermelondb-expo-plugin",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "packagingOptions": {
+              "pickFirst": ["**/libc++_shared.so"]
+            }
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }

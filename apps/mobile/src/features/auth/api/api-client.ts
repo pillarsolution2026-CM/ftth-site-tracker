@@ -34,6 +34,10 @@ export interface AuthApi {
   logout(): Promise<void>;
   /** True when a token pair is stored (session may still be expired). */
   hasSession(): Promise<boolean>;
+  /** The stored access token for other API clients (sync); null when signed out. */
+  accessToken(): Promise<string | null>;
+  /** Rotates the token pair after a 401; false when the session is over (sign in again). */
+  refreshSession(): Promise<boolean>;
 }
 
 export function createAuthApi({ baseUrl, storage, fetchFn }: ApiClientOptions): AuthApi {
@@ -152,6 +156,19 @@ export function createAuthApi({ baseUrl, storage, fetchFn }: ApiClientOptions): 
 
     async hasSession() {
       return (await storage.read()) !== null;
+    },
+
+    async accessToken() {
+      return (await storage.read())?.accessToken ?? null;
+    },
+
+    async refreshSession() {
+      try {
+        await refresh();
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }

@@ -11,17 +11,26 @@ export const PERMISSIONS = [
   'cad_files:write',
   'design:read',
   'design:write',
+  /** Read execution updates (Phase 3). */
+  'execution:read',
+  /** Record execution updates from the mobile app (Phase 3). ASSUMPTION: supervisor, pm, admin. */
+  'execution:write',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
-const READ: readonly Permission[] = ['work_orders:read', 'cad_files:read', 'design:read'];
+const READ: readonly Permission[] = [
+  'work_orders:read',
+  'cad_files:read',
+  'design:read',
+  'execution:read',
+];
 
 /** Role → permissions inside a project. Platform admins (`isAdmin`) always pass. */
 export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   admin: PERMISSIONS,
   pm: PERMISSIONS,
   qc: READ,
-  supervisor: READ,
+  supervisor: [...READ, 'execution:write'],
   contractor: [],
 };
 
