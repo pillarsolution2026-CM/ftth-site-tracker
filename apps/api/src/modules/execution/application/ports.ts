@@ -165,7 +165,15 @@ export interface PhotoUploadRow {
 export interface PhotoUploadTx {
   /** Locks the row; null when absent or in another project. */
   findForUpdate(projectId: string, photoId: string): Promise<PhotoUploadRow | null>;
-  appendChunk(photoId: string, offset: number, data: Buffer, receivedAfter: number): Promise<void>;
+  appendChunk(
+    photoId: string,
+    offset: number,
+    data: Buffer,
+    receivedAfter: number,
+    at: Date,
+  ): Promise<void>;
+  /** Bytes the user holds in unfinished uploads, in every project. */
+  unfinishedBytesOf(userId: string): Promise<number>;
   readChunks(photoId: string): Promise<Buffer>;
   resetUpload(photoId: string): Promise<void>;
   markStored(photoId: string, storageKey: string, at: Date): Promise<void>;
@@ -175,4 +183,6 @@ export interface PhotoUploadTx {
 export interface PhotoUploadUnitOfWork {
   run<T>(work: (tx: PhotoUploadTx) => Promise<T>): Promise<T>;
   find(projectId: string, photoId: string): Promise<PhotoUploadRow | null>;
+  /** Drops the chunks of unfinished uploads idle since `before`; returns how many photos. */
+  discardIdleUploads(before: Date): Promise<number>;
 }

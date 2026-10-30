@@ -57,6 +57,16 @@ Server flags (for QC, never a rejection): `CLOCK_AHEAD` (captured > received + 5
    `execution_photo.stored`.
 5. Only the user who recorded the update can see or upload its photos (anyone else: 404).
 
+## Limits (security review M3/M4; environment, technical defaults)
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `SYNC_RATE_LIMIT` | 120 / min / user | push, changes, bootstrap → 429 `RATE_LIMITED` + `Retry-After` |
+| `SYNC_UPLOAD_RATE_LIMIT` | 600 / min / user | photo status and chunk requests |
+| `SYNC_UPLOAD_BACKLOG_MB` | 64 | bytes one user may hold in unfinished uploads (all projects); a chunk that would exceed it → 429, the last chunk of an upload is always accepted |
+| `SYNC_STALE_UPLOAD_HOURS` | 24 | hourly sweep discards unfinished uploads idle this long (`receivedBytes` back to 0) |
+| `SYNC_LOCK_TIMEOUT_MS` | 5000 | a push waiting longer for the project lock → 429 |
+
 ## Database (migration 0006)
 
 - `sync_operations` — idempotency record per `client_op_id` (append-only).

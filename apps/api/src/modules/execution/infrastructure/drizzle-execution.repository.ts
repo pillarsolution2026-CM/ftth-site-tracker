@@ -1,4 +1,6 @@
 import type { OpResult } from '@ftth/shared';
+import { AppError } from '../../../common/app-error.js';
+import { lockNotAvailable } from '../../../db/pg-errors.js';
 import { sql, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
@@ -63,14 +65,28 @@ function enumArray(values: readonly string[]): SQL {
 export class DrizzleExecutionTx implements ExecutionTx {
   private readonly events: DrizzleEventLog;
 
-  constructor(private readonly db: DbHandle) {
+  constructor(
+    private readonly db: DbHandle,
+    private readonly lockTimeoutMs: number,
+  ) {
     this.events = new DrizzleEventLog(db);
   }
 
   async lockProject(projectId: string): Promise<void> {
+    // One device cannot hold every other device of the project waiting (security review M4).
     await this.db.execute(
-      sql`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, hashtext(${projectId}))`,
+      sql`SELECT set_config('lock_timeout', ${`${this.lockTimeoutMs}ms`}, true)`,
     );
+    try {
+      await this.db.execute(
+        sql`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, hashtext(${projectId}))`,
+      );
+    } catch (error) {
+      if (lockNotAvailable(error)) {
+        throw new AppError('RATE_LIMITED', 'The project is busy syncing; retry shortly');
+      }
+      throw error;
+    }
   }
 
   async findOperation(clientOpId: string): Promise<StoredOperation | null> {
@@ -310,9 +326,12 @@ export async function latestPublished(
 }
 
 export class DrizzleExecutionUnitOfWork implements ExecutionUnitOfWork {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly lockTimeoutMs: number,
+  ) {}
 
   run<T>(work: (tx: ExecutionTx) => Promise<T>): Promise<T> {
-    return this.db.transaction((tx) => work(new DrizzleExecutionTx(tx)));
+    return this.db.transaction((tx) => work(new DrizzleExecutionTx(tx, this.lockTimeoutMs)));
   }
 }

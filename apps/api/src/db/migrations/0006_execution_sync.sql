@@ -89,6 +89,8 @@ CREATE TABLE execution_photos (
   gps_wgs84        geometry(Point, 4326),
   gps_accuracy_m   double precision CHECK (gps_accuracy_m >= 0),
   received_bytes   integer     NOT NULL DEFAULT 0,
+  -- Last chunk received; unfinished uploads idle for too long are discarded (security review M3).
+  last_chunk_at    timestamptz,
   storage_key      text        UNIQUE,
   stored_at        timestamptz,
   CONSTRAINT execution_photos_update_fkey
@@ -99,6 +101,8 @@ CREATE TABLE execution_photos (
     (stored_at IS NULL OR received_bytes = size_bytes))
 );
 CREATE INDEX execution_photos_update_idx ON execution_photos (update_id);
+CREATE INDEX execution_photos_unfinished_idx ON execution_photos (last_chunk_at)
+  WHERE stored_at IS NULL AND received_bytes > 0;
 
 -- Bytes of an upload in progress; deleted once the photo is stored or the checksum fails.
 CREATE TABLE execution_photo_chunks (
@@ -155,8 +159,9 @@ BEGIN
   IF OLD.stored_at IS NOT NULL THEN
     RAISE EXCEPTION 'execution_photos: a stored photo is immutable' USING ERRCODE = 'restrict_violation';
   END IF;
-  IF (to_jsonb(NEW) - ARRAY['received_bytes', 'storage_key', 'stored_at'])
-     IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['received_bytes', 'storage_key', 'stored_at']) THEN
+  IF (to_jsonb(NEW) - ARRAY['received_bytes', 'last_chunk_at', 'storage_key', 'stored_at'])
+     IS DISTINCT FROM
+     (to_jsonb(OLD) - ARRAY['received_bytes', 'last_chunk_at', 'storage_key', 'stored_at']) THEN
     RAISE EXCEPTION 'execution_photos: metadata is immutable' USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN NEW;

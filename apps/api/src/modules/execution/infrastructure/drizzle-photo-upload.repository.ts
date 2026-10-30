@@ -3,7 +3,7 @@ import type { DomainEventInput } from '../../../common/event-log.port.js';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
 import type { PhotoUploadRow, PhotoUploadTx, PhotoUploadUnitOfWork } from '../application/ports.js';
-import { rowsOf } from './drizzle-execution.repository.js';
+import { rowsOf, uuidArray } from './drizzle-execution.repository.js';
 
 interface Row {
   id: string;
@@ -57,12 +57,25 @@ class DrizzlePhotoUploadTx implements PhotoUploadTx {
     offset: number,
     data: Buffer,
     receivedAfter: number,
+    at: Date,
   ): Promise<void> {
     await this.db.execute(sql`
       INSERT INTO execution_photo_chunks (photo_id, offset_bytes, data)
       VALUES (${photoId}, ${offset}, ${data})`);
     await this.db.execute(sql`
-      UPDATE execution_photos SET received_bytes = ${receivedAfter} WHERE id = ${photoId}`);
+      UPDATE execution_photos SET received_bytes = ${receivedAfter}, last_chunk_at = ${at.toISOString()}
+      WHERE id = ${photoId}`);
+  }
+
+  async unfinishedBytesOf(userId: string): Promise<number> {
+    const [row] = await rowsOf<{ bytes: string }>(
+      this.db,
+      sql`SELECT COALESCE(sum(p.received_bytes), 0)::text AS bytes
+          FROM execution_photos p
+          JOIN execution_updates u ON u.project_id = p.project_id AND u.id = p.update_id
+          WHERE u.user_id = ${userId} AND p.stored_at IS NULL AND p.received_bytes > 0`,
+    );
+    return Number(row?.bytes ?? 0);
   }
 
   async readChunks(photoId: string): Promise<Buffer> {
@@ -101,5 +114,22 @@ export class DrizzlePhotoUploadUnitOfWork implements PhotoUploadUnitOfWork {
 
   find(projectId: string, photoId: string): Promise<PhotoUploadRow | null> {
     return findPhoto(this.db, projectId, photoId, false);
+  }
+
+  async discardIdleUploads(before: Date): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      // SKIP LOCKED: an upload receiving a chunk right now is left alone.
+      const idle = await rowsOf<{ id: string }>(
+        tx,
+        sql`SELECT id FROM execution_photos
+            WHERE stored_at IS NULL AND received_bytes > 0 AND last_chunk_at < ${before.toISOString()}
+            FOR UPDATE SKIP LOCKED`,
+      );
+      if (idle.length === 0) return 0;
+      const ids = uuidArray(idle.map((row) => row.id));
+      await tx.execute(sql`DELETE FROM execution_photo_chunks WHERE photo_id = ANY(${ids})`);
+      await tx.execute(sql`UPDATE execution_photos SET received_bytes = 0 WHERE id = ANY(${ids})`);
+      return idle.length;
+    });
   }
 }

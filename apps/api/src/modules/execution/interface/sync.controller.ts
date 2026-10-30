@@ -53,6 +53,7 @@ import {
   GetSyncChangesUseCase,
 } from '../application/sync-queries.use-cases.js';
 import { EXECUTION_CLOCK } from '../execution.tokens.js';
+import { SyncRateLimit, SyncRateLimitGuard } from './sync-rate-limit.guard.js';
 
 /** The caller's reach for `permission` (per assignment: a read-only role never widens writes). */
 function scopeOf(request: AuthenticatedRequest, permission: Permission): ExecutionScope {
@@ -88,7 +89,7 @@ const OFFSET_PATTERN = /^(0|[1-9]\d{0,9})$/;
 @ApiTags('sync')
 @ApiBearerAuth()
 @Controller('projects/:projectId/sync')
-@UseGuards(JwtAuthGuard, ProjectScopeGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, SyncRateLimitGuard, ProjectScopeGuard, PermissionGuard)
 export class SyncController {
   constructor(
     @Inject(PushSyncUseCase) private readonly push: PushSyncUseCase,
@@ -100,6 +101,7 @@ export class SyncController {
   ) {}
 
   @Post('push')
+  @SyncRateLimit('sync')
   @HttpCode(200)
   @RequirePermission('execution:write')
   @ApiOkResponse({ schema: openApiSchema(SyncPushResponseSchema) })
@@ -119,6 +121,7 @@ export class SyncController {
   }
 
   @Get('bootstrap')
+  @SyncRateLimit('sync')
   @RequirePermission('execution:read')
   @ApiOkResponse({ schema: openApiSchema(OfflineBundleSchema) })
   getBundle(
@@ -132,6 +135,7 @@ export class SyncController {
   }
 
   @Get('changes')
+  @SyncRateLimit('sync')
   @RequirePermission('execution:read')
   @ApiOkResponse({ schema: openApiSchema(SyncChangesResponseSchema) })
   getChanges(
@@ -147,6 +151,7 @@ export class SyncController {
   }
 
   @Get('photos/:photoId')
+  @SyncRateLimit('upload')
   @RequirePermission('execution:write')
   @ApiOkResponse({ schema: openApiSchema(PhotoUploadStatusSchema) })
   getPhoto(
@@ -162,6 +167,7 @@ export class SyncController {
   }
 
   @Put('photos/:photoId/content')
+  @SyncRateLimit('upload')
   @RequirePermission('execution:write')
   @ApiOkResponse({ schema: openApiSchema(PhotoUploadStatusSchema) })
   async putPhotoChunk(

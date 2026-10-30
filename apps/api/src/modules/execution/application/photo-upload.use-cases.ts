@@ -50,6 +50,8 @@ export class PutPhotoChunkUseCase {
     private readonly uow: PhotoUploadUnitOfWork,
     private readonly storage: ObjectStorage,
     private readonly clock: Clock,
+    /** Bytes one user may hold in unfinished uploads (security review M3). */
+    private readonly backlogBytes: number,
   ) {}
 
   async execute(input: {
@@ -86,7 +88,24 @@ export class PutPhotoChunkUseCase {
           break;
       }
 
-      await tx.appendChunk(input.photoId, input.offset, input.data, decision.receivedAfter);
+      // Unfinished uploads live in the database; one account must not be able to fill it. A
+      // device uploads one photo at a time, so a normal phone stays far below the cap.
+      if (!decision.complete) {
+        const held = await tx.unfinishedBytesOf(input.userId);
+        if (held + input.data.length > this.backlogBytes) {
+          throw new AppError(
+            'RATE_LIMITED',
+            'Too many unfinished photo uploads; finish them first',
+          );
+        }
+      }
+      await tx.appendChunk(
+        input.photoId,
+        input.offset,
+        input.data,
+        decision.receivedAfter,
+        this.clock.now(),
+      );
       const progressed = { ...row, receivedBytes: decision.receivedAfter };
       if (!decision.complete) return { kind: 'status', status: statusOf(progressed) };
 
@@ -140,5 +159,21 @@ export class PutPhotoChunkUseCase {
       for await (const chunk of await this.storage.get(key)) existing.update(chunk as Buffer);
       if (existing.digest('hex') !== sha256) throw error;
     }
+  }
+}
+
+/**
+ * Discards the bytes of uploads that received nothing for `maxIdleMs` (security review M3). The
+ * photo row stays; its device sees `receivedBytes: 0` and uploads it again from the start.
+ */
+export class DiscardIdleUploadsUseCase {
+  constructor(
+    private readonly uow: PhotoUploadUnitOfWork,
+    private readonly clock: Clock,
+    private readonly maxIdleMs: number,
+  ) {}
+
+  execute(): Promise<number> {
+    return this.uow.discardIdleUploads(new Date(this.clock.now().getTime() - this.maxIdleMs));
   }
 }

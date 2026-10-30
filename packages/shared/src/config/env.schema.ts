@@ -38,6 +38,19 @@ export const ApiEnvSchema = z
     AUTH_REFRESH_RATE_LIMIT: z.coerce.number().int().positive().default(30),
     AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
     /**
+     * Phase 3 sync hardening (ADR-024, security review M3/M4). Technical values, owner may tune.
+     * Requests per user per minute to push, changes and bootstrap; a device sends ≤ 50 ops per push.
+     */
+    SYNC_RATE_LIMIT: z.coerce.number().int().positive().default(120),
+    /** Photo chunk requests per user per minute (1 MiB chunks: ≈ 10 MB/s). */
+    SYNC_UPLOAD_RATE_LIMIT: z.coerce.number().int().positive().default(600),
+    /** Bytes one user may hold in unfinished photo uploads, all projects (MiB). */
+    SYNC_UPLOAD_BACKLOG_MB: z.coerce.number().int().positive().max(1024).default(64),
+    /** Unfinished uploads with no new chunk for this long are discarded (the device restarts them). */
+    SYNC_STALE_UPLOAD_HOURS: z.coerce.number().int().positive().default(24),
+    /** How long a push waits for the project's sync lock before answering 429. */
+    SYNC_LOCK_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(5000),
+    /**
      * HMAC key for signed Martin tile URLs (ADR-021). When absent, the tile-url endpoint answers
      * 404 and /tiles/verify rejects everything. At least 32 characters.
      */
