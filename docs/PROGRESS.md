@@ -157,5 +157,23 @@ Started ahead of Phases 1b–3 at the owner's request; only the part with no dep
   - Supported CRSs limited to WGS 84 / UTM; other EPSG codes are rejected until a project needs them.
 - **Note:** PR #6 is an earlier, smaller version of the same package and conflicts with `main`; it is superseded by PR #5.
 
-### Admin setup (owner request, 2026-10-30) — outside the roadmap's listed tasks
-- **In progress:** admin screens and API to create/edit projects, create/list/deactivate users, assign users to projects, and let the admin open every project from the home page. See ADR-025.
+### Admin setup (owner request, 2026-10-30) — outside the roadmap's listed tasks (ADR-025)
+Added because staging had no way to create a project, a user or an assignment. It does not approve or start any phase.
+- **Done:**
+  - Contracts `packages/shared/src/admin/admin.schemas.ts`; API `admin` module (interface only) over `identity` (users, assignments) and `projects` (projects, zones). No migration.
+  - Routes (all platform-admin only, re-checked against the database by `PlatformAdminGuard`): `GET/POST /admin/projects`, `PATCH /admin/projects/:id`, `GET/POST …/:id/zones`, `GET/POST …/:id/assignments`, `DELETE …/:id/assignments/:assignmentId`, `GET/POST /admin/users`, `POST /admin/users/:id/deactivate|reactivate`. Every change writes an event.
+  - Web: `/{locale}/admin/projects`, `/admin/projects/:id` (edit, zone names, team), `/admin/users`; BFF proxy `/api/admin/*`. Home: an admin sees every project, each opening its page; the project switcher lists every project for admins. Non-admins unchanged. ar/en/fr strings.
+  - Checked: `ProjectScopeGuard` already let admins in (integration test `GET /projects/:id` as admin = 200); only the web lacked the project name and switcher for admins (fixed).
+  - Deactivated users: their assignments grant nothing (membership query joins active users), refresh tokens revoked.
+- **Test report (local, 2026-10-30):** `pnpm lint`, `typecheck`, `test`, `format:check`: pass. Unit: shared 146, api 299, web 191, mobile 11, geo 60, i18n 4, ui-tokens 2. API integration (real PostGIS + Redis): 152 pass (17 new in `admin.int-spec.ts`, incl. 401/403 for every admin route as PM and supervisor). Web e2e: 12 pass (2 new admin flows, mock API).
+- **Security review (Opus):** no high/medium findings. Fixed: password hash could reach error logs through drizzle's query-param message; concurrent assignment removal could write two events; re-deactivation now always revokes sessions; the web drops the password from the mutation cache. Accepted and documented: zone-name uniqueness is enforced in code under a project-row lock (no DB index; Unicode forms not normalised); admin access on project routes trusts the JWT `isAdmin` for up to 15 min (ADR-007; `/admin` routes re-check at once); no rate limit on user creation (admin-only, argon2 ~19 MiB per call); reactivation restores previous assignments.
+- **Not done / not verified:** not tried on the real staging server. No password reset for non-admin users, no forced password change at first login, no zone boundary drawing or zone rename/delete (Phase 2), no `contractor_id` (contractors table comes with Phase 2). A supervisor or subcontractor on a name-only zone can open the project but gets no zone-scoped features until the boundary is drawn.
+- **Decisions to confirm (owner):**
+  1. CRS and currency cannot be changed after a project is created.
+  2. Project CRS limited to WGS 84 / UTM (same rule as the mapping screen).
+  3. PM and QC are whole-project (no zone); supervisor and subcontractor need exactly one zone per assignment (several zones = several assignments).
+  4. Platform admins only from the server command: the web cannot create, deactivate or assign admins, and the project `admin` role cannot be assigned.
+  5. Deactivation keeps assignments (hidden); reactivation brings them back. Reactivation was added although only deactivation was asked for.
+  6. Zone names are unique per project, ignoring case.
+  7. The initial password is handed over by the admin in person (no email); the user is not forced to change it.
+- **Note:** PR #17 (Phase 3) also edits `packages/shared/src/index.ts`, `app.module.ts`, `home-view.tsx`, the i18n files and `docs/DECISIONS.md`; whichever merges second needs a small merge. Migration numbers are not affected (none added here).
