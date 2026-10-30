@@ -1,0 +1,72 @@
+name: Deploy (SSH)
+
+# Pushes a staging deploy over SSH as soon as Publish images has published a main commit, instead of waiting for
+# the server's 2-minute timer. On the server it runs infra/staging/ssh-deploy.sh, which bootstraps (root/sudo)
+# or runs ftth-autodeploy (ftth-deploy). Never triggered by pull_request; logs are public, so nothing secret is printed.
+on:
+  workflow_run:
+    workflows: [Publish images]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Check secrets
+        env:
+          FTTH_HOST: ${{ secrets.FTTH_HOST }}
+          FTTH_USER: ${{ secrets.FTTH_USER }}
+          FTTH_SSH_KEY: ${{ secrets.FTTH_SSH_KEY }}
+          FTTH_KNOWN_HOSTS: ${{ secrets.FTTH_KNOWN_HOSTS }}
+        run: |
+          for v in FTTH_HOST FTTH_USER FTTH_SSH_KEY FTTH_KNOWN_HOSTS; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is missing"; exit 1; }
+          done
+
+      - name: Deploy over SSH
+        env:
+          FTTH_HOST: ${{ secrets.FTTH_HOST }}
+          FTTH_USER: ${{ secrets.FTTH_USER }}
+          FTTH_SSH_KEY: ${{ secrets.FTTH_SSH_KEY }}
+          FTTH_KNOWN_HOSTS: ${{ secrets.FTTH_KNOWN_HOSTS }}
+          FTTH_ADMIN_EMAIL: ${{ secrets.FTTH_ADMIN_EMAIL }}
+          FTTH_ADMIN_PASSWORD: ${{ secrets.FTTH_ADMIN_PASSWORD }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$FTTH_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$FTTH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          SSH=(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+               -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 "$FTTH_USER@$FTTH_HOST")
+          remote="/tmp/ftth-ssh-deploy-$DEPLOY_SHA.sh"
+          "${SSH[@]}" "cat > $remote" < infra/staging/ssh-deploy.sh
+          # Admin email and password go over stdin, never on a command line.
+          printf '%s\n%s\n' "$FTTH_ADMIN_EMAIL" "$FTTH_ADMIN_PASSWORD" \
+            | "${SSH[@]}" "bash $remote $DEPLOY_SHA; rc=\$?; rm -f $remote; exit \$rc"
+
+      - name: Check public URLs
+        run: |
+          curl -fsS -m 20 https://api.staging.ftthtracker.projectflow.site/health && echo
+          curl -fsS -m 20 -o /dev/null -w "web login page: %{http_code}\n" \
+            https://staging.ftthtracker.projectflow.site/ar/login
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts
