@@ -156,3 +156,6 @@ Started ahead of Phases 1b–3 at the owner's request; only the part with no dep
   - Snap tie order endpoint → symbol → vertex (a UX choice, not in the plan).
   - Supported CRSs limited to WGS 84 / UTM; other EPSG codes are rejected until a project needs them.
 - **Note:** PR #6 is an earlier, smaller version of the same package and conflicts with `main`; it is superseded by PR #5.
+
+### Admin setup (owner request, 2026-10-30) — outside the roadmap's listed tasks
+- **In progress:** admin screens and API to create/edit projects, create/list/deactivate users, assign users to projects, and let the admin open every project from the home page. See ADR-025.
