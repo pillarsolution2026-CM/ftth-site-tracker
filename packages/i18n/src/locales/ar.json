@@ -650,5 +650,115 @@
       "lengthDelta": "فرق الطول (م)",
       "none": "لا توجد تغييرات للعرض"
     }
+  },
+  "field": {
+    "title": "تسجيل شغل اليوم",
+    "chooseProject": "اختر المشروع",
+    "download": "تنزيل الرسمة للعمل بدون إنترنت",
+    "downloading": "جارٍ تنزيل الرسمة…",
+    "refresh": "تحديث الرسمة",
+    "noRevision": "لا توجد نسخة تصميم منشورة لهذا المشروع بعد.",
+    "noFeatures": "لا توجد عناصر في مناطقك. تأكد من تسكينك على منطقة لها حدود.",
+    "downloadFailed": "تعذّر التنزيل. حاول مرة أخرى عند توفر الإنترنت.",
+    "revision": "نسخة التصميم {revNo}",
+    "sync": {
+      "pending": "{count} لم تتزامن بعد",
+      "photosWaiting": "{count} صورة في الانتظار",
+      "rejected": "{count} مرفوضة تحتاج مراجعة",
+      "allSynced": "كل شيء متزامن",
+      "lastSync": "آخر مزامنة: {time}",
+      "never": "لم تتم مزامنة بعد",
+      "syncNow": "زامن الآن",
+      "syncing": "جارٍ المزامنة…",
+      "offline": "بدون إنترنت — سيتم الإرسال تلقائيًا",
+      "unauthorized": "انتهت الجلسة — سجّل الدخول من جديد للمزامنة",
+      "forbidden": "لم تعد لديك صلاحية على هذا المشروع",
+      "serverError": "الخادم غير متاح — ستُعاد المحاولة تلقائيًا",
+      "storageWarning": "الصور غير المرفوعة كبرت ({size} م.ب) — زامن عند توفر الإنترنت"
+    },
+    "cad": {
+      "layers": "الطبقات",
+      "day": "نهار",
+      "night": "ليل",
+      "fit": "عرض الكل",
+      "coordinates": "E {e}   N {n}",
+      "nothingUnderCrosshair": "حرّك الرسمة حتى يقع العنصر تحت علامة التصويب",
+      "update": "تحديث",
+      "designLength": "الطول التصميمي {length} م",
+      "updatesOnFeature": "{count} تحديث على العنصر"
+    },
+    "steps": {
+      "activity": "النشاط",
+      "work": "بنود الأعمال",
+      "materials": "المهمات",
+      "location": "الـLabel والموقع",
+      "photos": "الصور",
+      "review": "مراجعة"
+    },
+    "update": {
+      "stepOf": "الخطوة {current} من {total}",
+      "back": "رجوع",
+      "next": "التالي",
+      "save": "حفظ التحديث",
+      "saved": "تم الحفظ على الجهاز — سيُرسل عند توفر الإنترنت",
+      "cancel": "إلغاء",
+      "noItems": "لا توجد بنود لهذا النشاط في أوامر التكليف.",
+      "phase2Items": "تظهر كل بنود النشاط: ربط البنود بنوع العنصر وفصل الأعمال عن المهمات يأتي مع المرحلة 2.",
+      "suggestedUnavailable": "الكمية المقترحة غير متاحة قبل قواعد المرحلة 2.",
+      "recorded": "المسجّل {recorded} من {quantity} {unit}",
+      "label": "الـLabel",
+      "note": "ملاحظات",
+      "gpsLocating": "جارٍ تحديد الموقع…",
+      "gpsAccuracy": "دقة ±{accuracy} م",
+      "gpsDistance": "{distance} م من العنصر",
+      "gpsUnavailable": "الموقع غير متاح",
+      "gpsRetry": "إعادة تحديد الموقع",
+      "takePhoto": "التقط صورة",
+      "photoRequired": "مطلوب {count} ({key})",
+      "photosComplete": "الصور المطلوبة مكتملة",
+      "phase2Photos": "الصور المطلوبة لكل نشاط تأتي مع قواعد المرحلة 2؛ حاليًا صورة واحدة على الأقل.",
+      "processingPhoto": "جارٍ تجهيز الصورة…",
+      "acknowledge": "فهمت، احفظ رغم التحذير",
+      "summaryLines": "{count} بند",
+      "summaryPhotos": "{count} صورة"
+    },
+    "warnings": {
+      "GPS_FAR": "موقعك يبعد أكثر من {distance} م عن العنصر",
+      "GPS_UNAVAILABLE": "لا يوجد موقع GPS لهذا التحديث",
+      "ITEM_OVERRUN": "الكمية تتجاوز الكمية المتبقية في أمر التكليف"
+    },
+    "problems": {
+      "NO_ACTIVITY": "اختر النشاط",
+      "NO_LINES": "أضف بندًا واحدًا على الأقل",
+      "LABEL_TOO_LONG": "الـLabel طويل جدًا",
+      "NOTE_TOO_LONG": "الملاحظات طويلة جدًا",
+      "PHOTOS_MISSING": "الصور الإجبارية ناقصة"
+    },
+    "pending": {
+      "title": "في الانتظار",
+      "empty": "لا توجد تحديثات على هذا الجهاز.",
+      "attempts": "{count} محاولة",
+      "states": {
+        "pending": "لم يُرسل",
+        "applied": "وصل للخادم",
+        "rejected": "مرفوض"
+      },
+      "rejections": {
+        "OP_ID_REUSED": "تعارض في رقم العملية",
+        "PHOTO_ID_REUSED": "تعارض في رقم الصورة",
+        "FEATURE_NOT_FOUND": "العنصر غير موجود",
+        "FEATURE_OUT_OF_SCOPE": "العنصر خارج منطقتك",
+        "REVISION_NOT_PUBLISHED": "نسخة التصميم غير منشورة",
+        "ITEM_NOT_FOUND": "البند غير موجود",
+        "ITEM_WORK_TYPE_MISMATCH": "البند لا يخص هذا النشاط",
+        "VALIDATION_FAILED": "بيانات غير صالحة"
+      },
+      "updateStatus": {
+        "pending": "بانتظار المراجعة",
+        "approved": "معتمد",
+        "rejected": "مرفوض"
+      },
+      "reviewReason": "السبب: {reason}"
+    }
   }
 }
