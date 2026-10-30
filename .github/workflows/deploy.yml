@@ -9,6 +9,11 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      reset_admin_password:
+        description: Set the existing admin's password to the FTTH_ADMIN_PASSWORD secret
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +53,7 @@ jobs:
           FTTH_KNOWN_HOSTS: ${{ secrets.FTTH_KNOWN_HOSTS }}
           FTTH_ADMIN_EMAIL: ${{ secrets.FTTH_ADMIN_EMAIL }}
           FTTH_ADMIN_PASSWORD: ${{ secrets.FTTH_ADMIN_PASSWORD }}
+          RESET_ADMIN_PASSWORD: ${{ inputs.reset_admin_password && 'reset-admin-password' || '' }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$FTTH_SSH_KEY" > ~/.ssh/deploy_key
@@ -59,7 +65,7 @@ jobs:
           "${SSH[@]}" "cat > $remote" < infra/staging/ssh-deploy.sh
           # Admin email and password go over stdin, never on a command line.
           printf '%s\n%s\n' "$FTTH_ADMIN_EMAIL" "$FTTH_ADMIN_PASSWORD" \
-            | "${SSH[@]}" "bash $remote $DEPLOY_SHA; rc=\$?; rm -f $remote; exit \$rc"
+            | "${SSH[@]}" "bash $remote $DEPLOY_SHA $RESET_ADMIN_PASSWORD; rc=\$?; rm -f $remote; exit \$rc"
 
       - name: Check public URLs
         run: |

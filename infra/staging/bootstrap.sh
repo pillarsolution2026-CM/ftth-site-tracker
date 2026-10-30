@@ -141,7 +141,15 @@ echo "running commit $deployed"
 step "First admin / أول أدمن"
 admin_password=""
 admin_password_supplied=""
-if [[ -f "$ROOT/.admin-created" ]]; then
+if [[ "${ADMIN_RESET_PASSWORD:-}" == 1 ]]; then
+  # Only with a password the operator chose (GitHub secret via ssh-deploy.sh): a generated one would have to be printed.
+  [[ -n "${ADMIN_EMAIL:-}" && -n "${ADMIN_PASSWORD_FILE:-}" ]] ||
+    die "Admin password reset needs FTTH_ADMIN_EMAIL and FTTH_ADMIN_PASSWORD. / لازم الـsecrets دي علشان نغيّر الباسورد."
+  (cd "$APP" && as_deploy env IMAGE_TAG="$deployed" docker compose --env-file "$ENV_FILE" \
+    -f infra/staging/docker-compose.yml run --rm --no-deps \
+    -e ADMIN_EMAIL="$ADMIN_EMAIL" -e ADMIN_PASSWORD="$(cat "$ADMIN_PASSWORD_FILE")" -e ADMIN_RESET_PASSWORD=1 \
+    api node dist/db/create-admin.js) || die "Admin password reset failed. / تغيير باسورد الأدمن فشل."
+elif [[ -f "$ROOT/.admin-created" ]]; then
   echo "admin already created earlier (password was shown then)"
 elif [[ -z "${ADMIN_EMAIL:-}" ]]; then
   warn "ADMIN_EMAIL not set; skipped. Re-run with ADMIN_EMAIL=you@example.com"
