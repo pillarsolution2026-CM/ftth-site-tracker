@@ -172,3 +172,12 @@ Section headings (rows without unit, quantity and price), empty quantities and t
 **Decision:** `.github/workflows/deploy.yml` (**Deploy (SSH)**) runs after a successful **Publish images** on `main` and on manual dispatch. It uploads `infra/staging/ssh-deploy.sh` and runs it for that commit. With root or passwordless sudo the script runs that commit's `bootstrap.sh`. Because `bootstrap.sh` can be re-run, the same path does the first setup and every later deploy. As `ftth-deploy` it runs `ftth-autodeploy`. The Docker stack stays the only runtime. Secrets: `FTTH_HOST`, `FTTH_USER`, `FTTH_SSH_KEY`, `FTTH_KNOWN_HOSTS`. The optional `FTTH_ADMIN_EMAIL` and `FTTH_ADMIN_PASSWORD` create the first admin. The password goes over stdin into a 0600 file and is never printed, because the repository and its Actions logs are public.
 **Consequences:** This partly supersedes ADR-010's "no server secrets in GitHub": a key with root on the shared server now lives in GitHub secrets, so a compromise of the repository's write access or Actions is a compromise of that server. The workflow never runs on `pull_request`. The timer stays as a fallback, and `flock` keeps the two from overlapping.
 
+
+## ADR-023: Phase 3 starts before Phase 2 (owner request) — Accepted (2026-10-30)
+**Context:** The roadmap orders Phase 2 (contract, BOQ, `type_rules`, zones/assignment UI) before Phase 3 (offline supervisor app). A Phase 2 cloud session produced nothing, and on 2026-10-30 the owner asked to go ahead with Phase 3 without it. Phase 1b is merged but still awaits approval (Qalyub golden run and open owner questions).
+**Decision:**
+- Phase 3 is built on top of `main` without Phase 2. Phases 1b and 2 are **not** marked approved.
+- No Phase 2 feature is built here: no BOQ CRUD/import, no design-item matching, no client prices, no `type_rules`, no zones/assignment UI.
+- The suggested quantity sits behind a port (`SuggestedQuantityPort`) whose only implementation answers "unavailable" until Phase 2 delivers `type_rules`/BOQ matching. The update tool works without it; nothing is invented.
+- Zones and assignment use what Phase 0 already has (`assignment_zones`, membership zone). Anything missing is only in seed/test data, marked as such, never a production fallback.
+**Consequences:** When Phase 2 lands, it plugs a real `SuggestedQuantityPort` implementation in and adds the zones UI; sync contracts do not change.

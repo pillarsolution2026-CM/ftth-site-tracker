@@ -10,7 +10,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | Not started | — |
-| 3 Supervisor app (offline) | Not started | — |
+| 3 Supervisor app (offline) | In progress — started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval | — |
 | 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phase 3 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
