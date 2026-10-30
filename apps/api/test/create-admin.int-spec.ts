@@ -58,7 +58,10 @@ describe('resetAdminPassword', () => {
       expiresAt: new Date(Date.now() + 3_600_000),
     });
 
-    const result = await resetAdminPassword(db, { email: email.toUpperCase(), password: 'new-password-22' });
+    const result = await resetAdminPassword(db, {
+      email: email.toUpperCase(),
+      password: 'new-password-22',
+    });
 
     expect(result).toEqual({ updated: true });
     const [row] = await db.select().from(users).where(eq(users.id, id));
@@ -78,14 +81,19 @@ describe('resetAdminPassword', () => {
     const result = await resetAdminPassword(db, { email, password: 'new-password-22' });
 
     expect(result).toEqual({ updated: false });
-    const [row] = await db.select().from(users).where(eq(users.id, user?.id ?? ''));
+    const [row] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, user?.id ?? ''));
     expect(row?.passwordHash).toBe('unchanged-hash');
   });
 
   it('reports an unknown email without creating anyone', async () => {
     const email = `ghost-${randomUUID()}@example.com`;
 
-    expect(await resetAdminPassword(db, { email, password: 'new-password-22' })).toEqual({ updated: false });
+    expect(await resetAdminPassword(db, { email, password: 'new-password-22' })).toEqual({
+      updated: false,
+    });
     expect(await db.select().from(users).where(eq(users.email, email))).toHaveLength(0);
   });
 

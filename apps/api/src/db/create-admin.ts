@@ -35,7 +35,10 @@ export async function createAdmin(
   return { created: true, id: created.id };
 }
 
-export const ResetAdminPasswordInputSchema = CreateAdminInputSchema.pick({ email: true, password: true });
+export const ResetAdminPasswordInputSchema = CreateAdminInputSchema.pick({
+  email: true,
+  password: true,
+});
 export type ResetAdminPasswordInput = z.input<typeof ResetAdminPasswordInputSchema>;
 
 /** Replaces an existing admin's password and revokes its sessions. Never creates users or touches non-admins. */
@@ -68,15 +71,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   }
   const pool = new pg.Pool({ connectionString: url });
   const db = drizzle(pool, { schema });
-  const credentials = { email: process.env.ADMIN_EMAIL ?? '', password: process.env.ADMIN_PASSWORD ?? '' };
+  const credentials = {
+    email: process.env.ADMIN_EMAIL ?? '',
+    password: process.env.ADMIN_PASSWORD ?? '',
+  };
   const run =
     process.env.ADMIN_RESET_PASSWORD === '1'
       ? resetAdminPassword(db, credentials).then(({ updated }) => {
           console.log(updated ? 'Admin password reset' : 'No admin with that email');
           if (!updated) process.exitCode = 1;
         })
-      : createAdmin(db, { ...credentials, displayName: process.env.ADMIN_NAME }).then(({ created }) =>
-          console.log(created ? 'Admin created' : 'Admin already exists'),
+      : createAdmin(db, { ...credentials, displayName: process.env.ADMIN_NAME }).then(
+          ({ created }) => console.log(created ? 'Admin created' : 'Admin already exists'),
         );
   run
     .catch((error: unknown) => {
