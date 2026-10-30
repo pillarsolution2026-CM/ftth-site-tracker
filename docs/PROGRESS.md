@@ -6,11 +6,12 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | SSH push deploy restored on top of the Docker stack (owner, 2026-10-30, ADR-022): `Deploy (SSH)` runs `infra/staging/ssh-deploy.sh` → `bootstrap.sh` after each image publish. Needs the `FTTH_*` secrets for a root/sudo user; not yet confirmed on the real server | — |
+| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reports `cd6a08c` (2026-10-30) | — |
+| Admin setup: projects, zone names, users, assignments | Done — merged (PR #18, ADR-026), added at the owner's request outside the roadmap tasks. Owner decisions open; not yet tried on staging; zones have names only until Phase 2 draws boundaries | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | Not started | — |
-| 3 Supervisor app (offline) | Done — PR open, awaiting owner review. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval. Not run on a device | — |
+| 3 Supervisor app (offline) | Done — merged (PR #17), awaiting approval. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval. Not run on a device; the airplane-mode acceptance was simulated | — |
 | 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phase 3 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
