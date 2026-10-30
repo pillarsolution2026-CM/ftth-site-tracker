@@ -3,7 +3,8 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { API_URL } from '../../../shared/config/env';
-import { readFileBytes, readJson, writeJson } from '../../../shared/device/files';
+import { deviceVault } from '../../../shared/crypto/device-key';
+import { readFileBytes, readText, writeText } from '../../../shared/device/files';
 import { authApi } from '../../auth/api/default-api';
 import { nativeDatabase } from '../db/native-database';
 import type { FieldDeps } from './FieldProvider';
@@ -25,8 +26,9 @@ export function nativeFieldDeps(): FieldDeps {
   deps ??= {
     db: nativeDatabase(),
     baseUrl: API_URL,
-    files: { readJson, writeJson },
+    files: { readText, writeText },
     readFileBytes,
+    vault: deviceVault(),
     accessToken: () => authApi.accessToken(),
     refreshSession: () => authApi.refreshSession(),
     deviceId,

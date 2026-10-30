@@ -6,7 +6,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';
 import { captureRef } from 'react-native-view-shot';
 import type { GpsFix } from '@ftth/shared';
-import { photoFile } from '../../../shared/device/files';
+import { deviceVault } from '../../../shared/crypto/device-key';
+import { deleteFile, photoFile } from '../../../shared/device/files';
 import type { CapturedPhoto } from '../../update/model/update-wizard';
 import {
   JPEG_QUALITY,
@@ -84,11 +85,18 @@ export function usePhotoCapture(): {
     });
     setComposition(null);
 
+    // Hash the exact JPEG that will be uploaded, then keep only a sealed copy (ADR-025).
+    const shotFile = new File(tmp);
+    const bytes = await shotFile.bytes();
+    const sha256 = toHex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes));
     const photoId = Crypto.randomUUID();
     const target = photoFile(photoId);
-    new File(tmp).moveSync(target);
-    const bytes = await target.bytes();
-    const sha256 = toHex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes));
+    target.create({ intermediates: true });
+    await target.write(await deviceVault().sealBytes(bytes));
+    shotFile.delete();
+    // No plain copy is left behind: the camera original and the resized image go too.
+    deleteFile(resized.uri);
+    deleteFile(asset.uri);
     return {
       photoId,
       requirementKey: request.requirementKey,

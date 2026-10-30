@@ -3,6 +3,8 @@ import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
 import { createProjectCrs } from '@ftth/geo';
 import { translate } from '@ftth/i18n';
 import type { OfflineBundle, SyncPushRequest } from '@ftth/shared';
+import { testRandom } from '../../../shared/crypto/test-random';
+import { createVault } from '../../../shared/crypto/vault';
 import { I18nProvider } from '../../../shared/i18n/I18nProvider';
 import { InMemoryLocaleStorage } from '../../../shared/storage/locale-storage';
 import { CadScreen } from '../../cad/components/CadScreen';
@@ -129,7 +131,7 @@ class FakeApi {
 
 function setup() {
   const api = new FakeApi();
-  const files = new Map<string, unknown>();
+  const files = new Map<string, string>();
   const listeners: { online: (() => void)[] } = { online: [] };
   const deps: FieldDeps = {
     db: createLocalDatabase(
@@ -142,10 +144,11 @@ function setup() {
     ),
     baseUrl: 'http://api.test',
     files: {
-      readJson: async (name) => files.get(name) ?? null,
-      writeJson: async (name, value) => void files.set(name, value),
+      readText: async (name) => files.get(name) ?? null,
+      writeText: async (name, text) => void files.set(name, text),
     },
-    readFileBytes: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]),
+    readFileBytes: async () => vault.sealBytes(Uint8Array.from([0xff, 0xd8, 0xff, 0xd9])),
+    vault,
     accessToken: async () => 'token',
     refreshSession: async () => true,
     deviceId: async () => '00000000-0000-4000-8000-0000000000d1',
@@ -158,6 +161,8 @@ function setup() {
   };
   return { api, deps, files, goOnline: () => listeners.online.forEach((cb) => cb()) };
 }
+
+const vault = createVault(async () => new Uint8Array(32).fill(3), testRandom);
 
 const crs = createProjectCrs(32636);
 const photo: CapturedPhoto = {
@@ -195,7 +200,10 @@ describe('supervisor field flow', () => {
     );
     await fireEvent.press(await screen.findByTestId('download-bundle'));
     const area = await screen.findByTestId('cad-area');
-    expect(files.has(`bundle-${USER}-${PROJECT}.json`)).toBe(true);
+    // The drawing is cached sealed: no coordinates or names in clear on the phone.
+    const cached = files.get(`bundle-${USER}-${PROJECT}.json`) ?? '';
+    expect(cached.startsWith('v1:')).toBe(true);
+    expect(cached).not.toContain('قليوب');
     // Layout gives the canvas a size; the viewport fits the single box at the centre.
     await fireEvent(area, 'layout', {
       nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 600 } },
@@ -214,7 +222,7 @@ describe('supervisor field flow', () => {
 
   it('records an update through the 6 steps offline and syncs it when the network returns', async () => {
     const { api, deps, files, goOnline } = setup();
-    files.set(`bundle-${USER}-${PROJECT}.json`, bundle);
+    files.set(`bundle-${USER}-${PROJECT}.json`, await vault.sealText(JSON.stringify(bundle)));
     api.online = false;
     const onDone = jest.fn();
     const wizard = wizardDeps();

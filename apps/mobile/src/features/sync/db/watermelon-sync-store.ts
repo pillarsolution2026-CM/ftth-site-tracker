@@ -20,6 +20,7 @@ import type {
   OutboxOpRecord,
   RemoteUpdateRecord,
 } from './models';
+import type { Vault } from '../../../shared/crypto/vault';
 import { num, optionalStr, str } from './models';
 import { TABLES } from './schema';
 
@@ -41,10 +42,10 @@ export interface OutboxSummary {
 
 const KEYS = { cursor: 'sync.cursor', lastSyncAt: 'sync.last_ok_at' } as const;
 
-function toEntry(record: Model): OutboxEntry {
+async function toEntry(vault: Vault, record: Model): Promise<OutboxEntry> {
   return {
     clientOpId: str(record, 'client_op_id'),
-    op: SyncOpSchema.parse(JSON.parse(str(record, 'op_json'))),
+    op: SyncOpSchema.parse(JSON.parse(await vault.openText(str(record, 'op_json')))),
     state: str(record, 'state') as OutboxState,
     attempts: num(record, 'attempts'),
     updateId: optionalStr(record, 'update_id'),
@@ -61,6 +62,10 @@ type Model = OutboxOpRecord | LocalPhotoRecord | RemoteUpdateRecord | KeyValueRe
  * Every row belongs to one user and one project: on a shared phone, a second supervisor's session
  * never sends, shows or uploads the first one's work (security review, Phase 3). Rows of a user
  * who signed out stay on the device until that user signs in again.
+ *
+ * The content of an update (GPS, notes, quantities) and the server copies are sealed with the
+ * device key (ADR-025); ids and states stay readable because the outbox queries filter on them.
+ * Photo files are sealed too: `read` opens them for upload.
  */
 export class WatermelonSyncStore implements SyncStore, PhotoSource {
   constructor(
@@ -68,6 +73,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
     private readonly projectId: string,
     private readonly userId: string,
     private readonly readFileBytes: ReadFileBytes,
+    private readonly vault: Vault,
   ) {}
 
   /** Rows of this user in this project. */
@@ -95,6 +101,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
     if (files.length !== declared.size || files.some((file) => !declared.has(file.photoId))) {
       throw new Error('Photo files do not match the operation');
     }
+    const sealedOp = await this.vault.sealText(JSON.stringify(valid));
     await this.db.write(async () => {
       const last = await this.outbox.query(Q.sortBy('seq', Q.desc), Q.take(1)).fetch();
       const seq = (last[0] ? num(last[0], 'seq') : 0) + 1;
@@ -105,7 +112,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
           record._setRaw('project_id', this.projectId);
           record._setRaw('user_id', this.userId);
           record._setRaw('feature_id', valid.payload.featureId);
-          record._setRaw('op_json', JSON.stringify(valid));
+          record._setRaw('op_json', sealedOp);
           record._setRaw('state', 'pending');
           record._setRaw('attempts', 0);
         }),
@@ -130,12 +137,12 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
     const records = await this.outbox
       .query(...this.mine(), Q.where('state', 'pending'), Q.sortBy('seq', Q.asc), Q.take(limit))
       .fetch();
-    return records.map(toEntry);
+    return Promise.all(records.map((record) => toEntry(this.vault, record)));
   }
 
   async entries(): Promise<OutboxEntry[]> {
     const records = await this.outbox.query(...this.mine(), Q.sortBy('seq', Q.desc)).fetch();
-    return records.map(toEntry);
+    return Promise.all(records.map((record) => toEntry(this.vault, record)));
   }
 
   private async findOp(clientOpId: string): Promise<OutboxOpRecord> {
@@ -233,7 +240,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
   async read(photoId: string): Promise<Uint8Array> {
     const record = await this.findPhoto(photoId);
     if (!record) throw new Error(`Unknown photo ${photoId}`);
-    return this.readFileBytes(str(record, 'file_uri'));
+    return this.vault.openBytes(await this.readFileBytes(str(record, 'file_uri')));
   }
 
   private scopedKey(key: string): string {
@@ -280,10 +287,13 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
       .query(...this.mine(), Q.where('update_id', Q.oneOf(updates.map((update) => update.id))))
       .fetch();
     const byId = new Map(existing.map((record) => [str(record, 'update_id'), record]));
+    const sealed = await Promise.all(
+      updates.map((update) => this.vault.sealText(JSON.stringify(update))),
+    );
     await this.db.write(async () => {
       await this.db.batch(
-        ...updates.map((update) => {
-          const json = JSON.stringify(update);
+        ...updates.map((update, index) => {
+          const json = sealed[index] ?? '';
           const record = byId.get(update.id);
           if (record) {
             return record.prepareUpdate((r) => {
@@ -310,7 +320,11 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
     const records = await this.remote
       .query(...this.mine(), Q.where('feature_id', featureId))
       .fetch();
-    return records.map((record) => ExecutionUpdateSchema.parse(JSON.parse(str(record, 'json'))));
+    return Promise.all(
+      records.map(async (record) =>
+        ExecutionUpdateSchema.parse(JSON.parse(await this.vault.openText(str(record, 'json')))),
+      ),
+    );
   }
 
   async summary(): Promise<OutboxSummary> {

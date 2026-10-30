@@ -1,13 +1,17 @@
 import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
 import type { ExecutionUpdate, SyncOp } from '@ftth/shared';
 import { SyncEngine, type SyncTransport } from '@ftth/sync';
+import { testRandom } from '../../../shared/crypto/test-random';
+import { createVault } from '../../../shared/crypto/vault';
 import { createLocalDatabase } from './database';
-import { localSchema } from './schema';
+import { localSchema, TABLES } from './schema';
 import { WatermelonSyncStore } from './watermelon-sync-store';
 
 const PROJECT = '00000000-0000-4000-8000-0000000000aa';
 let counter = 0;
 const uuid = () => `00000000-0000-4000-8000-${(++counter).toString().padStart(12, '0')}`;
+
+const vault = createVault(async () => new Uint8Array(32).fill(7), testRandom);
 
 const USER_A = '00000000-0000-4000-8000-0000000000ab';
 const USER_B = '00000000-0000-4000-8000-0000000000bb';
@@ -25,8 +29,8 @@ function makeStore(files = new Map<string, Uint8Array>()) {
     if (!bytes) throw new Error(`no file ${uri}`);
     return bytes;
   };
-  const store = new WatermelonSyncStore(db, PROJECT, USER_A, read);
-  const storeOf = (userId: string) => new WatermelonSyncStore(db, PROJECT, userId, read);
+  const store = new WatermelonSyncStore(db, PROJECT, USER_A, read, vault);
+  const storeOf = (userId: string) => new WatermelonSyncStore(db, PROJECT, userId, read, vault);
   return { db, store, files, storeOf };
 }
 
@@ -96,6 +100,20 @@ describe('WatermelonSyncStore', () => {
       photosWaiting: 2,
       photosFailed: 0,
     });
+  });
+
+  it('stores the update content and server copies sealed, never as plain JSON', async () => {
+    const { db, store } = makeStore();
+    const photoId = uuid();
+    const o = op(photoId);
+    await store.enqueue(o, [{ photoId, fileUri: 'file://x', sizeBytes: 4 }]);
+    const [raw] = await db.get(TABLES.outbox).query().fetch();
+    const sealed = String(raw?._getRaw('op_json'));
+    expect(sealed.startsWith('v1:')).toBe(true);
+    expect(sealed).not.toContain(o.payload.featureId);
+    expect(sealed).not.toContain('execution_update');
+    // Readable again through the store.
+    expect((await store.pendingOps(1))[0]?.op).toEqual(o);
   });
 
   it("keeps each user's work apart on a shared phone", async () => {
@@ -174,7 +192,8 @@ describe('WatermelonSyncStore', () => {
     const { store, files } = makeStore();
     const photoId = uuid();
     const bytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
-    files.set('file://p', bytes);
+    // Photo files are sealed on the device; the store opens them for upload.
+    files.set('file://p', await vault.sealBytes(bytes));
     const o = op(photoId, 4);
     await store.enqueue(o, [{ photoId, fileUri: 'file://p', sizeBytes: 4 }]);
     const received: Uint8Array[] = [];

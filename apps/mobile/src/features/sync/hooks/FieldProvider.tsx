@@ -24,15 +24,19 @@ import {
   type OutboxSummary,
   type ReadFileBytes,
 } from '../db/watermelon-sync-store';
-import { loadCachedBundle, saveBundle, type JsonFiles } from '../model/bundle-cache';
+import type { Vault } from '../../../shared/crypto/vault';
+import { loadCachedBundle, saveBundle, type TextFiles } from '../model/bundle-cache';
 import { SyncScheduler } from '../model/sync-scheduler';
 
 /** Everything the field screens need from the device; the app wires the native ones. */
 export interface FieldDeps {
   db: Database;
   baseUrl: string;
-  files: JsonFiles;
+  files: TextFiles;
+  /** Raw (sealed) bytes of a file; the store opens them with `vault`. */
   readFileBytes: ReadFileBytes;
+  /** Seals what the app keeps on the phone (ADR-025). */
+  vault: Vault;
   accessToken(): Promise<string | null>;
   refreshSession(): Promise<boolean>;
   /** Stable id of this installation (sent with every push). */
@@ -79,8 +83,8 @@ export function FieldProvider({
   children: ReactNode;
 }) {
   const store = useMemo(
-    () => new WatermelonSyncStore(deps.db, projectId, userId, deps.readFileBytes),
-    [deps.db, deps.readFileBytes, projectId, userId],
+    () => new WatermelonSyncStore(deps.db, projectId, userId, deps.readFileBytes, deps.vault),
+    [deps.db, deps.readFileBytes, deps.vault, projectId, userId],
   );
   const [bundle, setBundle] = useState<OfflineBundle | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus>('loading');
@@ -134,7 +138,7 @@ export function FieldProvider({
     schedulerRef.current = scheduler;
 
     void (async () => {
-      const cached = await loadCachedBundle(deps.files, userId, projectId);
+      const cached = await loadCachedBundle(deps.files, deps.vault, userId, projectId);
       if (!active) return;
       setBundle(cached);
       setBundleStatus(cached ? 'ready' : 'missing');
@@ -172,7 +176,7 @@ export function FieldProvider({
           ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
         });
       }
-      await saveBundle(deps.files, userId, fresh);
+      await saveBundle(deps.files, deps.vault, userId, fresh);
       setBundle(fresh);
       setBundleStatus('ready');
     } catch {
