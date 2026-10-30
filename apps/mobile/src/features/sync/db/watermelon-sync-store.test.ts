@@ -9,6 +9,9 @@ const PROJECT = '00000000-0000-4000-8000-0000000000aa';
 let counter = 0;
 const uuid = () => `00000000-0000-4000-8000-${(++counter).toString().padStart(12, '0')}`;
 
+const USER_A = '00000000-0000-4000-8000-0000000000ab';
+const USER_B = '00000000-0000-4000-8000-0000000000bb';
+
 function makeStore(files = new Map<string, Uint8Array>()) {
   const adapter = new LokiJSAdapter({
     schema: localSchema,
@@ -17,12 +20,14 @@ function makeStore(files = new Map<string, Uint8Array>()) {
     dbName: `test-${uuid()}`,
   });
   const db = createLocalDatabase(adapter);
-  const store = new WatermelonSyncStore(db, PROJECT, async (uri) => {
+  const read = async (uri: string) => {
     const bytes = files.get(uri);
     if (!bytes) throw new Error(`no file ${uri}`);
     return bytes;
-  });
-  return { db, store, files };
+  };
+  const store = new WatermelonSyncStore(db, PROJECT, USER_A, read);
+  const storeOf = (userId: string) => new WatermelonSyncStore(db, PROJECT, userId, read);
+  return { db, store, files, storeOf };
 }
 
 function op(photoId: string, size = 4): SyncOp {
@@ -91,6 +96,30 @@ describe('WatermelonSyncStore', () => {
       photosWaiting: 2,
       photosFailed: 0,
     });
+  });
+
+  it("keeps each user's work apart on a shared phone", async () => {
+    const { store, storeOf } = makeStore();
+    const photoId = uuid();
+    const o = op(photoId);
+    await store.enqueue(o, [{ photoId, fileUri: 'file://a', sizeBytes: 4 }]);
+    await store.markApplied(o.clientOpId, uuid());
+    await store.setCursor('7');
+    const other = storeOf(USER_B);
+    expect(await other.pendingOps(10)).toEqual([]);
+    expect(await other.entries()).toEqual([]);
+    expect(await other.photosToUpload()).toEqual([]);
+    expect(await other.getCursor()).toBe('0');
+    await expect(other.read(photoId)).rejects.toThrow(/Unknown photo/);
+    await expect(other.markApplied(o.clientOpId, uuid())).rejects.toThrow(/Unknown outbox entry/);
+    expect(await other.summary()).toEqual({
+      pending: 0,
+      rejected: 0,
+      photosWaiting: 0,
+      photosFailed: 0,
+    });
+    // The first user finds everything again after signing back in.
+    expect((await storeOf(USER_A).photosToUpload()).map((p) => p.photoId)).toEqual([photoId]);
   });
 
   it('refuses an operation whose photo files do not match', async () => {

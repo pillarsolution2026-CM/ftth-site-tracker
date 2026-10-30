@@ -68,16 +68,19 @@ const EMPTY_SUMMARY: OutboxSummary = { pending: 0, rejected: 0, photosWaiting: 0
 
 export function FieldProvider({
   projectId,
+  userId,
   deps,
   children,
 }: {
   projectId: string;
+  /** The signed-in user; the outbox, photos and cached data are kept per user. */
+  userId: string;
   deps: FieldDeps;
   children: ReactNode;
 }) {
   const store = useMemo(
-    () => new WatermelonSyncStore(deps.db, projectId, deps.readFileBytes),
-    [deps.db, deps.readFileBytes, projectId],
+    () => new WatermelonSyncStore(deps.db, projectId, userId, deps.readFileBytes),
+    [deps.db, deps.readFileBytes, projectId, userId],
   );
   const [bundle, setBundle] = useState<OfflineBundle | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus>('loading');
@@ -131,7 +134,7 @@ export function FieldProvider({
     schedulerRef.current = scheduler;
 
     void (async () => {
-      const cached = await loadCachedBundle(deps.files, projectId);
+      const cached = await loadCachedBundle(deps.files, userId, projectId);
       if (!active) return;
       setBundle(cached);
       setBundleStatus(cached ? 'ready' : 'missing');
@@ -146,7 +149,7 @@ export function FieldProvider({
       offOnline();
       offForeground();
     };
-  }, [deps, projectId, refreshLocal, store]);
+  }, [deps, projectId, refreshLocal, store, userId]);
 
   const download = useCallback(async () => {
     setBundleStatus('downloading');
@@ -169,14 +172,14 @@ export function FieldProvider({
           ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
         });
       }
-      await saveBundle(deps.files, fresh);
+      await saveBundle(deps.files, userId, fresh);
       setBundle(fresh);
       setBundleStatus('ready');
     } catch {
       // A failed refresh keeps the drawing already on the device.
       setBundleStatus(bundle ? 'ready' : 'error');
     }
-  }, [bundle, deps, projectId]);
+  }, [bundle, deps, projectId, userId]);
 
   const syncNow = useCallback(() => schedulerRef.current?.trigger(), []);
 

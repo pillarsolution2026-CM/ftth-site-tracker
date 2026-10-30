@@ -23,6 +23,7 @@ import {
   SyncPushResponseSchema,
   UPLOAD_OFFSET_HEADER,
   type OfflineBundle,
+  type Permission,
   type PhotoUploadStatus,
   type SyncChangesQuery,
   type SyncChangesResponse,
@@ -37,6 +38,7 @@ import { UuidParamPipe } from '../../../common/http/uuid-param.pipe.js';
 import { openApiSchema } from '../../../common/openapi.js';
 import { PermissionGuard, RequirePermission } from '../../../common/permission.guard.js';
 import { ZodValidationPipe } from '../../../common/zod-validation.pipe.js';
+import { scopeForPermission } from '../../identity/domain/membership.js';
 import type { AuthenticatedRequest } from '../../identity/interface/auth-request.js';
 import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
@@ -52,13 +54,17 @@ import {
 } from '../application/sync-queries.use-cases.js';
 import { EXECUTION_CLOCK } from '../execution.tokens.js';
 
-function scopeOf(request: AuthenticatedRequest): ExecutionScope {
+/** The caller's reach for `permission` (per assignment: a read-only role never widens writes). */
+function scopeOf(request: AuthenticatedRequest, permission: Permission): ExecutionScope {
   const access = request.projectAccess;
   if (!access) throw new AppError('FORBIDDEN', 'No access to this project');
-  return access.scope.kind === 'project'
-    ? { kind: 'project' }
-    : { kind: 'zones', zoneIds: access.scope.zoneIds };
+  const scope = scopeForPermission(access, permission, request.auth?.isAdmin === true);
+  if (!scope) throw new AppError('FORBIDDEN', 'Your role does not allow this action');
+  return scope.kind === 'project' ? { kind: 'project' } : { kind: 'zones', zoneIds: scope.zoneIds };
 }
+
+/** UUIDs are compared as text in places (stored results, storage keys): one canonical case. */
+const canonical = (uuid: string): string => uuid.toLowerCase();
 
 /** Reads a raw chunk, refusing more than `max` bytes without buffering them. */
 async function readChunk(request: AuthenticatedRequest, max: number): Promise<Buffer> {
@@ -103,10 +109,10 @@ export class SyncController {
     @Req() request: AuthenticatedRequest,
   ): Promise<SyncPushResponse> {
     const results = await this.push.execute({
-      projectId,
+      projectId: canonical(projectId),
       userId: actorIdOf(request),
-      deviceId: body.deviceId,
-      scope: scopeOf(request),
+      deviceId: canonical(body.deviceId),
+      scope: scopeOf(request, 'execution:write'),
       ops: body.ops,
     });
     return { serverTime: this.clock.now().toISOString(), results };
@@ -119,7 +125,10 @@ export class SyncController {
     @ProjectIdParam() projectId: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<OfflineBundle> {
-    return this.bundle.execute({ projectId, scope: scopeOf(request) });
+    return this.bundle.execute({
+      projectId: canonical(projectId),
+      scope: scopeOf(request, 'execution:read'),
+    });
   }
 
   @Get('changes')
@@ -130,7 +139,11 @@ export class SyncController {
     @Query(new ZodValidationPipe(SyncChangesQuerySchema)) query: SyncChangesQuery,
     @Req() request: AuthenticatedRequest,
   ): Promise<SyncChangesResponse> {
-    return this.changes.execute({ projectId, scope: scopeOf(request), ...query });
+    return this.changes.execute({
+      projectId: canonical(projectId),
+      scope: scopeOf(request, 'execution:read'),
+      ...query,
+    });
   }
 
   @Get('photos/:photoId')
@@ -141,7 +154,11 @@ export class SyncController {
     @Param('photoId', UuidParamPipe) photoId: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<PhotoUploadStatus> {
-    return this.photoStatus.execute({ projectId, userId: actorIdOf(request), photoId });
+    return this.photoStatus.execute({
+      projectId: canonical(projectId),
+      userId: actorIdOf(request),
+      photoId: canonical(photoId),
+    });
   }
 
   @Put('photos/:photoId/content')
@@ -163,9 +180,9 @@ export class SyncController {
     const userId = actorIdOf(request);
     const data = await readChunk(request, EXECUTION_LIMITS.maxChunkBytes);
     return this.photoChunk.execute({
-      projectId,
+      projectId: canonical(projectId),
       userId,
-      photoId,
+      photoId: canonical(photoId),
       offset: Number(offsetHeader),
       data,
     });

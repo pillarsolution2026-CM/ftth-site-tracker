@@ -55,8 +55,16 @@ export class PushSyncUseCase {
     try {
       return await this.uow.run((tx) => this.apply(tx, input, op, hash));
     } catch (error) {
+      const violated = uniqueViolation(error);
+      // The same photo id raced in from a push to another project (per-project locks).
+      if (violated === 'execution_photos_pkey') {
+        return { clientOpId: op.clientOpId, outcome: 'rejected', code: 'PHOTO_ID_REUSED' };
+      }
       // A concurrent resend of the same op committed first: answer as a resend.
-      if (uniqueViolation(error) === 'sync_operations_pkey') {
+      if (
+        violated === 'sync_operations_pkey' ||
+        violated === 'execution_updates_client_op_id_key'
+      ) {
         return this.uow.run(async (tx) => {
           const stored = await tx.findOperation(op.clientOpId);
           if (!stored) throw error;
@@ -147,6 +155,16 @@ export class PushSyncUseCase {
     const featureInLatestRevision = revisionIsLatest
       ? true
       : latest !== null && (await tx.featureInRevision(projectId, latest.id, payload.featureId));
+    // An older revision must not widen the supervisor's reach: when the feature is still in the
+    // latest revision, it must be in scope there too (security review, Phase 3).
+    if (
+      latest &&
+      !revisionIsLatest &&
+      featureInLatestRevision &&
+      !(await tx.featureInScope(projectId, latest.id, payload.featureId, input.scope))
+    ) {
+      throw new Rejection('FEATURE_OUT_OF_SCOPE');
+    }
     const gpsDistanceM = payload.gps
       ? await tx.gpsDistanceM(projectId, payload.designRevisionId, payload.featureId, payload.gps)
       : null;

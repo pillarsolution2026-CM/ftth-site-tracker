@@ -11,7 +11,8 @@
       "supportsTablet": false
     },
     "android": {
-      "package": "com.ftth.sitetracker"
+      "package": "com.ftth.sitetracker",
+      "allowBackup": false
     },
     "web": {
       "bundler": "metro",

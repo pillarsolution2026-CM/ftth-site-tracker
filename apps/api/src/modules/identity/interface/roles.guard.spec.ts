@@ -25,6 +25,7 @@ const access = (roles: Array<'pm' | 'supervisor'>) => ({
   projectId: 'p',
   roles,
   scope: { kind: 'project' as const },
+  grants: roles.map((role) => ({ role, zoneId: null })),
 });
 
 describe('RolesGuard', () => {

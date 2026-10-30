@@ -18,6 +18,7 @@ import {
   toWgs84,
   type ExecutionFixture,
 } from './support/execution-fixtures.js';
+import { ensureMember, loginAs } from './support/helpers.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
 let ctx: TestContext;
@@ -309,6 +310,58 @@ describe('POST /projects/:projectId/sync/push', () => {
   });
 });
 
+describe('security review fixes', () => {
+  it('does not let a read-only project-wide role widen a zone-scoped write role (qc + supervisor of B)', async () => {
+    const email = `exec-mixed-${randomUUID().slice(0, 8)}@ftth.local`;
+    for (const [role, zoneId] of [
+      ['qc', undefined],
+      ['supervisor', fx.zoneB],
+    ] as const) {
+      await ensureMember(ctx.pool, {
+        email,
+        password: 'Mixed#12345',
+        role,
+        projectId: fx.projectId,
+        ...(zoneId ? { zoneId } : {}),
+      });
+    }
+    const token = await loginAs(ctx, email, 'Mixed#12345');
+    expect(await pushOne(token, op({ featureId: fx.boxA }))).toMatchObject({
+      outcome: 'rejected',
+      code: 'FEATURE_OUT_OF_SCOPE',
+    });
+    expect((await pushOne(token, op({ featureId: fx.boxB }))).outcome).toBe('applied');
+    // Reading stays project-wide through the qc role.
+    const bundle = await http()
+      .get(`/projects/${fx.projectId}/sync/bootstrap`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(OfflineBundleSchema.parse(bundle.body).scope).toEqual({ kind: 'project' });
+  });
+
+  it('treats upper-case UUIDs (device id, project and photo in the URL) like lower-case ones', async () => {
+    const photo = jpeg(1000, 9);
+    const photoId = randomUUID();
+    const operation = op({ photoId, photo });
+    const first = await pushOne(fx.tokens.supervisorA, operation, DEVICE);
+    const resend = await http()
+      .post(pushUrl(fx.projectId.toUpperCase()))
+      .set('Authorization', `Bearer ${fx.tokens.supervisorA}`)
+      .send({ deviceId: DEVICE.toUpperCase(), ops: [operation] });
+    expect(resend.body.results[0]).toMatchObject({
+      outcome: 'duplicate',
+      updateId: first.outcome === 'applied' ? first.updateId : '',
+    });
+    const upload = await http()
+      .put(`/projects/${fx.projectId}/sync/photos/${photoId.toUpperCase()}/content`)
+      .set('Authorization', `Bearer ${fx.tokens.supervisorA}`)
+      .set('Content-Type', 'application/octet-stream')
+      .set('Upload-Offset', '0')
+      .send(photo);
+    expect(upload.status, JSON.stringify(upload.body)).toBe(200);
+    expect(upload.body.state).toBe('stored');
+  });
+});
+
 describe('GET /projects/:projectId/sync/bootstrap', () => {
   const bootstrap = (token: string, project = fx.projectId) =>
     http().get(`/projects/${project}/sync/bootstrap`).set('Authorization', `Bearer ${token}`);
@@ -434,6 +487,49 @@ describe('newer revisions', () => {
     );
     if (onNew.outcome !== 'applied') throw new Error('not applied');
     expect(await flagsOf(onNew.updateId)).toEqual(['GPS_MISSING']);
+  });
+});
+
+describe('scope across revisions', () => {
+  it('refuses an update named on an old revision when the feature now lies outside the zone', async () => {
+    // The route moves out of zone A in a newer revision; supervisor A names the old one.
+    const old = await publishRevision(
+      ctx.pool,
+      fx.projectId,
+      [
+        {
+          id: fx.routeA,
+          type: 'route',
+          wkt: `LINESTRING(${E0} ${N0}, ${E0 + 100} ${N0})`,
+          isNew: false,
+        },
+      ],
+      10,
+    );
+    await publishRevision(
+      ctx.pool,
+      fx.projectId,
+      [
+        {
+          id: fx.routeA,
+          type: 'route',
+          wkt: `LINESTRING(${E0 + 900} ${N0 + 950}, ${E0 + 1000} ${N0 + 950})`,
+          isNew: false,
+        },
+      ],
+      11,
+    );
+    const result = await pushOne(
+      fx.tokens.supervisorA,
+      op({
+        featureId: fx.routeA,
+        revisionId: old,
+        gps: null,
+        workType: 'installation',
+        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
+      }),
+    );
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'FEATURE_OUT_OF_SCOPE' });
   });
 });
 

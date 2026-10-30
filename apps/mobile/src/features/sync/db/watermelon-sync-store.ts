@@ -57,13 +57,23 @@ type Model = OutboxOpRecord | LocalPhotoRecord | RemoteUpdateRecord | KeyValueRe
 /**
  * `SyncStore` on WatermelonDB (ADR-024). Saving an update writes its outbox row and photo rows in
  * one local transaction, so a crash never leaves an operation without its photos or vice versa.
+ *
+ * Every row belongs to one user and one project: on a shared phone, a second supervisor's session
+ * never sends, shows or uploads the first one's work (security review, Phase 3). Rows of a user
+ * who signed out stay on the device until that user signs in again.
  */
 export class WatermelonSyncStore implements SyncStore, PhotoSource {
   constructor(
     private readonly db: Database,
     private readonly projectId: string,
+    private readonly userId: string,
     private readonly readFileBytes: ReadFileBytes,
   ) {}
+
+  /** Rows of this user in this project. */
+  private mine() {
+    return [Q.where('project_id', this.projectId), Q.where('user_id', this.userId)];
+  }
 
   private get outbox() {
     return this.db.get<OutboxOpRecord>(TABLES.outbox);
@@ -93,6 +103,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
           record._setRaw('client_op_id', valid.clientOpId);
           record._setRaw('seq', seq);
           record._setRaw('project_id', this.projectId);
+          record._setRaw('user_id', this.userId);
           record._setRaw('feature_id', valid.payload.featureId);
           record._setRaw('op_json', JSON.stringify(valid));
           record._setRaw('state', 'pending');
@@ -102,6 +113,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
           this.photos.prepareCreate((record) => {
             record._setRaw('photo_id', file.photoId);
             record._setRaw('client_op_id', valid.clientOpId);
+            record._setRaw('user_id', this.userId);
             record._setRaw('file_uri', file.fileUri);
             record._setRaw('size_bytes', file.sizeBytes);
             record._setRaw('uploaded_bytes', 0);
@@ -116,25 +128,20 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
 
   async pendingOps(limit: number): Promise<OutboxEntry[]> {
     const records = await this.outbox
-      .query(
-        Q.where('project_id', this.projectId),
-        Q.where('state', 'pending'),
-        Q.sortBy('seq', Q.asc),
-        Q.take(limit),
-      )
+      .query(...this.mine(), Q.where('state', 'pending'), Q.sortBy('seq', Q.asc), Q.take(limit))
       .fetch();
     return records.map(toEntry);
   }
 
   async entries(): Promise<OutboxEntry[]> {
-    const records = await this.outbox
-      .query(Q.where('project_id', this.projectId), Q.sortBy('seq', Q.desc))
-      .fetch();
+    const records = await this.outbox.query(...this.mine(), Q.sortBy('seq', Q.desc)).fetch();
     return records.map(toEntry);
   }
 
   private async findOp(clientOpId: string): Promise<OutboxOpRecord> {
-    const [record] = await this.outbox.query(Q.where('client_op_id', clientOpId)).fetch();
+    const [record] = await this.outbox
+      .query(...this.mine(), Q.where('client_op_id', clientOpId))
+      .fetch();
     if (!record) throw new Error(`Unknown outbox entry ${clientOpId}`);
     return record;
   }
@@ -173,13 +180,15 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
   }
 
   async photosToUpload(): Promise<PendingPhoto[]> {
-    const applied = await this.outbox
-      .query(Q.where('project_id', this.projectId), Q.where('state', 'applied'))
-      .fetch();
+    const applied = await this.outbox.query(...this.mine(), Q.where('state', 'applied')).fetch();
     const ids = applied.map((record) => str(record, 'client_op_id'));
     if (ids.length === 0) return [];
     const records = await this.photos
-      .query(Q.where('client_op_id', Q.oneOf(ids)), Q.where('state', 'waiting'))
+      .query(
+        Q.where('user_id', this.userId),
+        Q.where('client_op_id', Q.oneOf(ids)),
+        Q.where('state', 'waiting'),
+      )
       .fetch();
     return records.map((record) => ({
       photoId: str(record, 'photo_id'),
@@ -191,11 +200,18 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
     }));
   }
 
+  private async findPhoto(photoId: string): Promise<LocalPhotoRecord | undefined> {
+    const [record] = await this.photos
+      .query(Q.where('user_id', this.userId), Q.where('photo_id', photoId))
+      .fetch();
+    return record;
+  }
+
   async setPhotoProgress(
     photoId: string,
     progress: { uploadedBytes: number; state: PhotoState; checksumFailures: number },
   ): Promise<void> {
-    const [record] = await this.photos.query(Q.where('photo_id', photoId)).fetch();
+    const record = await this.findPhoto(photoId);
     if (!record) throw new Error(`Unknown photo ${photoId}`);
     await this.db.write(() =>
       record.update((r) => {
@@ -208,23 +224,29 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
 
   /** Stored photos may be deleted from the device to free space (the server has them). */
   async storedPhotoUris(): Promise<string[]> {
-    const records = await this.photos.query(Q.where('state', 'stored')).fetch();
+    const records = await this.photos
+      .query(Q.where('user_id', this.userId), Q.where('state', 'stored'))
+      .fetch();
     return records.map((record) => str(record, 'file_uri'));
   }
 
   async read(photoId: string): Promise<Uint8Array> {
-    const [record] = await this.photos.query(Q.where('photo_id', photoId)).fetch();
+    const record = await this.findPhoto(photoId);
     if (!record) throw new Error(`Unknown photo ${photoId}`);
     return this.readFileBytes(str(record, 'file_uri'));
   }
 
+  private scopedKey(key: string): string {
+    return `${this.userId}:${this.projectId}:${key}`;
+  }
+
   private async getValue(key: string): Promise<string | null> {
-    const [record] = await this.kv.query(Q.where('key', `${this.projectId}:${key}`)).fetch();
+    const [record] = await this.kv.query(Q.where('key', this.scopedKey(key))).fetch();
     return record ? str(record, 'value') : null;
   }
 
   private async setValue(key: string, value: string): Promise<void> {
-    const scoped = `${this.projectId}:${key}`;
+    const scoped = this.scopedKey(key);
     const [record] = await this.kv.query(Q.where('key', scoped)).fetch();
     await this.db.write(async () => {
       if (record) await record.update((r) => r._setRaw('value', value));
@@ -255,7 +277,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
   async applyRemoteUpdates(updates: readonly ExecutionUpdate[]): Promise<void> {
     if (updates.length === 0) return;
     const existing = await this.remote
-      .query(Q.where('update_id', Q.oneOf(updates.map((update) => update.id))))
+      .query(...this.mine(), Q.where('update_id', Q.oneOf(updates.map((update) => update.id))))
       .fetch();
     const byId = new Map(existing.map((record) => [str(record, 'update_id'), record]));
     await this.db.write(async () => {
@@ -272,6 +294,8 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
           return this.remote.prepareCreate((r) => {
             r._setRaw('update_id', update.id);
             r._setRaw('client_op_id', update.clientOpId);
+            r._setRaw('project_id', this.projectId);
+            r._setRaw('user_id', this.userId);
             r._setRaw('feature_id', update.featureId);
             r._setRaw('status', update.status);
             r._setRaw('json', json);
@@ -283,16 +307,17 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
 
   /** Server copies of updates on a feature (feature card history). */
   async remoteUpdatesFor(featureId: string): Promise<ExecutionUpdate[]> {
-    const records = await this.remote.query(Q.where('feature_id', featureId)).fetch();
+    const records = await this.remote
+      .query(...this.mine(), Q.where('feature_id', featureId))
+      .fetch();
     return records.map((record) => ExecutionUpdateSchema.parse(JSON.parse(str(record, 'json'))));
   }
 
   async summary(): Promise<OutboxSummary> {
     const count = (state: string) =>
-      this.outbox
-        .query(Q.where('project_id', this.projectId), Q.where('state', state))
-        .fetchCount();
-    const photoCount = (state: string) => this.photos.query(Q.where('state', state)).fetchCount();
+      this.outbox.query(...this.mine(), Q.where('state', state)).fetchCount();
+    const photoCount = (state: string) =>
+      this.photos.query(Q.where('user_id', this.userId), Q.where('state', state)).fetchCount();
     return {
       pending: await count('pending'),
       rejected: await count('rejected'),

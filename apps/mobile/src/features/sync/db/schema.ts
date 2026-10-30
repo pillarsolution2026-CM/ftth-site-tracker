@@ -21,6 +21,8 @@ export const localSchema = appSchema({
         // Creation order on this device; the outbox is drained oldest first.
         { name: 'seq', type: 'number', isIndexed: true },
         { name: 'project_id', type: 'string', isIndexed: true },
+        // The signed-in user who recorded it; only that user's session ever sends it.
+        { name: 'user_id', type: 'string', isIndexed: true },
         { name: 'feature_id', type: 'string', isIndexed: true },
         { name: 'op_json', type: 'string' },
         { name: 'state', type: 'string', isIndexed: true },
@@ -34,6 +36,7 @@ export const localSchema = appSchema({
       columns: [
         { name: 'photo_id', type: 'string', isIndexed: true },
         { name: 'client_op_id', type: 'string', isIndexed: true },
+        { name: 'user_id', type: 'string', isIndexed: true },
         { name: 'file_uri', type: 'string' },
         { name: 'size_bytes', type: 'number' },
         { name: 'uploaded_bytes', type: 'number' },
@@ -46,6 +49,8 @@ export const localSchema = appSchema({
       columns: [
         { name: 'update_id', type: 'string', isIndexed: true },
         { name: 'client_op_id', type: 'string', isIndexed: true },
+        { name: 'project_id', type: 'string', isIndexed: true },
+        { name: 'user_id', type: 'string', isIndexed: true },
         { name: 'feature_id', type: 'string', isIndexed: true },
         { name: 'status', type: 'string', isIndexed: true },
         { name: 'json', type: 'string' },

@@ -23,6 +23,7 @@ const t = (key: Parameters<typeof translate>[1], params?: Record<string, string 
   translate('ar', key, params);
 
 const PROJECT = '00000000-0000-4000-8000-0000000000a1';
+const USER = '00000000-0000-4000-8000-0000000000e1';
 const REVISION = '00000000-0000-4000-8000-0000000000a2';
 const BOX = '00000000-0000-4000-8000-0000000000a3';
 const ITEM = '00000000-0000-4000-8000-0000000000a4';
@@ -187,14 +188,14 @@ describe('supervisor field flow', () => {
     const onUpdate = jest.fn();
     await render(
       <I18nProvider storage={new InMemoryLocaleStorage()}>
-        <FieldProvider projectId={PROJECT} deps={deps}>
+        <FieldProvider projectId={PROJECT} userId={USER} deps={deps}>
           <CadScreen onUpdate={onUpdate} onOpenPending={() => undefined} />
         </FieldProvider>
       </I18nProvider>,
     );
     await fireEvent.press(await screen.findByTestId('download-bundle'));
     const area = await screen.findByTestId('cad-area');
-    expect(files.has(`bundle-${PROJECT}.json`)).toBe(true);
+    expect(files.has(`bundle-${USER}-${PROJECT}.json`)).toBe(true);
     // Layout gives the canvas a size; the viewport fits the single box at the centre.
     await fireEvent(area, 'layout', {
       nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 600 } },
@@ -213,13 +214,13 @@ describe('supervisor field flow', () => {
 
   it('records an update through the 6 steps offline and syncs it when the network returns', async () => {
     const { api, deps, files, goOnline } = setup();
-    files.set(`bundle-${PROJECT}.json`, bundle);
+    files.set(`bundle-${USER}-${PROJECT}.json`, bundle);
     api.online = false;
     const onDone = jest.fn();
     const wizard = wizardDeps();
     await render(
       <I18nProvider storage={new InMemoryLocaleStorage()}>
-        <FieldProvider projectId={PROJECT} deps={deps}>
+        <FieldProvider projectId={PROJECT} userId={USER} deps={deps}>
           <UpdateWizardScreen
             feature={bundle.features[0] ?? (undefined as never)}
             deps={wizard}
