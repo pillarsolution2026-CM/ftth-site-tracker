@@ -26,7 +26,7 @@ import {
   matchHeaderRow,
   normalizeHeader,
 } from './header-matching.js';
-import { annotateDuplicateCodes, summarize } from './import-summary.js';
+import { annotateDuplicateCodes, annotateUnitVariants, summarize } from './import-summary.js';
 import {
   columnLetter,
   isBlank,
@@ -175,6 +175,76 @@ function amountCheck(
   };
 }
 
+/** Cell is empty (a formula without a cached result counts as empty only when `allowFormula`). */
+function isEmptyCell(cell: RawCell | undefined, allowFormula = false): boolean {
+  if (cell?.kind === 'unresolved') return allowFormula;
+  return cellText(cell) === null;
+}
+
+/** Empty, or a number equal to zero. */
+function isEmptyOrZero(cell: RawCell | undefined, allowFormula: boolean): boolean {
+  if (isEmptyCell(cell, allowFormula)) return true;
+  if (cell?.kind === 'unresolved') return false;
+  const amount = parseSheetAmount(cell);
+  return amount !== null && /^-?0(\.0+)?$/.test(amount);
+}
+
+/**
+ * A section title: unit and unit price empty, quantity and amount empty or zero (owner,
+ * 2026-10-31). The amount is only a cross-check, so a formula without a cached result is accepted.
+ */
+function isHeadingRow(at: (field: keyof ColumnMapping) => RawCell | undefined): boolean {
+  return (
+    isEmptyCell(at('unit')) &&
+    isEmptyCell(at('unitPrice')) &&
+    isEmptyOrZero(at('quantity'), false) &&
+    isEmptyOrZero(at('amount'), true)
+  );
+}
+
+function headingRow(
+  rowNumber: number,
+  at: (field: keyof ColumnMapping) => RawCell | undefined,
+  mapping: ColumnMapping,
+): ImportPreviewRow {
+  const issues: ImportRowIssue[] = [];
+  const code = textField(at('code'), 'code');
+  if (code.issue && mapping.code !== null) issues.push(code.issue);
+  const cell = at('description');
+  const text = cell?.kind === 'unresolved' ? null : cellText(cell);
+  let description: string | null = null;
+  if (text !== null) {
+    if (text.length > TEXT_LIMITS.description) {
+      issues.push(issue('TEXT_TOO_LONG', 'description', { max: TEXT_LIMITS.description }));
+    } else {
+      description = text;
+    }
+  }
+  const raw = (field: keyof ColumnMapping): string | null => cellText(at(field));
+  return {
+    rowNumber,
+    kind: 'heading',
+    raw: {
+      code: raw('code'),
+      description: raw('description'),
+      unit: null,
+      quantity: raw('quantity'),
+      unitPrice: null,
+      workType: raw('workType'),
+      amount: raw('amount'),
+    },
+    code: code.value,
+    description,
+    unit: null,
+    quantity: null,
+    unitPrice: null,
+    workType: null,
+    sheetAmount: null,
+    amount: null,
+    issues,
+  };
+}
+
 function parseRow(
   rowNumber: number,
   cells: readonly RawCell[],
@@ -184,6 +254,7 @@ function parseRow(
     const column = mapping[field];
     return column === null ? undefined : cells[column];
   };
+  if (isHeadingRow(at)) return headingRow(rowNumber, at, mapping);
   const mapped = (field: keyof ColumnMapping): boolean => mapping[field] !== null;
   const issues: ImportRowIssue[] = [];
   const collect = <T extends { issue?: ImportRowIssue }>(
@@ -214,6 +285,7 @@ function parseRow(
   const raw = (field: keyof ColumnMapping): string | null => cellText(at(field));
   return {
     rowNumber,
+    kind: 'item',
     raw: {
       code: raw('code'),
       description: raw('description'),
@@ -303,7 +375,7 @@ export function parseImport(
     .mapping;
   const mapping = options.mapping ?? suggestedMapping;
   const { rows, fileIssues: rowFileIssues } = parseRows(sheet, headerRow, mapping);
-  const annotated = annotateDuplicateCodes(rows);
+  const annotated = annotateUnitVariants(annotateDuplicateCodes(rows));
   const fileIssues = [...mappingIssues(mapping), ...rowFileIssues];
   if (annotated.length === 0) fileIssues.push({ code: 'NO_ITEM_ROWS', field: null });
 

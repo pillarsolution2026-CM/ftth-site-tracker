@@ -9,12 +9,26 @@ export interface Project {
   /** ISO 4217 code. */
   currency: string;
   locale: 'ar' | 'en' | 'fr';
+  /** Contract the project (= one work order) belongs to; null only before Phase 2 (ADR-027). */
+  contractId: string | null;
 }
 
+/** `client` and `currency` are copied from the contract by the use case. */
 export type NewProject = Omit<Project, 'id'>;
 
-/** Fields an admin may change after creation; the CRS and the currency are fixed (ADR-026). */
-export type ProjectChanges = Partial<Pick<Project, 'name' | 'client' | 'locale'>>;
+/** The part of a contract a new project copies. */
+export interface ContractReference {
+  id: string;
+  client: string;
+  currency: string;
+}
+
+export interface ContractReferenceRepository {
+  findById(contractId: string): Promise<ContractReference | null>;
+}
+
+/** Fields an admin may change after creation; the CRS, contract, client and currency are fixed (ADR-026, ADR-027). */
+export type ProjectChanges = Partial<Pick<Project, 'name' | 'locale'>>;
 
 export interface ProjectRepository {
   findById(projectId: string): Promise<Project | null>;
@@ -43,6 +57,7 @@ export interface ZoneRepository {
 export interface ProjectAdminTx {
   projects: ProjectAdminRepository;
   zones: ZoneRepository;
+  contracts: ContractReferenceRepository;
   events: EventLog;
 }
 

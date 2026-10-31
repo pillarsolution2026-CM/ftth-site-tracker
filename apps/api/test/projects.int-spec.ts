@@ -40,6 +40,7 @@ describe('GET /projects/:projectId', () => {
       crsEpsg: 32636,
       currency: 'EGP',
       locale: 'ar',
+      contractId: null,
     });
   });
 

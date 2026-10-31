@@ -18,6 +18,7 @@ import {
 } from './admin-projects.use-cases.js';
 
 const ACTOR = '00000000-0000-4000-8000-000000000001';
+const CONTRACT_ID = '00000000-0000-4000-8000-0000000000c1';
 
 class FakeProjects implements ProjectAdminRepository {
   readonly rows: Project[] = [];
@@ -59,10 +60,15 @@ class FakeUow implements ProjectAdminUnitOfWork {
   readonly projects = new FakeProjects();
   readonly zones = new FakeZones();
   readonly events: DomainEventInput[] = [];
+  readonly contracts = {
+    findById: async (id: string) =>
+      id === CONTRACT_ID ? { id, client: 'Contract client', currency: 'EGP' } : null,
+  };
   run<T>(work: (tx: ProjectAdminTx) => Promise<T>): Promise<T> {
     return work({
       projects: this.projects,
       zones: this.zones,
+      contracts: this.contracts,
       events: { append: async (event) => void this.events.push(event) },
     });
   }
@@ -70,23 +76,41 @@ class FakeUow implements ProjectAdminUnitOfWork {
 
 const NEW_PROJECT = {
   name: 'P',
-  client: 'C',
   crsEpsg: 32636,
-  currency: 'EGP',
+  contractId: CONTRACT_ID,
   locale: 'ar',
 } as const;
+
+describe('CreateProjectUseCase', () => {
+  it('copies client and currency from the contract and refuses an unknown contract', async () => {
+    const uow = new FakeUow();
+    const project = await new CreateProjectUseCase(uow).execute(NEW_PROJECT, ACTOR);
+    expect(project).toMatchObject({
+      client: 'Contract client',
+      currency: 'EGP',
+      contractId: CONTRACT_ID,
+    });
+    expect(uow.events.at(-1)).toMatchObject({
+      type: 'project.created',
+      payload: { client: 'Contract client', currency: 'EGP', contractId: CONTRACT_ID },
+    });
+    await expect(
+      new CreateProjectUseCase(uow).execute({ ...NEW_PROJECT, contractId: ACTOR }, ACTOR),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
 
 describe('UpdateProjectUseCase', () => {
   it('logs only the fields that really changed', async () => {
     const uow = new FakeUow();
     const project = await new CreateProjectUseCase(uow).execute(NEW_PROJECT, ACTOR);
     await new UpdateProjectUseCase(uow).execute(
-      { projectId: project.id, name: 'P', client: 'New client' },
+      { projectId: project.id, name: 'P2', locale: 'ar' },
       ACTOR,
     );
     expect(uow.events.at(-1)).toMatchObject({
       type: 'project.updated',
-      payload: { before: { client: 'C' }, after: { client: 'New client' } },
+      payload: { before: { name: 'P' }, after: { name: 'P2' } },
     });
   });
 

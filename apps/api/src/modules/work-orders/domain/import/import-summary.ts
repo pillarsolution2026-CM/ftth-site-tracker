@@ -44,12 +44,57 @@ export function annotateDuplicateCodes(rows: readonly ImportPreviewRow[]): Impor
   });
 }
 
+/** Spaces, tabs, line breaks and no-break spaces collapsed to one space, then trimmed. */
+export const collapseWhitespace = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+/**
+ * Adds UNIT_FORM_VARIANT to every item row whose unit, once whitespace is collapsed, is typed in
+ * two or more different ways among the item rows (replacing earlier annotations). The value is
+ * never changed (owner, 2026-10-31).
+ */
+export function annotateUnitVariants(rows: readonly ImportPreviewRow[]): ImportPreviewRow[] {
+  const groups = new Map<string, ImportPreviewRow[]>();
+  for (const row of rows) {
+    if (row.kind !== 'item' || row.unit === null) continue;
+    const key = collapseWhitespace(row.unit);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const variantRows = new Map<number, number[]>();
+  for (const group of groups.values()) {
+    if (new Set(group.map((row) => row.unit)).size < 2) continue;
+    for (const row of group) {
+      variantRows.set(
+        row.rowNumber,
+        group.filter((other) => other !== row).map((other) => other.rowNumber),
+      );
+    }
+  }
+  return rows.map((row) => {
+    const issues = row.issues.filter((found) => found.code !== 'UNIT_FORM_VARIANT');
+    const others = variantRows.get(row.rowNumber);
+    if (!others) return { ...row, issues };
+    return {
+      ...row,
+      issues: [
+        ...issues,
+        {
+          code: 'UNIT_FORM_VARIANT',
+          severity: IMPORT_ROW_ISSUE_SEVERITY.UNIT_FORM_VARIANT,
+          field: 'unit',
+          params: { otherRows: others.join(',') },
+        },
+      ],
+    };
+  });
+}
+
 export function summarize(
   rows: readonly ImportPreviewRow[],
 ): WorkOrderImportPreviewResponse['summary'] {
   const valid = rows.filter((row) => !hasError(row));
   return {
     rowCount: rows.length,
+    headingCount: rows.filter((row) => row.kind === 'heading').length,
     errorRowCount: rows.length - valid.length,
     warningRowCount: rows.filter((row) => row.issues.some((found) => found.severity === 'warning'))
       .length,

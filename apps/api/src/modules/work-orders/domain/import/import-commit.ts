@@ -8,8 +8,13 @@ import type { NewItem } from '../work-order.js';
 import { annotateDuplicateCodes, duplicateGroups, hasError } from './import-summary.js';
 import type { ParsedImport } from './import-parser.js';
 
+/** A row chosen for the commit: a priced item or (contract import only) a section heading. */
+export type CommitLine =
+  | ({ kind: 'item' } & NewItem)
+  | { kind: 'heading'; code: string; description: string | null; sourceRow: number };
+
 export type CommitSelection =
-  | { ok: true; items: NewItem[]; excludedCount: number }
+  | { ok: true; lines: CommitLine[]; excludedCount: number; headingCount: number }
   | { ok: false; details: ImportInvalidDetails };
 
 const invalid = (
@@ -27,6 +32,8 @@ const invalid = (
 export function selectRowsForCommit(
   parsed: ParsedImport,
   payload: Pick<WorkOrderImportCommitPayload, 'excludedRowNumbers' | 'acceptedDuplicateCodes'>,
+  /** `skip` (work orders): heading rows are never stored. `keep` (contracts): stored as headings. */
+  headings: 'skip' | 'keep' = 'skip',
 ): CommitSelection {
   if (parsed.fileIssues.length > 0)
     return invalid('FILE_ISSUES', { fileIssues: parsed.fileIssues });
@@ -34,7 +41,9 @@ export function selectRowsForCommit(
   const excluded = new Set(payload.excludedRowNumbers);
   // Duplicates are judged among the rows that stay, not among all rows of the sheet.
   const included = annotateDuplicateCodes(
-    parsed.rows.filter((row) => !excluded.has(row.rowNumber)),
+    parsed.rows.filter(
+      (row) => !excluded.has(row.rowNumber) && (headings === 'keep' || row.kind === 'item'),
+    ),
   );
 
   const withErrors = included.filter(hasError);
@@ -56,9 +65,22 @@ export function selectRowsForCommit(
   if (included.length === 0) return invalid('NO_ROWS_INCLUDED');
   return {
     ok: true,
-    items: included.map(toNewItem),
-    excludedCount: parsed.rows.length - included.length,
+    lines: included.map(toLine),
+    excludedCount: parsed.rows.filter((row) => excluded.has(row.rowNumber)).length,
+    headingCount: included.filter((row) => row.kind === 'heading').length,
   };
+}
+
+function toLine(row: ImportPreviewRow): CommitLine {
+  if (row.kind === 'heading') {
+    return {
+      kind: 'heading',
+      code: row.code ?? '',
+      description: row.description,
+      sourceRow: row.rowNumber,
+    };
+  }
+  return { kind: 'item', ...toNewItem(row) };
 }
 
 /** Rows without errors have every field set; the fallbacks only satisfy the type checker. */

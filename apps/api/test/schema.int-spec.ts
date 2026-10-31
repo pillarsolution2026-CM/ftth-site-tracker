@@ -8,7 +8,11 @@ import {
   cadLayers,
   cadMappings,
   cadTexts,
+  contractAttachments,
+  contractItems,
+  contracts,
   designFeatures,
+  projects,
   designRevisions,
   features,
   revisionDiffItems,
@@ -26,8 +30,12 @@ afterAll(async () => {
   await pool.end();
 });
 
-describe('Drizzle schema matches migrations 0003 and 0005', () => {
+describe('Drizzle schema matches migrations 0003, 0005 and 0007', () => {
   it.each([
+    projects,
+    contracts,
+    contractItems,
+    contractAttachments,
     workOrders,
     workOrderItems,
     workOrderAttachments,
