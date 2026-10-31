@@ -25,6 +25,13 @@ vi.mock('../api/import-api', () => ({
   commitContractImport: (...args: unknown[]) => commitContractImport(...args),
 }));
 
+const listWorkOrders = vi.fn();
+const getContractItems = vi.fn();
+vi.mock('@/features/work-orders/api/work-orders-api', () => ({
+  listWorkOrders: (...args: unknown[]) => listWorkOrders(...args),
+  getContractItems: (...args: unknown[]) => getContractItems(...args),
+}));
+
 const SHA = 'b'.repeat(64);
 const NEW_ID = '9f8fad5b-d9cb-469f-a165-70867728950e';
 
@@ -83,22 +90,22 @@ function preview(): WorkOrderImportPreviewResponse {
     mapping,
     fileIssues: [],
     rows: [
-      row(2, 'A-1', '1'),
+      row(2, 'A-1', '1', [{ code: 'AMOUNT_MISMATCH', severity: 'warning', field: 'amount' }]),
       row(3, 'D-7', '1', [
-        { code: 'DUPLICATE_CODE', severity: 'warning', field: 'code', params: { otherRows: '4' } },
+        { code: 'CODE_REPEATED', severity: 'error', field: 'code', params: { otherRows: '4' } },
       ]),
       row(4, 'D-7', '1', [
-        { code: 'DUPLICATE_CODE', severity: 'warning', field: 'code', params: { otherRows: '3' } },
+        { code: 'CODE_REPEATED', severity: 'error', field: 'code', params: { otherRows: '3' } },
       ]),
       row(5, 'E-5', null, [{ code: 'MISSING_VALUE', severity: 'error', field: 'quantity' }]),
     ],
     summary: {
       rowCount: 4,
       headingCount: 0,
-      errorRowCount: 1,
-      warningRowCount: 2,
-      duplicateCodes: [{ code: 'D-7', rowNumbers: [3, 4] }],
-      total: '3',
+      errorRowCount: 3,
+      warningRowCount: 1,
+      duplicateCodes: [],
+      total: '1',
     },
   };
 }
@@ -121,6 +128,10 @@ describe('ImportWizard', () => {
     push.mockReset();
     previewImport.mockReset().mockResolvedValue(preview());
     commitImport.mockReset().mockResolvedValue(created());
+    listWorkOrders.mockReset().mockResolvedValue({ items: [] });
+    getContractItems
+      .mockReset()
+      .mockResolvedValue({ contractId: NEW_ID, contractNumber: 'C-1', items: [] });
   });
 
   it('previews the file with an empty payload and shows the detected mapping and summary', async () => {
@@ -131,15 +142,66 @@ describe('ImportWizard', () => {
     expect(previewImport).toHaveBeenCalledWith(PROJECT_ID, file, {}, expect.anything());
     expect(screen.getByLabelText(/^Code/)).toHaveValue('0');
     expect(screen.getByLabelText('Sheet')).toHaveValue('BOQ');
-    expect(screen.getByTestId('import-total')).toHaveTextContent('3.00');
+    expect(screen.getByTestId('import-total')).toHaveTextContent('1.00');
     const summary = screen.getByRole('region', { name: '3. Summary' });
     expect(within(summary).getByText('Rows included').nextSibling).toHaveTextContent('4');
     // Issue messages are translated, with the server's params filled in.
-    expect(screen.getAllByText(/This code is repeated in rows [34]/).length).toBe(2);
+    expect(
+      screen.getByText(/The code is repeated in rows 4; an item appears once/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/The code is repeated in rows 3; an item appears once/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Missing value: Quantity/)).toBeInTheDocument();
+    // No duplicate-decision step for work orders (ADR-028).
+    expect(screen.queryByLabelText('Keep all as separate lines')).not.toBeInTheDocument();
   });
 
-  it('keeps the commit disabled until errors, duplicates and the number are resolved', async () => {
+  it('words the contract-matching issues with the contract value and the available quantity', async () => {
+    previewImport.mockResolvedValue({
+      ...preview(),
+      rows: [
+        row(2, 'X-1', '1', [{ code: 'NOT_IN_CONTRACT', severity: 'error', field: 'code' }]),
+        row(3, 'X-2', '1', [
+          {
+            code: 'CONTRACT_MISMATCH',
+            severity: 'error',
+            field: 'unitPrice',
+            params: { contractValue: '8000.00' },
+          },
+        ]),
+        row(4, 'X-3', '1', [
+          {
+            code: 'CONTRACT_MISMATCH',
+            severity: 'error',
+            field: 'workType',
+            params: { contractValue: 'civil' },
+          },
+        ]),
+        row(5, 'X-4', '9', [
+          {
+            code: 'QUANTITY_EXCEEDS_CONTRACT',
+            severity: 'error',
+            field: 'quantity',
+            params: { availableQuantity: '4', contractQuantity: '10', reservedQuantity: '6' },
+          },
+        ]),
+      ],
+    });
+    const user = userEvent.setup();
+    renderScreen(<ImportWizard projectId={PROJECT_ID} />);
+    await uploadFile(user);
+    expect(screen.getByText('The code is not in the contract')).toBeInTheDocument();
+    expect(screen.getByText('Unit price differs from the contract (8000.00)')).toBeInTheDocument();
+    expect(screen.getByText('Work type differs from the contract (Civil)')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The quantity is above what is available in the contract (available 4 of 10)',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the commit disabled until errors and the number are resolved', async () => {
     const user = userEvent.setup();
     renderScreen(<ImportWizard projectId={PROJECT_ID} />);
     await uploadFile(user);
@@ -147,27 +209,25 @@ describe('ImportWizard', () => {
 
     expect(commit).toBeDisabled();
     expect(screen.getByText('Enter the work order number')).toBeInTheDocument();
-    expect(screen.getByText('Decide what to do with each repeated code')).toBeInTheDocument();
     expect(
       screen.getByText('Rows with errors are still included: exclude them'),
     ).toBeInTheDocument();
+    expect(screen.queryByText('Decide what to do with each repeated code')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/^Number/), 'WO-77');
     await user.click(screen.getByLabelText('Exclude rows with errors'));
-    await user.click(screen.getByLabelText('Keep all as separate lines'));
     expect(commit).toBeEnabled();
-    // The excluded error row left the total and the included count.
-    expect(screen.getByTestId('import-total')).toHaveTextContent('3.00');
+    // The excluded error rows left the total and the included count.
+    expect(screen.getByTestId('import-total')).toHaveTextContent('1.00');
   });
 
-  it('commits with excluded rows and the accepted duplicate codes, then opens the new work order', async () => {
+  it('commits with the excluded error rows and no accepted duplicates, then opens the new work order', async () => {
     const user = userEvent.setup();
     renderScreen(<ImportWizard projectId={PROJECT_ID} />);
     const file = await uploadFile(user);
 
     await user.type(screen.getByLabelText(/^Number/), 'WO-77');
     await user.click(screen.getByLabelText('Exclude rows with errors'));
-    await user.click(screen.getByLabelText('Keep all as separate lines'));
     await user.click(screen.getByRole('button', { name: 'Create the work order' }));
 
     await waitFor(() => expect(commitImport).toHaveBeenCalledTimes(1));
@@ -179,8 +239,8 @@ describe('ImportWizard', () => {
       sheetName: 'BOQ',
       headerRow: 1,
       mapping,
-      excludedRowNumbers: [5],
-      acceptedDuplicateCodes: ['D-7'],
+      excludedRowNumbers: [3, 4, 5],
+      acceptedDuplicateCodes: [],
       workOrder: { number: 'WO-77' },
     });
     await waitFor(() =>
@@ -188,20 +248,25 @@ describe('ImportWizard', () => {
     );
   });
 
-  it('"exclude the rows of this code" leaves the duplicates out of the commit', async () => {
-    const user = userEvent.setup();
+  it.each([
+    ['NO_CONTRACT', 'This project has no contract. Create the contract first.'],
+    ['CONTRACT_NOT_APPROVED', 'The contract is still a draft. Approve the contract first.'],
+  ])('shows the %s reason before upload and offers no file picker', async (reason, text) => {
+    getContractItems.mockRejectedValue(new ApiClientError('CONFLICT', 409, { reason }));
     renderScreen(<ImportWizard projectId={PROJECT_ID} />);
-    await uploadFile(user);
-    await user.type(screen.getByLabelText(/^Number/), 'WO-78');
-    await user.click(screen.getByLabelText('Exclude rows with errors'));
-    await user.click(screen.getByLabelText('Exclude the rows of this code'));
-    await user.click(screen.getByRole('button', { name: 'Create the work order' }));
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Excel file (.xlsx)')).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(commitImport).toHaveBeenCalled());
-    expect(commitImport.mock.calls[0]?.[2]).toMatchObject({
-      excludedRowNumbers: [3, 4, 5],
-      acceptedDuplicateCodes: [],
-    });
+  it('points to the existing work order instead of importing a second one', async () => {
+    listWorkOrders.mockResolvedValue({ items: [{ id: NEW_ID, number: 'WO-1' }] });
+    renderScreen(<ImportWizard projectId={PROJECT_ID} />);
+    expect(await screen.findByText('This project already has a work order.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open the work order/ })).toHaveAttribute(
+      'href',
+      `/en/projects/${PROJECT_ID}/work-orders/${NEW_ID}`,
+    );
+    expect(screen.queryByLabelText('Excel file (.xlsx)')).not.toBeInTheDocument();
   });
 
   it('filters the rows by errors and warnings', async () => {
@@ -212,9 +277,9 @@ describe('ImportWizard', () => {
 
     expect(within(table()).getAllByRole('row')).toHaveLength(5); // header + 4
     await user.selectOptions(screen.getByLabelText('Show'), 'errors');
-    expect(within(table()).getAllByRole('row')).toHaveLength(2);
+    expect(within(table()).getAllByRole('row')).toHaveLength(4);
     await user.selectOptions(screen.getByLabelText('Show'), 'warnings');
-    expect(within(table()).getAllByRole('row')).toHaveLength(3);
+    expect(within(table()).getAllByRole('row')).toHaveLength(2);
   });
 
   it('re-reads the file with the edited mapping and blocks the commit until then', async () => {
@@ -252,7 +317,6 @@ describe('ImportWizard', () => {
     await uploadFile(user);
     await user.type(screen.getByLabelText(/^Number/), 'WO-79');
     await user.click(screen.getByLabelText('Exclude rows with errors'));
-    await user.click(screen.getByLabelText('Keep all as separate lines'));
     await user.click(screen.getByRole('button', { name: 'Create the work order' }));
 
     const alert = await screen.findByRole('alert');
@@ -266,7 +330,7 @@ describe('ImportWizard', () => {
     // The browser's picker can be switched to "all files", so the accept filter is not a guard.
     const user = userEvent.setup({ applyAccept: false });
     renderScreen(<ImportWizard projectId={PROJECT_ID} />);
-    await user.upload(screen.getByLabelText('Excel file (.xlsx)'), new File(['x'], 'a.xls'));
+    await user.upload(await screen.findByLabelText('Excel file (.xlsx)'), new File(['x'], 'a.xls'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Unsupported file type');
   });
 

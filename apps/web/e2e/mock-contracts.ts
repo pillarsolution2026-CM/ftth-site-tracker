@@ -151,6 +151,68 @@ contracts.set(seedContractId, {
   updatedAt: NOW,
 });
 
+/** A contract still in draft that a second seeded project belongs to ("approve it first"). */
+export const seedDraftContractId = '6b2d0a3f-7c4e-4f9b-8d0a-3e5c7b9d1f20';
+
+contracts.set(seedDraftContractId, {
+  id: seedDraftContractId,
+  number: 'C-DRAFT',
+  name: 'عقد مسودة',
+  client: 'Client',
+  currency: 'EGP',
+  startsOn: null,
+  durationDays: null,
+  notes: null,
+  status: 'draft',
+  approvedAt: null,
+  version: 1,
+  items: [
+    line(1, 'D-1', {
+      kind: 'item',
+      description: 'بند مسودة',
+      unit: 'م',
+      quantity: '10',
+      unitPrice: '1',
+      workType: 'civil',
+    }),
+  ],
+  attachments: [],
+  createdAt: NOW,
+  updatedAt: NOW,
+});
+
+/** What the work-order mock needs of a contract: status and its priced lines. */
+export function contractView(contractId: string) {
+  const contract = contracts.get(contractId);
+  if (!contract) return undefined;
+  return {
+    id: contract.id,
+    number: contract.number,
+    status: contract.status,
+    lines: contract.items.flatMap((item) =>
+      item.kind === 'item' &&
+      item.quantity !== null &&
+      item.unitPrice !== null &&
+      item.description !== null &&
+      item.unit !== null &&
+      item.workType !== null
+        ? [
+            {
+              id: item.id,
+              lineNo: item.lineNo,
+              code: item.code,
+              description: item.description,
+              unit: item.unit,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              workType: item.workType,
+            },
+          ]
+        : [],
+    ),
+  };
+}
+
 /** Client and currency a project copies from its contract; undefined for an unknown contract. */
 export function contractTerms(
   contractId: string,

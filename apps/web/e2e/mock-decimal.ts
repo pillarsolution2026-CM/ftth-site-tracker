@@ -24,6 +24,17 @@ export function mulDec(a: string, b: string): string {
   return formatDec({ int: x.int * y.int, scale: x.scale + y.scale });
 }
 
+export function subDec(a: string, b: string): string {
+  return sumDec([a, b.startsWith('-') ? b.slice(1) : `-${b}`]);
+}
+
+/** -1, 0 or 1. */
+export function cmpDec(a: string, b: string): number {
+  const difference = subDec(a, b);
+  if (difference === '0') return 0;
+  return difference.startsWith('-') ? -1 : 1;
+}
+
 export function sumDec(values: string[]): string {
   const parsed = values.map(parseDec);
   const scale = parsed.reduce((max, v) => Math.max(max, v.scale), 0);

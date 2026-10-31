@@ -278,7 +278,22 @@
     "backToList": "Back to the list",
     "numberTaken": "This number is already used in the project",
     "conflictOnUpdate": "The work order was changed by someone else, or this number is already used. Reload to see the latest version.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "singleTitle": "Work order",
+    "openExisting": "Open the work order",
+    "existsExplain": "This project already has its work order; a second one cannot be created.",
+    "legacy": "Legacy",
+    "createLines": "Work order lines from the contract",
+    "linesHint": "Pick items of the approved contract and enter a quantity for each.",
+    "reasons": {
+      "NO_CONTRACT": "This project has no contract. Create the contract first.",
+      "CONTRACT_NOT_APPROVED": "The contract is still a draft. Approve the contract first.",
+      "WORK_ORDER_EXISTS": "This project already has a work order.",
+      "NOT_IN_CONTRACT": "The item is not in the contract.",
+      "CONTRACT_ITEM_REPEATED": "The item is already a line of the work order.",
+      "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is left in the contract for item {code}: requested {requestedQuantity}, available {availableQuantity} (contract {contractQuantity}, reserved {reservedQuantity}).",
+      "LEGACY_ITEM": "This is a legacy line without a contract item and cannot be edited."
+    }
   },
   "items": {
     "title": "Items",
@@ -307,7 +322,32 @@
     "duplicateTitle": "Code {code} already exists on lines {lines}",
     "duplicateExplain": "Items are never merged. Keep it as a separate line, or change the code.",
     "keepSeparate": "Keep as a separate line",
-    "changeCode": "Change the code"
+    "changeCode": "Change the code",
+    "contractQuantity": "Contract quantity",
+    "availableAfter": "Available after reservation",
+    "legacy": "Legacy",
+    "legacyNoEdit": "Legacy line: cannot be edited",
+    "quantityOnly": "Only the quantity can be edited; everything else comes from the contract.",
+    "picker": {
+      "title": "Contract items",
+      "search": "Search items",
+      "searchPlaceholder": "Code or description",
+      "empty": "The contract has no priced items",
+      "noMatch": "No items match the search",
+      "choose": "Choose",
+      "quantity": "Quantity",
+      "reserved": "Reserved",
+      "available": "Available",
+      "inOrder": "In the work order",
+      "exceeds": "Quantity is above what is available ({available})",
+      "repeated": "The item is chosen more than once",
+      "selected": "Items chosen: {count}",
+      "addSelected": "Add the chosen items",
+      "invalidQuantity": "Enter a valid quantity (at most 4 decimal places)",
+      "quantityFor": "Quantity for item {code}",
+      "chooseFor": "Choose item {code}",
+      "clearAll": "Clear the selection"
+    }
   },
   "attachments": {
     "title": "Attachments",
@@ -430,7 +470,11 @@
       "INVALID_WORK_TYPE": "Unknown work type \"{value}\"; allowed: Civil, Installation or Planning",
       "DUPLICATE_CODE": "This code is repeated in rows {otherRows}",
       "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price",
-      "UNIT_FORM_VARIANT": "The same unit is typed differently in rows {otherRows}"
+      "UNIT_FORM_VARIANT": "The same unit is typed differently in rows {otherRows}",
+      "NOT_IN_CONTRACT": "The code is not in the contract",
+      "CONTRACT_MISMATCH": "{field} differs from the contract ({contractValue})",
+      "CODE_REPEATED": "The code is repeated in rows {otherRows}; an item appears once",
+      "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is available in the contract (available {availableQuantity} of {contractQuantity})"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Sheet not found",

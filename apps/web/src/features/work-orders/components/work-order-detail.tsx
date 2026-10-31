@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import type { WorkOrderDetail as WorkOrderDetailData } from '@ftth/shared';
+import type {
+  ContractItemAvailability,
+  WorkOrderDetail as WorkOrderDetailData,
+} from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
@@ -13,7 +16,9 @@ import { formatDecimal, formatMoney } from '@/shared/lib/decimal';
 import { useWorkOrderDetail } from '../hooks/use-work-order-detail';
 import { AttachmentsPanel } from './attachments-panel';
 import { HeaderFormView } from './header-form';
-import { ItemForm } from './item-form';
+import { AddLinesPanel } from './add-lines-panel';
+import { QuantityForm } from './quantity-form';
+import { WorkOrderErrorNotice } from './work-order-error';
 
 type DetailState = ReturnType<typeof useWorkOrderDetail>;
 
@@ -86,8 +91,19 @@ function HeaderSummary({
   );
 }
 
+function ContractCells({ available }: { available: ContractItemAvailability | undefined }) {
+  const { locale } = useI18n();
+  return (
+    <>
+      <Td>{available ? <Ltr>{formatDecimal(available.contractQuantity, locale)}</Ltr> : '—'}</Td>
+      <Td>{available ? <Ltr>{formatDecimal(available.availableQuantity, locale)}</Ltr> : '—'}</Td>
+    </>
+  );
+}
+
 function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; state: DetailState }) {
   const { t, locale } = useI18n();
+  const showContract = state.canWrite && state.availabilityItems.length > 0;
   const duplicateCodes = new Set(workOrder.duplicateCodes.map((entry) => entry.code));
   return (
     <section aria-labelledby="items-title" className="mt-8">
@@ -114,15 +130,32 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
           </ul>
         </Notice>
       ) : null}
-      {state.actionErrorCode ? <ErrorNotice code={state.actionErrorCode} className="mb-3" /> : null}
-      {state.canWrite && state.itemEditor ? (
+      {state.actionError ? (
+        <WorkOrderErrorNotice error={state.actionError} className="mb-3" />
+      ) : null}
+      {state.canWrite && state.itemEditor?.mode === 'add' ? (
         <div className="mb-4">
-          <ItemForm
-            key={state.itemEditor.mode === 'edit' ? state.itemEditor.item.id : 'add'}
+          <AddLinesPanel
             projectId={workOrder.projectId}
             workOrderId={workOrder.id}
-            items={workOrder.items}
-            editing={state.itemEditor.mode === 'edit' ? state.itemEditor.item : undefined}
+            items={state.availabilityItems}
+            disabledIds={state.contractItemIdsInOrder}
+            onDone={state.closeItemEditor}
+          />
+        </div>
+      ) : null}
+      {state.canWrite && state.itemEditor?.mode === 'edit' ? (
+        <div className="mb-4">
+          <QuantityForm
+            key={state.itemEditor.item.id}
+            projectId={workOrder.projectId}
+            workOrderId={workOrder.id}
+            item={state.itemEditor.item}
+            availability={
+              state.itemEditor.item.contractItemId
+                ? state.availabilityByContractItem.get(state.itemEditor.item.contractItemId)
+                : undefined
+            }
             onDone={state.closeItemEditor}
           />
         </div>
@@ -139,6 +172,8 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
               <Th>{t('items.description')}</Th>
               <Th>{t('items.unit')}</Th>
               <Th>{t('items.quantity')}</Th>
+              {showContract ? <Th>{t('items.contractQuantity')}</Th> : null}
+              {showContract ? <Th>{t('items.availableAfter')}</Th> : null}
               <Th>{t('items.unitPrice')}</Th>
               <Th>{t('items.amount')}</Th>
               {state.canWrite ? <Th>{t('common.actions')}</Th> : null}
@@ -152,6 +187,11 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
                 </Td>
                 <Td>
                   <Ltr>{item.code}</Ltr>
+                  {item.contractItemId === null ? (
+                    <span className="ms-2 rounded border border-(--color-border) px-1 text-xs">
+                      {t('items.legacy')}
+                    </span>
+                  ) : null}
                   {duplicateCodes.has(item.code) ? (
                     <span className="ms-2 rounded border border-(--status-inProgress) px-1 text-xs">
                       <span aria-hidden="true">▲ </span>
@@ -172,6 +212,15 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
                 <Td>
                   <Ltr>{formatDecimal(item.quantity, locale)}</Ltr>
                 </Td>
+                {showContract ? (
+                  <ContractCells
+                    available={
+                      item.contractItemId
+                        ? state.availabilityByContractItem.get(item.contractItemId)
+                        : undefined
+                    }
+                  />
+                ) : null}
                 <Td>
                   <Ltr>{formatDecimal(item.unitPrice, locale, { minFractionDigits: 2 })}</Ltr>
                 </Td>
@@ -199,13 +248,17 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          aria-label={`${t('common.edit')} ${item.code}`}
-                          onClick={() => state.openEditItem(item)}
-                        >
-                          {t('common.edit')}
-                        </Button>
+                        {item.contractItemId === null ? (
+                          <span className="self-center text-sm">{t('items.legacyNoEdit')}</span>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            aria-label={`${t('common.edit')} ${item.code}`}
+                            onClick={() => state.openEditItem(item)}
+                          >
+                            {t('common.edit')}
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           aria-label={`${t('common.delete')} ${item.code}`}

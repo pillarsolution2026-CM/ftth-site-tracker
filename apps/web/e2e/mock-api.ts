@@ -13,6 +13,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import {
+  AddWorkOrderItemRequestSchema,
+  ContractItemAvailabilityResponseSchema,
+  CreateWorkOrderRequestSchema,
+  UpdateWorkOrderItemRequestSchema,
   CadCurvePageSchema,
   CadFileDetailSchema,
   CadFileListResponseSchema,
@@ -27,7 +31,6 @@ import {
   IMPORT_HEADER_SYNONYMS,
   WORK_TYPE_SYNONYMS,
   WORK_TYPES,
-  WorkTypeSchema,
   type WorkType,
   WorkOrderAttachmentListResponseSchema,
   WorkOrderAttachmentSchema,
@@ -44,8 +47,14 @@ import {
   createAdminState,
   handleAdmin,
 } from './mock-admin.ts';
-import { mulDec, sumDec } from './mock-decimal.ts';
-import { configureContracts, handleProjectContract, seedContractId } from './mock-contracts.ts';
+import { cmpDec, mulDec, subDec, sumDec } from './mock-decimal.ts';
+import {
+  configureContracts,
+  contractView,
+  handleProjectContract,
+  seedContractId,
+  seedDraftContractId,
+} from './mock-contracts.ts';
 import {
   MOCK_DETECTION,
   handleDesignRevisions,
@@ -60,6 +69,12 @@ const PASSWORD = 'correct-password';
 const ACCESS = 'mock-access-token';
 const REFRESH = 'mock-refresh-token-0123456789abcdef0123456789';
 const PROJECT_ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+// A second project of the same PM, under a contract that is still a draft (ADR-028 e2e).
+const DRAFT_PROJECT_ID = '1f8fad5b-d9cb-469f-a165-70867728950e';
+const PROJECT_CONTRACTS: Record<string, string> = {
+  [PROJECT_ID]: seedContractId,
+  [DRAFT_PROJECT_ID]: seedDraftContractId,
+};
 const CURRENCY = 'EGP';
 
 const ME = {
@@ -72,6 +87,12 @@ const ME = {
     {
       projectId: PROJECT_ID,
       projectName: 'شبكة الألياف - القاهرة الجديدة',
+      role: 'pm',
+      zoneIds: [],
+    },
+    {
+      projectId: DRAFT_PROJECT_ID,
+      projectName: 'مشروع الإسكندرية (عقد مسودة)',
       role: 'pm',
       zoneIds: [],
     },
@@ -148,6 +169,8 @@ interface ItemRecord {
   quantity: string;
   unitPrice: string;
   workType: WorkType | null;
+  /** Contract item the line comes from (ADR-028); null = legacy line. */
+  contractItemId: string | null;
   source: 'manual' | 'import';
   sourceRow: number | null;
 }
@@ -163,6 +186,7 @@ interface AttachmentRecord {
 
 interface WorkOrderRecord {
   id: string;
+  projectId: string;
   number: string;
   title: string | null;
   issuedOn: string | null;
@@ -190,6 +214,7 @@ function itemOut(workOrderId: string, item: ItemRecord) {
     unitPrice: item.unitPrice,
     amount: mulDec(item.quantity, item.unitPrice),
     workType: item.workType,
+    contractItemId: item.contractItemId,
     source: item.source,
     sourceRow: item.sourceRow,
     createdAt: now,
@@ -214,7 +239,7 @@ function attachmentOut(workOrderId: string, attachment: AttachmentRecord) {
 function summaryOut(workOrder: WorkOrderRecord) {
   return {
     id: workOrder.id,
-    projectId: PROJECT_ID,
+    projectId: workOrder.projectId,
     number: workOrder.number,
     title: workOrder.title,
     issuedOn: workOrder.issuedOn,
@@ -249,12 +274,14 @@ function detailOut(workOrder: WorkOrderRecord) {
 }
 
 function newWorkOrder(
+  projectId: string,
   header: Record<string, unknown>,
   source: 'manual' | 'import',
 ): WorkOrderRecord {
   const now = new Date().toISOString();
   return {
     id: randomUUID(),
+    projectId,
     number: String(header.number ?? ''),
     title: (header.title as string | null | undefined) ?? null,
     issuedOn: (header.issuedOn as string | null | undefined) ?? null,
@@ -268,8 +295,115 @@ function newWorkOrder(
   };
 }
 
-function numberTaken(number: string, exceptId?: string): boolean {
-  return [...workOrders.values()].some((w) => w.number === number && w.id !== exceptId);
+function numberTaken(projectId: string, number: string, exceptId?: string): boolean {
+  return [...workOrders.values()].some(
+    (w) => w.projectId === projectId && w.number === number && w.id !== exceptId,
+  );
+}
+
+// ---------- work-order lines come from the approved contract (ADR-028) ----------
+
+type ContractData = NonNullable<ReturnType<typeof contractView>>;
+
+/** The project's contract when it can take work-order lines, else the 409 reason. */
+function contractGate(projectId: string): { contract: ContractData } | { reason: string } {
+  const contractId = PROJECT_CONTRACTS[projectId];
+  const contract = contractId ? contractView(contractId) : undefined;
+  if (!contract) return { reason: 'NO_CONTRACT' };
+  if (contract.status !== 'approved') return { reason: 'CONTRACT_NOT_APPROVED' };
+  return { contract };
+}
+
+/** Σ quantity per contract item over every work order of the contract (all projects). */
+function reservedOn(contractId: string, exceptWorkOrderId?: string): Map<string, string> {
+  const reserved = new Map<string, string>();
+  for (const workOrder of workOrders.values()) {
+    if (PROJECT_CONTRACTS[workOrder.projectId] !== contractId) continue;
+    if (workOrder.id === exceptWorkOrderId) continue;
+    for (const item of workOrder.items) {
+      if (item.contractItemId === null) continue;
+      reserved.set(
+        item.contractItemId,
+        sumDec([reserved.get(item.contractItemId) ?? '0', item.quantity]),
+      );
+    }
+  }
+  return reserved;
+}
+
+function availabilityOut(projectId: string, contract: ContractData) {
+  const reserved = reservedOn(contract.id);
+  const own = [...workOrders.values()].find((w) => w.projectId === projectId);
+  return ContractItemAvailabilityResponseSchema.parse({
+    contractId: contract.id,
+    contractNumber: contract.number,
+    items: contract.lines.map((line) => {
+      const reservedQuantity = reserved.get(line.id) ?? '0';
+      return {
+        contractItemId: line.id,
+        lineNo: line.lineNo,
+        code: line.code,
+        description: line.description,
+        unit: line.unit,
+        unitPrice: line.unitPrice,
+        workType: line.workType,
+        contractQuantity: line.quantity,
+        reservedQuantity,
+        availableQuantity: subDec(line.quantity, reservedQuantity),
+        workOrderItemId: own?.items.find((item) => item.contractItemId === line.id)?.id ?? null,
+      };
+    }),
+  });
+}
+
+/** Sends the 409 and returns true when the quantity is not in the contract or above what is left. */
+function rejectQuantity(
+  res: ServerResponse,
+  contract: ContractData,
+  contractItemId: string,
+  quantity: string,
+  exceptWorkOrderId?: string,
+): boolean {
+  const line = contract.lines.find((candidate) => candidate.id === contractItemId);
+  if (!line) {
+    sendError(res, 409, 'CONFLICT', { reason: 'NOT_IN_CONTRACT', contractItemId });
+    return true;
+  }
+  const reservedQuantity = reservedOn(contract.id, exceptWorkOrderId).get(line.id) ?? '0';
+  const availableQuantity = subDec(line.quantity, reservedQuantity);
+  if (cmpDec(quantity, availableQuantity) > 0) {
+    sendError(res, 409, 'CONFLICT', {
+      reason: 'QUANTITY_EXCEEDS_CONTRACT',
+      contractItemId,
+      code: line.code,
+      contractQuantity: line.quantity,
+      reservedQuantity,
+      requestedQuantity: quantity,
+      availableQuantity,
+    });
+    return true;
+  }
+  return false;
+}
+
+function itemFromContract(
+  line: ContractData['lines'][number],
+  lineNo: number,
+  quantity: string,
+): ItemRecord {
+  return {
+    id: randomUUID(),
+    lineNo,
+    code: line.code,
+    description: line.description,
+    unit: line.unit,
+    quantity,
+    unitPrice: line.unitPrice,
+    workType: line.workType,
+    contractItemId: line.id,
+    source: 'manual',
+    sourceRow: null,
+  };
 }
 
 // ---------- excel import (fixture format, see header comment) ----------
@@ -305,7 +439,12 @@ function suggestMapping(header: string[]): Mapping {
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
-function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mapping }) {
+function parsePreview(
+  file: Part,
+  options: { sheetName?: string; mapping?: Mapping },
+  /** Work-order import: rows are matched to this approved contract (ADR-028). */
+  against?: { contract: ContractData; reserved: Map<string, string> },
+) {
   const fixture = readFixture(file.data);
   if (!fixture) return null;
   const sheet = fixture.sheets.find((s) => s.name === options.sheetName) ?? fixture.sheets[0];
@@ -399,18 +538,62 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
   for (const row of rows) {
     if (row.code !== null) byCode.set(row.code, [...(byCode.get(row.code) ?? []), row.rowNumber]);
   }
-  const duplicateCodes = [...byCode.entries()]
+  const repeated = [...byCode.entries()]
     .filter(([, rowNumbers]) => rowNumbers.length > 1)
     .map(([code, rowNumbers]) => ({ code, rowNumbers }));
-  for (const duplicate of duplicateCodes) {
+  // A work order has no duplicate decision: a repeated code is an error on every row (ADR-028).
+  const duplicateCodes = against ? [] : repeated;
+  for (const duplicate of repeated) {
     for (const row of rows) {
       if (row.code !== duplicate.code) continue;
       row.issues.push({
-        code: 'DUPLICATE_CODE',
-        severity: 'warning',
+        code: against ? 'CODE_REPEATED' : 'DUPLICATE_CODE',
+        severity: against ? 'error' : 'warning',
         field: 'code',
         params: { otherRows: duplicate.rowNumbers.filter((n) => n !== row.rowNumber).join(', ') },
       });
+    }
+  }
+
+  if (against) {
+    for (const row of rows) {
+      if (row.kind !== 'item' || row.code === null) continue;
+      const line = against.contract.lines.find((candidate) => candidate.code === row.code);
+      if (!line) {
+        row.issues.push({ code: 'NOT_IN_CONTRACT', severity: 'error', field: 'code' });
+        continue;
+      }
+      const mismatch = (field: string, contractValue: string) =>
+        row.issues.push({
+          code: 'CONTRACT_MISMATCH',
+          severity: 'error',
+          field,
+          params: { contractValue },
+        });
+      if (row.description !== null && row.description.trim() !== line.description) {
+        mismatch('description', line.description);
+      }
+      if (row.unit !== null && row.unit.trim() !== line.unit) mismatch('unit', line.unit);
+      if (row.unitPrice !== null && cmpDec(row.unitPrice, line.unitPrice) !== 0) {
+        mismatch('unitPrice', line.unitPrice);
+      }
+      if (row.workType !== null && row.workType !== line.workType) {
+        mismatch('workType', line.workType);
+      }
+      const reservedQuantity = against.reserved.get(line.id) ?? '0';
+      const availableQuantity = subDec(line.quantity, reservedQuantity);
+      if (row.quantity !== null && cmpDec(row.quantity, availableQuantity) > 0) {
+        row.issues.push({
+          code: 'QUANTITY_EXCEEDS_CONTRACT',
+          severity: 'error',
+          field: 'quantity',
+          params: {
+            availableQuantity,
+            contractQuantity: line.quantity,
+            reservedQuantity,
+          },
+        });
+      }
     }
   }
 
@@ -446,6 +629,7 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
     rows,
     hasError,
     duplicateCodes,
+    contractLines: against?.contract.lines ?? [],
     response: WorkOrderImportPreviewResponseSchema.parse({
       file: {
         name: file.filename ?? 'import.xlsx',
@@ -667,17 +851,16 @@ async function handleProject(
   segments: string[],
 ): Promise<void> {
   const [, projectId, resource, id, sub, subId, subSub] = segments;
-  if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
+  if (projectId === undefined || !(projectId in PROJECT_CONTRACTS)) {
+    return sendError(res, 404, 'NOT_FOUND');
+  }
   const method = req.method ?? 'GET';
 
   if (resource === 'work-orders')
-    return handleWorkOrders(req, res, method, [id, sub, subId, subSub]);
+    return handleWorkOrders(req, res, method, projectId, [id, sub, subId, subSub]);
   if (resource === 'contract')
-    return handleProjectContract(
-      res,
-      method,
-      adminState.projects.find((project) => project.id === projectId)?.contractId ?? null,
-    );
+    return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
+  if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub]);
   if (resource === 'design-revisions') {
     return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {
@@ -692,28 +875,60 @@ async function handleWorkOrders(
   req: IncomingMessage,
   res: ServerResponse,
   method: string,
+  projectId: string,
   [id, sub, subId, subSub]: (string | undefined)[],
 ): Promise<void> {
+  const existing = [...workOrders.values()].find((w) => w.projectId === projectId);
+  /** 409 NO_CONTRACT / CONTRACT_NOT_APPROVED / WORK_ORDER_EXISTS before anything is read. */
+  const creationGate = () => {
+    const gate = contractGate(projectId);
+    if ('reason' in gate) {
+      sendError(res, 409, 'CONFLICT', { reason: gate.reason });
+      return null;
+    }
+    if (existing) {
+      sendError(res, 409, 'CONFLICT', { reason: 'WORK_ORDER_EXISTS' });
+      return null;
+    }
+    return gate.contract;
+  };
+
+  if (id === 'contract-items' && method === 'GET') {
+    const gate = contractGate(projectId);
+    if ('reason' in gate) return sendError(res, 409, 'CONFLICT', { reason: gate.reason });
+    return send(res, 200, availabilityOut(projectId, gate.contract));
+  }
+
   if (id === undefined) {
     if (method === 'GET') {
       const items = [...workOrders.values()]
+        .filter((w) => w.projectId === projectId)
         .sort((a, b) => a.number.localeCompare(b.number))
         .map(summaryOut);
       return send(res, 200, WorkOrderListResponseSchema.parse({ items }));
     }
     if (method === 'POST') {
-      const body = await readJson(req);
-      if (typeof body.number !== 'string' || body.number.trim() === '') {
-        return sendError(res, 400, 'VALIDATION_FAILED');
+      const body = CreateWorkOrderRequestSchema.safeParse(await readJson(req));
+      if (!body.success) return sendError(res, 400, 'VALIDATION_FAILED');
+      const contract = creationGate();
+      if (!contract) return;
+      if (numberTaken(projectId, body.data.number)) return sendError(res, 409, 'CONFLICT');
+      for (const line of body.data.lines) {
+        if (rejectQuantity(res, contract, line.contractItemId, line.quantity)) return;
       }
-      if (numberTaken(body.number)) return sendError(res, 409, 'CONFLICT');
-      const workOrder = newWorkOrder(body, 'manual');
+      const workOrder = newWorkOrder(projectId, body.data, 'manual');
+      workOrder.items = body.data.lines.flatMap((line, index) => {
+        const found = contract.lines.find((candidate) => candidate.id === line.contractItemId);
+        return found ? [itemFromContract(found, index + 1, line.quantity)] : [];
+      });
       workOrders.set(workOrder.id, workOrder);
       return send(res, 201, detailOut(workOrder));
     }
   }
 
   if (id === 'import') {
+    const contract = creationGate();
+    if (!contract) return;
     const parts = await readMultipart(req);
     const file = parts.find((part) => part.name === 'file');
     const payload = JSON.parse(
@@ -721,15 +936,18 @@ async function handleWorkOrders(
     ) as Record<string, any>;
     if (!file || !readFixture(file.data)) return sendError(res, 415, 'UNSUPPORTED_FILE');
 
+    const against = { contract, reserved: reservedOn(contract.id) };
     if (sub === 'preview') {
-      const parsed = parsePreview(file, payload);
+      const parsed = parsePreview(file, payload, against);
       return parsed ? send(res, 200, parsed.response) : sendError(res, 415, 'UNSUPPORTED_FILE');
     }
-    if (sub === undefined && method === 'POST') return commitImport(res, file, payload);
+    if (sub === undefined && method === 'POST') {
+      return commitImport(res, projectId, file, payload, against);
+    }
   }
 
   const workOrder = id ? workOrders.get(id) : undefined;
-  if (!workOrder) return sendError(res, 404, 'NOT_FOUND');
+  if (!workOrder || workOrder.projectId !== projectId) return sendError(res, 404, 'NOT_FOUND');
 
   if (sub === undefined) {
     if (method === 'GET') return send(res, 200, detailOut(workOrder));
@@ -740,7 +958,7 @@ async function handleWorkOrders(
     if (method === 'PATCH') {
       const body = await readJson(req);
       if (body.expectedVersion !== workOrder.version) return sendError(res, 409, 'CONFLICT');
-      if (typeof body.number === 'string' && numberTaken(body.number, workOrder.id)) {
+      if (typeof body.number === 'string' && numberTaken(projectId, body.number, workOrder.id)) {
         return sendError(res, 409, 'CONFLICT');
       }
       for (const field of ['number', 'title', 'issuedOn', 'notes'] as const) {
@@ -764,30 +982,25 @@ async function handleItems(
   workOrder: WorkOrderRecord,
   itemId: string | undefined,
 ): Promise<void> {
-  const body = await readJson(req);
+  const raw = await readJson(req);
   const touch = () => {
     workOrder.version += 1;
     workOrder.updatedAt = new Date().toISOString();
   };
-  const duplicate = (code: string, exceptId?: string) =>
-    workOrder.items.some((item) => item.code === code && item.id !== exceptId);
 
   if (itemId === undefined && method === 'POST') {
-    const code = String(body.code ?? '');
-    if (duplicate(code) && body.acceptDuplicateCode !== true)
-      return sendError(res, 409, 'CONFLICT');
-    const item: ItemRecord = {
-      id: randomUUID(),
-      lineNo: Math.max(0, ...workOrder.items.map((i) => i.lineNo)) + 1,
-      code,
-      description: String(body.description),
-      unit: String(body.unit),
-      quantity: String(body.quantity),
-      unitPrice: String(body.unitPrice),
-      workType: WorkTypeSchema.parse(body.workType),
-      source: 'manual',
-      sourceRow: null,
-    };
+    const body = AddWorkOrderItemRequestSchema.safeParse(raw);
+    if (!body.success) return sendError(res, 400, 'VALIDATION_FAILED');
+    const gate = contractGate(workOrder.projectId);
+    if ('reason' in gate) return sendError(res, 409, 'CONFLICT', { reason: gate.reason });
+    if (workOrder.items.some((item) => item.contractItemId === body.data.contractItemId)) {
+      return sendError(res, 409, 'CONFLICT', { reason: 'CONTRACT_ITEM_REPEATED' });
+    }
+    if (rejectQuantity(res, gate.contract, body.data.contractItemId, body.data.quantity)) return;
+    const line = gate.contract.lines.find((candidate) => candidate.id === body.data.contractItemId);
+    if (!line) return sendError(res, 409, 'CONFLICT', { reason: 'NOT_IN_CONTRACT' });
+    const lineNo = body.data.lineNo ?? Math.max(0, ...workOrder.items.map((i) => i.lineNo)) + 1;
+    const item = itemFromContract(line, lineNo, body.data.quantity);
     workOrder.items.push(item);
     touch();
     return send(res, 201, itemOut(workOrder.id, item));
@@ -796,17 +1009,17 @@ async function handleItems(
   const item = workOrder.items.find((candidate) => candidate.id === itemId);
   if (!item) return sendError(res, 404, 'NOT_FOUND');
   if (method === 'PATCH') {
-    if (
-      typeof body.code === 'string' &&
-      duplicate(body.code, item.id) &&
-      body.acceptDuplicateCode !== true
-    ) {
-      return sendError(res, 409, 'CONFLICT');
+    const body = UpdateWorkOrderItemRequestSchema.safeParse(raw);
+    if (!body.success) return sendError(res, 400, 'VALIDATION_FAILED');
+    if (item.contractItemId === null) {
+      return sendError(res, 409, 'CONFLICT', { reason: 'LEGACY_ITEM' });
     }
-    for (const field of ['code', 'description', 'unit', 'quantity', 'unitPrice'] as const) {
-      if (typeof body[field] === 'string') item[field] = body[field];
+    const gate = contractGate(workOrder.projectId);
+    if ('reason' in gate) return sendError(res, 409, 'CONFLICT', { reason: gate.reason });
+    if (rejectQuantity(res, gate.contract, item.contractItemId, body.data.quantity, workOrder.id)) {
+      return;
     }
-    if (body.workType !== undefined) item.workType = WorkTypeSchema.parse(body.workType);
+    item.quantity = body.data.quantity;
     touch();
     return send(res, 200, itemOut(workOrder.id, item));
   }
@@ -868,8 +1081,18 @@ async function handleAttachments(
   return sendError(res, 404, 'NOT_FOUND');
 }
 
-function commitImport(res: ServerResponse, file: Part, payload: Record<string, any>): void {
-  const parsed = parsePreview(file, { sheetName: payload.sheetName, mapping: payload.mapping });
+function commitImport(
+  res: ServerResponse,
+  projectId: string,
+  file: Part,
+  payload: Record<string, any>,
+  against: { contract: ContractData; reserved: Map<string, string> },
+): void {
+  const parsed = parsePreview(
+    file,
+    { sheetName: payload.sheetName, mapping: payload.mapping },
+    against,
+  );
   const invalid = (reason: string, extra: Record<string, unknown> = {}) =>
     sendError(res, 422, 'IMPORT_INVALID', {
       reason,
@@ -881,7 +1104,6 @@ function commitImport(res: ServerResponse, file: Part, payload: Record<string, a
   if (!parsed || parsed.response.file.sha256 !== payload.fileSha256) return invalid('FILE_CHANGED');
 
   const excluded = new Set<number>(payload.excludedRowNumbers ?? []);
-  const accepted = new Set<string>(payload.acceptedDuplicateCodes ?? []);
   // Heading rows are skipped by the work-order import (the contract import keeps them).
   const included = parsed.rows.filter((row) => !excluded.has(row.rowNumber) && row.kind === 'item');
   if (included.length === 0) return invalid('NO_ROWS_INCLUDED');
@@ -891,17 +1113,11 @@ function commitImport(res: ServerResponse, file: Part, payload: Record<string, a
       rows: withErrors.map((row) => ({ rowNumber: row.rowNumber, issues: row.issues })),
     });
   }
-  const counts = new Map<string, number>();
-  for (const row of included)
-    counts.set(row.code as string, (counts.get(row.code as string) ?? 0) + 1);
-  const unresolved = [...counts.entries()]
-    .filter(([code, n]) => n > 1 && !accepted.has(code))
-    .map(([code]) => code);
-  if (unresolved.length > 0)
-    return invalid('UNRESOLVED_DUPLICATES', { duplicateCodes: unresolved });
-  if (numberTaken(String(payload.workOrder?.number))) return sendError(res, 409, 'CONFLICT');
+  if (numberTaken(projectId, String(payload.workOrder?.number))) {
+    return sendError(res, 409, 'CONFLICT');
+  }
 
-  const workOrder = newWorkOrder(payload.workOrder ?? {}, 'import');
+  const workOrder = newWorkOrder(projectId, payload.workOrder ?? {}, 'import');
   workOrder.items = included.map((row, index) => ({
     id: randomUUID(),
     lineNo: index + 1,
@@ -911,6 +1127,7 @@ function commitImport(res: ServerResponse, file: Part, payload: Record<string, a
     quantity: row.quantity as string,
     unitPrice: row.unitPrice as string,
     workType: row.workType,
+    contractItemId: parsed.contractLines.find((line) => line.code === row.code)?.id ?? null,
     source: 'import',
     sourceRow: row.rowNumber,
   }));

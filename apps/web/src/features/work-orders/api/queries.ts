@@ -9,6 +9,7 @@ import {
   deleteAttachment,
   deleteItem,
   deleteWorkOrder,
+  getContractItems,
   getWorkOrder,
   listWorkOrders,
   updateItem,
@@ -19,6 +20,19 @@ import {
 export const workOrdersKey = (projectId: string) => ['work-orders', projectId] as const;
 export const workOrderKey = (projectId: string, id: string) =>
   ['work-order', projectId, id] as const;
+
+export const contractItemsKey = (projectId: string) =>
+  ['work-order-contract-items', projectId] as const;
+
+/** 409 NO_CONTRACT / CONTRACT_NOT_APPROVED arrive as errors (read the reason with errorReasonOf). */
+export function useContractItems(projectId: string, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: contractItemsKey(projectId),
+    queryFn: () => getContractItems(projectId),
+    retry: false,
+  });
+}
 
 export function useWorkOrders(projectId: string, enabled = true) {
   return useQuery({
@@ -44,6 +58,8 @@ function useInvalidateWorkOrder(projectId: string, workOrderId?: string) {
   return () =>
     Promise.all([
       client.invalidateQueries({ queryKey: workOrdersKey(projectId) }),
+      // Reserved quantities change with every line (and across the projects of the contract).
+      client.invalidateQueries({ queryKey: contractItemsKey(projectId) }),
       workOrderId
         ? client.invalidateQueries({ queryKey: workOrderKey(projectId, workOrderId) })
         : Promise.resolve(),
@@ -72,7 +88,10 @@ export function useDeleteWorkOrder(projectId: string, workOrderId: string) {
     mutationFn: () => deleteWorkOrder(projectId, workOrderId),
     onSuccess: async () => {
       client.removeQueries({ queryKey: workOrderKey(projectId, workOrderId) });
-      await client.invalidateQueries({ queryKey: workOrdersKey(projectId) });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: workOrdersKey(projectId) }),
+        client.invalidateQueries({ queryKey: contractItemsKey(projectId) }),
+      ]);
     },
   });
 }
