@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import type { Database } from './db.module.js';
+import { seedContractAndWorkOrder } from './seed-contract.js';
 import { assignments, projects, schema, users, zones } from './schema.js';
 
 const SEED_USERS = [
@@ -60,7 +61,9 @@ export async function seed(db: Database): Promise<void> {
   }
 
   const projectA = await ensureProject(db, 'القطاع الأول – قليوب', 'WE');
+  // Project B stays without a contract (the "no contract" case of the work-order tests).
   await ensureProject(db, 'Test Project B', 'WE');
+  await seedContractAndWorkOrder(db, projectA);
 
   let [zone] = await db
     .select({ id: zones.id })

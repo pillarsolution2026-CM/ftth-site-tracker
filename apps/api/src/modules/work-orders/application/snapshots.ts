@@ -12,6 +12,7 @@ export function itemSnapshot(item: WorkOrderItem): Record<string, unknown> {
     unitPrice: item.unitPrice.toString(),
     amount: itemAmount(item).toString(),
     workType: item.workType,
+    contractItemId: item.contractItemId,
     source: item.source,
     sourceRow: item.sourceRow,
   };

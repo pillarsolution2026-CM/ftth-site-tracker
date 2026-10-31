@@ -11,7 +11,7 @@ import {
 } from '@ftth/shared';
 import { ApiClientError, errorCodeOf } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
-import { workOrdersKey } from '@/features/work-orders/api/queries';
+import { contractItemsKey, workOrdersKey } from '@/features/work-orders/api/queries';
 import { contractKey, contractsKey } from '@/features/contracts/api/queries';
 import {
   commitContractImport,
@@ -78,7 +78,10 @@ export function useImportWizard(target: ImportTarget) {
           : Promise.reject(new Error('import target mismatch')),
     onSuccess: async (created) => {
       if (target.kind === 'workOrder') {
-        await client.invalidateQueries({ queryKey: workOrdersKey(target.projectId) });
+        await Promise.all([
+          client.invalidateQueries({ queryKey: workOrdersKey(target.projectId) }),
+          client.invalidateQueries({ queryKey: contractItemsKey(target.projectId) }),
+        ]);
         router.push(`/${locale}/projects/${target.projectId}/work-orders/${created.id}`);
         return;
       }

@@ -40,7 +40,8 @@ describe('GET /projects/:projectId', () => {
       crsEpsg: 32636,
       currency: 'EGP',
       locale: 'ar',
-      contractId: null,
+      // The dev seed links project A to its approved contract (ADR-028).
+      contractId: expect.any(String),
     });
   });
 

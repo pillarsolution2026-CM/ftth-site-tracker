@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
+import {
+  createApprovedContract,
+  createProjectIn,
+  createWorkOrderFrom,
+} from './contract-fixtures.js';
 import { ensureMember, loginAs, SEED_LOGINS } from './helpers.js';
 import type { TestContext } from './test-app.js';
 
@@ -43,15 +48,6 @@ export interface ExecutionFixture {
 
 const square = (e: number, n: number, size: number) =>
   `ST_Multi(ST_MakeEnvelope(${e}, ${n}, ${e + size}, ${n + size}, 32636))`;
-
-async function insertProject(pool: pg.Pool, name: string): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO projects (name, client, crs_epsg, currency, locale)
-     VALUES ($1, 'WE', 32636, 'EGP', 'ar') RETURNING id`,
-    [name],
-  );
-  return rows[0]?.id ?? '';
-}
 
 /** A revision built and published, with the given features (WKT in EPSG:32636). */
 export async function publishRevision(
@@ -111,33 +107,6 @@ export async function publishRevision(
   return revisionId;
 }
 
-async function insertItem(
-  pool: pg.Pool,
-  projectId: string,
-  workOrderId: string,
-  lineNo: number,
-  code: string,
-  unit: string,
-  quantity: string,
-  workType: string,
-): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO work_order_items (project_id, work_order_id, line_no, code, description, unit,
-                                   quantity, unit_price, work_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8) RETURNING id`,
-    [projectId, workOrderId, lineNo, code, `Test item ${code}`, unit, quantity, workType],
-  );
-  return rows[0]?.id ?? '';
-}
-
-async function insertWorkOrder(pool: pg.Pool, projectId: string): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO work_orders (project_id, number, currency) VALUES ($1, $2, 'EGP') RETURNING id`,
-    [projectId, `WO-${randomUUID().slice(0, 8)}`],
-  );
-  return rows[0]?.id ?? '';
-}
-
 async function userId(pool: pg.Pool, email: string): Promise<string> {
   const { rows } = await pool.query<{ id: string }>('SELECT id FROM users WHERE email = $1', [
     email,
@@ -148,8 +117,15 @@ async function userId(pool: pg.Pool, email: string): Promise<string> {
 export async function createExecutionFixture(ctx: TestContext): Promise<ExecutionFixture> {
   const { pool } = ctx;
   const tag = randomUUID().slice(0, 8);
-  const projectId = await insertProject(pool, `Execution ${tag}`);
-  const otherProjectId = await insertProject(pool, `Execution other ${tag}`);
+  // Work orders come from an approved contract (ADR-028); both projects share this one.
+  const contract = await createApprovedContract(pool, [
+    { code: 'C-01', unit: 'م', quantity: '100', unitPrice: '0', workType: 'civil' },
+    { code: 'C-02', unit: 'عدد', quantity: '10', unitPrice: '0', workType: 'civil' },
+    { code: 'I-01', unit: 'عدد', quantity: '5', unitPrice: '0', workType: 'installation' },
+    { code: 'X', unit: 'م', quantity: '1', unitPrice: '0', workType: 'civil' },
+  ]);
+  const projectId = await createProjectIn(pool, contract.contractId, `Execution ${tag}`);
+  const otherProjectId = await createProjectIn(pool, contract.contractId, `Execution other ${tag}`);
 
   const zone = async (name: string, geom: string) =>
     (
@@ -180,23 +156,18 @@ export async function createExecutionFixture(ctx: TestContext): Promise<Executio
     1,
   );
 
-  const workOrderId = await insertWorkOrder(pool, projectId);
+  const own = await createWorkOrderFrom(pool, projectId, contract, {
+    'C-01': '100',
+    'C-02': '10',
+    'I-01': '5',
+  });
   const items = {
-    civilMetres: await insertItem(pool, projectId, workOrderId, 1, 'C-01', 'م', '100', 'civil'),
-    civilPieces: await insertItem(pool, projectId, workOrderId, 2, 'C-02', 'عدد', '10', 'civil'),
-    installation: await insertItem(
-      pool,
-      projectId,
-      workOrderId,
-      3,
-      'I-01',
-      'عدد',
-      '5',
-      'installation',
-    ),
+    civilMetres: own.itemIdsByCode['C-01'] ?? '',
+    civilPieces: own.itemIdsByCode['C-02'] ?? '',
+    installation: own.itemIdsByCode['I-01'] ?? '',
   };
-  const otherOrder = await insertWorkOrder(pool, otherProjectId);
-  const foreignItem = await insertItem(pool, otherProjectId, otherOrder, 1, 'X', 'م', '1', 'civil');
+  const other = await createWorkOrderFrom(pool, otherProjectId, contract, { X: '1' });
+  const foreignItem = other.itemIdsByCode.X ?? '';
 
   const member = async (
     key: string,

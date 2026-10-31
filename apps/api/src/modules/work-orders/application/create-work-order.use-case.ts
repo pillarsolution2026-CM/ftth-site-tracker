@@ -1,11 +1,17 @@
 import { EVENT_ENTITIES, EVENT_TYPES, type CreateWorkOrderRequest } from '@ftth/shared';
+import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
+import { assertLinesFit, lineFromContract } from '../domain/contract-lines.js';
 import { Decimal } from '../domain/decimal.js';
 import { WorkOrder } from '../domain/work-order.js';
 import type { WorkOrderUnitOfWork } from '../domain/work-order.repository.js';
 import type { ProjectCurrencyLookup } from './ports.js';
 import type { WorkOrderView } from './work-order-queries.js';
 
+/**
+ * Creates the project's single work order from lines of its approved contract (ADR-028). The
+ * contract row is locked first, so the reservation check and the insert see the same numbers.
+ */
 export class CreateWorkOrderUseCase {
   constructor(
     private readonly uow: WorkOrderUnitOfWork,
@@ -21,45 +27,53 @@ export class CreateWorkOrderUseCase {
   }): Promise<WorkOrderView> {
     const { projectId, actorId, request } = input;
     const currency = await this.projects.currencyOf(projectId);
-    const order = WorkOrder.create(
-      {
-        projectId,
-        number: request.number,
-        title: request.title,
-        issuedOn: request.issuedOn,
-        notes: request.notes,
-        currency,
-        source: 'manual',
-        items: request.items.map((item) => ({
-          ...item,
-          quantity: Decimal.parse(item.quantity),
-          unitPrice: Decimal.parse(item.unitPrice),
-        })),
-        acceptedDuplicateCodes: request.acceptedDuplicateCodes,
-        createdById: actorId,
-      },
-      this.ids,
-      this.clock.now(),
-    );
 
-    await this.uow.run(async (tx) => {
-      await tx.orders.insert(order);
+    const order = await this.uow.run(async (tx) => {
+      const contract = await tx.contracts.loadApproved(projectId, { lock: true });
+      if (await tx.orders.existsForProject(projectId)) {
+        throw new AppError('CONFLICT', 'The project already has a work order', {
+          reason: 'WORK_ORDER_EXISTS',
+        });
+      }
+      const lines = request.lines.map((line) =>
+        lineFromContract(contract, line.contractItemId, Decimal.parse(line.quantity)),
+      );
+      const created = WorkOrder.create(
+        {
+          projectId,
+          number: request.number,
+          title: request.title,
+          issuedOn: request.issuedOn,
+          notes: request.notes,
+          currency,
+          source: 'manual',
+          items: lines,
+          createdById: actorId,
+        },
+        this.ids,
+        this.clock.now(),
+      );
+      assertLinesFit(contract, await tx.contracts.reservations(contract.id), lines);
+
+      await tx.orders.insert(created);
       await tx.events.append({
         projectId,
         entity: EVENT_ENTITIES.workOrder,
-        entityId: order.header.id,
+        entityId: created.header.id,
         type: EVENT_TYPES.workOrderCreated,
         actorId,
         payload: {
-          number: order.header.number,
-          title: order.header.title,
-          issuedOn: order.header.issuedOn,
+          number: created.header.number,
+          title: created.header.title,
+          issuedOn: created.header.issuedOn,
           currency,
-          itemCount: order.items.length,
-          total: order.total.toString(),
-          acceptedDuplicateCodes: request.acceptedDuplicateCodes,
+          contractId: contract.id,
+          itemCount: created.items.length,
+          total: created.total.toString(),
+          contractItemIds: created.items.map((item) => item.contractItemId),
         },
       });
+      return created;
     });
     return { order, attachments: [] };
   }

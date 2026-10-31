@@ -3,12 +3,12 @@ import {
   Decimal6StringSchema,
   ITEM_TEXT_LIMITS,
   WorkTypeSchema,
-  type WorkOrderItem,
   type WorkOrderItemInput,
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
 import { normalizeDecimalInput } from '@/shared/lib/decimal';
 
+/** Fields of a contract BOQ line (the contract line form reuses this validation). */
 export interface ItemFormValues {
   code: string;
   description: string;
@@ -21,15 +21,6 @@ export interface ItemFormValues {
 
 export type ItemFormErrors = Partial<Record<keyof ItemFormValues, MessageKey>>;
 
-export const EMPTY_ITEM_FORM: ItemFormValues = {
-  code: '',
-  description: '',
-  unit: '',
-  quantity: '',
-  unitPrice: '',
-  workType: '',
-};
-
 const LIMITS: Record<'code' | 'description' | 'unit', number> = ITEM_TEXT_LIMITS;
 
 /** Quantities keep 4 decimals, unit prices 6 (ADR-016). */
@@ -37,18 +28,6 @@ const DECIMAL_SCHEMAS = {
   quantity: Decimal4StringSchema,
   unitPrice: Decimal6StringSchema,
 } as const;
-
-export function itemToFormValues(item: WorkOrderItem): ItemFormValues {
-  return {
-    code: item.code,
-    description: item.description,
-    unit: item.unit,
-    quantity: item.quantity,
-    unitPrice: item.unitPrice,
-    // Items saved before ADR-016 have none: the user must pick one before saving.
-    workType: item.workType ?? '',
-  };
-}
 
 export type ItemValidation =
   { ok: true; data: WorkOrderItemInput } | { ok: false; errors: ItemFormErrors };
@@ -86,13 +65,4 @@ export function validateItemForm(values: ItemFormValues): ItemValidation {
         ok: true,
         data: { code, description, unit, quantity, unitPrice, workType: workType.data },
       };
-}
-
-/** An existing line that already uses this code (the line being edited is ignored). */
-export function findDuplicateCode(
-  items: readonly WorkOrderItem[],
-  code: string,
-  ignoreItemId?: string,
-): WorkOrderItem[] {
-  return items.filter((item) => item.code === code && item.id !== ignoreItemId);
 }

@@ -259,7 +259,8 @@ export function commitBlockers(state: WizardState, options: CommitOptions = {}):
     : selection.included.filter((row) => !isHeadingRow(row));
   if (counting.length === 0) blockers.push('noRows');
   if (selection.blockingErrorRows.length > 0) blockers.push('errorRows');
-  if (selection.unresolvedDuplicates.length > 0) blockers.push('unresolvedDuplicates');
+  // Work orders have no duplicate decision since ADR-028: a repeated code is an error row.
+  if (contract && selection.unresolvedDuplicates.length > 0) blockers.push('unresolvedDuplicates');
   return blockers;
 }
 
@@ -280,9 +281,8 @@ export function buildCommitPayload(state: WizardState):
     headerRow: preview.headerRow,
     mapping: mapping.data,
     excludedRowNumbers: [...selection.excluded].sort((a, b) => a - b),
-    acceptedDuplicateCodes: Object.entries(state.decisions)
-      .filter(([, decision]) => decision === 'keep')
-      .map(([code]) => code),
+    // Ignored by the server since ADR-028 (a repeated code is the error CODE_REPEATED).
+    acceptedDuplicateCodes: [],
     workOrder: headerPayload(state.header),
   };
 }

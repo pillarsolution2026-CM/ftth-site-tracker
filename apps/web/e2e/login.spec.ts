@@ -21,7 +21,8 @@ test('successful login shows the welcome text and role, and logout returns to lo
   await page.getByRole('button', { name: 'دخول' }).click();
 
   await expect(page.getByRole('heading', { name: 'أهلًا منى أحمد' })).toBeVisible();
-  await expect(page.getByText('مدير المشروع')).toBeVisible();
+  // The PM has two projects (the second one is under a draft contract), so the badge shows twice.
+  await expect(page.getByText('مدير المشروع').first()).toBeVisible();
 
   // The browser never sees the tokens.
   expect(await page.evaluate(() => document.cookie)).toBe('');

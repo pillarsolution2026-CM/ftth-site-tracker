@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChangeEvent, FormEvent } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/form-controls';
@@ -25,6 +25,8 @@ export interface HeaderFormViewProps {
   onSubmit: (event: FormEvent) => void;
   onCancel?: () => void;
   onReload?: () => void;
+  /** Extra content between the fields and the buttons (the line picker of the create screen). */
+  children?: ReactNode;
 }
 
 export function HeaderFormView({
@@ -39,6 +41,7 @@ export function HeaderFormView({
   onSubmit,
   onCancel,
   onReload,
+  children,
 }: HeaderFormViewProps) {
   const { t } = useI18n();
   const err = (field: keyof HeaderFormValues) => {
@@ -95,6 +98,7 @@ export function HeaderFormView({
         onChange={onChange('notes')}
         error={err('notes')}
       />
+      {children}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={pending}>
           {pending ? t('common.saving') : submitLabel}

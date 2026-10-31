@@ -71,3 +71,36 @@ Changed:
 
 Expected after this step: 199 rows → 160 items + 39 headings, 0 error rows, total
 `236701830.984`, `UNIT_FORM_VARIANT` warnings on rows 192–195 and 199–200 (the `BULDING …` units).
+
+# Step 2 — work-order lines from the contract (ADR-028)
+
+Migration `0008_work_order_lines_from_contract.sql`. Zod: `work-orders/work-order.schemas.ts`
+(`WorkOrderLineInput`, `CreateWorkOrderRequest.lines`, `AddWorkOrderItemRequest`,
+`UpdateWorkOrderItemRequest` = quantity only, `WORK_ORDER_CONFLICT_REASONS`,
+`ContractItemAvailability*`, `WorkOrderItem.contractItemId`) and
+`work-orders/work-order-import.schemas.ts` (issue codes `NOT_IN_CONTRACT`, `CONTRACT_MISMATCH`,
+`CODE_REPEATED`, `QUANTITY_EXCEEDS_CONTRACT`).
+
+| Method | Path | Change |
+| --- | --- | --- |
+| GET | `/projects/:projectId/work-orders/contract-items` | new; `work_orders:write`; `ContractItemAvailabilityResponse`; 409 `NO_CONTRACT` / `CONTRACT_NOT_APPROVED` |
+| POST | `/projects/:projectId/work-orders` | body `lines[]` of `{contractItemId, quantity}`; 409 `NO_CONTRACT`, `CONTRACT_NOT_APPROVED`, `WORK_ORDER_EXISTS`, `NOT_IN_CONTRACT`, `CONTRACT_ITEM_REPEATED`, `QUANTITY_EXCEEDS_CONTRACT` |
+| POST | `…/work-orders/:id/items` | body `{contractItemId, quantity, lineNo?}`; same 409 reasons |
+| PATCH | `…/work-orders/:id/items/:itemId` | body `{quantity}` only; 409 `QUANTITY_EXCEEDS_CONTRACT`, `LEGACY_ITEM` |
+| DELETE | `…/work-orders/:id/items/:itemId`, `…/work-orders/:id` | unchanged; frees the reserved quantity |
+| POST | `…/work-orders/import/preview`, `…/work-orders/import` | rows matched to the approved contract by code (issues above); 409 `NO_CONTRACT`, `CONTRACT_NOT_APPROVED`, `WORK_ORDER_EXISTS` before reading the file |
+
+Matching rules: the code must be a priced item of the contract (headings never match); then
+`description` and `unit` must be equal as stored (trimmed), `unitPrice` equal as a decimal
+(`8000` = `8000.00`), `workType` equal. Quantity check: `reserved (other work orders) + row
+quantity ≤ contract quantity`. A code on two rows → `CODE_REPEATED` on both.
+
+Empty quantity (owner, 2026-10-31): an item row whose quantity cell is empty becomes
+`kind: 'skipped'` with the warning `EMPTY_QUANTITY_SKIPPED`; it is not checked against the
+contract and never stored. A quantity of 0 or unreadable text is not empty.
+
+Checked with the owner's files (copies, not committed): the work-order sheet
+(`boq_restored3_errors_yellow.xlsx`, same 199 codes, quantities = 1/3 of the contract) against
+`contract boq.xlsx` → 0 errors, 153 lines, 7 skipped rows (the contract's zero-quantity items, empty
+in the sheet), 39 headings, total `78900610.328`. With two identical work orders already reserved
+it still fits exactly; a fourth gives `QUANTITY_EXCEEDS_CONTRACT` on 153 rows.

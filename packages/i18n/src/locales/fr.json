@@ -278,7 +278,22 @@
     "backToList": "Retour à la liste",
     "numberTaken": "Ce numéro est déjà utilisé dans le projet",
     "conflictOnUpdate": "L'ordre a été modifié par quelqu'un d'autre, ou ce numéro existe déjà. Rechargez pour voir la dernière version.",
-    "reload": "Recharger"
+    "reload": "Recharger",
+    "singleTitle": "Ordre de travail",
+    "openExisting": "Ouvrir l'ordre de travail",
+    "existsExplain": "Ce projet a déjà son ordre de travail ; un second ne peut pas être créé.",
+    "legacy": "Ancien",
+    "createLines": "Lignes de l'ordre de travail issues du contrat",
+    "linesHint": "Choisissez des articles du contrat approuvé et saisissez une quantité pour chacun.",
+    "reasons": {
+      "NO_CONTRACT": "Ce projet n'a pas de contrat. Créez d'abord le contrat.",
+      "CONTRACT_NOT_APPROVED": "Le contrat est encore un brouillon. Approuvez d'abord le contrat.",
+      "WORK_ORDER_EXISTS": "Ce projet a déjà un ordre de travail.",
+      "NOT_IN_CONTRACT": "L'article n'est pas dans le contrat.",
+      "CONTRACT_ITEM_REPEATED": "L'article est déjà une ligne de l'ordre de travail.",
+      "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le reste du contrat pour l'article {code} : demandé {requestedQuantity}, disponible {availableQuantity} (contrat {contractQuantity}, réservé {reservedQuantity}).",
+      "LEGACY_ITEM": "Ligne ancienne sans article de contrat : elle ne peut pas être modifiée."
+    }
   },
   "items": {
     "title": "Lignes",
@@ -307,7 +322,32 @@
     "duplicateTitle": "Le code {code} existe déjà aux lignes {lines}",
     "duplicateExplain": "Les lignes ne sont jamais fusionnées. Gardez-la comme ligne séparée ou changez le code.",
     "keepSeparate": "Garder comme ligne séparée",
-    "changeCode": "Changer le code"
+    "changeCode": "Changer le code",
+    "contractQuantity": "Quantité du contrat",
+    "availableAfter": "Disponible après réservation",
+    "legacy": "Ancien",
+    "legacyNoEdit": "Ligne ancienne : non modifiable",
+    "quantityOnly": "Seule la quantité est modifiable ; le reste vient du contrat.",
+    "picker": {
+      "title": "Articles du contrat",
+      "search": "Rechercher des articles",
+      "searchPlaceholder": "Code ou description",
+      "empty": "Le contrat n'a pas d'articles chiffrés",
+      "noMatch": "Aucun article ne correspond à la recherche",
+      "choose": "Choisir",
+      "quantity": "Quantité",
+      "reserved": "Réservé",
+      "available": "Disponible",
+      "inOrder": "Dans l'ordre de travail",
+      "exceeds": "La quantité dépasse le disponible ({available})",
+      "repeated": "L'article est choisi plusieurs fois",
+      "selected": "Articles choisis : {count}",
+      "addSelected": "Ajouter les articles choisis",
+      "invalidQuantity": "Saisissez une quantité valide (4 décimales au maximum)",
+      "quantityFor": "Quantité de l'article {code}",
+      "chooseFor": "Choisir l'article {code}",
+      "clearAll": "Effacer la sélection"
+    }
   },
   "attachments": {
     "title": "Pièces jointes",
@@ -430,7 +470,12 @@
       "INVALID_WORK_TYPE": "Type de travaux « {value} » inconnu ; autorisés : Génie civil, Installation ou Planification",
       "DUPLICATE_CODE": "Ce code est répété aux lignes {otherRows}",
       "AMOUNT_MISMATCH": "Le montant de la feuille diffère de quantité × prix unitaire",
-      "UNIT_FORM_VARIANT": "La même unité est saisie différemment dans les lignes {otherRows}"
+      "UNIT_FORM_VARIANT": "La même unité est saisie différemment dans les lignes {otherRows}",
+      "NOT_IN_CONTRACT": "Le code n'est pas dans le contrat",
+      "CONTRACT_MISMATCH": "{field} diffère du contrat ({contractValue})",
+      "CODE_REPEATED": "Le code est répété aux lignes {otherRows} ; un article apparaît une fois",
+      "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le disponible du contrat (disponible {availableQuantity} sur {contractQuantity})",
+      "EMPTY_QUANTITY_SKIPPED": "Quantité vide : la ligne est ignorée et n'est pas ajoutée à l'ordre de travail"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Feuille introuvable",

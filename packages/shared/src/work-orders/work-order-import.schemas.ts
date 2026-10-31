@@ -120,6 +120,11 @@ export const IMPORT_ROW_ISSUE_CODES = [
   'DUPLICATE_CODE',
   'AMOUNT_MISMATCH',
   'UNIT_FORM_VARIANT',
+  'NOT_IN_CONTRACT',
+  'CONTRACT_MISMATCH',
+  'CODE_REPEATED',
+  'QUANTITY_EXCEEDS_CONTRACT',
+  'EMPTY_QUANTITY_SKIPPED',
 ] as const;
 export const ImportRowIssueCodeSchema = z.enum(IMPORT_ROW_ISSUE_CODES);
 export type ImportRowIssueCode = z.infer<typeof ImportRowIssueCodeSchema>;
@@ -149,15 +154,39 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
      * kept exactly as typed (owner, 2026-10-31). `params.otherRows` lists the other rows.
      */
     UNIT_FORM_VARIANT: 'warning',
+    // ---- Work-order import against the project's approved contract (ADR-028, owner 2026-10-31) ----
+    /** No priced item of the contract has this code. */
+    NOT_IN_CONTRACT: 'error',
+    /**
+     * The row differs from the contract item with the same code. One issue per differing field
+     * (`description`, `unit`, `unitPrice`, `workType`); `params.contractValue` = the contract's
+     * value. Never corrected automatically: the file must be fixed.
+     */
+    CONTRACT_MISMATCH: 'error',
+    /** The code is on another row too (a contract item at most once per work order). `params.otherRows`. */
+    CODE_REPEATED: 'error',
+    /**
+     * Quantity above what is left of the contract quantity. `params`: `availableQuantity`,
+     * `contractQuantity`, `reservedQuantity` (other work orders of the contract).
+     */
+    QUANTITY_EXCEEDS_CONTRACT: 'error',
+    /**
+     * Work-order import only: the quantity cell of an item row is empty, so the row is not part of
+     * this work order. It is skipped automatically (`kind: 'skipped'`), never stored and not
+     * checked against the contract (owner, 2026-10-31). A quantity of 0 or invalid text is not empty.
+     */
+    EMPTY_QUANTITY_SKIPPED: 'warning',
   };
 
 /**
  * Kind of a data row. `heading` = a section title: the unit and the unit price are both empty and
  * the quantity and amount are empty or zero (owner, 2026-10-31). A heading needs only a code; it has
  * no other checks, is not counted in the total, and is never stored as a work-order item (the
- * contract import stores it as a heading line). Every other row is an `item`.
+ * contract import stores it as a heading line). `skipped` = work-order import only: an item row
+ * whose quantity cell is empty (`EMPTY_QUANTITY_SKIPPED`); it is never stored. Every other row is
+ * an `item`.
  */
-export const IMPORT_ROW_KINDS = ['item', 'heading'] as const;
+export const IMPORT_ROW_KINDS = ['item', 'heading', 'skipped'] as const;
 export const ImportRowKindSchema = z.enum(IMPORT_ROW_KINDS);
 export type ImportRowKind = z.infer<typeof ImportRowKindSchema>;
 
@@ -284,7 +313,10 @@ export const WorkOrderImportCommitPayloadSchema = z.object({
   mapping: ConfirmedColumnMappingSchema,
   /** Rows the user chose to leave out. Every included row must be free of errors. */
   excludedRowNumbers: z.array(z.number().int().min(1)).default([]),
-  /** Duplicate codes the user explicitly keeps as separate lines. Others must be excluded. */
+  /**
+   * Ignored since ADR-028: a repeated code is the error `CODE_REPEATED`. Kept so older clients
+   * still validate.
+   */
   acceptedDuplicateCodes: z.array(z.string()).default([]),
   workOrder: WorkOrderHeaderInputSchema,
 });

@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import type { WorkOrderItem } from '@ftth/shared';
+import type { ContractItemAvailability, WorkOrderItem } from '@ftth/shared';
 import { errorCodeOf } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useProject } from '@/features/projects/hooks/project-access-context';
 import {
+  useContractItems,
   useDeleteItem,
   useDeleteWorkOrder,
   useUpdateWorkOrder,
@@ -36,6 +37,25 @@ export function useWorkOrderDetail(projectId: string, workOrderId: string) {
   const [confirmOrder, setConfirmOrder] = useState(false);
 
   const data = query.data;
+
+  // Contract quantities per contract item (writers only; the endpoint needs work_orders:write).
+  // A failure (e.g. the contract is no longer approved) only hides the extra columns.
+  const availability = useContractItems(projectId, can('work_orders:write'));
+  const availabilityItems = useMemo(() => availability.data?.items ?? [], [availability.data]);
+  const availabilityByContractItem = useMemo(
+    () =>
+      new Map<string, ContractItemAvailability>(
+        availabilityItems.map((item) => [item.contractItemId, item]),
+      ),
+    [availabilityItems],
+  );
+  const contractItemIdsInOrder = useMemo(
+    () =>
+      new Set(
+        (data?.items ?? []).flatMap((item) => (item.contractItemId ? [item.contractItemId] : [])),
+      ),
+    [data],
+  );
 
   const startEditHeader = () => {
     if (!data) return;
@@ -107,6 +127,9 @@ export function useWorkOrderDetail(projectId: string, workOrderId: string) {
     askDeleteOrder: setConfirmOrder,
     deleteOrder,
     deletingOrder: removeOrder.isPending,
-    actionErrorCode: actionError ? errorCodeOf(actionError) : null,
+    actionError,
+    availabilityItems,
+    availabilityByContractItem,
+    contractItemIdsInOrder,
   };
 }

@@ -25,7 +25,10 @@ import { APP_ENV } from '../../../config/config.module.js';
 import type { AuthenticatedRequest } from '../../identity/interface/auth-request.js';
 import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
-import { CommitImportUseCase, PreviewImportUseCase } from '../application/import.use-cases.js';
+import {
+  CommitImportUseCase,
+  PreviewWorkOrderImportUseCase,
+} from '../application/import.use-cases.js';
 import { toDetailDto } from './work-order.presenter.js';
 
 /** Multipart: field `file` (.xlsx) and field `payload` (JSON text). The xlsx is parsed in memory. */
@@ -36,7 +39,7 @@ import { toDetailDto } from './work-order.presenter.js';
 @UseGuards(JwtAuthGuard, ProjectScopeGuard, PermissionGuard)
 export class WorkOrderImportController {
   constructor(
-    @Inject(PreviewImportUseCase) private readonly preview: PreviewImportUseCase,
+    @Inject(PreviewWorkOrderImportUseCase) private readonly preview: PreviewWorkOrderImportUseCase,
     @Inject(CommitImportUseCase) private readonly commit: CommitImportUseCase,
     @Inject(APP_ENV) private readonly env: ApiEnv,
   ) {}
@@ -46,11 +49,12 @@ export class WorkOrderImportController {
   @RequirePermission('work_orders:write')
   @ApiOkResponse({ schema: openApiSchema(WorkOrderImportPreviewResponseSchema) })
   async previewImport(
+    @ProjectIdParam() projectId: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<WorkOrderImportPreviewResponse> {
     const upload = await receiveBufferedFile(request, maxUploadBytes(this.env.MAX_UPLOAD_MB));
     const options = parsePayloadField(upload.fields, WorkOrderImportPreviewOptionsSchema, {});
-    return this.preview.execute({ file: upload.file, options });
+    return this.preview.execute({ projectId, file: upload.file, options });
   }
 
   @Post()

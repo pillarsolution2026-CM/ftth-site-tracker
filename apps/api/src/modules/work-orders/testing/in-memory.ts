@@ -8,6 +8,7 @@ import {
   type WorkOrderItem,
 } from '../domain/work-order.js';
 import type {
+  ContractCatalog,
   WorkOrderAttachment,
   WorkOrderAttachmentRepository,
   WorkOrderRepository,
@@ -15,6 +16,8 @@ import type {
   WorkOrderTx,
   WorkOrderUnitOfWork,
 } from '../domain/work-order.repository.js';
+import { reservedOf, type ApprovedContract, type Reservations } from '../domain/contract-lines.js';
+import type { Decimal } from '../domain/decimal.js';
 import { sumDecimals } from '../domain/decimal.js';
 import { itemAmount } from '../domain/work-order.js';
 
@@ -43,6 +46,19 @@ export class InMemoryWorkOrders implements WorkOrderRepository {
   }
   async exists(projectId: string, workOrderId: string): Promise<boolean> {
     return this.orders.get(workOrderId)?.header.projectId === projectId;
+  }
+  async existsForProject(projectId: string): Promise<boolean> {
+    return [...this.orders.values()].some((order) => order.header.projectId === projectId);
+  }
+  async lineIdsByContractItem(projectId: string): Promise<Map<string, string>> {
+    const ids = new Map<string, string>();
+    for (const order of this.orders.values()) {
+      if (order.header.projectId !== projectId) continue;
+      for (const item of order.items) {
+        if (item.contractItemId !== null) ids.set(item.contractItemId, item.id);
+      }
+    }
+    return ids;
   }
   async findById(projectId: string, workOrderId: string): Promise<WorkOrder | null> {
     const order = this.orders.get(workOrderId);
@@ -96,6 +112,46 @@ export class InMemoryWorkOrders implements WorkOrderRepository {
   }
 }
 
+/**
+ * One approved contract shared by every project (set `state` to test the refusals). Reservations
+ * are summed from the in-memory work orders, like the database does across projects.
+ */
+export class InMemoryContractCatalog implements ContractCatalog {
+  state: 'approved' | 'draft' | 'none' = 'approved';
+  /** Calls with `lock: true`, to assert the contract is locked before reservations are read. */
+  readonly lockedLoads: string[] = [];
+
+  constructor(
+    private readonly contract: ApprovedContract,
+    private readonly orders: InMemoryWorkOrders,
+  ) {}
+
+  async loadApproved(projectId: string, options?: { lock?: boolean }): Promise<ApprovedContract> {
+    if (options?.lock) this.lockedLoads.push(projectId);
+    if (this.state === 'none') {
+      throw new AppError('CONFLICT', 'no contract', { reason: 'NO_CONTRACT' });
+    }
+    if (this.state === 'draft') {
+      throw new AppError('CONFLICT', 'draft', { reason: 'CONTRACT_NOT_APPROVED' });
+    }
+    return this.contract;
+  }
+
+  async reservations(contractId: string): Promise<Reservations> {
+    const reserved = new Map<string, Decimal>();
+    for (const order of this.orders.orders.values()) {
+      for (const item of order.items) {
+        if (item.contractId !== contractId || item.contractItemId === null) continue;
+        reserved.set(
+          item.contractItemId,
+          reservedOf(reserved, item.contractItemId).add(item.quantity),
+        );
+      }
+    }
+    return reserved;
+  }
+}
+
 export class InMemoryAttachments implements WorkOrderAttachmentRepository {
   readonly rows: WorkOrderAttachment[] = [];
   async listByWorkOrder(projectId: string, workOrderId: string): Promise<WorkOrderAttachment[]> {
@@ -123,13 +179,19 @@ export class InMemoryAttachments implements WorkOrderAttachmentRepository {
 export class InMemoryWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
   readonly orders = new InMemoryWorkOrders();
   readonly attachments = new InMemoryAttachments();
+  readonly contracts: InMemoryContractCatalog;
   readonly events = new InMemoryEvents();
   failOnCommit: Error | null = null;
+
+  constructor(contract: ApprovedContract) {
+    this.contracts = new InMemoryContractCatalog(contract, this.orders);
+  }
 
   async run<T>(work: (tx: WorkOrderTx) => Promise<T>): Promise<T> {
     const result = await work({
       orders: this.orders,
       attachments: this.attachments,
+      contracts: this.contracts,
       events: this.events,
     });
     if (this.failOnCommit) throw this.failOnCommit;

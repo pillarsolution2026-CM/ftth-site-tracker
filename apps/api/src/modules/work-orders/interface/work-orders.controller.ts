@@ -14,6 +14,7 @@ import {
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import {
   AddWorkOrderItemRequestSchema,
+  ContractItemAvailabilityResponseSchema,
   CreateWorkOrderRequestSchema,
   UpdateWorkOrderItemRequestSchema,
   UpdateWorkOrderRequestSchema,
@@ -21,6 +22,7 @@ import {
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
   type AddWorkOrderItemRequest,
+  type ContractItemAvailabilityResponse,
   type CreateWorkOrderRequest,
   type UpdateWorkOrderItemRequest,
   type UpdateWorkOrderRequest,
@@ -45,8 +47,12 @@ import {
   RemoveWorkOrderItemUseCase,
   UpdateWorkOrderItemUseCase,
 } from '../application/work-order-item.use-cases.js';
-import { GetWorkOrderUseCase, ListWorkOrdersUseCase } from '../application/work-order-queries.js';
-import { toDetailDto, toItemDto, toSummaryDto } from './work-order.presenter.js';
+import {
+  GetWorkOrderUseCase,
+  ListContractItemAvailabilityUseCase,
+  ListWorkOrdersUseCase,
+} from '../application/work-order-queries.js';
+import { toAvailabilityDto, toDetailDto, toItemDto, toSummaryDto } from './work-order.presenter.js';
 
 @ApiTags('work-orders')
 @ApiBearerAuth()
@@ -56,6 +62,8 @@ export class WorkOrdersController {
   constructor(
     @Inject(ListWorkOrdersUseCase) private readonly list: ListWorkOrdersUseCase,
     @Inject(GetWorkOrderUseCase) private readonly get: GetWorkOrderUseCase,
+    @Inject(ListContractItemAvailabilityUseCase)
+    private readonly availability: ListContractItemAvailabilityUseCase,
     @Inject(CreateWorkOrderUseCase) private readonly create: CreateWorkOrderUseCase,
     @Inject(UpdateWorkOrderUseCase) private readonly update: UpdateWorkOrderUseCase,
     @Inject(DeleteWorkOrderUseCase) private readonly remove: DeleteWorkOrderUseCase,
@@ -69,6 +77,16 @@ export class WorkOrdersController {
   @ApiOkResponse({ schema: openApiSchema(WorkOrderListResponseSchema) })
   async listAll(@ProjectIdParam() project: string): Promise<WorkOrderListResponse> {
     return { items: (await this.list.execute(project)).map(toSummaryDto) };
+  }
+
+  /** Declared before `:workOrderId` so the literal path is not read as an id. */
+  @Get('contract-items')
+  @RequirePermission('work_orders:write')
+  @ApiOkResponse({ schema: openApiSchema(ContractItemAvailabilityResponseSchema) })
+  async contractItems(
+    @ProjectIdParam() project: string,
+  ): Promise<ContractItemAvailabilityResponse> {
+    return toAvailabilityDto(await this.availability.execute(project));
   }
 
   @Post()

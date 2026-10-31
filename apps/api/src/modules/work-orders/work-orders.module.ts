@@ -18,7 +18,10 @@ import {
 } from './application/attachment.use-cases.js';
 import { CreateWorkOrderUseCase } from './application/create-work-order.use-case.js';
 import { DeleteWorkOrderUseCase } from './application/delete-work-order.use-case.js';
-import { CommitImportUseCase, PreviewImportUseCase } from './application/import.use-cases.js';
+import {
+  CommitImportUseCase,
+  PreviewWorkOrderImportUseCase,
+} from './application/import.use-cases.js';
 import type { ProjectCurrencyLookup, WorkbookReader } from './application/ports.js';
 import { UpdateWorkOrderUseCase } from './application/update-work-order.use-case.js';
 import {
@@ -26,12 +29,18 @@ import {
   RemoveWorkOrderItemUseCase,
   UpdateWorkOrderItemUseCase,
 } from './application/work-order-item.use-cases.js';
-import { GetWorkOrderUseCase, ListWorkOrdersUseCase } from './application/work-order-queries.js';
+import {
+  GetWorkOrderUseCase,
+  ListContractItemAvailabilityUseCase,
+  ListWorkOrdersUseCase,
+} from './application/work-order-queries.js';
 import type {
+  ContractCatalog,
   WorkOrderAttachmentRepository,
   WorkOrderRepository,
   WorkOrderUnitOfWork,
 } from './domain/work-order.repository.js';
+import { DrizzleContractCatalog } from './infrastructure/drizzle-contract-catalog.js';
 import { DrizzleWorkOrderAttachmentRepository } from './infrastructure/drizzle-work-order-attachment.repository.js';
 import { DrizzleWorkOrderRepository } from './infrastructure/drizzle-work-order.repository.js';
 import { DrizzleWorkOrderUnitOfWork } from './infrastructure/drizzle-work-order.unit-of-work.js';
@@ -42,6 +51,7 @@ import { WorkOrderImportController } from './interface/work-order-import.control
 import { WorkOrdersController } from './interface/work-orders.controller.js';
 import {
   ATTACHMENT_REPOSITORY,
+  CONTRACT_CATALOG,
   PROJECT_CURRENCY_LOOKUP,
   WORK_ORDER_REPOSITORY,
   WORK_ORDER_UNIT_OF_WORK,
@@ -70,7 +80,18 @@ const providers: Provider[] = [
     inject: [GET_PROJECT_USE_CASE],
     useFactory: (getProject: GetProjectUseCase) => new ProjectsServiceCurrencyLookup(getProject),
   },
+  {
+    provide: CONTRACT_CATALOG,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleContractCatalog(db),
+  },
   { provide: WORKBOOK_READER, useValue: new ExcelJsWorkbookReader() },
+  {
+    provide: ListContractItemAvailabilityUseCase,
+    inject: [CONTRACT_CATALOG, WORK_ORDER_REPOSITORY],
+    useFactory: (contracts: ContractCatalog, orders: WorkOrderRepository) =>
+      new ListContractItemAvailabilityUseCase(contracts, orders),
+  },
   {
     provide: ListWorkOrdersUseCase,
     inject: [WORK_ORDER_REPOSITORY],
@@ -152,19 +173,39 @@ const providers: Provider[] = [
       new DeleteAttachmentUseCase(uow, storage),
   },
   {
-    provide: PreviewImportUseCase,
-    inject: [WORKBOOK_READER],
-    useFactory: (reader: WorkbookReader) => new PreviewImportUseCase(reader),
+    provide: PreviewWorkOrderImportUseCase,
+    inject: [WORKBOOK_READER, CONTRACT_CATALOG, WORK_ORDER_REPOSITORY],
+    useFactory: (reader: WorkbookReader, contracts: ContractCatalog, orders: WorkOrderRepository) =>
+      new PreviewWorkOrderImportUseCase(reader, contracts, orders),
   },
   {
     provide: CommitImportUseCase,
-    inject: [WORKBOOK_READER, WORK_ORDER_UNIT_OF_WORK, PROJECT_CURRENCY_LOOKUP, OBJECT_STORAGE],
+    inject: [
+      WORKBOOK_READER,
+      WORK_ORDER_UNIT_OF_WORK,
+      CONTRACT_CATALOG,
+      WORK_ORDER_REPOSITORY,
+      PROJECT_CURRENCY_LOOKUP,
+      OBJECT_STORAGE,
+    ],
     useFactory: (
       reader: WorkbookReader,
       uow: WorkOrderUnitOfWork,
+      contracts: ContractCatalog,
+      orders: WorkOrderRepository,
       projects: ProjectCurrencyLookup,
       storage: ObjectStorage,
-    ) => new CommitImportUseCase(reader, uow, projects, storage, systemClock, uuidGenerator),
+    ) =>
+      new CommitImportUseCase(
+        reader,
+        uow,
+        contracts,
+        orders,
+        projects,
+        storage,
+        systemClock,
+        uuidGenerator,
+      ),
   },
 ];
 
