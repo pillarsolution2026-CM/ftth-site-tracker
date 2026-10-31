@@ -143,31 +143,38 @@ describe('import wizard selection', () => {
   });
 });
 
-describe('duplicate decisions', () => {
+describe('duplicate decisions (contract BOQ import only)', () => {
   const loaded = run([
     { type: 'previewLoaded', preview: preview() },
     { type: 'setExcludeErrorRows', value: true },
     withHeader,
   ]);
+  const CONTRACT = { target: 'contract' } as const;
 
-  it('blocks the commit until every duplicate code has a decision', () => {
+  it('blocks the contract commit until every duplicate code has a decision', () => {
     expect(deriveSelection(loaded).unresolvedDuplicates).toEqual(['B-2']);
-    expect(commitBlockers(loaded)).toEqual(['unresolvedDuplicates']);
-    expect(buildCommitPayload(loaded)).toBeNull();
+    expect(commitBlockers(loaded, CONTRACT)).toEqual(['unresolvedDuplicates']);
+    expect(buildContractCommitPayload(loaded, 1)).toBeNull();
+  });
+
+  it('does not ask a work order import for a decision (ADR-028): a repeated code is an error row', () => {
+    expect(commitBlockers(loaded)).toEqual([]);
+    const payload = buildCommitPayload(loaded);
+    expect(payload?.acceptedDuplicateCodes).toEqual([]);
+    expect(WorkOrderImportCommitPayloadSchema.safeParse(payload).success).toBe(true);
   });
 
   it('"keep as separate lines" sends the code in acceptedDuplicateCodes and excludes nothing', () => {
     const state = wizardReducer(loaded, { type: 'decide', code: 'B-2', decision: 'keep' });
-    expect(commitBlockers(state)).toEqual([]);
-    const payload = buildCommitPayload(state);
+    expect(commitBlockers(state, CONTRACT)).toEqual([]);
+    const payload = buildContractCommitPayload(state, 1);
     expect(payload?.acceptedDuplicateCodes).toEqual(['B-2']);
     expect(payload?.excludedRowNumbers).toEqual([5]);
-    expect(WorkOrderImportCommitPayloadSchema.safeParse(payload).success).toBe(true);
   });
 
   it('"exclude rows" leaves the duplicate rows out of the commit', () => {
     const state = wizardReducer(loaded, { type: 'decide', code: 'B-2', decision: 'exclude' });
-    const payload = buildCommitPayload(state);
+    const payload = buildContractCommitPayload(state, 1);
     expect(payload?.excludedRowNumbers).toEqual([3, 4, 5]);
     expect(payload?.acceptedDuplicateCodes).toEqual([]);
     expect(deriveSelection(state).total).toBe('10.5');
@@ -176,13 +183,13 @@ describe('duplicate decisions', () => {
   it('resolves a duplicate by excluding all but one of its rows by hand', () => {
     const state = wizardReducer(loaded, { type: 'toggleRow', rowNumber: 4 });
     expect(deriveSelection(state).unresolvedDuplicates).toEqual([]);
-    expect(commitBlockers(state)).toEqual([]);
+    expect(commitBlockers(state, CONTRACT)).toEqual([]);
   });
 
-  it('clearing a decision blocks the commit again', () => {
+  it('clearing a decision blocks the contract commit again', () => {
     const kept = wizardReducer(loaded, { type: 'decide', code: 'B-2', decision: 'keep' });
     const cleared = wizardReducer(kept, { type: 'decide', code: 'B-2', decision: null });
-    expect(commitBlockers(cleared)).toEqual(['unresolvedDuplicates']);
+    expect(commitBlockers(cleared, CONTRACT)).toEqual(['unresolvedDuplicates']);
   });
 });
 

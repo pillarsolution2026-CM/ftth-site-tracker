@@ -66,4 +66,36 @@ describe('WorkOrderListView', () => {
     );
     expect(screen.getByRole('alert')).toHaveTextContent('You are not allowed to do this');
   });
+  it.each([
+    ['NO_CONTRACT', 'This project has no contract. Create the contract first.'],
+    ['CONTRACT_NOT_APPROVED', 'The contract is still a draft. Approve the contract first.'],
+  ] as const)('shows %s and offers no create or import action', (createBlock, text) => {
+    renderScreen(
+      <WorkOrderListView
+        basePath="/en/p"
+        items={[]}
+        errorCode={null}
+        canWrite
+        createBlock={createBlock}
+      />,
+    );
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'New work order' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Import from Excel' })).not.toBeInTheDocument();
+  });
+
+  it('links to the project work order and offers no second one', () => {
+    renderScreen(
+      <WorkOrderListView
+        basePath="/en/p"
+        items={[summary()]}
+        errorCode={null}
+        canWrite
+        createBlock="WORK_ORDER_EXISTS"
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'WO-2026-001' })).toBeInTheDocument();
+    expect(screen.getByText(/already has its work order/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'New work order' })).not.toBeInTheDocument();
+  });
 });

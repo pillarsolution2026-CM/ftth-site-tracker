@@ -10,12 +10,19 @@ import { formatMoney } from '@/shared/lib/decimal';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
 import { useProject } from '@/features/projects/hooks/project-access-context';
 import { useWorkOrders } from '../api/queries';
+import { useWorkOrderGate, type GateBlock } from '../hooks/use-work-order-gate';
+import { Notice } from '@/shared/ui/notice';
 
 interface WorkOrderListViewProps {
   basePath: string;
   items: WorkOrderSummary[] | null;
   errorCode: ClientErrorCode | null;
   canWrite: boolean;
+  /**
+   * Why no work order can be created (ADR-028): no contract, draft contract, or the project's one
+   * work order exists. `'loading'` while unknown; null = creating is allowed.
+   */
+  createBlock?: GateBlock | 'loading' | null;
 }
 
 const LINK =
@@ -27,13 +34,14 @@ export function WorkOrderListView({
   items,
   errorCode,
   canWrite,
+  createBlock = null,
 }: WorkOrderListViewProps) {
   const { t, locale } = useI18n();
   return (
     <div>
       <PageHeader>
         <h1 className="text-xl font-semibold">{t('workOrders.listTitle')}</h1>
-        {canWrite ? (
+        {canWrite && createBlock === null ? (
           <div className="flex flex-wrap gap-2">
             <Link
               href={`${basePath}/new`}
@@ -50,6 +58,13 @@ export function WorkOrderListView({
           </div>
         ) : null}
       </PageHeader>
+      {canWrite && createBlock && createBlock !== 'loading' ? (
+        <Notice kind={createBlock === 'WORK_ORDER_EXISTS' ? 'info' : 'warning'} className="mb-3">
+          {createBlock === 'WORK_ORDER_EXISTS'
+            ? t('workOrders.existsExplain')
+            : t(`workOrders.reasons.${createBlock}`)}
+        </Notice>
+      ) : null}
       {errorCode ? <ErrorNotice code={errorCode} /> : null}
       {!errorCode && items === null ? <p role="status">{t('common.loading')}</p> : null}
       {items && items.length === 0 ? <p>{t('workOrders.empty')}</p> : null}
@@ -98,13 +113,25 @@ export function WorkOrderList({ projectId }: { projectId: string }) {
   const { locale } = useI18n();
   const { can } = useProject();
   const canRead = can('work_orders:read');
+  const canWrite = can('work_orders:write');
   const query = useWorkOrders(projectId, canRead);
+  const gate = useWorkOrderGate(projectId);
+  const createBlock: GateBlock | 'loading' | null = !canWrite
+    ? null
+    : gate.status === 'blocked'
+      ? gate.reason
+      : gate.status === 'loading'
+        ? 'loading'
+        : gate.status === 'error'
+          ? 'loading'
+          : null;
   return (
     <WorkOrderListView
       basePath={`/${locale}/projects/${projectId}/work-orders`}
       items={canRead ? (query.data?.items ?? null) : []}
       errorCode={!canRead ? 'FORBIDDEN' : query.error ? errorCodeOf(query.error) : null}
-      canWrite={can('work_orders:write')}
+      canWrite={canWrite}
+      createBlock={createBlock}
     />
   );
 }

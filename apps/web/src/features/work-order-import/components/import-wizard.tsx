@@ -11,6 +11,10 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { ClientErrorCode } from '@/shared/api/bff-client';
 import { useProject } from '@/features/projects/hooks/project-access-context';
 import { contractErrorKey } from '@/features/contracts/model/contract-forms';
+import { CreateBlocked } from '@/features/work-orders/components/create-work-order';
+import { workOrderConflictOf } from '@/features/work-orders/model/conflict';
+import { WorkOrderErrorNotice } from '@/features/work-orders/components/work-order-error';
+import { useWorkOrderGate } from '@/features/work-orders/hooks/use-work-order-gate';
 import { useImportWizard } from '../hooks/use-import-wizard';
 import type { CommitBlocker, WizardAction, WizardState } from '../model/import-wizard';
 import { DuplicateDecisions } from './duplicate-decisions';
@@ -188,12 +192,14 @@ export function ImportWizardView({
             onReread={wizard.rereadWithDraft}
           />
           <ImportSummary selection={selection} />
-          <DuplicateDecisions
-            duplicates={preview.summary.duplicateCodes}
-            decisions={state.decisions}
-            unresolved={selection.unresolvedDuplicates}
-            onDecide={(code, decision) => dispatch({ type: 'decide', code, decision })}
-          />
+          {forContract ? (
+            <DuplicateDecisions
+              duplicates={preview.summary.duplicateCodes}
+              decisions={state.decisions}
+              unresolved={selection.unresolvedDuplicates}
+              onDecide={(code, decision) => dispatch({ type: 'decide', code, decision })}
+            />
+          ) : null}
           <ImportRowsTable
             rows={preview.rows}
             excluded={selection.excluded}
@@ -211,6 +217,8 @@ export function ImportWizardView({
           ) : wizard.commitErrorCode ? (
             forContract ? (
               <Notice kind="error">{t(contractErrorKey(wizard.commitError))}</Notice>
+            ) : workOrderConflictOf(wizard.commitError) ? (
+              <WorkOrderErrorNotice error={wizard.commitError} />
             ) : wizard.commitErrorCode === 'CONFLICT' ? (
               <Notice kind="error">{t('workOrders.numberTaken')}</Notice>
             ) : (
@@ -243,10 +251,33 @@ export function ImportWizardView({
   );
 }
 
+function ImportWizardGated({ projectId }: { projectId: string }) {
+  const { t, locale } = useI18n();
+  const gate = useWorkOrderGate(projectId);
+  const wizard = useImportWizard({ kind: 'workOrder', projectId });
+  if (gate.status === 'loading') return <p role="status">{t('common.loading')}</p>;
+  if (gate.status === 'error') return <ErrorNotice code={gate.errorCode} />;
+  // No work order can be created (no contract, draft contract, or the one work order exists):
+  // say so before the user uploads a file.
+  if (gate.status === 'blocked') {
+    return (
+      <CreateBlocked
+        reason={gate.reason}
+        existingPath={
+          gate.workOrder
+            ? `/${locale}/projects/${projectId}/work-orders/${gate.workOrder.id}`
+            : undefined
+        }
+        existingNumber={gate.workOrder?.number}
+      />
+    );
+  }
+  return <ImportWizardView wizard={wizard} />;
+}
+
 export function ImportWizard({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const { can } = useProject();
-  const wizard = useImportWizard({ kind: 'workOrder', projectId });
   if (!can('work_orders:write')) return <Notice kind="error">{t('errors.FORBIDDEN')}</Notice>;
-  return <ImportWizardView wizard={wizard} />;
+  return <ImportWizardGated projectId={projectId} />;
 }

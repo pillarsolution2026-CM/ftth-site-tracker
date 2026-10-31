@@ -78,6 +78,18 @@ export function sumDecimals(values: readonly string[]): string {
   return `${negative ? '-' : ''}${integer}${fraction ? `.${fraction}` : ''}`;
 }
 
+/** Exact `a − b` on decimal strings. */
+export function subtractDecimals(a: string, b: string): string {
+  return sumDecimals([a, b.startsWith('-') ? b.slice(1) : `-${b}`]);
+}
+
+/** Exact comparison of two decimal strings: -1, 0 or 1. Invalid input counts as 0. */
+export function compareDecimals(a: string, b: string): -1 | 0 | 1 {
+  const difference = subtractDecimals(a, b);
+  if (difference === '0') return 0;
+  return difference.startsWith('-') ? -1 : 1;
+}
+
 const ARABIC_INDIC = '٠١٢٣٤٥٦٧٨٩';
 const EXTENDED_ARABIC_INDIC = '۰۱۲۳۴۵۶۷۸۹';
 

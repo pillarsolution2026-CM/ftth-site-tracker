@@ -278,7 +278,22 @@
     "backToList": "العودة إلى القائمة",
     "numberTaken": "رقم الأمر مستخدم بالفعل في هذا المشروع",
     "conflictOnUpdate": "تم تغيير الأمر بواسطة مستخدم آخر، أو أن الرقم مستخدم بالفعل. أعد التحميل لرؤية آخر نسخة.",
-    "reload": "إعادة التحميل"
+    "reload": "إعادة التحميل",
+    "singleTitle": "أمر التكليف",
+    "openExisting": "فتح أمر التكليف",
+    "existsExplain": "لهذا المشروع أمر تكليف واحد بالفعل؛ لا يمكن إنشاء أمر ثانٍ.",
+    "legacy": "قديم",
+    "createLines": "بنود الأمر من العقد",
+    "linesHint": "اختر البنود من العقد المعتمد وأدخل الكمية لكل بند.",
+    "reasons": {
+      "NO_CONTRACT": "لا يوجد عقد لهذا المشروع. أنشئ العقد أولًا.",
+      "CONTRACT_NOT_APPROVED": "العقد ما زال مسودة. اعتمد العقد أولًا.",
+      "WORK_ORDER_EXISTS": "لهذا المشروع أمر تكليف بالفعل.",
+      "NOT_IN_CONTRACT": "البند غير موجود في العقد.",
+      "CONTRACT_ITEM_REPEATED": "البند موجود بالفعل في أمر التكليف.",
+      "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد للبند {code}: المطلوب {requestedQuantity}، المتاح {availableQuantity} (العقد {contractQuantity}، المحجوز {reservedQuantity}).",
+      "LEGACY_ITEM": "هذا بند قديم بلا بند عقد ولا يمكن تعديله."
+    }
   },
   "items": {
     "title": "البنود",
@@ -307,7 +322,32 @@
     "duplicateTitle": "الكود {code} موجود بالفعل في الأسطر {lines}",
     "duplicateExplain": "لن يتم دمج البنود. اختر إبقاءه كبند منفصل أو غيّر الكود.",
     "keepSeparate": "إبقاء كبند منفصل",
-    "changeCode": "تغيير الكود"
+    "changeCode": "تغيير الكود",
+    "contractQuantity": "كمية العقد",
+    "availableAfter": "المتاح بعد الحجز",
+    "legacy": "قديم",
+    "legacyNoEdit": "بند قديم: لا يمكن تعديله",
+    "quantityOnly": "الكمية فقط تُعدَّل؛ باقي البيانات من العقد.",
+    "picker": {
+      "title": "بنود العقد",
+      "search": "بحث في البنود",
+      "searchPlaceholder": "الكود أو الوصف",
+      "empty": "لا توجد بنود مسعّرة في العقد",
+      "noMatch": "لا توجد بنود مطابقة للبحث",
+      "choose": "اختيار",
+      "quantity": "الكمية",
+      "reserved": "المحجوز",
+      "available": "المتاح",
+      "inOrder": "في الأمر",
+      "exceeds": "الكمية أكبر من المتاح ({available})",
+      "repeated": "البند مختار أكثر من مرة",
+      "selected": "عدد البنود المختارة: {count}",
+      "addSelected": "إضافة البنود المختارة",
+      "invalidQuantity": "أدخل كمية صحيحة (4 خانات عشرية كحد أقصى)",
+      "quantityFor": "الكمية للبند {code}",
+      "chooseFor": "اختيار البند {code}",
+      "clearAll": "إلغاء الاختيار"
+    }
   },
   "attachments": {
     "title": "المرفقات",
@@ -430,7 +470,11 @@
       "INVALID_WORK_TYPE": "نوع الأعمال \"{value}\" غير معروف؛ المسموح: مدني أو تركيبات أو تخطيط",
       "DUPLICATE_CODE": "الكود مكرر في الصفوف {otherRows}",
       "AMOUNT_MISMATCH": "القيمة في الملف تختلف عن الكمية × سعر الوحدة",
-      "UNIT_FORM_VARIANT": "نفس الوحدة مكتوبة بشكل مختلف في الصفوف {otherRows}"
+      "UNIT_FORM_VARIANT": "نفس الوحدة مكتوبة بشكل مختلف في الصفوف {otherRows}",
+      "NOT_IN_CONTRACT": "الكود غير موجود في العقد",
+      "CONTRACT_MISMATCH": "{field} مختلف عن العقد ({contractValue})",
+      "CODE_REPEATED": "الكود مكرر في الصفوف {otherRows}؛ البند يظهر مرة واحدة",
+      "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد (المتاح {availableQuantity} من {contractQuantity})"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "الورقة غير موجودة",

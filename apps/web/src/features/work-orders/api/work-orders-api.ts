@@ -1,5 +1,6 @@
 import {
   AddWorkOrderItemRequestSchema,
+  ContractItemAvailabilityResponseSchema,
   CreateWorkOrderRequestSchema,
   UpdateWorkOrderItemRequestSchema,
   UpdateWorkOrderRequestSchema,
@@ -7,6 +8,7 @@ import {
   WorkOrderDetailSchema,
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
+  type ContractItemAvailabilityResponse,
   type WorkOrderAttachment,
   type WorkOrderDetail,
   type WorkOrderItem,
@@ -31,6 +33,11 @@ const one = (projectId: string, id: string) => `${root(projectId)}/${encodeURICo
 
 export function listWorkOrders(projectId: string): Promise<WorkOrderListResponse> {
   return bffJson(root(projectId), WorkOrderListResponseSchema);
+}
+
+/** Priced items of the project's approved contract with what is still available (ADR-028). */
+export function getContractItems(projectId: string): Promise<ContractItemAvailabilityResponse> {
+  return bffJson(`${root(projectId)}/contract-items`, ContractItemAvailabilityResponseSchema);
 }
 
 export function getWorkOrder(projectId: string, id: string): Promise<WorkOrderDetail> {
