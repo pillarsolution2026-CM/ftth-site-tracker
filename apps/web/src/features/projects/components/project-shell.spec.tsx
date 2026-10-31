@@ -66,6 +66,24 @@ describe('ProjectShell', () => {
     expect(screen.getByText('content')).toBeInTheDocument();
   });
 
+  it('shows the Contract link to the PM and the platform admin, not to QC', () => {
+    me = user({ memberships: [member(P1, 'Cairo', 'pm'), member(P2, 'Giza', 'qc')] });
+    const { unmount } = renderShell(P1);
+    expect(screen.getByRole('link', { name: 'Contract' })).toHaveAttribute(
+      'href',
+      `/en/projects/${P1}/contract`,
+    );
+    unmount();
+    renderShell(P2);
+    expect(screen.queryByRole('link', { name: 'Contract' })).not.toBeInTheDocument();
+  });
+
+  it('shows the Contract link to a platform admin without a membership', () => {
+    me = user({ isAdmin: true });
+    renderShell(P1);
+    expect(screen.getByRole('link', { name: 'Contract' })).toBeInTheDocument();
+  });
+
   it('shows the sections of the current project role only (contractor sees none)', () => {
     me = user({ memberships: [member(P1, 'Cairo', 'pm'), member(P2, 'Giza', 'contractor')] });
     renderShell(P2);

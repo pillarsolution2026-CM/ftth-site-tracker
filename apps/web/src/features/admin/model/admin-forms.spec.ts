@@ -9,6 +9,7 @@ import {
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const ZONE_ID = '22222222-2222-4222-8222-222222222222';
+const CONTRACT_ID = '33333333-3333-4333-8333-333333333333';
 const project = (overrides: Partial<Project>): Project => ({
   id: USER_ID,
   name: 'P',
@@ -16,46 +17,49 @@ const project = (overrides: Partial<Project>): Project => ({
   crsEpsg: 32636,
   currency: 'EGP',
   locale: 'ar',
+  contractId: CONTRACT_ID,
   ...overrides,
 });
 
 describe('projectSuggestions', () => {
-  it('pre-fills the most common existing values but never the client', () => {
+  it('pre-fills the most common existing values but never the contract', () => {
     const result = projectSuggestions([
-      project({ crsEpsg: 32635, currency: 'USD', locale: 'en' }),
-      project({ crsEpsg: 32635, currency: 'USD', locale: 'en', client: 'Client B' }),
+      project({ crsEpsg: 32635, locale: 'en' }),
+      project({ crsEpsg: 32635, locale: 'en', client: 'Client B' }),
       project({}),
     ]);
     expect(result.initial).toEqual({
       name: '',
-      client: '',
+      contractId: '',
       crsEpsg: '32635',
-      currency: 'USD',
       locale: 'en',
     });
     expect(result.crsEpsg).toEqual(['32635', '32636']);
-    expect(result.clients).toEqual(['Client A', 'Client B']);
   });
 
   it('falls back to the first project values when none exist', () => {
-    expect(projectSuggestions([]).initial).toMatchObject({ crsEpsg: '32636', currency: 'EGP' });
+    expect(projectSuggestions([]).initial).toMatchObject({ crsEpsg: '32636', locale: 'ar' });
   });
 });
 
 describe('validateProjectForm', () => {
-  const values = { name: 'P', client: 'C', crsEpsg: '32636', currency: 'egp', locale: 'ar' };
+  const values = { name: 'P', contractId: CONTRACT_ID, crsEpsg: '32636', locale: 'ar' };
 
-  it('upper-cases the currency and parses the EPSG code', () => {
+  it('parses the EPSG code and sends the chosen contract (no client, no currency)', () => {
     expect(validateProjectForm(values)).toEqual({
       ok: true,
-      payload: { name: 'P', client: 'C', crsEpsg: 32636, currency: 'EGP', locale: 'ar' },
+      payload: { name: 'P', contractId: CONTRACT_ID, crsEpsg: 32636, locale: 'ar' },
     });
   });
 
-  it('flags a non-UTM CRS and empty names', () => {
-    expect(validateProjectForm({ ...values, name: ' ', crsEpsg: '4326' })).toEqual({
+  it('flags a non-UTM CRS, empty names and a missing contract', () => {
+    expect(validateProjectForm({ ...values, name: ' ', crsEpsg: '4326', contractId: '' })).toEqual({
       ok: false,
-      errors: { name: 'validation.required', crsEpsg: 'admin.validation.crs' },
+      errors: {
+        name: 'validation.required',
+        crsEpsg: 'admin.validation.crs',
+        contractId: 'admin.validation.contract',
+      },
     });
   });
 });

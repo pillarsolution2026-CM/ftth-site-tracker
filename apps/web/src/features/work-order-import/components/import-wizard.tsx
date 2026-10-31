@@ -5,11 +5,12 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { Input } from '@/shared/ui/input';
-import { Textarea } from '@/shared/ui/form-controls';
+import { Checkbox, Textarea } from '@/shared/ui/form-controls';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { ClientErrorCode } from '@/shared/api/bff-client';
 import { useProject } from '@/features/projects/hooks/project-access-context';
+import { contractErrorKey } from '@/features/contracts/model/contract-forms';
 import { useImportWizard } from '../hooks/use-import-wizard';
 import type { CommitBlocker, WizardAction, WizardState } from '../model/import-wizard';
 import { DuplicateDecisions } from './duplicate-decisions';
@@ -123,14 +124,50 @@ function Blockers({ blockers }: { blockers: CommitBlocker[] }) {
   );
 }
 
-export function ImportWizardView({ wizard }: { wizard: Wizard }) {
+/** Contract import: no work-order header; the admin must confirm that the BOQ is replaced. */
+export interface ContractReplace {
+  existingLines: number;
+  confirmed: boolean;
+  onConfirm: (value: boolean) => void;
+}
+
+function ReplaceSection({ replace }: { replace: ContractReplace }) {
+  const { t } = useI18n();
+  return (
+    <section aria-labelledby="import-replace-title" className="flex flex-col gap-3">
+      <h2 id="import-replace-title" className="text-lg font-semibold">
+        {t('admin.contracts.import.button')}
+      </h2>
+      <Notice kind="warning">{t('admin.contracts.import.replaceWarning')}</Notice>
+      <Checkbox
+        id="import-confirm-replace"
+        label={t('admin.contracts.import.confirmReplace', { count: replace.existingLines })}
+        checked={replace.confirmed}
+        onChange={(event) => replace.onConfirm(event.target.checked)}
+      />
+    </section>
+  );
+}
+
+export function ImportWizardView({
+  wizard,
+  contractReplace,
+}: {
+  wizard: Wizard;
+  /** Present only for the contract BOQ import. */
+  contractReplace?: ContractReplace;
+}) {
   const { t } = useI18n();
   const { state, dispatch, selection } = wizard;
   const { preview, draft } = state;
+  const forContract = contractReplace !== undefined;
+  const needsConfirm = forContract && !contractReplace.confirmed;
 
   return (
     <div className="flex max-w-6xl flex-col gap-8">
-      <h1 className="text-xl font-semibold">{t('import.title')}</h1>
+      <h1 className="text-xl font-semibold">
+        {forContract ? t('admin.contracts.import.title') : t('import.title')}
+      </h1>
       <UploadStep
         reading={wizard.reading}
         progress={wizard.progress}
@@ -164,23 +201,40 @@ export function ImportWizardView({ wizard }: { wizard: Wizard }) {
             onToggleRow={(rowNumber) => dispatch({ type: 'toggleRow', rowNumber })}
             onExcludeErrorRows={(value) => dispatch({ type: 'setExcludeErrorRows', value })}
           />
-          <HeaderSection header={state.header} dispatch={dispatch} />
+          {contractReplace ? (
+            <ReplaceSection replace={contractReplace} />
+          ) : (
+            <HeaderSection header={state.header} dispatch={dispatch} />
+          )}
           {wizard.invalidDetails || wizard.commitErrorCode === 'IMPORT_INVALID' ? (
             <ImportInvalidNotice details={wizard.invalidDetails} />
           ) : wizard.commitErrorCode ? (
-            wizard.commitErrorCode === 'CONFLICT' ? (
+            forContract ? (
+              <Notice kind="error">{t(contractErrorKey(wizard.commitError))}</Notice>
+            ) : wizard.commitErrorCode === 'CONFLICT' ? (
               <Notice kind="error">{t('workOrders.numberTaken')}</Notice>
             ) : (
               <ErrorNotice code={wizard.commitErrorCode} />
             )
           ) : null}
           <Blockers blockers={wizard.blockers} />
+          {needsConfirm ? (
+            <Notice kind="info" live={false}>
+              {t('admin.contracts.import.needConfirm')}
+            </Notice>
+          ) : null}
           <div>
             <Button
               onClick={wizard.submit}
-              disabled={wizard.blockers.length > 0 || wizard.committing}
+              disabled={wizard.blockers.length > 0 || wizard.committing || needsConfirm}
             >
-              {wizard.committing ? t('import.committing') : t('import.commit')}
+              {wizard.committing
+                ? forContract
+                  ? t('admin.contracts.import.committing')
+                  : t('import.committing')
+                : forContract
+                  ? t('admin.contracts.import.commit')
+                  : t('import.commit')}
             </Button>
           </div>
         </>
@@ -192,7 +246,7 @@ export function ImportWizardView({ wizard }: { wizard: Wizard }) {
 export function ImportWizard({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const { can } = useProject();
-  const wizard = useImportWizard(projectId);
+  const wizard = useImportWizard({ kind: 'workOrder', projectId });
   if (!can('work_orders:write')) return <Notice kind="error">{t('errors.FORBIDDEN')}</Notice>;
   return <ImportWizardView wizard={wizard} />;
 }

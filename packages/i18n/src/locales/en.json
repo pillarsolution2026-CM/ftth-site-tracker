@@ -100,10 +100,10 @@
       "fr": "Français"
     },
     "project": {
-      "new": "New project",
-      "create": "Create project",
+      "new": "New work order / project",
+      "create": "Create work order / project",
       "edit": "Edit project",
-      "name": "Project name",
+      "name": "Work order / project name",
       "client": "Client",
       "crs": "Coordinate system (EPSG)",
       "crsHint": "WGS 84 / UTM only, e.g. 32636 (UTM zone 36N). Cannot be changed later.",
@@ -113,7 +113,15 @@
       "saved": "Saved",
       "fixed": "The coordinate system and the currency are fixed after creation.",
       "open": "Open project",
-      "back": "All projects"
+      "back": "All projects",
+      "contract": "Contract",
+      "chooseContract": "Choose the contract",
+      "contractOption": "{number} — {name} — {client} — {currency}",
+      "noContracts": "No contracts yet. Create a contract first from the contracts screen.",
+      "contractFixed": "The client and the currency come from the contract and do not change.",
+      "noContract": "No contract (older work order)",
+      "openContract": "Open contract",
+      "contractNumber": "Contract number"
     },
     "zones": {
       "title": "Zones",
@@ -147,7 +155,82 @@
       "crs": "Only WGS 84 / UTM codes (32601–32660, 32701–32760)",
       "currency": "Three capital letters, e.g. EGP",
       "email": "Enter a valid email address",
-      "password": "The password must be 12 to 128 characters"
+      "password": "The password must be 12 to 128 characters",
+      "contract": "Choose the contract"
+    },
+    "contracts": {
+      "title": "Contracts",
+      "listTitle": "All contracts",
+      "new": "New contract",
+      "create": "Create contract",
+      "none": "No contracts yet. Create the first one.",
+      "manage": "Open contract",
+      "back": "All contracts",
+      "detailTitle": "Contract",
+      "edit": "Edit contract details",
+      "saved": "Saved",
+      "number": "Contract number",
+      "name": "Contract name",
+      "client": "Client",
+      "currency": "Currency",
+      "currencyHint": "ISO code, e.g. EGP. Cannot be changed later.",
+      "startsOn": "Contract start date",
+      "durationDays": "Contract duration (days)",
+      "notes": "Notes",
+      "status": "Status",
+      "statuses": {
+        "draft": "Draft",
+        "approved": "Approved"
+      },
+      "itemCount": "Items",
+      "total": "Total",
+      "projectCount": "Work orders / projects",
+      "version": "Version",
+      "approvedOn": "Approved on",
+      "validation": {
+        "duration": "Enter a whole number of days (1 to 36500)"
+      },
+      "reload": "Reload",
+      "reasons": {
+        "STALE_VERSION": "The contract was changed by another user. Reload to see the latest version.",
+        "CONTRACT_APPROVED": "The contract is approved: BOQ lines cannot be changed",
+        "DUPLICATE_CODE": "This code already exists in the contract",
+        "LINE_TAKEN": "This line number is already used",
+        "DUPLICATE_NUMBER": "This contract number is already used",
+        "NO_PRICED_ITEMS": "A contract without priced items cannot be approved"
+      },
+      "boq": {
+        "title": "BOQ (contract items)",
+        "empty": "The BOQ has no lines yet",
+        "quantity": "Contract quantity",
+        "addItem": "Add item",
+        "addHeading": "Add section heading",
+        "editItem": "Edit item",
+        "editHeading": "Edit heading",
+        "headingBadge": "Section heading",
+        "headingTitle": "Section title (optional)",
+        "noTitle": "(no title)",
+        "confirmDelete": "Delete this line?",
+        "totalLabel": "Total of items",
+        "locked": "The contract is approved: the BOQ is locked and cannot be changed."
+      },
+      "import": {
+        "button": "Import from Excel",
+        "title": "Import the contract BOQ from Excel",
+        "replaceWarning": "Importing replaces every existing BOQ line with the file content. This cannot be undone once confirmed.",
+        "confirmReplace": "I confirm that the existing BOQ lines ({count}) will be replaced",
+        "commit": "Replace the BOQ lines",
+        "committing": "Importing…",
+        "cancel": "Cancel import",
+        "needConfirm": "Confirm that the existing lines will be replaced"
+      },
+      "approve": {
+        "button": "Approve contract",
+        "title": "Approve this contract?",
+        "explain": "Approval is final and cannot be undone. The BOQ (items and headings) is locked: no line can be added, edited or deleted, and the BOQ cannot be replaced. The contract details stay editable except the currency.",
+        "confirm": "Approve for good",
+        "cancel": "Cancel"
+      }
     }
   },
   "validation": {
@@ -162,7 +245,8 @@
     "content": "Project content",
     "workOrders": "Work orders",
     "cadFiles": "CAD files",
-    "designRevisions": "Design revisions"
+    "designRevisions": "Design revisions",
+    "contract": "Contract"
   },
   "project": {
     "switcher": "Project",
@@ -272,7 +356,8 @@
       "included": "Rows included",
       "errors": "Rows with errors",
       "warnings": "Rows with warnings",
-      "computedTotal": "Computed total"
+      "computedTotal": "Computed total",
+      "headings": "Heading rows"
     },
     "duplicates": {
       "title": "Repeated codes",
@@ -300,7 +385,9 @@
       "excludedBadge": "Excluded",
       "rowNumber": "Row",
       "issues": "Issues",
-      "ok": "OK"
+      "ok": "OK",
+      "headingBadge": "Section heading",
+      "headingNote": "Section heading: no quantity, no price"
     },
     "severity": {
       "error": "Error",
@@ -342,7 +429,8 @@
       "FORMULA_WITHOUT_RESULT": "{field} is a formula with no saved result; open and save the file in Excel",
       "INVALID_WORK_TYPE": "Unknown work type \"{value}\"; allowed: Civil, Installation or Planning",
       "DUPLICATE_CODE": "This code is repeated in rows {otherRows}",
-      "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price"
+      "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price",
+      "UNIT_FORM_VARIANT": "The same unit is typed differently in rows {otherRows}"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Sheet not found",
@@ -844,5 +932,10 @@
       },
       "reviewReason": "Reason: {reason}"
     }
+  },
+  "contract": {
+    "title": "Contract",
+    "noContract": "This project has no contract",
+    "readOnly": "Read-only view"
   }
 }

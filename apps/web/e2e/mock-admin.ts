@@ -20,6 +20,7 @@ import {
   ZoneListResponseSchema,
   ZoneSchema,
 } from '@ftth/shared';
+import { contractTerms, countProject, handleContracts } from './mock-contracts.ts';
 import type { Helpers } from './mock-design.ts';
 
 export const ADMIN_EMAIL = 'admin@example.com';
@@ -45,6 +46,7 @@ interface State {
     crsEpsg: number;
     currency: string;
     locale: 'ar' | 'en' | 'fr';
+    contractId: string | null;
   }[];
   zones: { id: string; projectId: string; name: string }[];
   users: {
@@ -66,7 +68,11 @@ interface State {
   }[];
 }
 
-export function createAdminState(project: { id: string; name: string }): State {
+export function createAdminState(project: {
+  id: string;
+  name: string;
+  contractId: string | null;
+}): State {
   return {
     projects: [{ ...project, client: 'Client', crsEpsg: 32636, currency: 'EGP', locale: 'ar' }],
     zones: [],
@@ -143,13 +149,20 @@ export async function handleAdmin(
     return sendError(res, 404, 'NOT_FOUND');
   }
 
+  if (resource === 'contracts') {
+    return handleContracts(req, res, new URL(req.url ?? '/', 'http://mock'), segments);
+  }
   if (resource !== 'projects') return sendError(res, 404, 'NOT_FOUND');
   if (!id && method === 'GET')
     return send(res, 200, ProjectListResponseSchema.parse({ items: state.projects }));
   if (!id && method === 'POST') {
     const body = CreateProjectRequestSchema.safeParse(await readJson(req));
     if (!body.success) return invalid();
-    const project = { id: randomUUID(), ...body.data };
+    // The client and the currency are copied from the contract (ADR-027).
+    const terms = contractTerms(body.data.contractId);
+    if (!terms) return sendError(res, 404, 'NOT_FOUND');
+    countProject(body.data.contractId);
+    const project = { id: randomUUID(), ...body.data, ...terms };
     state.projects.push(project);
     return send(res, 201, ProjectSchema.parse(project));
   }

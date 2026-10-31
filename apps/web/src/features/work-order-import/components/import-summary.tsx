@@ -11,6 +11,7 @@ export function ImportSummary({ selection }: { selection: Selection }) {
   const stats: [string, string | number][] = [
     [t('import.summary.total'), selection.counts.total],
     [t('import.summary.included'), selection.counts.included],
+    [t('import.summary.headings'), selection.counts.headingRows],
     [t('import.summary.errors'), selection.counts.errorRows],
     [t('import.summary.warnings'), selection.counts.warningRows],
   ];
@@ -19,7 +20,7 @@ export function ImportSummary({ selection }: { selection: Selection }) {
       <h2 id="import-summary-title" className="mb-2 text-lg font-semibold">
         {t('import.summary.title')}
       </h2>
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {stats.map(([label, value]) => (
           <div key={label} className="rounded-md border border-(--color-border) p-3">
             <dt className="text-sm opacity-80">{label}</dt>

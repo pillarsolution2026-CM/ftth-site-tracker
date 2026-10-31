@@ -31,12 +31,17 @@ test('an admin sees every project, creates a user and a project, names a zone an
   await expect(page.getByRole('cell', { name: 'supervisor.one@example.com' })).toBeVisible();
 
   await page.goto('/ar/admin/projects');
-  // Suggested from the existing project; the client is left for the admin.
+  // Suggested from the existing project; the client and the currency come from the contract.
   await expect(page.getByLabel('نظام الإحداثيات (EPSG)')).toHaveValue('32636');
-  await expect(page.getByLabel('العملة')).toHaveValue('EGP');
-  await page.getByLabel('اسم المشروع').fill('مشروع شبرا');
-  await page.getByLabel('العميل').fill('عميل تجريبي');
-  await page.getByRole('button', { name: 'إنشاء المشروع' }).click();
+  await expect(page.getByLabel('العميل')).toHaveCount(0);
+  await expect(page.getByLabel('العملة')).toHaveCount(0);
+  await page.getByLabel('اسم أمر التكليف / المشروع').fill('مشروع شبرا');
+  await page.getByRole('button', { name: 'إنشاء أمر التكليف / المشروع' }).click();
+  await expect(page.getByText('اختر العقد', { exact: true }).last()).toBeVisible();
+  await page
+    .getByLabel('العقد', { exact: true })
+    .selectOption({ label: 'C-SEED — عقد الشبكة — Client — EGP' });
+  await page.getByRole('button', { name: 'إنشاء أمر التكليف / المشروع' }).click();
   await expect(page.getByRole('heading', { name: 'مشروع شبرا' })).toBeVisible();
 
   await page.getByLabel('الدور').selectOption('supervisor');

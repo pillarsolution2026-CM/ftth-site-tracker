@@ -10,13 +10,59 @@ import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader, Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { useContract } from '@/features/contracts/api/queries';
 import { useProjectAdmin, type ProjectAdminModel } from '../hooks/use-project-admin';
 import { needsZone } from '../model/admin-forms';
 import { ProjectFields } from './project-fields';
 
 const LINK =
   'inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
-const NO_SUGGESTIONS = { crsEpsg: [], currency: [], clients: [] };
+const NO_SUGGESTIONS = { crsEpsg: [] };
+const NO_CONTRACTS: never[] = [];
+
+function ContractCard({ project }: { project: ProjectAdminModel['project'] }) {
+  const { t, locale } = useI18n();
+  const contract = useContract(project?.contractId ?? null);
+  if (!project) return null;
+  return (
+    <Card>
+      <h2 className="mb-4 text-lg font-semibold">{t('admin.project.contract')}</h2>
+      {project.contractId === null ? (
+        <p>{t('admin.project.noContract')}</p>
+      ) : (
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <dt className="text-sm opacity-80">{t('admin.project.contractNumber')}</dt>
+            <dd className="font-medium">
+              {contract.data ? (
+                <Link
+                  className={LINK}
+                  href={`/${locale}/admin/contracts/${contract.data.id}`}
+                  aria-label={t('admin.project.openContract')}
+                >
+                  <Ltr>{contract.data.number}</Ltr>
+                </Link>
+              ) : (
+                '…'
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm opacity-80">{t('admin.project.client')}</dt>
+            <dd className="font-medium">{project.client}</dd>
+          </div>
+          <div>
+            <dt className="text-sm opacity-80">{t('admin.project.currency')}</dt>
+            <dd className="font-medium">
+              <Ltr>{project.currency}</Ltr>
+            </dd>
+          </div>
+        </dl>
+      )}
+      <p className="mt-3 text-sm opacity-80">{t('admin.project.contractFixed')}</p>
+    </Card>
+  );
+}
 
 function EditProjectCard({ edit }: { edit: ProjectAdminModel['edit'] }) {
   const { t } = useI18n();
@@ -30,7 +76,8 @@ function EditProjectCard({ edit }: { edit: ProjectAdminModel['edit'] }) {
           values={edit.values}
           errors={edit.errors}
           suggestions={NO_SUGGESTIONS}
-          fixedCrsAndCurrency
+          contracts={NO_CONTRACTS}
+          editing
           onChange={edit.onChange}
         />
         <Notice kind="info" live={false}>
@@ -241,6 +288,7 @@ export function ProjectAdminView({ model }: { model: ProjectAdminModel }) {
           </Link>
         </div>
       </PageHeader>
+      <ContractCard project={model.project} />
       <EditProjectCard edit={model.edit} />
       <ZonesCard zones={model.zones} />
       <AssignmentsCard assignments={model.assignments} zones={model.zones} />

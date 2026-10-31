@@ -31,7 +31,7 @@ export function can(access: ProjectAccess, permission: Permission): boolean {
 }
 
 export interface NavItem {
-  id: 'workOrders' | 'cadFiles' | 'designRevisions';
+  id: 'workOrders' | 'cadFiles' | 'designRevisions' | 'contract';
   labelKey: MessageKey;
   /** Path below `/{locale}/projects/{projectId}`. */
   segment: string;
@@ -53,6 +53,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
     segment: 'design-revisions',
     permission: 'design:read',
   },
+  // The PM (and the platform admin) read the contract and BOQ of the project (ADR-027).
+  { id: 'contract', labelKey: 'nav.contract', segment: 'contract', permission: 'contract:read' },
 ];
 
 export function visibleNavItems(access: ProjectAccess): NavItem[] {

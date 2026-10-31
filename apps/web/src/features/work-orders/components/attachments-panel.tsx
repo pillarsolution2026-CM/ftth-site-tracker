@@ -11,8 +11,14 @@ import { formatBytes, formatDateTime } from '@/shared/lib/format';
 import type { ClientErrorCode } from '@/shared/api/bff-client';
 import { useAttachments } from '../hooks/use-attachments';
 
+/** The fields the list shows; work orders and contracts both fit. */
+export type AttachmentRow = Pick<
+  WorkOrderAttachment,
+  'id' | 'kind' | 'fileName' | 'sizeBytes' | 'createdAt'
+>;
+
 export interface AttachmentsPanelViewProps {
-  attachments: WorkOrderAttachment[];
+  attachments: AttachmentRow[];
   canWrite: boolean;
   uploading: boolean;
   progress: number | null;
@@ -23,7 +29,7 @@ export interface AttachmentsPanelViewProps {
   downloadUrl: (attachmentId: string) => string;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onAskDelete: (id: string | null) => void;
-  onConfirmDelete: (attachment: WorkOrderAttachment) => void;
+  onConfirmDelete: (attachment: AttachmentRow) => void;
 }
 
 export function AttachmentsPanelView({

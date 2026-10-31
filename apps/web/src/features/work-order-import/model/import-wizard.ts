@@ -3,6 +3,7 @@ import {
   IMPORT_FIELDS,
   REQUIRED_IMPORT_FIELDS,
   type ColumnMapping,
+  type ContractImportCommitPayload,
   type ImportField,
   type ImportPreviewRow,
   type WorkOrderImportCommitPayload,
@@ -126,13 +127,21 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
 
 export const hasErrors = (row: ImportPreviewRow): boolean =>
   row.issues.some((issue) => issue.severity === 'error');
+export const isHeadingRow = (row: ImportPreviewRow): boolean => row.kind === 'heading';
 export const hasWarnings = (row: ImportPreviewRow): boolean =>
   row.issues.some((issue) => issue.severity === 'warning');
 
 export interface Selection {
   excluded: ReadonlySet<number>;
   included: ImportPreviewRow[];
-  counts: { total: number; included: number; errorRows: number; warningRows: number };
+  counts: {
+    total: number;
+    included: number;
+    /** Section-heading rows of the sheet (contract BOQ; skipped by the work-order import). */
+    headingRows: number;
+    errorRows: number;
+    warningRows: number;
+  };
   /** Σ amount of included rows without errors (exact decimal string). */
   total: string;
   /** Included rows that still have errors: they block the commit. */
@@ -168,6 +177,7 @@ export function deriveSelection(state: WizardState): Selection {
     counts: {
       total: rows.length,
       included: included.length,
+      headingRows: state.preview?.summary.headingCount ?? rows.filter(isHeadingRow).length,
       errorRows: rows.filter(hasErrors).length,
       warningRows: rows.filter(hasWarnings).length,
     },
@@ -220,7 +230,16 @@ export type CommitBlocker =
   | 'errorRows'
   | 'unresolvedDuplicates';
 
-export function commitBlockers(state: WizardState): CommitBlocker[] {
+export interface CommitOptions {
+  /**
+   * `workOrder` (default) needs the work-order header and at least one item row (headings are
+   * skipped). `contract` has no header step and also stores heading rows.
+   */
+  target?: 'workOrder' | 'contract';
+}
+
+export function commitBlockers(state: WizardState, options: CommitOptions = {}): CommitBlocker[] {
+  const contract = options.target === 'contract';
   const { preview } = state;
   if (!preview) return ['noRows'];
   const blockers: CommitBlocker[] = [];
@@ -232,8 +251,13 @@ export function commitBlockers(state: WizardState): CommitBlocker[] {
   if (problems.unmapped.length > 0 || problems.duplicated.length > 0) {
     blockers.push('mappingIncomplete');
   }
-  if (Object.keys(validateHeader(state.header)).length > 0) blockers.push('headerInvalid');
-  if (selection.included.length === 0) blockers.push('noRows');
+  if (!contract && Object.keys(validateHeader(state.header)).length > 0) {
+    blockers.push('headerInvalid');
+  }
+  const counting = contract
+    ? selection.included
+    : selection.included.filter((row) => !isHeadingRow(row));
+  if (counting.length === 0) blockers.push('noRows');
   if (selection.blockingErrorRows.length > 0) blockers.push('errorRows');
   if (selection.unresolvedDuplicates.length > 0) blockers.push('unresolvedDuplicates');
   return blockers;
@@ -260,5 +284,29 @@ export function buildCommitPayload(state: WizardState):
       .filter(([, decision]) => decision === 'keep')
       .map(([code]) => code),
     workOrder: headerPayload(state.header),
+  };
+}
+
+/** Commit payload of the contract BOQ import (no work-order header; replaces every line). */
+export function buildContractCommitPayload(
+  state: WizardState,
+  expectedVersion: number,
+): ContractImportCommitPayload | null {
+  const { preview } = state;
+  if (!preview || preview.headerRow === null) return null;
+  if (commitBlockers(state, { target: 'contract' }).length > 0) return null;
+  const mapping = ConfirmedColumnMappingSchema.safeParse(preview.mapping);
+  if (!mapping.success) return null;
+  const selection = deriveSelection(state);
+  return {
+    fileSha256: preview.file.sha256,
+    sheetName: preview.sheetName,
+    headerRow: preview.headerRow,
+    mapping: mapping.data,
+    excludedRowNumbers: [...selection.excluded].sort((a, b) => a - b),
+    acceptedDuplicateCodes: Object.entries(state.decisions)
+      .filter(([, decision]) => decision === 'keep')
+      .map(([code]) => code),
+    expectedVersion,
   };
 }
