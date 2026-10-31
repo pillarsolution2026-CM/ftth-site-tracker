@@ -474,7 +474,8 @@
       "NOT_IN_CONTRACT": "Le code n'est pas dans le contrat",
       "CONTRACT_MISMATCH": "{field} diffère du contrat ({contractValue})",
       "CODE_REPEATED": "Le code est répété aux lignes {otherRows} ; un article apparaît une fois",
-      "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le disponible du contrat (disponible {availableQuantity} sur {contractQuantity})"
+      "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le disponible du contrat (disponible {availableQuantity} sur {contractQuantity})",
+      "EMPTY_QUANTITY_SKIPPED": "Quantité vide : la ligne est ignorée et n'est pas ajoutée à l'ordre de travail"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Feuille introuvable",

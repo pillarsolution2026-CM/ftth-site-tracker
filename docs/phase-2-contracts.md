@@ -95,6 +95,12 @@ Matching rules: the code must be a priced item of the contract (headings never m
 (`8000` = `8000.00`), `workType` equal. Quantity check: `reserved (other work orders) + row
 quantity ≤ contract quantity`. A code on two rows → `CODE_REPEATED` on both.
 
-Expected with the owner's files: the work-order sheet (`boq_restored3_errors_yellow.xlsx`, same 199
-codes, quantities = 1/3 of the contract) against the approved `contract boq.xlsx` → 160 items and
-39 headings, 0 errors.
+Empty quantity (owner, 2026-10-31): an item row whose quantity cell is empty becomes
+`kind: 'skipped'` with the warning `EMPTY_QUANTITY_SKIPPED`; it is not checked against the
+contract and never stored. A quantity of 0 or unreadable text is not empty.
+
+Checked with the owner's files (copies, not committed): the work-order sheet
+(`boq_restored3_errors_yellow.xlsx`, same 199 codes, quantities = 1/3 of the contract) against
+`contract boq.xlsx` → 0 errors, 153 lines, 7 skipped rows (the contract's zero-quantity items, empty
+in the sheet), 39 headings, total `78900610.328`. With two identical work orders already reserved
+it still fits exactly; a fourth gives `QUANTITY_EXCEEDS_CONTRACT` on 153 rows.

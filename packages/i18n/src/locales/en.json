@@ -474,7 +474,8 @@
       "NOT_IN_CONTRACT": "The code is not in the contract",
       "CONTRACT_MISMATCH": "{field} differs from the contract ({contractValue})",
       "CODE_REPEATED": "The code is repeated in rows {otherRows}; an item appears once",
-      "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is available in the contract (available {availableQuantity} of {contractQuantity})"
+      "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is available in the contract (available {availableQuantity} of {contractQuantity})",
+      "EMPTY_QUANTITY_SKIPPED": "Quantity is empty: the row is skipped and not added to the work order"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Sheet not found",

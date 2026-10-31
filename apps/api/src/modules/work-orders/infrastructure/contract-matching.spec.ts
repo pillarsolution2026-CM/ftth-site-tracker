@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovedContract } from '../domain/contract-lines.js';
 import { Decimal } from '../domain/decimal.js';
 import { checkImportAgainstContract } from '../domain/import/contract-matching.js';
+import { selectRowsForCommit } from '../domain/import/import-commit.js';
 import { parseImport } from '../domain/import/import-parser.js';
 import { approvedContractFromSheet, itemIdOfRow } from '../testing/approved-contract.js';
 import {
@@ -164,5 +165,32 @@ describe('work-order sheet against the contract (owner layout)', () => {
     const rows = setCell(workOrderSheetRows(), ITEM_ROWS.trench, 'quantity', 49.5);
     const fits = await check(rows, { [ITEM_ROWS.trench]: '250.5' });
     expect(errorsOf(rowOf(fits.rows, ITEM_ROWS.trench))).toEqual([]);
+  });
+
+  it('skips an item row whose quantity cell is empty, with a warning only (owner 2026-10-31)', async () => {
+    const rows = setCell(workOrderSheetRows(), ITEM_ROWS.chamber, 'quantity', null);
+    // Even a changed price is not checked: the row is not part of the work order.
+    setCell(rows, ITEM_ROWS.chamber, 'unitPrice', 9999);
+    const result = await check(rows);
+    const skipped = rowOf(result.rows, ITEM_ROWS.chamber);
+    expect(skipped?.kind).toBe('skipped');
+    expect(skipped?.issues.map((found) => [found.code, found.severity])).toEqual([
+      ['EMPTY_QUANTITY_SKIPPED', 'warning'],
+    ]);
+    expect(result.summary.errorRowCount).toBe(0);
+    const selection = selectRowsForCommit(result, {
+      excludedRowNumbers: [],
+      acceptedDuplicateCodes: [],
+    });
+    expect(selection.ok).toBe(true);
+    if (selection.ok) {
+      expect(selection.lines.map((line) => line.sourceRow)).not.toContain(ITEM_ROWS.chamber);
+    }
+  });
+
+  it('does not skip a quantity of 0', async () => {
+    const rows = setCell(workOrderSheetRows(), ITEM_ROWS.chamber, 'quantity', 0);
+    const result = await check(rows);
+    expect(rowOf(result.rows, ITEM_ROWS.chamber)?.kind).toBe('item');
   });
 });

@@ -53,6 +53,23 @@ function mismatches(row: ImportPreviewRow, item: ContractItemInfo): ImportRowIss
   return found;
 }
 
+/**
+ * An item row whose quantity cell is empty is not part of the work order: it becomes `skipped`
+ * with only the EMPTY_QUANTITY_SKIPPED warning, and no other check applies (owner, 2026-10-31).
+ * A quantity of 0 or unreadable text is not empty and keeps its normal checks.
+ */
+function skipEmptyQuantity(row: ImportPreviewRow): ImportPreviewRow {
+  if (row.kind !== 'item' || row.raw.quantity !== null) return row;
+  return {
+    ...row,
+    kind: 'skipped',
+    amount: null,
+    issues: [
+      issue('EMPTY_QUANTITY_SKIPPED', 'quantity', row.code ? { code: row.code } : undefined),
+    ],
+  };
+}
+
 /** The contract item a code refers to; with several of the same code, the one that equals the row. */
 function pickCandidate(
   row: ImportPreviewRow,
@@ -69,10 +86,11 @@ function pickCandidate(
  * include the sheet itself (the work order does not exist yet).
  */
 export function annotateAgainstContract(
-  rows: readonly ImportPreviewRow[],
+  sheetRows: readonly ImportPreviewRow[],
   contract: ApprovedContract,
   reservations: Reservations,
 ): ImportPreviewRow[] {
+  const rows = sheetRows.map(skipEmptyQuantity);
   const byCode = new Map<string, ContractItemInfo[]>();
   for (const item of contract.items)
     byCode.set(item.code, [...(byCode.get(item.code) ?? []), item]);

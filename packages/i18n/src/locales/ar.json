@@ -474,7 +474,8 @@
       "NOT_IN_CONTRACT": "الكود غير موجود في العقد",
       "CONTRACT_MISMATCH": "{field} مختلف عن العقد ({contractValue})",
       "CODE_REPEATED": "الكود مكرر في الصفوف {otherRows}؛ البند يظهر مرة واحدة",
-      "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد (المتاح {availableQuantity} من {contractQuantity})"
+      "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد (المتاح {availableQuantity} من {contractQuantity})",
+      "EMPTY_QUANTITY_SKIPPED": "الكمية فارغة: الصف لن يُضاف إلى أمر التكليف"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "الورقة غير موجودة",
