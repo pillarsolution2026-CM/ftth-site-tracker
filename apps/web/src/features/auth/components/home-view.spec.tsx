@@ -13,6 +13,7 @@ const project = (id: string, name: string): Project => ({
   crsEpsg: 32636,
   currency: 'EGP',
   locale: 'ar',
+  contractId: null,
 });
 const me = (overrides: Partial<MeResponse>): MeResponse => ({
   id: A,

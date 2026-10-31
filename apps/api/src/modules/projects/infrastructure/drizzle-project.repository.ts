@@ -2,8 +2,10 @@ import { LocaleSchema } from '@ftth/shared';
 import { asc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
-import { projects, zones } from '../../../db/schema.js';
+import { contracts, projects, zones } from '../../../db/schema.js';
 import type {
+  ContractReference,
+  ContractReferenceRepository,
   NewProject,
   Project,
   ProjectAdminRepository,
@@ -22,6 +24,7 @@ function toProject(row: typeof projects.$inferSelect): Project {
     crsEpsg: row.crsEpsg,
     currency: row.currency,
     locale: LocaleSchema.parse(row.locale),
+    contractId: row.contractId,
   };
 }
 
@@ -90,6 +93,20 @@ export class DrizzleZoneRepository implements ZoneRepository {
   }
 }
 
+/** Reads the contract's client and currency straight from its table, in the same transaction. */
+export class DrizzleContractReferenceRepository implements ContractReferenceRepository {
+  constructor(private readonly db: DbHandle) {}
+
+  async findById(contractId: string): Promise<ContractReference | null> {
+    const [row] = await this.db
+      .select({ id: contracts.id, client: contracts.client, currency: contracts.currency })
+      .from(contracts)
+      .where(eq(contracts.id, contractId))
+      .limit(1);
+    return row ?? null;
+  }
+}
+
 /** One database transaction: repositories and the event log share it. */
 export class DrizzleProjectAdminUnitOfWork implements ProjectAdminUnitOfWork {
   constructor(private readonly db: Database) {}
@@ -99,6 +116,7 @@ export class DrizzleProjectAdminUnitOfWork implements ProjectAdminUnitOfWork {
       work({
         projects: new DrizzleProjectRepository(tx),
         zones: new DrizzleZoneRepository(tx),
+        contracts: new DrizzleContractReferenceRepository(tx),
         events: new DrizzleEventLog(tx),
       }),
     );

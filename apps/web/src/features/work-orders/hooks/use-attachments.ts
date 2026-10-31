@@ -41,7 +41,7 @@ export function useAttachments(projectId: string, workOrderId: string) {
     );
   };
 
-  const onConfirmDelete = (attachment: WorkOrderAttachment) => {
+  const onConfirmDelete = (attachment: Pick<WorkOrderAttachment, 'id'>) => {
     remove.mutate(attachment.id, { onSettled: () => setConfirmId(null) });
   };
 

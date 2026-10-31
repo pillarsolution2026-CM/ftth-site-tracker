@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { PROJECT_WIDE_ROLES, RoleSchema, type Role } from '../auth/roles.js';
 import { ProjectEpsgSchema } from '../cad/crs-detection.schemas.js';
-import { CurrencyCodeSchema } from '../common/decimal.js';
 
 /**
  * Platform-admin setup (owner request 2026-10-30, ADR-026): projects, zones (name only), users and
@@ -23,33 +22,41 @@ export const ProjectSchema = z.object({
   client: z.string(),
   /** Project CRS (metric). All project geometry is stored in it. */
   crsEpsg: z.number().int(),
-  /** ISO 4217 code; work orders copy it. */
+  /** ISO 4217 code: the contract's currency; the work order copies it. */
   currency: z.string().length(3),
   locale: LocaleSchema,
+  /**
+   * Contract this project (= one work order) belongs to (ADR-027). Null only for projects created
+   * before Phase 2.
+   */
+  contractId: z.uuid().nullable(),
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
 export const ProjectListResponseSchema = z.object({ items: z.array(ProjectSchema) });
 export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
 
-/** POST /admin/projects. The CRS is limited to WGS 84 / UTM, like the mapping screen. */
+/**
+ * POST /admin/projects. A project is one work order (أمر التكليف / المشروع) under a contract
+ * (ADR-027): the client and the currency are taken from the contract. The CRS is the drawing's
+ * CRS, limited to WGS 84 / UTM like the mapping screen.
+ */
 export const CreateProjectRequestSchema = z.strictObject({
   name: NameSchema,
-  client: NameSchema,
   crsEpsg: ProjectEpsgSchema,
-  currency: CurrencyCodeSchema,
+  contractId: z.uuid(),
   locale: LocaleSchema,
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 
 /**
- * PATCH /admin/projects/:projectId. The CRS and the currency are fixed at creation: geometry is
- * stored in the CRS and work orders copy the currency (ADR-026, owner to confirm).
+ * PATCH /admin/projects/:projectId. The CRS, the contract, the client and the currency are fixed
+ * at creation: geometry is stored in the CRS, and the client and currency come from the contract
+ * (ADR-026, ADR-027).
  */
 export const UpdateProjectRequestSchema = z
   .strictObject({
     name: NameSchema.optional(),
-    client: NameSchema.optional(),
     locale: LocaleSchema.optional(),
   })
   .refine((body) => Object.values(body).some((value) => value !== undefined), {

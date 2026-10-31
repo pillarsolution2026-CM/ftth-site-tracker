@@ -116,23 +116,35 @@ export function ImportRowsTable({
                   <Td>
                     <Ltr>{row.raw.code ?? '—'}</Ltr>
                   </Td>
-                  <Td>
-                    {row.workType
-                      ? t(`items.workTypes.${row.workType}`)
-                      : (row.raw.workType ?? '—')}
-                  </Td>
-                  <Td>{row.raw.description ?? '—'}</Td>
-                  {/* Units can be up to 64 characters: wrap inside a bounded column (ADR-016). */}
-                  <Td className="max-w-48 min-w-24 wrap-break-word">{row.raw.unit ?? '—'}</Td>
-                  <Td>
-                    <Ltr>{row.raw.quantity ?? '—'}</Ltr>
-                  </Td>
-                  <Td>
-                    <Ltr>{row.raw.unitPrice ?? '—'}</Ltr>
-                  </Td>
-                  <Td>
-                    <Ltr>{row.amount ?? '—'}</Ltr>
-                  </Td>
+                  {row.kind === 'heading' ? (
+                    <Td colSpan={6} className="font-bold">
+                      <span className="me-2 rounded border border-(--color-border) px-1 text-xs font-normal">
+                        {t('import.rows.headingBadge')}
+                      </span>
+                      {row.raw.description ?? ''}
+                      <span className="sr-only"> — {t('import.rows.headingNote')}</span>
+                    </Td>
+                  ) : (
+                    <>
+                      <Td>
+                        {row.workType
+                          ? t(`items.workTypes.${row.workType}`)
+                          : (row.raw.workType ?? '—')}
+                      </Td>
+                      <Td>{row.raw.description ?? '—'}</Td>
+                      {/* Units can be up to 64 characters: wrap inside a bounded column (ADR-016). */}
+                      <Td className="max-w-48 min-w-24 wrap-break-word">{row.raw.unit ?? '—'}</Td>
+                      <Td>
+                        <Ltr>{row.raw.quantity ?? '—'}</Ltr>
+                      </Td>
+                      <Td>
+                        <Ltr>{row.raw.unitPrice ?? '—'}</Ltr>
+                      </Td>
+                      <Td>
+                        <Ltr>{row.amount ?? '—'}</Ltr>
+                      </Td>
+                    </>
+                  )}
                   <Td className={hasErrors(row) ? 'min-w-64' : 'min-w-48'}>
                     {row.issues.length === 0 ? (
                       <span>

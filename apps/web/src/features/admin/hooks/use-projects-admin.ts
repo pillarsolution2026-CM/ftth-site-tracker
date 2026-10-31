@@ -4,6 +4,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MessageKey } from '@ftth/i18n';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { useContracts } from '@/features/contracts/api/queries';
 import { useAdminProjects, useCreateProject } from '../api/queries';
 import { adminErrorKey } from '../model/admin-errors';
 import {
@@ -19,6 +20,7 @@ export function useProjectsAdmin() {
   const router = useRouter();
   const projects = useAdminProjects();
   const create = useCreateProject();
+  const contracts = useContracts();
   const items = useMemo(() => projects.data?.items ?? [], [projects.data]);
   const suggestions = useMemo(() => projectSuggestions(items), [items]);
   const [edited, setEdited] = useState<ProjectFormValues | null>(null);
@@ -46,6 +48,7 @@ export function useProjectsAdmin() {
     loading: projects.isPending,
     listError: projects.error ? adminErrorKey(projects.error) : null,
     items,
+    contracts: useMemo(() => contracts.data?.items ?? [], [contracts.data]),
     suggestions,
     values,
     errors,

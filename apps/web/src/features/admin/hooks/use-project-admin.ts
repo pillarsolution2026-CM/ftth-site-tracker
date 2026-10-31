@@ -26,14 +26,13 @@ import {
 function toForm(project: Project): ProjectFormValues {
   return {
     name: project.name,
-    client: project.client,
+    contractId: project.contractId ?? '',
     crsEpsg: String(project.crsEpsg),
-    currency: project.currency,
     locale: project.locale,
   };
 }
 
-/** Edit form for name, client and locale (the CRS and currency are fixed). */
+/** Edit form for name and locale (the CRS, the contract, the client and the currency are fixed). */
 function useEditProject(projectId: string, project: Project | undefined) {
   const update = useUpdateProject(projectId);
   const [edited, setEdited] = useState<ProjectFormValues | null>(null);
@@ -41,7 +40,7 @@ function useEditProject(projectId: string, project: Project | undefined) {
   const values = edited ?? (project ? toForm(project) : null);
 
   const onChange = (field: ProjectField, value: string) => {
-    if (!values || field === 'crsEpsg' || field === 'currency') return;
+    if (!values || field === 'crsEpsg' || field === 'contractId') return;
     setEdited({ ...values, [field]: value });
     setErrors((current) => ({ ...current, [field]: undefined }));
     update.reset();
@@ -51,17 +50,12 @@ function useEditProject(projectId: string, project: Project | undefined) {
     event.preventDefault();
     if (!values) return;
     const name = values.name.trim();
-    const client = values.client.trim();
-    const missing = {
-      ...(name ? {} : { name: 'validation.required' as const }),
-      ...(client ? {} : { client: 'validation.required' as const }),
-    };
-    if (Object.keys(missing).length > 0) {
-      setErrors(missing);
+    if (!name) {
+      setErrors({ name: 'validation.required' });
       return;
     }
     update.mutate(
-      { name, client, locale: values.locale as Project['locale'] },
+      { name, locale: values.locale as Project['locale'] },
       { onSuccess: () => setEdited(null) },
     );
   };

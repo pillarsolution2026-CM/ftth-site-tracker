@@ -26,21 +26,31 @@ export class CreateProjectUseCase {
 
   execute(input: CreateProjectRequest, actorId: string): Promise<Project> {
     return this.uow.run(async (tx) => {
-      const project = await tx.projects.insert(input);
+      // A project is one work order under a contract: client and currency come from it (ADR-027).
+      const contract = await tx.contracts.findById(input.contractId);
+      if (!contract) throw new AppError('NOT_FOUND', 'Contract not found');
+      const project = await tx.projects.insert({
+        name: input.name,
+        crsEpsg: input.crsEpsg,
+        locale: input.locale,
+        contractId: contract.id,
+        client: contract.client,
+        currency: contract.currency,
+      });
       await tx.events.append({
         projectId: project.id,
         entity: 'project',
         entityId: project.id,
         type: ADMIN_EVENT_TYPES.projectCreated,
         actorId,
-        payload: { ...input },
+        payload: { ...input, client: project.client, currency: project.currency },
       });
       return project;
     });
   }
 }
 
-/** Name, client and locale only. Writes `{ before, after }` of the fields that really changed. */
+/** Name and locale only (the client comes from the contract). Writes `{ before, after }` of the fields that really changed. */
 export class UpdateProjectUseCase {
   constructor(private readonly uow: ProjectAdminUnitOfWork) {}
 
@@ -51,7 +61,7 @@ export class UpdateProjectUseCase {
 
       const changes: ProjectChanges = {};
       const before: Record<string, unknown> = {};
-      for (const key of ['name', 'client', 'locale'] as const) {
+      for (const key of ['name', 'locale'] as const) {
         const next = input[key];
         if (next !== undefined && next !== current[key]) {
           Object.assign(changes, { [key]: next });

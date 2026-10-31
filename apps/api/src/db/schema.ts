@@ -80,6 +80,8 @@ export const projects = pgTable('projects', {
   crsEpsg: integer('crs_epsg').notNull(),
   currency: char('currency', { length: 3 }).notNull(),
   locale: text('locale').notNull().default('ar'),
+  /** FK to contracts (migration 0007, ADR-027); null only for projects created before Phase 2. */
+  contractId: uuid('contract_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -598,6 +600,87 @@ export const revisionDiffItems = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------------------------
+// Phase 2 (migration 0007, ADR-027). Triggers lock the BOQ of an approved contract and keep the
+// currency immutable; `amount` is generated (never insert it).
+// ---------------------------------------------------------------------------------------------
+
+export const contracts = pgTable(
+  'contracts',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    number: text('number').notNull(),
+    name: text('name').notNull(),
+    client: text('client').notNull(),
+    currency: char('currency', { length: 3 }).notNull(),
+    startsOn: date('starts_on', { mode: 'string' }),
+    durationDays: integer('duration_days'),
+    notes: text('notes'),
+    status: text('status').$type<'draft' | 'approved'>().notNull().default('draft'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    approvedBy: uuid('approved_by').references(() => users.id, { onDelete: 'set null' }),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('contracts_number_key').on(table.number)],
+);
+
+export const contractItems = pgTable(
+  'contract_items',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => contracts.id, { onDelete: 'cascade' }),
+    lineNo: integer('line_no').notNull(),
+    kind: text('kind').$type<'item' | 'heading'>().notNull(),
+    code: text('code').notNull(),
+    description: text('description'),
+    unit: text('unit'),
+    quantity: numeric('quantity', { precision: 18, scale: 4 }),
+    unitPrice: numeric('unit_price', { precision: 20, scale: 6 }),
+    amount: numeric('amount', { precision: 38, scale: 10 }).generatedAlwaysAs(
+      sql`quantity * unit_price`,
+    ),
+    workType: text('work_type').$type<'civil' | 'installation' | 'planning'>(),
+    source: text('source').$type<'manual' | 'import'>().notNull().default('manual'),
+    sourceRow: integer('source_row'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('contract_items_line_no_key').on(table.contractId, table.lineNo),
+    index('contract_items_contract_code_idx').on(table.contractId, table.code),
+  ],
+);
+
+export const contractAttachments = pgTable(
+  'contract_attachments',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => contracts.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'document' | 'import_source'>().notNull(),
+    fileName: text('file_name').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    storageKey: text('storage_key').notNull().unique(),
+    uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('contract_attachments_contract_idx').on(table.contractId, table.createdAt)],
+);
+
 export const schema = {
   users,
   refreshTokens,
@@ -608,6 +691,9 @@ export const schema = {
   workOrders,
   workOrderItems,
   workOrderAttachments,
+  contracts,
+  contractItems,
+  contractAttachments,
   cadFiles,
   cadLayers,
   cadInserts,

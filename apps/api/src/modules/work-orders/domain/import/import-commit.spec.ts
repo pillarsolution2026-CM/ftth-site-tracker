@@ -40,7 +40,11 @@ describe('selectRowsForCommit', () => {
     const result = select([row('A'), row('B', 3)]);
     expect(result).toMatchObject({ ok: true, excludedCount: 0 });
     if (!result.ok) return;
-    expect(result.items.map((i) => [i.code, i.quantity.toString(), i.sourceRow])).toEqual([
+    expect(
+      result.lines.flatMap((i) =>
+        i.kind === 'item' ? [[i.code, i.quantity.toString(), i.sourceRow]] : [],
+      ),
+    ).toEqual([
       ['A', '1', 2],
       ['B', '3', 3],
     ]);

@@ -107,6 +107,7 @@ describe('preview', () => {
   it('accepts a row with an invalid number kept as raw text', () => {
     const row = {
       rowNumber: 7,
+      kind: 'item',
       raw: {
         code: 'C-1',
         description: 'كابل',

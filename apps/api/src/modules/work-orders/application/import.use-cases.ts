@@ -17,7 +17,7 @@ import { extensionOf, hasZipSignature } from '../domain/file-signatures.js';
 import { selectRowsForCommit } from '../domain/import/import-commit.js';
 import { parseImport } from '../domain/import/import-parser.js';
 import type { RawWorkbook } from '../domain/import/raw-workbook.js';
-import { WorkOrder } from '../domain/work-order.js';
+import { WorkOrder, type NewItem } from '../domain/work-order.js';
 import type { WorkOrderAttachment, WorkOrderUnitOfWork } from '../domain/work-order.repository.js';
 import type { ProjectCurrencyLookup, WorkbookReader } from './ports.js';
 import type { WorkOrderView } from './work-order-queries.js';
@@ -27,12 +27,12 @@ export interface UploadedXlsx {
   buffer: Buffer;
 }
 
-interface ReadXlsx {
+export interface ReadXlsx {
   workbook: RawWorkbook;
   sha256: string;
 }
 
-async function readXlsx(file: UploadedXlsx, reader: WorkbookReader): Promise<ReadXlsx> {
+export async function readXlsx(file: UploadedXlsx, reader: WorkbookReader): Promise<ReadXlsx> {
   if (extensionOf(file.fileName) !== 'xlsx' || !hasZipSignature(file.buffer)) {
     throw new AppError('UNSUPPORTED_FILE', 'Only .xlsx workbooks can be imported');
   }
@@ -42,7 +42,7 @@ async function readXlsx(file: UploadedXlsx, reader: WorkbookReader): Promise<Rea
   };
 }
 
-function importInvalid(details: ImportInvalidDetails): AppError {
+export function importInvalid(details: ImportInvalidDetails): AppError {
   return new AppError('IMPORT_INVALID', `Import refused: ${details.reason}`, details);
 }
 
@@ -93,6 +93,12 @@ export class CommitImportUseCase {
     const selection = selectRowsForCommit(parsed, payload);
     if (!selection.ok) throw importInvalid(selection.details);
 
+    // Heading rows are section titles of a BOQ; a work order never stores them.
+    const items: NewItem[] = [];
+    for (const line of selection.lines) {
+      if (line.kind === 'item') items.push(line);
+    }
+
     const now = this.clock.now();
     const currency = await this.projects.currencyOf(projectId);
     const order = WorkOrder.create(
@@ -104,7 +110,7 @@ export class CommitImportUseCase {
         notes: payload.workOrder.notes,
         currency,
         source: 'import',
-        items: selection.items,
+        items,
         acceptedDuplicateCodes: payload.acceptedDuplicateCodes,
         createdById: actorId,
       },

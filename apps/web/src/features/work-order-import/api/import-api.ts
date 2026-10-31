@@ -1,8 +1,13 @@
 import {
+  ContractDetailSchema,
+  ContractImportCommitPayloadSchema,
+  ContractImportPreviewOptionsSchema,
+  ContractImportPreviewResponseSchema,
   WorkOrderDetailSchema,
   WorkOrderImportCommitPayloadSchema,
   WorkOrderImportPreviewOptionsSchema,
   WorkOrderImportPreviewResponseSchema,
+  type ContractDetail,
   type WorkOrderDetail,
   type WorkOrderImportPreviewOptions,
   type WorkOrderImportPreviewResponse,
@@ -46,6 +51,39 @@ export function commitImport(
     importPath(projectId),
     multipart(file, WorkOrderImportCommitPayloadSchema.parse(payload)),
     WorkOrderDetailSchema,
+    upload,
+  );
+}
+
+const contractImportPath = (contractId: string) =>
+  `/api/admin/contracts/${encodeURIComponent(contractId)}/import`;
+
+/** Contract BOQ import, step 1: same parsing as the work-order import, no writes. */
+export function previewContractImport(
+  contractId: string,
+  file: File,
+  options: WorkOrderImportPreviewOptions,
+  upload?: UploadOptions,
+): Promise<WorkOrderImportPreviewResponse> {
+  return bffUpload(
+    `${contractImportPath(contractId)}/preview`,
+    multipart(file, ContractImportPreviewOptionsSchema.parse(options)),
+    ContractImportPreviewResponseSchema,
+    upload,
+  );
+}
+
+/** Replaces every line of the draft contract with the included rows. */
+export function commitContractImport(
+  contractId: string,
+  file: File,
+  payload: z.input<typeof ContractImportCommitPayloadSchema>,
+  upload?: UploadOptions,
+): Promise<ContractDetail> {
+  return bffUpload(
+    contractImportPath(contractId),
+    multipart(file, ContractImportCommitPayloadSchema.parse(payload)),
+    ContractDetailSchema,
     upload,
   );
 }

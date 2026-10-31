@@ -330,12 +330,9 @@ describe('xlsx import parsing: rows', () => {
       },
     ]);
     expect(parsed.rows.map((r) => r.rowNumber)).toEqual([2, 5]);
-    expect(issueCodes(parsed, 1)).toEqual([
-      'MISSING_VALUE',
-      'MISSING_VALUE',
-      'MISSING_VALUE',
-      'MISSING_VALUE',
-    ]);
+    // No unit, price, quantity or amount: a heading row, which only needs a code.
+    expect(parsed.rows[1]?.kind).toBe('heading');
+    expect(issueCodes(parsed, 1)).toEqual(['MISSING_VALUE']);
   });
 
   it('marks every row of a repeated code as DUPLICATE_CODE with the other row numbers', async () => {
@@ -424,8 +421,8 @@ describe('xlsx import parsing: work type, price decimals, unit length (ADR-016)'
       unitPrice: 5,
       amount: 6,
     });
-    // "مسلسل" is not a code synonym: the user maps column A by hand (unchanged behaviour).
-    expect(parsed.suggestedMapping.code).toBeNull();
+    // "مسلسل" is the code column of the owner's sheets (2026-10-31).
+    expect(parsed.suggestedMapping.code).toBe(0);
   });
 
   it('reads the three work types and rejects anything else', async () => {
@@ -491,9 +488,10 @@ describe('xlsx import parsing: work type, price decimals, unit length (ADR-016)'
     ]);
   });
 
-  it('still flags section headings without unit, quantity or price', async () => {
-    const parsed = await ownerSheet([['1-1', 'مدني', 'غرف التفتيش', null, null, null, null]]);
-    expect(issueCodes(parsed, 0)).toEqual(['MISSING_VALUE', 'MISSING_VALUE', 'MISSING_VALUE']);
+  it('flags an item that has a quantity but no unit or price', async () => {
+    const parsed = await ownerSheet([['1-1', 'مدني', 'غرف التفتيش', null, 4, null, null]]);
+    expect(parsed.rows[0]?.kind).toBe('item');
+    expect(issueCodes(parsed, 0)).toEqual(['MISSING_VALUE', 'MISSING_VALUE']);
   });
 });
 

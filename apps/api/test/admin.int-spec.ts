@@ -10,6 +10,7 @@ let adminToken: string;
 let pmToken: string;
 let supervisorToken: string;
 let seeded: { a: string; b: string; zone: string };
+let contractId: string;
 
 const PASSWORD = 'a-good-long-password';
 const MISSING = '99999999-9999-4999-8999-999999999999';
@@ -22,6 +23,17 @@ beforeAll(async () => {
   pmToken = await loginAs(ctx, ...SEED_LOGINS.pm);
   supervisorToken = await loginAs(ctx, ...SEED_LOGINS.supervisor);
   seeded = await projectIds(ctx.pool);
+  const contract = await http()
+    .post('/admin/contracts')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({
+      number: `C-${randomUUID().slice(0, 8)}`,
+      name: 'عقد',
+      client: 'Client X',
+      currency: 'EGP',
+    });
+  expect(contract.status).toBe(201);
+  contractId = contract.body.id as string;
 });
 afterAll(async () => {
   await ctx.close();
@@ -40,13 +52,46 @@ async function createProject(name = `Project ${randomUUID().slice(0, 8)}`): Prom
   const res = await http()
     .post('/admin/projects')
     .set('Authorization', `Bearer ${adminToken}`)
-    .send({ name, client: 'Client X', crsEpsg: 32636, currency: 'EGP', locale: 'ar' });
+    .send({ name, contractId, crsEpsg: 32636, locale: 'ar' });
   expect(res.status).toBe(201);
   return res.body.id as string;
 }
 
 async function login(email: string, password = PASSWORD) {
   return http().post('/auth/login').send({ email, password });
+}
+
+/** The contract routes (ADR-027); the guard answers before any body or id is looked at. */
+function contractRoutes(): {
+  method: 'get' | 'post' | 'patch' | 'delete';
+  path: string;
+  body?: object;
+}[] {
+  const base = `/admin/contracts/${contractId}`;
+  const item = {
+    item: { kind: 'heading', code: 'H' },
+    acceptDuplicateCode: false,
+    expectedVersion: 1,
+  };
+  return [
+    { method: 'get', path: '/admin/contracts' },
+    {
+      method: 'post',
+      path: '/admin/contracts',
+      body: { number: 'X', name: 'X', client: 'X', currency: 'EGP' },
+    },
+    { method: 'get', path: base },
+    { method: 'patch', path: base, body: { expectedVersion: 1, name: 'Hijacked' } },
+    { method: 'post', path: `${base}/items`, body: item },
+    { method: 'patch', path: `${base}/items/${randomUUID()}`, body: item },
+    { method: 'delete', path: `${base}/items/${randomUUID()}?expectedVersion=1` },
+    { method: 'post', path: `${base}/import/preview` },
+    { method: 'post', path: `${base}/import` },
+    { method: 'post', path: `${base}/approve`, body: { expectedVersion: 1 } },
+    { method: 'get', path: `${base}/attachments/${randomUUID()}` },
+    { method: 'post', path: `${base}/attachments` },
+    { method: 'delete', path: `${base}/attachments/${randomUUID()}` },
+  ];
 }
 
 /** Every admin route, with a body that would be valid for an admin. */
@@ -61,7 +106,7 @@ function adminRoutes(): {
     {
       method: 'post',
       path: '/admin/projects',
-      body: { name: 'X', client: 'Y', crsEpsg: 32636, currency: 'EGP', locale: 'ar' },
+      body: { name: 'X', contractId, crsEpsg: 32636, locale: 'ar' },
     },
     { method: 'patch', path: `/admin/projects/${seeded.a}`, body: { name: 'Hijacked' } },
     { method: 'get', path: `/admin/projects/${seeded.a}/zones` },
@@ -73,6 +118,7 @@ function adminRoutes(): {
       body: { userId, role: 'pm' },
     },
     { method: 'delete', path: `/admin/projects/${seeded.a}/assignments/${randomUUID()}` },
+    ...contractRoutes(),
     { method: 'get', path: '/admin/users' },
     {
       method: 'post',
@@ -149,6 +195,7 @@ describe('projects', () => {
       crsEpsg: 32636,
       currency: 'EGP',
       locale: 'ar',
+      contractId,
     });
 
     const list = await http().get('/admin/projects').set('Authorization', `Bearer ${adminToken}`);
@@ -157,11 +204,13 @@ describe('projects', () => {
     expect(ids).toEqual(expect.arrayContaining([id, seeded.a, seeded.b]));
   });
 
-  it('rejects a non-UTM CRS, a bad currency and unknown fields', async () => {
-    const base = { name: 'P', client: 'C', crsEpsg: 32636, currency: 'EGP', locale: 'ar' };
+  it('rejects a non-UTM CRS, a missing contract, client/currency and unknown fields', async () => {
+    const base = { name: 'P', contractId, crsEpsg: 32636, locale: 'ar' };
     for (const body of [
       { ...base, crsEpsg: 4326 },
-      { ...base, currency: 'egp' },
+      { ...base, contractId: undefined },
+      { ...base, currency: 'EGP' },
+      { ...base, client: 'C' },
       { ...base, id: randomUUID() },
       { ...base, name: '   ' },
     ]) {
@@ -173,7 +222,40 @@ describe('projects', () => {
     }
   });
 
-  it('edits name, client and locale with a before/after event; the CRS and currency stay fixed', async () => {
+  it('answers 404 for an unknown contract and copies client and currency from the contract', async () => {
+    const unknown = await http()
+      .post('/admin/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'P', contractId: MISSING, crsEpsg: 32636, locale: 'ar' });
+    expect(unknown.status).toBe(404);
+
+    const usd = await http()
+      .post('/admin/contracts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        number: `U-${randomUUID().slice(0, 8)}`,
+        name: 'USD',
+        client: 'Acme',
+        currency: 'USD',
+      });
+    const created = await http()
+      .post('/admin/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'P-usd', contractId: usd.body.id, crsEpsg: 32636, locale: 'en' });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      client: 'Acme',
+      currency: 'USD',
+      contractId: usd.body.id,
+    });
+    const { rows } = await ctx.pool.query(
+      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'project.created'`,
+      [created.body.id],
+    );
+    expect(rows[0].payload).toMatchObject({ client: 'Acme', currency: 'USD' });
+  });
+
+  it('edits name and locale with a before/after event; the CRS and currency stay fixed', async () => {
     const id = await createProject();
     const res = await http()
       .patch(`/admin/projects/${id}`)
@@ -190,7 +272,7 @@ describe('projects', () => {
       after: { name: 'Renamed', locale: 'en' },
     });
 
-    for (const body of [{ crsEpsg: 32635 }, { currency: 'USD' }, {}]) {
+    for (const body of [{ crsEpsg: 32635 }, { currency: 'USD' }, { client: 'X' }, {}]) {
       const bad = await http()
         .patch(`/admin/projects/${id}`)
         .set('Authorization', `Bearer ${adminToken}`)

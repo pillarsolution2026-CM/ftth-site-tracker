@@ -8,6 +8,7 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
 import { PROJECT_ID, QC_ACCESS, renderScreen } from '@/test-utils/render';
+import { ContractImport } from '@/features/contracts/components/contract-import';
 import { ImportWizard } from './import-wizard';
 
 const push = vi.fn();
@@ -15,9 +16,13 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push, replace: vi.fn() }
 
 const previewImport = vi.fn();
 const commitImport = vi.fn();
+const previewContractImport = vi.fn();
+const commitContractImport = vi.fn();
 vi.mock('../api/import-api', () => ({
   previewImport: (...args: unknown[]) => previewImport(...args),
   commitImport: (...args: unknown[]) => commitImport(...args),
+  previewContractImport: (...args: unknown[]) => previewContractImport(...args),
+  commitContractImport: (...args: unknown[]) => commitContractImport(...args),
 }));
 
 const SHA = 'b'.repeat(64);
@@ -31,6 +36,7 @@ function row(
 ): ImportPreviewRow {
   return {
     rowNumber,
+    kind: 'item',
     raw: {
       code,
       description: `Item ${code}`,
@@ -88,6 +94,7 @@ function preview(): WorkOrderImportPreviewResponse {
     ],
     summary: {
       rowCount: 4,
+      headingCount: 0,
       errorRowCount: 1,
       warningRowCount: 2,
       duplicateCodes: [{ code: 'D-7', rowNumbers: [3, 4] }],
@@ -104,7 +111,7 @@ async function uploadFile(user: ReturnType<typeof userEvent.setup>) {
   const file = new File(['PK'], 'wo.xlsx', {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  await user.upload(screen.getByLabelText('Excel file (.xlsx)'), file);
+  await user.upload(await screen.findByLabelText('Excel file (.xlsx)'), file);
   await screen.findByRole('heading', { name: '2. Sheet and columns' });
   return file;
 }
@@ -267,5 +274,134 @@ describe('ImportWizard', () => {
     renderScreen(<ImportWizard projectId={PROJECT_ID} />, { access: QC_ACCESS });
     expect(screen.getByRole('alert')).toHaveTextContent('You are not allowed to do this');
     expect(screen.queryByLabelText('Excel file (.xlsx)')).not.toBeInTheDocument();
+  });
+});
+
+const CONTRACT_ID = '4a1c9f2e-6b3d-4e8a-9c7f-2d4b6a8c0e1f';
+const contractDetail = {
+  id: CONTRACT_ID,
+  status: 'draft',
+  version: 5,
+  items: [{ id: 'x' }, { id: 'y' }],
+};
+vi.mock('@/features/contracts/api/contracts-api', () => ({
+  getContract: () => Promise.resolve(contractDetail),
+}));
+
+function headingRow(rowNumber: number, code: string, title: string): ImportPreviewRow {
+  return {
+    ...row(rowNumber, code, null),
+    kind: 'heading',
+    unit: null,
+    quantity: null,
+    unitPrice: null,
+    workType: null,
+    raw: {
+      code,
+      description: title,
+      unit: null,
+      quantity: null,
+      unitPrice: null,
+      workType: null,
+      amount: null,
+    },
+  };
+}
+
+function boqPreview(): WorkOrderImportPreviewResponse {
+  const base = preview();
+  const variant = (otherRows: string) => [
+    {
+      code: 'UNIT_FORM_VARIANT' as const,
+      severity: 'warning' as const,
+      field: 'unit' as const,
+      params: { otherRows },
+    },
+  ];
+  return {
+    ...base,
+    rows: [
+      headingRow(2, '1', 'Civil works'),
+      row(3, '1-1', '5', variant('4')),
+      row(4, '1-2', '7', variant('3')),
+    ],
+    summary: {
+      rowCount: 3,
+      headingCount: 1,
+      errorRowCount: 0,
+      warningRowCount: 2,
+      duplicateCodes: [],
+      total: '12',
+    },
+  };
+}
+
+describe('contract BOQ import', () => {
+  beforeEach(() => {
+    push.mockReset();
+    previewContractImport.mockReset().mockResolvedValue(boqPreview());
+    commitContractImport.mockReset().mockResolvedValue({ id: CONTRACT_ID });
+  });
+
+  it('shows headings as section rows, counts them, and words the unit variant warning', async () => {
+    const user = userEvent.setup();
+    renderScreen(<ContractImport contractId={CONTRACT_ID} />);
+    await uploadFile(user);
+
+    expect(previewContractImport).toHaveBeenCalledWith(
+      CONTRACT_ID,
+      expect.any(File),
+      {},
+      expect.anything(),
+    );
+    const table = screen.getByRole('table', { name: '4. Review the rows' });
+    const headingCell = within(table).getByText('Civil works').closest('td');
+    expect(headingCell).toHaveAttribute('colspan', '6');
+    expect(within(table).getByText('Section heading')).toBeInTheDocument();
+    // The heading is not an error row.
+    const summary = screen.getByRole('region', { name: '3. Summary' });
+    expect(within(summary).getByText('Heading rows').nextSibling).toHaveTextContent('1');
+    expect(within(summary).getByText('Rows with errors').nextSibling).toHaveTextContent('0');
+    expect(screen.getByText('The same unit is typed differently in rows 4')).toBeInTheDocument();
+  });
+
+  it('needs the replace confirmation, then sends the version without a work-order header', async () => {
+    const user = userEvent.setup();
+    renderScreen(<ContractImport contractId={CONTRACT_ID} />);
+    await uploadFile(user);
+
+    const commit = screen.getByRole('button', { name: 'Replace the BOQ lines' });
+    expect(screen.queryByLabelText(/^Number/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/replaces every existing BOQ line with the file content/),
+    ).toBeInTheDocument();
+    expect(commit).toBeDisabled();
+
+    await user.click(
+      screen.getByLabelText('I confirm that the existing BOQ lines (2) will be replaced'),
+    );
+    expect(commit).toBeEnabled();
+    await user.click(commit);
+
+    await waitFor(() => expect(commitContractImport).toHaveBeenCalledTimes(1));
+    const [id, , payload] = commitContractImport.mock.calls[0] as [string, File, unknown];
+    expect(id).toBe(CONTRACT_ID);
+    expect(payload).toMatchObject({ expectedVersion: 5, excludedRowNumbers: [] });
+    expect(payload).not.toHaveProperty('workOrder');
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/en/admin/contracts/${CONTRACT_ID}`));
+  });
+
+  it('shows the 409 reason when the contract changed meanwhile', async () => {
+    commitContractImport
+      .mockReset()
+      .mockRejectedValue(new ApiClientError('CONFLICT', 409, { reason: 'STALE_VERSION' }));
+    const user = userEvent.setup();
+    renderScreen(<ContractImport contractId={CONTRACT_ID} />);
+    await uploadFile(user);
+    await user.click(
+      screen.getByLabelText('I confirm that the existing BOQ lines (2) will be replaced'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Replace the BOQ lines' }));
+    expect(await screen.findByText(/The contract was changed by another user/)).toBeInTheDocument();
   });
 });

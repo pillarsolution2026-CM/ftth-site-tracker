@@ -27,6 +27,11 @@ export function foreignKeyViolation(error: unknown): string | null {
   return pgError?.code === '23503' ? (pgError.constraint ?? '') : null;
 }
 
+/** True for SQLSTATE 23001 (restrict_violation), raised by the DB triggers that lock approved data. */
+export function restrictViolation(error: unknown): boolean {
+  return pgErrorOf(error)?.code === '23001';
+}
+
 /** True when a lock wait hit `lock_timeout` (55P03 lock_not_available). */
 export function lockNotAvailable(error: unknown): boolean {
   return pgErrorOf(error)?.code === '55P03';

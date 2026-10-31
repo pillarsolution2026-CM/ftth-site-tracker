@@ -55,6 +55,9 @@ export const storageKeys = {
     `projects/${projectId}/cad/${cadFileId}/original.${format}`,
   cadConverted: (projectId: string, cadFileId: string) =>
     `projects/${projectId}/cad/${cadFileId}/converted.dxf`,
+  /** Contracts sit above projects (ADR-027), so their files are not under a project prefix. */
+  contractAttachment: (contractId: string, attachmentId: string, ext: 'pdf' | 'xlsx') =>
+    `contracts/${contractId}/attachments/${attachmentId}.${ext}`,
   workOrderAttachment: (
     projectId: string,
     workOrderId: string,

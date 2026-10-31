@@ -20,11 +20,11 @@ export type FormResult<T, F extends string> =
 // Project
 // ---------------------------------------------------------------------------------------------
 
-export type ProjectField = 'name' | 'client' | 'crsEpsg' | 'currency' | 'locale';
+export type ProjectField = 'name' | 'contractId' | 'crsEpsg' | 'locale';
 export type ProjectFormValues = Record<ProjectField, string>;
 
 /** Used only when no project exists yet: the values the first (seed) project uses. */
-const FIRST_PROJECT_DEFAULTS = { crsEpsg: '32636', currency: 'EGP', locale: 'ar' } as const;
+const FIRST_PROJECT_DEFAULTS = { crsEpsg: '32636', locale: 'ar' } as const;
 
 function mostCommon(values: readonly string[]): string | undefined {
   const counts = new Map<string, number>();
@@ -34,21 +34,18 @@ function mostCommon(values: readonly string[]): string | undefined {
 
 /**
  * Values the existing projects use, offered as suggestions; the admin may type others. The most
- * common one pre-fills the field. The client is never pre-filled.
+ * common one pre-fills the field. The contract is never pre-filled: the client and the currency
+ * come from it (ADR-027).
  */
 export function projectSuggestions(projects: readonly Project[]) {
   const epsg = projects.map((project) => String(project.crsEpsg));
-  const currencies = projects.map((project) => project.currency);
   const locales = projects.map((project) => project.locale);
   return {
     crsEpsg: [...new Set(epsg)],
-    currency: [...new Set(currencies)],
-    clients: [...new Set(projects.map((project) => project.client))],
     initial: {
       name: '',
-      client: '',
+      contractId: '',
       crsEpsg: mostCommon(epsg) ?? FIRST_PROJECT_DEFAULTS.crsEpsg,
-      currency: mostCommon(currencies) ?? FIRST_PROJECT_DEFAULTS.currency,
       locale: mostCommon(locales) ?? FIRST_PROJECT_DEFAULTS.locale,
     } satisfies ProjectFormValues,
   };
@@ -56,9 +53,8 @@ export function projectSuggestions(projects: readonly Project[]) {
 
 const PROJECT_MESSAGES: Record<ProjectField, MessageKey> = {
   name: 'validation.required',
-  client: 'validation.required',
+  contractId: 'admin.validation.contract',
   crsEpsg: 'admin.validation.crs',
-  currency: 'admin.validation.currency',
   locale: 'admin.validation.invalid',
 };
 
@@ -83,7 +79,6 @@ export function validateProjectForm(
   const parsed = CreateProjectRequestSchema.safeParse({
     ...values,
     crsEpsg: /^\d{1,6}$/.test(epsg) ? Number(epsg) : NaN,
-    currency: values.currency.trim().toUpperCase(),
   });
   return parsed.success
     ? { ok: true, payload: parsed.data }

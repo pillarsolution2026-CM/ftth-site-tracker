@@ -12,6 +12,9 @@ export const EVENT_ENTITIES = {
   textLink: 'text_link',
   executionUpdate: 'execution_update',
   executionPhoto: 'execution_photo',
+  contract: 'contract',
+  contractItem: 'contract_item',
+  contractAttachment: 'contract_attachment',
 } as const;
 
 export const EVENT_TYPES = {
@@ -47,5 +50,17 @@ export const EVENT_TYPES = {
   executionUpdateRecorded: 'execution_update.recorded',
   /** Payload: updateId, sha256, sizeBytes. */
   executionPhotoStored: 'execution_photo.stored',
+  /** Phase 2 (ADR-027). Contract events have project_id NULL: a contract sits above projects. */
+  contractCreated: 'contract.created',
+  contractUpdated: 'contract.updated',
+  /** BOQ replaced by an Excel import; payload: file sha256, sheet, mapping, item/heading counts, total. */
+  contractImported: 'contract.imported',
+  /** Payload: full snapshot of the approved BOQ (lines, total). */
+  contractApproved: 'contract.approved',
+  contractItemAdded: 'contract_item.added',
+  contractItemUpdated: 'contract_item.updated',
+  contractItemRemoved: 'contract_item.removed',
+  contractAttachmentAdded: 'contract_attachment.added',
+  contractAttachmentRemoved: 'contract_attachment.removed',
 } as const;
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

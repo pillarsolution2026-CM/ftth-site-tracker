@@ -119,6 +119,10 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows the read-only contract of the project', () => {
+    expect(upstreamPath([PROJECT, 'contract'])).toBe(`/projects/${PROJECT}/contract`);
+  });
+
   it('rejects other resources, bad project ids and traversal', () => {
     expect(upstreamPath([PROJECT, 'members'])).toBeNull();
     expect(upstreamPath([PROJECT])).toBeNull();
