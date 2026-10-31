@@ -15,6 +15,8 @@ export const PERMISSIONS = [
   'execution:read',
   /** Record execution updates from the mobile app (Phase 3). ASSUMPTION: supervisor, pm, admin. */
   'execution:write',
+  /** Read the contract and BOQ of the project (Phase 2, ADR-027): admin and pm only (owner). */
+  'contract:read',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

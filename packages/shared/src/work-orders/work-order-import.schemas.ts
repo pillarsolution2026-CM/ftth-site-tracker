@@ -62,7 +62,8 @@ export const WORK_TYPE_SYNONYMS: Readonly<Record<WorkType, readonly string[]>> =
  * Exact match after normalisation wins over "contains".
  */
 export const IMPORT_HEADER_SYNONYMS: Readonly<Record<ImportField, readonly string[]>> = {
-  code: ['كود', 'الكود', 'كود البند', 'البند', 'رقم البند', 'code', 'item', 'item code'],
+  // 'مسلسل' is the code column of the owner's BOQ and work-order sheets (owner, 2026-10-31).
+  code: ['كود', 'الكود', 'كود البند', 'البند', 'رقم البند', 'مسلسل', 'code', 'item', 'item code'],
   description: ['الوصف', 'البيان', 'وصف البند', 'description', 'désignation', 'designation'],
   unit: ['الوحدة', 'وحدة', 'unit', 'uom', 'unité', 'unite'],
   quantity: ['الكمية', 'كمية', 'quantity', 'qty', 'quantité', 'quantite'],
@@ -118,6 +119,7 @@ export const IMPORT_ROW_ISSUE_CODES = [
   'INVALID_WORK_TYPE',
   'DUPLICATE_CODE',
   'AMOUNT_MISMATCH',
+  'UNIT_FORM_VARIANT',
 ] as const;
 export const ImportRowIssueCodeSchema = z.enum(IMPORT_ROW_ISSUE_CODES);
 export type ImportRowIssueCode = z.infer<typeof ImportRowIssueCodeSchema>;
@@ -141,7 +143,23 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
     DUPLICATE_CODE: 'warning',
     /** Sheet amount ≠ quantity × unitPrice (rounded to the sheet value's decimals). Informative only. */
     AMOUNT_MISMATCH: 'warning',
+    /**
+     * The unit equals another row's unit once spaces and line breaks are collapsed, but is typed
+     * differently (e.g. `BULDING (1 to 8…)` vs `BULDING⏎(1 to 8…)`). Informative only: the value is
+     * kept exactly as typed (owner, 2026-10-31). `params.otherRows` lists the other rows.
+     */
+    UNIT_FORM_VARIANT: 'warning',
   };
+
+/**
+ * Kind of a data row. `heading` = a section title: the unit and the unit price are both empty and
+ * the quantity and amount are empty or zero (owner, 2026-10-31). A heading needs only a code; it has
+ * no other checks, is not counted in the total, and is never stored as a work-order item (the
+ * contract import stores it as a heading line). Every other row is an `item`.
+ */
+export const IMPORT_ROW_KINDS = ['item', 'heading'] as const;
+export const ImportRowKindSchema = z.enum(IMPORT_ROW_KINDS);
+export type ImportRowKind = z.infer<typeof ImportRowKindSchema>;
 
 export const ImportRowIssueSchema = z.object({
   code: ImportRowIssueCodeSchema,
@@ -189,6 +207,7 @@ const nullableText = z.string().nullable();
 export const ImportPreviewRowSchema = z.object({
   /** 1-based Excel row number; the identity of a row between preview and commit. */
   rowNumber: z.number().int().min(1),
+  kind: ImportRowKindSchema,
   /** Cell text as displayed, per mapped field (null = empty or unmapped). */
   raw: z.object({
     code: nullableText,
@@ -242,6 +261,8 @@ export const WorkOrderImportPreviewResponseSchema = z.object({
   rows: z.array(ImportPreviewRowSchema),
   summary: z.object({
     rowCount: z.number().int().min(0),
+    /** Rows of kind `heading` (included in rowCount). */
+    headingCount: z.number().int().min(0),
     errorRowCount: z.number().int().min(0),
     warningRowCount: z.number().int().min(0),
     duplicateCodes: z.array(

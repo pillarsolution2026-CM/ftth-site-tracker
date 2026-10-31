@@ -12,9 +12,8 @@ const ZONE_ID = '22222222-2222-4222-8222-222222222222';
 describe('CreateProjectRequestSchema', () => {
   const valid = {
     name: ' مشروع ',
-    client: 'Client',
     crsEpsg: 32636,
-    currency: 'EGP',
+    contractId: USER_ID,
     locale: 'ar',
   };
 
@@ -22,19 +21,24 @@ describe('CreateProjectRequestSchema', () => {
     expect(CreateProjectRequestSchema.parse(valid).name).toBe('مشروع');
   });
 
-  it('rejects a non-UTM CRS, a lower-case currency and unknown fields', () => {
+  it('rejects a non-UTM CRS, a missing contract, and client/currency (taken from the contract)', () => {
     expect(CreateProjectRequestSchema.safeParse({ ...valid, crsEpsg: 4326 }).success).toBe(false);
-    expect(CreateProjectRequestSchema.safeParse({ ...valid, currency: 'egp' }).success).toBe(false);
+    expect(CreateProjectRequestSchema.safeParse({ ...valid, contractId: undefined }).success).toBe(
+      false,
+    );
+    expect(CreateProjectRequestSchema.safeParse({ ...valid, currency: 'EGP' }).success).toBe(false);
+    expect(CreateProjectRequestSchema.safeParse({ ...valid, client: 'X' }).success).toBe(false);
     expect(CreateProjectRequestSchema.safeParse({ ...valid, id: USER_ID }).success).toBe(false);
   });
 });
 
 describe('UpdateProjectRequestSchema', () => {
-  it('refuses the CRS and the currency, and an empty body', () => {
+  it('refuses the CRS, the currency, the client and an empty body', () => {
     expect(UpdateProjectRequestSchema.safeParse({ crsEpsg: 32635 }).success).toBe(false);
     expect(UpdateProjectRequestSchema.safeParse({ currency: 'USD' }).success).toBe(false);
+    expect(UpdateProjectRequestSchema.safeParse({ client: 'X' }).success).toBe(false);
     expect(UpdateProjectRequestSchema.safeParse({}).success).toBe(false);
-    expect(UpdateProjectRequestSchema.parse({ client: 'X' })).toEqual({ client: 'X' });
+    expect(UpdateProjectRequestSchema.parse({ name: 'X' })).toEqual({ name: 'X' });
   });
 });
 
