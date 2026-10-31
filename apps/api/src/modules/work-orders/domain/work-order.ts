@@ -1,4 +1,4 @@
-import { unacceptedDuplicateCodes, type DuplicateCode, type WorkType } from '@ftth/shared';
+import type { DuplicateCode, WorkType } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { IdGenerator } from '../../../common/clock.js';
 import type { Decimal } from './decimal.js';
@@ -16,6 +16,9 @@ export interface WorkOrderItem {
   unitPrice: Decimal;
   /** null only for items saved before ADR-016; an edit must set it. */
   workType: WorkType | null;
+  /** Contract and contract item the line comes from (ADR-028); null only for lines saved before it. */
+  contractId: string | null;
+  contractItemId: string | null;
   source: WorkOrderSource;
   /** Excel row number when imported. */
   sourceRow: number | null;
@@ -54,6 +57,8 @@ export interface ItemValues {
 }
 
 export interface NewItem extends ItemValues {
+  contractId: string;
+  contractItemId: string;
   sourceRow?: number | null;
 }
 
@@ -73,19 +78,14 @@ export interface NewWorkOrder {
   currency: string;
   source: WorkOrderSource;
   items: readonly NewItem[];
-  acceptedDuplicateCodes: readonly string[];
   createdById: string | null;
 }
 
-function duplicateConflict(codes: readonly string[]): AppError {
-  return new AppError(
-    'CONFLICT',
-    `Duplicate item codes must be accepted explicitly: ${codes.join(', ')}`,
-    {
-      reason: 'DUPLICATE_CODE',
-      codes,
-    },
-  );
+function repeatedConflict(contractItemIds: readonly string[]): AppError {
+  return new AppError('CONFLICT', 'A contract item may appear only once in a work order', {
+    reason: 'CONTRACT_ITEM_REPEATED',
+    contractItemIds,
+  });
 }
 
 /** A work order (أمر التكليف): header plus numbered items. Total = Σ quantity × unit price. */
@@ -96,8 +96,8 @@ export class WorkOrder {
   ) {}
 
   static create(input: NewWorkOrder, ids: IdGenerator, now: Date): WorkOrder {
-    const rejected = unacceptedDuplicateCodes(input.items, input.acceptedDuplicateCodes);
-    if (rejected.length > 0) throw duplicateConflict(rejected);
+    const repeated = repeatedContractItemIds(input.items);
+    if (repeated.length > 0) throw repeatedConflict(repeated);
 
     const header: WorkOrderHeader = {
       id: ids.next(),
@@ -122,6 +122,8 @@ export class WorkOrder {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       workType: item.workType,
+      contractId: item.contractId,
+      contractItemId: item.contractItemId,
       source: input.source,
       sourceRow: item.sourceRow ?? null,
       createdAt: now,
@@ -166,8 +168,8 @@ export class WorkOrder {
   }
 
   buildItem(
-    values: ItemValues,
-    options: { lineNo?: number; acceptDuplicateCode: boolean },
+    line: NewItem,
+    options: { lineNo?: number },
     ids: IdGenerator,
     now: Date,
   ): WorkOrderItem {
@@ -178,11 +180,20 @@ export class WorkOrder {
         lineNo,
       });
     }
-    this.assertCodeAllowed(values.code, null, options.acceptDuplicateCode);
+    if (this.items.some((item) => item.contractItemId === line.contractItemId)) {
+      throw repeatedConflict([line.contractItemId]);
+    }
     return {
       id: ids.next(),
       lineNo,
-      ...values,
+      code: line.code,
+      description: line.description,
+      unit: line.unit,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      workType: line.workType,
+      contractId: line.contractId,
+      contractItemId: line.contractItemId,
       source: 'manual',
       sourceRow: null,
       createdAt: now,
@@ -190,40 +201,32 @@ export class WorkOrder {
     };
   }
 
-  changeItem(
+  /** Only the quantity of a line changes; every other field is the contract's (ADR-028). */
+  changeQuantity(
     itemId: string,
-    patch: Partial<ItemValues>,
-    acceptDuplicateCode: boolean,
+    quantity: Decimal,
     now: Date,
   ): { before: WorkOrderItem; after: WorkOrderItem } {
     const before = this.findItem(itemId);
-    if (patch.code !== undefined && patch.code !== before.code) {
-      this.assertCodeAllowed(patch.code, itemId, acceptDuplicateCode);
-    }
-    const workType = patch.workType ?? before.workType;
-    // Items saved before ADR-016 have no work type; the first edit must give one.
-    if (workType === null) {
-      throw new AppError('VALIDATION_FAILED', 'The item needs a work type', {
-        reason: 'WORK_TYPE_REQUIRED',
+    if (before.contractItemId === null) {
+      throw new AppError('CONFLICT', 'A line saved before contract lines cannot be edited', {
+        reason: 'LEGACY_ITEM',
       });
     }
-    return {
-      before,
-      after: {
-        ...before,
-        code: patch.code ?? before.code,
-        description: patch.description ?? before.description,
-        unit: patch.unit ?? before.unit,
-        quantity: patch.quantity ?? before.quantity,
-        unitPrice: patch.unitPrice ?? before.unitPrice,
-        workType,
-        updatedAt: now,
-      },
-    };
+    return { before, after: { ...before, quantity, updatedAt: now } };
   }
+}
 
-  private assertCodeAllowed(code: string, exceptItemId: string | null, accepted: boolean): void {
-    const taken = this.items.some((item) => item.code === code && item.id !== exceptItemId);
-    if (taken && !accepted) throw duplicateConflict([code]);
+/** Contract items used by more than one line. */
+export function repeatedContractItemIds(
+  items: readonly { contractItemId: string | null }[],
+): string[] {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const item of items) {
+    if (item.contractItemId === null) continue;
+    if (seen.has(item.contractItemId)) repeated.add(item.contractItemId);
+    seen.add(item.contractItemId);
   }
+  return [...repeated];
 }

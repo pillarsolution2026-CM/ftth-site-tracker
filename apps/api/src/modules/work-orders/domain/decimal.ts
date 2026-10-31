@@ -38,6 +38,11 @@ export class Decimal {
     return Decimal.of(this.rescaled(scale) + other.rescaled(scale), scale);
   }
 
+  sub(other: Decimal): Decimal {
+    const scale = Math.max(this.scale, other.scale);
+    return Decimal.of(this.rescaled(scale) - other.rescaled(scale), scale);
+  }
+
   mul(other: Decimal): Decimal {
     return Decimal.of(this.units * other.units, this.scale + other.scale);
   }

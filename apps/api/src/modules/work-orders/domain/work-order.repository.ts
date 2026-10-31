@@ -1,5 +1,6 @@
 import type { AttachmentKind } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
+import type { ApprovedContract, Reservations } from './contract-lines.js';
 import type { Decimal } from './decimal.js';
 import type { HeaderPatch, WorkOrder, WorkOrderHeader, WorkOrderItem } from './work-order.js';
 
@@ -31,6 +32,10 @@ export interface WorkOrderAttachment {
 export interface WorkOrderRepository {
   listSummaries(projectId: string): Promise<WorkOrderSummary[]>;
   exists(projectId: string, workOrderId: string): Promise<boolean>;
+  /** True when the project already has its (single) work order. */
+  existsForProject(projectId: string): Promise<boolean>;
+  /** Line of the project's work order for each contract item it uses: contract item id → line id. */
+  lineIdsByContractItem(projectId: string): Promise<Map<string, string>>;
   /** `lock` takes a row lock (SELECT … FOR UPDATE) for the rest of the transaction. */
   findById(
     projectId: string,
@@ -62,10 +67,26 @@ export interface WorkOrderAttachmentRepository {
   delete(projectId: string, workOrderId: string, attachmentId: string): Promise<void>;
 }
 
+/**
+ * Read-only view of the project's contract (ADR-028), supplied by an adapter so the work-orders
+ * module never touches the contracts module's internals.
+ */
+export interface ContractCatalog {
+  /**
+   * The project's approved contract with its priced items in line order. `lock` takes the contract
+   * row lock (SELECT … FOR UPDATE) for the rest of the transaction, which serialises concurrent
+   * reservations. Throws AppError CONFLICT NO_CONTRACT / CONTRACT_NOT_APPROVED.
+   */
+  loadApproved(projectId: string, options?: { lock?: boolean }): Promise<ApprovedContract>;
+  /** Σ quantity of every work-order line of each contract item, over all projects. */
+  reservations(contractId: string): Promise<Reservations>;
+}
+
 /** Repositories and event log bound to one database transaction. */
 export interface WorkOrderTx {
   orders: WorkOrderRepository;
   attachments: WorkOrderAttachmentRepository;
+  contracts: ContractCatalog;
   events: EventLog;
 }
 

@@ -1,10 +1,14 @@
 import type {
+  ContractItemAvailabilityResponse,
   WorkOrderAttachment as AttachmentDto,
   WorkOrderDetail,
   WorkOrderItem as ItemDto,
   WorkOrderSummary as SummaryDto,
 } from '@ftth/shared';
-import type { WorkOrderView } from '../application/work-order-queries.js';
+import type {
+  ContractItemAvailabilityView,
+  WorkOrderView,
+} from '../application/work-order-queries.js';
 import { itemAmount, type WorkOrderItem } from '../domain/work-order.js';
 import type { WorkOrderAttachment, WorkOrderSummary } from '../domain/work-order.repository.js';
 
@@ -20,10 +24,33 @@ export function toItemDto(item: WorkOrderItem, workOrderId: string): ItemDto {
     unitPrice: item.unitPrice.toString(),
     amount: itemAmount(item).toString(),
     workType: item.workType,
+    contractItemId: item.contractItemId,
     source: item.source,
     sourceRow: item.sourceRow,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+export function toAvailabilityDto(
+  view: ContractItemAvailabilityView,
+): ContractItemAvailabilityResponse {
+  return {
+    contractId: view.contractId,
+    contractNumber: view.contractNumber,
+    items: view.rows.map(({ item, reserved, available, workOrderItemId }) => ({
+      contractItemId: item.id,
+      lineNo: item.lineNo,
+      code: item.code,
+      description: item.description,
+      unit: item.unit,
+      unitPrice: item.unitPrice.toString(),
+      workType: item.workType,
+      contractQuantity: item.quantity.toString(),
+      reservedQuantity: reserved.toString(),
+      availableQuantity: available.toString(),
+      workOrderItemId,
+    })),
   };
 }
 

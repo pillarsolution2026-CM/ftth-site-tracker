@@ -13,12 +13,27 @@ import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import { storageKeys, type ObjectStorage } from '../../../common/object-storage.port.js';
 import { discardObject } from '../../../common/storage/discard-object.js';
+import {
+  assertLinesFit,
+  lineFromContract,
+  type ApprovedContract,
+  type Reservations,
+} from '../domain/contract-lines.js';
 import { extensionOf, hasZipSignature } from '../domain/file-signatures.js';
+import {
+  checkImportAgainstContract,
+  contractItemOfRow,
+} from '../domain/import/contract-matching.js';
 import { selectRowsForCommit } from '../domain/import/import-commit.js';
-import { parseImport } from '../domain/import/import-parser.js';
+import { parseImport, type ParsedImport } from '../domain/import/import-parser.js';
 import type { RawWorkbook } from '../domain/import/raw-workbook.js';
 import { WorkOrder, type NewItem } from '../domain/work-order.js';
-import type { WorkOrderAttachment, WorkOrderUnitOfWork } from '../domain/work-order.repository.js';
+import type {
+  ContractCatalog,
+  WorkOrderAttachment,
+  WorkOrderRepository,
+  WorkOrderUnitOfWork,
+} from '../domain/work-order.repository.js';
 import type { ProjectCurrencyLookup, WorkbookReader } from './ports.js';
 import type { WorkOrderView } from './work-order-queries.js';
 
@@ -62,11 +77,65 @@ export class PreviewImportUseCase {
   }
 }
 
-/** Re-parses the same file and, if every included row is clean, creates one work order atomically. */
+/**
+ * Before the file is read (ADR-028): the project needs an approved contract and no work order yet.
+ * Returns the contract and what the work orders saved so far have reserved of it.
+ */
+async function loadContractForImport(
+  contracts: ContractCatalog,
+  orders: WorkOrderRepository,
+  projectId: string,
+  options?: { lock?: boolean },
+): Promise<{ contract: ApprovedContract; reservations: Reservations }> {
+  const contract = await contracts.loadApproved(projectId, options);
+  if (await orders.existsForProject(projectId)) {
+    throw new AppError('CONFLICT', 'The project already has a work order', {
+      reason: 'WORK_ORDER_EXISTS',
+    });
+  }
+  return { contract, reservations: await contracts.reservations(contract.id) };
+}
+
+/** Parses the sheet and checks every item row against the approved contract. Writes nothing. */
+export class PreviewWorkOrderImportUseCase {
+  private readonly preview: PreviewImportUseCase;
+
+  constructor(
+    reader: WorkbookReader,
+    private readonly contracts: ContractCatalog,
+    private readonly orders: WorkOrderRepository,
+  ) {
+    this.preview = new PreviewImportUseCase(reader);
+  }
+
+  async execute(input: {
+    projectId: string;
+    file: UploadedXlsx;
+    options: WorkOrderImportPreviewOptions;
+  }): Promise<WorkOrderImportPreviewResponse> {
+    const { contract, reservations } = await loadContractForImport(
+      this.contracts,
+      this.orders,
+      input.projectId,
+    );
+    const { file, ...parsed } = await this.preview.execute({
+      file: input.file,
+      options: input.options,
+    });
+    return { file, ...checkImportAgainstContract(parsed, contract, reservations) };
+  }
+}
+
+/**
+ * Re-parses the same file, checks it against the approved contract and, if every included row is
+ * clean, creates the project's work order atomically with lines linked to contract items.
+ */
 export class CommitImportUseCase {
   constructor(
     private readonly reader: WorkbookReader,
     private readonly uow: WorkOrderUnitOfWork,
+    private readonly contracts: ContractCatalog,
+    private readonly orders: WorkOrderRepository,
     private readonly projects: ProjectCurrencyLookup,
     private readonly storage: ObjectStorage,
     private readonly clock: Clock,
@@ -80,6 +149,11 @@ export class CommitImportUseCase {
     payload: WorkOrderImportCommitPayload;
   }): Promise<WorkOrderView> {
     const { projectId, actorId, file, payload } = input;
+    const { contract, reservations } = await loadContractForImport(
+      this.contracts,
+      this.orders,
+      projectId,
+    );
     const { workbook, sha256 } = await readXlsx(file, this.reader);
     if (sha256 !== payload.fileSha256) {
       throw importInvalid({ reason: 'FILE_CHANGED', fileIssues: [], rows: [], duplicateCodes: [] });
@@ -90,13 +164,30 @@ export class CommitImportUseCase {
       headerRow: payload.headerRow,
       mapping: payload.mapping,
     });
-    const selection = selectRowsForCommit(parsed, payload);
+    const excluded = new Set(payload.excludedRowNumbers);
+    // A repeated code is judged among the rows that stay, like the other duplicate rules.
+    const kept: ParsedImport = {
+      ...parsed,
+      rows: parsed.rows.filter((row) => !excluded.has(row.rowNumber)),
+    };
+    const checked = checkImportAgainstContract(kept, contract, reservations);
+    // `acceptedDuplicateCodes` is ignored (ADR-028): a repeated code is the error CODE_REPEATED.
+    const selection = selectRowsForCommit(checked, {
+      excludedRowNumbers: [],
+      acceptedDuplicateCodes: [],
+    });
     if (!selection.ok) throw importInvalid(selection.details);
+    const excludedRowCount = parsed.rows.length - kept.rows.length;
 
+    const rowByNumber = new Map(kept.rows.map((row) => [row.rowNumber, row]));
     // Heading rows are section titles of a BOQ; a work order never stores them.
-    const items: NewItem[] = [];
+    const lines: NewItem[] = [];
     for (const line of selection.lines) {
-      if (line.kind === 'item') items.push(line);
+      if (line.kind !== 'item') continue;
+      const row = rowByNumber.get(line.sourceRow ?? 0);
+      const contractItem = row ? contractItemOfRow(row, contract) : undefined;
+      if (!contractItem) throw new Error(`Row ${line.sourceRow ?? 0} has no contract item`);
+      lines.push(lineFromContract(contract, contractItem.id, line.quantity, line.sourceRow));
     }
 
     const now = this.clock.now();
@@ -110,8 +201,7 @@ export class CommitImportUseCase {
         notes: payload.workOrder.notes,
         currency,
         source: 'import',
-        items,
-        acceptedDuplicateCodes: payload.acceptedDuplicateCodes,
+        items: lines,
         createdById: actorId,
       },
       this.ids,
@@ -146,6 +236,12 @@ export class CommitImportUseCase {
 
     try {
       await this.uow.run(async (tx) => {
+        // Under the contract lock the reservations are re-read: another work order may have been
+        // saved since the check above.
+        const locked = await loadContractForImport(tx.contracts, tx.orders, projectId, {
+          lock: true,
+        });
+        assertLinesFit(locked.contract, locked.reservations, lines);
         await tx.orders.insert(order);
         await tx.attachments.insert(attachment);
         await tx.events.append({
@@ -157,6 +253,7 @@ export class CommitImportUseCase {
           payload: {
             number: order.header.number,
             currency,
+            contractId: contract.id,
             fileName: file.fileName,
             fileSha256: sha256,
             attachmentId,
@@ -165,9 +262,9 @@ export class CommitImportUseCase {
             mapping: parsed.mapping,
             rowCount: parsed.rows.length,
             itemCount: order.items.length,
-            excludedRowCount: selection.excludedCount,
-            acceptedDuplicateCodes: payload.acceptedDuplicateCodes,
+            excludedRowCount,
             total: order.total.toString(),
+            contractItemIds: order.items.map((item) => item.contractItemId),
           },
         });
       });

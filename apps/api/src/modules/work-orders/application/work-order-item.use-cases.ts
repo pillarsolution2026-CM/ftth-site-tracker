@@ -6,6 +6,13 @@ import {
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
+import {
+  assertLinesFit,
+  assertWithinContract,
+  findContractItem,
+  lineFromContract,
+  reservedOf,
+} from '../domain/contract-lines.js';
 import { Decimal } from '../domain/decimal.js';
 import type { WorkOrder, WorkOrderItem } from '../domain/work-order.js';
 import type { WorkOrderTx, WorkOrderUnitOfWork } from '../domain/work-order.repository.js';
@@ -35,19 +42,15 @@ export class AddWorkOrderItemUseCase {
     const { request } = input;
     return this.uow.run(async (tx) => {
       const order = await lockOrder(tx, input);
-      const item = order.buildItem(
-        {
-          code: request.code,
-          description: request.description,
-          unit: request.unit,
-          quantity: Decimal.parse(request.quantity),
-          unitPrice: Decimal.parse(request.unitPrice),
-          workType: request.workType,
-        },
-        { lineNo: request.lineNo, acceptDuplicateCode: request.acceptDuplicateCode },
-        this.ids,
-        this.clock.now(),
+      // Contract row lock after the order lock: the reservation sum below cannot change under us.
+      const contract = await tx.contracts.loadApproved(input.projectId, { lock: true });
+      const line = lineFromContract(
+        contract,
+        request.contractItemId,
+        Decimal.parse(request.quantity),
       );
+      const item = order.buildItem(line, { lineNo: request.lineNo }, this.ids, this.clock.now());
+      assertLinesFit(contract, await tx.contracts.reservations(contract.id), [line]);
       await tx.orders.insertItem(input.projectId, input.workOrderId, item);
       await tx.events.append({
         projectId: input.projectId,
@@ -74,19 +77,17 @@ export class UpdateWorkOrderItemUseCase {
     const { request } = input;
     return this.uow.run(async (tx) => {
       const order = await lockOrder(tx, input);
-      const { before, after } = order.changeItem(
+      const { before, after } = order.changeQuantity(
         input.itemId,
-        {
-          code: request.code,
-          description: request.description,
-          unit: request.unit,
-          quantity: request.quantity === undefined ? undefined : Decimal.parse(request.quantity),
-          unitPrice: request.unitPrice === undefined ? undefined : Decimal.parse(request.unitPrice),
-          workType: request.workType,
-        },
-        request.acceptDuplicateCode,
+        Decimal.parse(request.quantity),
         this.clock.now(),
       );
+      const contract = await tx.contracts.loadApproved(input.projectId, { lock: true });
+      const contractItem = findContractItem(contract, after.contractItemId ?? '');
+      const reservations = await tx.contracts.reservations(contract.id);
+      // The line itself is not "other" reservation: take its current quantity out.
+      const others = reservedOf(reservations, contractItem.id).sub(before.quantity);
+      assertWithinContract(contractItem, others, after.quantity);
       await tx.orders.updateItem(input.projectId, input.workOrderId, after);
       await tx.events.append({
         projectId: input.projectId,

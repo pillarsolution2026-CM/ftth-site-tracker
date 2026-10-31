@@ -4,13 +4,18 @@ import type {
   WorkOrderImportCommitPayload,
 } from '@ftth/shared';
 import { Decimal } from '../decimal.js';
-import type { NewItem } from '../work-order.js';
+import type { ItemValues } from '../work-order.js';
 import { annotateDuplicateCodes, duplicateGroups, hasError } from './import-summary.js';
 import type { ParsedImport } from './import-parser.js';
 
+/** An item row as parsed from the sheet (not yet linked to a contract item). */
+export interface ParsedItem extends ItemValues {
+  sourceRow?: number | null;
+}
+
 /** A row chosen for the commit: a priced item or (contract import only) a section heading. */
 export type CommitLine =
-  | ({ kind: 'item' } & NewItem)
+  | ({ kind: 'item' } & ParsedItem)
   | { kind: 'heading'; code: string; description: string | null; sourceRow: number };
 
 export type CommitSelection =
@@ -84,7 +89,7 @@ function toLine(row: ImportPreviewRow): CommitLine {
 }
 
 /** Rows without errors have every field set; the fallbacks only satisfy the type checker. */
-function toNewItem(row: ImportPreviewRow): NewItem {
+function toNewItem(row: ImportPreviewRow): ParsedItem {
   return {
     code: row.code ?? '',
     description: row.description ?? '',

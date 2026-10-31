@@ -1,7 +1,7 @@
 import { and, asc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import type { DbHandle } from '../../../db/db.module.js';
-import { uniqueViolation } from '../../../db/pg-errors.js';
+import { triggerViolationMessage, uniqueViolation } from '../../../db/pg-errors.js';
 import { workOrderAttachments, workOrderItems, workOrders } from '../../../db/schema.js';
 import { Decimal } from '../domain/decimal.js';
 import {
@@ -41,6 +41,8 @@ const toItem = (row: ItemRow): WorkOrderItem => ({
   quantity: Decimal.parse(row.quantity),
   unitPrice: Decimal.parse(row.unitPrice),
   workType: row.workType ?? null,
+  contractId: row.contractId,
+  contractItemId: row.contractItemId,
   source: row.source,
   sourceRow: row.sourceRow,
   createdAt: row.createdAt,
@@ -58,13 +60,49 @@ const itemValues = (projectId: string, workOrderId: string, item: WorkOrderItem)
   quantity: item.quantity.toString(),
   unitPrice: item.unitPrice.toString(),
   workType: item.workType,
+  contractId: item.contractId,
+  contractItemId: item.contractItemId,
   source: item.source,
   sourceRow: item.sourceRow,
 });
 
-/** Maps the two unique constraints that matter to client-visible conflicts. */
+/** Trigger messages of migration 0008 → the conflict reason a client understands. */
+function triggerReason(message: string): string | null {
+  if (message.includes('quantity above the contract')) return 'QUANTITY_EXCEEDS_CONTRACT';
+  if (message.includes('approved contract')) return 'CONTRACT_NOT_APPROVED';
+  if (
+    message.includes('must come from a contract item') ||
+    message.includes('another contract') ||
+    message.includes('heading') ||
+    message.includes('must equal its contract item') ||
+    message.includes('contract link')
+  ) {
+    return 'NOT_IN_CONTRACT';
+  }
+  return null;
+}
+
+/**
+ * Safety net: maps the constraints and the trigger of migration 0008 to client-visible conflicts
+ * when the application checks were bypassed or raced.
+ */
 function translateConflict(error: unknown): never {
+  const triggerMessage = triggerViolationMessage(error);
+  if (triggerMessage !== null) {
+    const reason = triggerReason(triggerMessage);
+    if (reason) throw new AppError('CONFLICT', 'The line breaks a contract rule', { reason });
+  }
   const constraint = uniqueViolation(error);
+  if (constraint === 'work_orders_one_per_project') {
+    throw new AppError('CONFLICT', 'The project already has a work order', {
+      reason: 'WORK_ORDER_EXISTS',
+    });
+  }
+  if (constraint === 'work_order_items_order_contract_item_key') {
+    throw new AppError('CONFLICT', 'A contract item may appear only once in a work order', {
+      reason: 'CONTRACT_ITEM_REPEATED',
+    });
+  }
   if (constraint === 'work_orders_project_number_key') {
     throw new AppError('CONFLICT', 'Work order number is already used in this project', {
       reason: 'NUMBER_TAKEN',
@@ -108,6 +146,25 @@ export class DrizzleWorkOrderRepository implements WorkOrderRepository {
       .from(workOrders)
       .where(and(eq(workOrders.projectId, projectId), eq(workOrders.id, workOrderId)));
     return row !== undefined;
+  }
+
+  async existsForProject(projectId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: workOrders.id })
+      .from(workOrders)
+      .where(eq(workOrders.projectId, projectId))
+      .limit(1);
+    return row !== undefined;
+  }
+
+  async lineIdsByContractItem(projectId: string): Promise<Map<string, string>> {
+    const rows = await this.db
+      .select({ id: workOrderItems.id, contractItemId: workOrderItems.contractItemId })
+      .from(workOrderItems)
+      .where(eq(workOrderItems.projectId, projectId));
+    const ids = new Map<string, string>();
+    for (const row of rows) if (row.contractItemId !== null) ids.set(row.contractItemId, row.id);
+    return ids;
   }
 
   async findById(
@@ -192,25 +249,23 @@ export class DrizzleWorkOrderRepository implements WorkOrderRepository {
   }
 
   async updateItem(projectId: string, workOrderId: string, item: WorkOrderItem): Promise<void> {
-    const values = itemValues(projectId, workOrderId, item);
-    const updated = await this.db
-      .update(workOrderItems)
-      .set({
-        code: values.code,
-        description: values.description,
-        unit: values.unit,
-        quantity: values.quantity,
-        unitPrice: values.unitPrice,
-        workType: values.workType,
-      })
-      .where(
-        and(
-          eq(workOrderItems.projectId, projectId),
-          eq(workOrderItems.workOrderId, workOrderId),
-          eq(workOrderItems.id, item.id),
-        ),
-      )
-      .returning({ id: workOrderItems.id });
+    // Only the quantity is editable (ADR-028); the rest is the contract's.
+    let updated: { id: string }[];
+    try {
+      updated = await this.db
+        .update(workOrderItems)
+        .set({ quantity: item.quantity.toString() })
+        .where(
+          and(
+            eq(workOrderItems.projectId, projectId),
+            eq(workOrderItems.workOrderId, workOrderId),
+            eq(workOrderItems.id, item.id),
+          ),
+        )
+        .returning({ id: workOrderItems.id });
+    } catch (error) {
+      translateConflict(error);
+    }
     if (updated.length === 0) throw new AppError('NOT_FOUND', 'Work order item not found');
     await this.bumpVersion(projectId, workOrderId);
   }

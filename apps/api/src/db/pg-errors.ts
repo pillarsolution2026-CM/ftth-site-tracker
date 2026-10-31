@@ -1,6 +1,7 @@
 interface PgErrorLike {
   code?: string;
   constraint?: string;
+  message?: string;
 }
 
 /** drizzle wraps driver errors in `cause`; the original pg error carries `code` and `constraint`. */
@@ -30,6 +31,15 @@ export function foreignKeyViolation(error: unknown): string | null {
 /** True for SQLSTATE 23001 (restrict_violation), raised by the DB triggers that lock approved data. */
 export function restrictViolation(error: unknown): boolean {
   return pgErrorOf(error)?.code === '23001';
+}
+
+/**
+ * Message of a check_violation (23514) or restrict_violation (23001) raised by a trigger, or null.
+ * Used to turn the work-order line trigger of migration 0008 into a client-visible conflict.
+ */
+export function triggerViolationMessage(error: unknown): string | null {
+  const pgError = pgErrorOf(error);
+  return pgError?.code === '23514' || pgError?.code === '23001' ? (pgError.message ?? '') : null;
 }
 
 /** True when a lock wait hit `lock_timeout` (55P03 lock_not_available). */

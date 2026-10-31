@@ -4,6 +4,7 @@ import {
   bigserial,
   boolean,
   char,
+  check,
   customType,
   date,
   doublePrecision,
@@ -18,6 +19,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import type {
@@ -172,6 +174,8 @@ export const workOrders = pgTable(
   (table) => [
     unique('work_orders_project_number_key').on(table.projectId, table.number),
     unique('work_orders_project_id_id_key').on(table.projectId, table.id),
+    // One work order per project (migration 0008, ADR-028).
+    unique('work_orders_one_per_project').on(table.projectId),
   ],
 );
 
@@ -196,10 +200,28 @@ export const workOrderItems = pgTable(
     workType: text('work_type').$type<'civil' | 'installation' | 'planning'>(),
     source: text('source').$type<'manual' | 'import'>().notNull().default('manual'),
     sourceRow: integer('source_row'),
+    /** Contract line this item comes from (migration 0008, ADR-028); null only for old lines. */
+    contractId: uuid('contract_id'),
+    contractItemId: uuid('contract_item_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: 'work_order_items_contract_item_fkey',
+      columns: [table.contractId, table.contractItemId],
+      foreignColumns: [contractItems.contractId, contractItems.id],
+    }).onDelete('restrict'),
+    check(
+      'work_order_items_contract_link_both',
+      sql`(${table.contractId} IS NULL) = (${table.contractItemId} IS NULL)`,
+    ),
+    uniqueIndex('work_order_items_order_contract_item_key')
+      .on(table.workOrderId, table.contractItemId)
+      .where(sql`${table.contractItemId} IS NOT NULL`),
+    index('work_order_items_contract_item_idx')
+      .on(table.contractItemId)
+      .where(sql`${table.contractItemId} IS NOT NULL`),
     foreignKey({
       name: 'work_order_items_order_fkey',
       columns: [table.projectId, table.workOrderId],

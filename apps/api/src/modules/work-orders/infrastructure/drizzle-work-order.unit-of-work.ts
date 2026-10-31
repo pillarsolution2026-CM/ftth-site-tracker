@@ -1,6 +1,7 @@
 import type { Database } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
 import type { WorkOrderTx, WorkOrderUnitOfWork } from '../domain/work-order.repository.js';
+import { DrizzleContractCatalog } from './drizzle-contract-catalog.js';
 import { DrizzleWorkOrderAttachmentRepository } from './drizzle-work-order-attachment.repository.js';
 import { DrizzleWorkOrderRepository } from './drizzle-work-order.repository.js';
 
@@ -13,6 +14,7 @@ export class DrizzleWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
       work({
         orders: new DrizzleWorkOrderRepository(tx),
         attachments: new DrizzleWorkOrderAttachmentRepository(tx),
+        contracts: new DrizzleContractCatalog(tx),
         events: new DrizzleEventLog(tx),
       }),
     );
