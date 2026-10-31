@@ -74,11 +74,12 @@ describe('WorkOrderItemInputSchema', () => {
   });
 });
 
+const CONTRACT_ITEM_ID = '2d8f6a4e-3c1d-4a8e-9f7b-2d5c6e7f8a91';
+
 describe('CreateWorkOrderRequestSchema', () => {
   it('accepts a header without items and applies defaults', () => {
     const parsed = CreateWorkOrderRequestSchema.parse({ number: 'WO-2026-01' });
-    expect(parsed.items).toEqual([]);
-    expect(parsed.acceptedDuplicateCodes).toEqual([]);
+    expect(parsed.lines).toEqual([]);
   });
 
   it('requires a number', () => {
@@ -94,16 +95,21 @@ describe('CreateWorkOrderRequestSchema', () => {
     ).toBe(false);
   });
 
-  it('rejects duplicate codes unless accepted explicitly', () => {
-    const items = [item, { ...item, description: 'another line' }];
-    expect(CreateWorkOrderRequestSchema.safeParse({ number: 'A', items }).success).toBe(false);
+  it('takes lines of contract items and refuses the same contract item twice (ADR-028)', () => {
+    const line = { contractItemId: CONTRACT_ITEM_ID, quantity: '50' };
+    expect(CreateWorkOrderRequestSchema.safeParse({ number: 'A', lines: [line] }).success).toBe(
+      true,
+    );
     expect(
       CreateWorkOrderRequestSchema.safeParse({
         number: 'A',
-        items,
-        acceptedDuplicateCodes: ['C-101'],
+        lines: [line, { ...line, quantity: '20' }],
       }).success,
-    ).toBe(true);
+    ).toBe(false);
+    // Free-text items are no longer accepted: the line comes from the contract.
+    expect(
+      CreateWorkOrderRequestSchema.safeParse({ number: 'A', lines: [{ ...item }] }).success,
+    ).toBe(false);
   });
 });
 
@@ -123,15 +129,19 @@ describe('update requests', () => {
     expect(UpdateWorkOrderRequestSchema.safeParse(clearTitle).success).toBe(true);
   });
 
-  it('requires at least one item field', () => {
+  it('edits only the quantity of a line', () => {
     expect(UpdateWorkOrderItemRequestSchema.safeParse({}).success).toBe(false);
-    const parsed = UpdateWorkOrderItemRequestSchema.parse({ quantity: '3' });
-    expect(parsed.acceptDuplicateCode).toBe(false);
+    expect(UpdateWorkOrderItemRequestSchema.parse({ quantity: '3' })).toEqual({ quantity: '3' });
+    expect(
+      UpdateWorkOrderItemRequestSchema.safeParse({ quantity: '3', unitPrice: '1' }).success,
+    ).toBe(false);
   });
 
-  it('adds an item with optional lineNo', () => {
-    expect(AddWorkOrderItemRequestSchema.parse(item).lineNo).toBeUndefined();
-    expect(AddWorkOrderItemRequestSchema.safeParse({ ...item, lineNo: 0 }).success).toBe(false);
+  it('adds a contract item with optional lineNo', () => {
+    const line = { contractItemId: CONTRACT_ITEM_ID, quantity: '1' };
+    expect(AddWorkOrderItemRequestSchema.parse(line).lineNo).toBeUndefined();
+    expect(AddWorkOrderItemRequestSchema.safeParse({ ...line, lineNo: 0 }).success).toBe(false);
+    expect(AddWorkOrderItemRequestSchema.safeParse(item).success).toBe(false);
   });
 });
 

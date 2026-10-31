@@ -120,6 +120,10 @@ export const IMPORT_ROW_ISSUE_CODES = [
   'DUPLICATE_CODE',
   'AMOUNT_MISMATCH',
   'UNIT_FORM_VARIANT',
+  'NOT_IN_CONTRACT',
+  'CONTRACT_MISMATCH',
+  'CODE_REPEATED',
+  'QUANTITY_EXCEEDS_CONTRACT',
 ] as const;
 export const ImportRowIssueCodeSchema = z.enum(IMPORT_ROW_ISSUE_CODES);
 export type ImportRowIssueCode = z.infer<typeof ImportRowIssueCodeSchema>;
@@ -149,6 +153,22 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
      * kept exactly as typed (owner, 2026-10-31). `params.otherRows` lists the other rows.
      */
     UNIT_FORM_VARIANT: 'warning',
+    // ---- Work-order import against the project's approved contract (ADR-028, owner 2026-10-31) ----
+    /** No priced item of the contract has this code. */
+    NOT_IN_CONTRACT: 'error',
+    /**
+     * The row differs from the contract item with the same code. One issue per differing field
+     * (`description`, `unit`, `unitPrice`, `workType`); `params.contractValue` = the contract's
+     * value. Never corrected automatically: the file must be fixed.
+     */
+    CONTRACT_MISMATCH: 'error',
+    /** The code is on another row too (a contract item at most once per work order). `params.otherRows`. */
+    CODE_REPEATED: 'error',
+    /**
+     * Quantity above what is left of the contract quantity. `params`: `availableQuantity`,
+     * `contractQuantity`, `reservedQuantity` (other work orders of the contract).
+     */
+    QUANTITY_EXCEEDS_CONTRACT: 'error',
   };
 
 /**
@@ -284,7 +304,10 @@ export const WorkOrderImportCommitPayloadSchema = z.object({
   mapping: ConfirmedColumnMappingSchema,
   /** Rows the user chose to leave out. Every included row must be free of errors. */
   excludedRowNumbers: z.array(z.number().int().min(1)).default([]),
-  /** Duplicate codes the user explicitly keeps as separate lines. Others must be excluded. */
+  /**
+   * Ignored since ADR-028: a repeated code is the error `CODE_REPEATED`. Kept so older clients
+   * still validate.
+   */
   acceptedDuplicateCodes: z.array(z.string()).default([]),
   workOrder: WorkOrderHeaderInputSchema,
 });

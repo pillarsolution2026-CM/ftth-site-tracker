@@ -38,7 +38,10 @@ export const WorkOrderHeaderInputSchema = z.object({
 });
 export type WorkOrderHeaderInput = z.infer<typeof WorkOrderHeaderInputSchema>;
 
-/** Required item fields (ADR-011, ADR-016): code, description, unit, quantity, unitPrice, workType. */
+/**
+ * Item fields as stored (ADR-011, ADR-016). Since Phase 2 step 2 (ADR-028) these are copied from
+ * the contract item and are not typed by the user; kept for the import parser and old data.
+ */
 export const WorkOrderItemInputSchema = z.object({
   code: z.string().trim().min(1).max(ITEM_TEXT_LIMITS.code),
   description: z.string().trim().min(1).max(ITEM_TEXT_LIMITS.description),
@@ -48,6 +51,29 @@ export const WorkOrderItemInputSchema = z.object({
   workType: WorkTypeSchema,
 });
 export type WorkOrderItemInput = z.infer<typeof WorkOrderItemInputSchema>;
+
+/**
+ * A work-order line (ADR-028): an item of the project's approved contract and a quantity. Code,
+ * description, unit, unit price and work type are copied from the contract item. Each contract
+ * item appears at most once per work order, and the sum over every work order of the contract may
+ * not exceed the contract quantity (owner, 2026-10-28 / 2026-10-31).
+ */
+export const WorkOrderLineInputSchema = z.strictObject({
+  contractItemId: z.uuid(),
+  quantity: Decimal4StringSchema,
+});
+export type WorkOrderLineInput = z.infer<typeof WorkOrderLineInputSchema>;
+
+/** Contract items used more than once in `lines`. */
+export function repeatedContractItemIds(lines: readonly { contractItemId: string }[]): string[] {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const line of lines) {
+    if (seen.has(line.contractItemId)) repeated.add(line.contractItemId);
+    seen.add(line.contractItemId);
+  }
+  return [...repeated];
+}
 
 /** Codes that occur more than once in `items` and are not explicitly accepted. */
 export function unacceptedDuplicateCodes(
@@ -63,18 +89,19 @@ export function unacceptedDuplicateCodes(
   return [...duplicates].filter((code) => !accepted.includes(code));
 }
 
-/** POST /projects/:projectId/work-orders. Items are numbered 1..n in array order. */
+/**
+ * POST /projects/:projectId/work-orders. Lines are numbered 1..n in array order. The project must
+ * belong to an approved contract and have no work order yet (one work order per project).
+ */
 export const CreateWorkOrderRequestSchema = WorkOrderHeaderInputSchema.extend({
-  items: z.array(WorkOrderItemInputSchema).max(MAX_WORK_ORDER_ITEMS).default([]),
-  /** Duplicate codes are rejected unless listed here (never merged). */
-  acceptedDuplicateCodes: z.array(z.string()).default([]),
+  lines: z.array(WorkOrderLineInputSchema).max(MAX_WORK_ORDER_ITEMS).default([]),
 }).superRefine((request, ctx) => {
-  const rejected = unacceptedDuplicateCodes(request.items, request.acceptedDuplicateCodes);
-  if (rejected.length > 0) {
+  const repeated = repeatedContractItemIds(request.lines);
+  if (repeated.length > 0) {
     ctx.addIssue({
       code: 'custom',
-      path: ['items'],
-      message: `Duplicate item codes must be accepted explicitly: ${rejected.join(', ')}`,
+      path: ['lines'],
+      message: `A contract item may appear only once: ${repeated.join(', ')}`,
     });
   }
 });
@@ -97,28 +124,71 @@ export const UpdateWorkOrderRequestSchema = WorkOrderHeaderInputSchema.partial()
 export type UpdateWorkOrderRequest = z.infer<typeof UpdateWorkOrderRequestSchema>;
 
 /** POST /projects/:projectId/work-orders/:workOrderId/items */
-export const AddWorkOrderItemRequestSchema = WorkOrderItemInputSchema.extend({
+export const AddWorkOrderItemRequestSchema = WorkOrderLineInputSchema.extend({
   /** Defaults to max(lineNo) + 1. CONFLICT if taken. */
   lineNo: z.number().int().min(1).optional(),
-  /** Required to add a code that already exists in this work order (else CONFLICT). */
-  acceptDuplicateCode: z.boolean().default(false),
 });
 export type AddWorkOrderItemRequest = z.infer<typeof AddWorkOrderItemRequestSchema>;
 
-/** PATCH /projects/:projectId/work-orders/:workOrderId/items/:itemId */
-export const UpdateWorkOrderItemRequestSchema = WorkOrderItemInputSchema.partial()
-  .extend({ acceptDuplicateCode: z.boolean().default(false) })
-  .refine(
-    (request) =>
-      request.code !== undefined ||
-      request.description !== undefined ||
-      request.unit !== undefined ||
-      request.quantity !== undefined ||
-      request.unitPrice !== undefined ||
-      request.workType !== undefined,
-    { message: 'Nothing to update' },
-  );
+/** PATCH /projects/:projectId/work-orders/:workOrderId/items/:itemId. Only the quantity changes. */
+export const UpdateWorkOrderItemRequestSchema = z.strictObject({
+  quantity: Decimal4StringSchema,
+});
 export type UpdateWorkOrderItemRequest = z.infer<typeof UpdateWorkOrderItemRequestSchema>;
+
+/**
+ * `details.reason` of 409 CONFLICT from work-order writes (ADR-028), besides the existing ones:
+ * - NO_CONTRACT: the project has no contract.
+ * - CONTRACT_NOT_APPROVED: the contract is still a draft ("approve the contract first").
+ * - WORK_ORDER_EXISTS: the project already has its work order.
+ * - NOT_IN_CONTRACT: the contract item is not a priced item of the project's contract.
+ * - CONTRACT_ITEM_REPEATED: the contract item is already a line of this work order.
+ * - QUANTITY_EXCEEDS_CONTRACT: details also carry `contractItemId`, `code`, `contractQuantity`,
+ *   `reservedQuantity` (other lines of every work order of the contract), `requestedQuantity`,
+ *   `availableQuantity`.
+ * - LEGACY_ITEM: a line saved before ADR-028 (no contract item) cannot be edited.
+ */
+export const WORK_ORDER_CONFLICT_REASONS = [
+  'NO_CONTRACT',
+  'CONTRACT_NOT_APPROVED',
+  'WORK_ORDER_EXISTS',
+  'NOT_IN_CONTRACT',
+  'CONTRACT_ITEM_REPEATED',
+  'QUANTITY_EXCEEDS_CONTRACT',
+  'LEGACY_ITEM',
+] as const;
+export type WorkOrderConflictReason = (typeof WORK_ORDER_CONFLICT_REASONS)[number];
+
+/**
+ * GET /projects/:projectId/work-orders/contract-items (permission `work_orders:write`): the priced
+ * items of the project's approved contract with what is still available, for the line picker.
+ */
+export const ContractItemAvailabilitySchema = z.object({
+  contractItemId: z.uuid(),
+  lineNo: z.number().int().min(1),
+  code: z.string(),
+  description: z.string(),
+  unit: z.string(),
+  unitPrice: DecimalStringSchema,
+  workType: WorkTypeSchema,
+  contractQuantity: DecimalStringSchema,
+  /** Σ quantity over every work-order line of the contract (all projects). */
+  reservedQuantity: DecimalStringSchema,
+  /** contractQuantity − reservedQuantity. */
+  availableQuantity: DecimalStringSchema,
+  /** Line of this project's work order using the item, if any. */
+  workOrderItemId: z.uuid().nullable(),
+});
+export type ContractItemAvailability = z.infer<typeof ContractItemAvailabilitySchema>;
+
+export const ContractItemAvailabilityResponseSchema = z.object({
+  contractId: z.uuid(),
+  contractNumber: z.string(),
+  items: z.array(ContractItemAvailabilitySchema),
+});
+export type ContractItemAvailabilityResponse = z.infer<
+  typeof ContractItemAvailabilityResponseSchema
+>;
 
 // ---------- outputs ----------
 
@@ -163,6 +233,8 @@ export const WorkOrderItemSchema = z.object({
   amount: DecimalStringSchema,
   /** null only for items saved before ADR-016; new items need one and an edit must set it. */
   workType: WorkTypeSchema.nullable(),
+  /** Contract item this line comes from (ADR-028); null only for lines saved before it. */
+  contractItemId: z.uuid().nullable(),
   source: WorkOrderSourceSchema,
   /** Excel row number when imported. */
   sourceRow: z.number().int().min(1).nullable(),
