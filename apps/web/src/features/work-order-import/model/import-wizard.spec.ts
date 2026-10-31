@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   INITIAL_WIZARD_STATE,
   buildCommitPayload,
+  buildContractCommitPayload,
   commitBlockers,
   deriveSelection,
   isDraftApplied,
@@ -25,6 +26,7 @@ function row(
 ): ImportPreviewRow {
   return {
     rowNumber,
+    kind: 'item',
     raw: {
       code,
       description: 'd',
@@ -88,6 +90,7 @@ function preview(
     ],
     summary: {
       rowCount: 4,
+      headingCount: 0,
       errorRowCount: 1,
       warningRowCount: 2,
       duplicateCodes: [{ code: 'B-2', rowNumbers: [3, 4] }],
@@ -107,7 +110,13 @@ describe('import wizard selection', () => {
   it('counts rows and sums only rows without errors, exactly', () => {
     const state = run([{ type: 'previewLoaded', preview: preview() }]);
     const selection = deriveSelection(state);
-    expect(selection.counts).toEqual({ total: 4, included: 4, errorRows: 1, warningRows: 2 });
+    expect(selection.counts).toEqual({
+      total: 4,
+      included: 4,
+      headingRows: 0,
+      errorRows: 1,
+      warningRows: 2,
+    });
     expect(selection.total).toBe('10.8');
     expect(selection.blockingErrorRows).toEqual([5]);
   });
@@ -245,5 +254,74 @@ describe('mapping draft', () => {
       { type: 'setSheet', sheetName: 'Other' },
     ]);
     expect(state.draft).toMatchObject({ sheetName: 'Other', headerRow: null });
+  });
+});
+
+describe('heading rows (contract BOQ)', () => {
+  const heading = (rowNumber: number, code: string): ImportPreviewRow => ({
+    ...row(rowNumber, code, null),
+    kind: 'heading',
+    unit: null,
+    quantity: null,
+    unitPrice: null,
+    workType: null,
+    raw: {
+      code,
+      description: `Section ${code}`,
+      unit: null,
+      quantity: null,
+      unitPrice: null,
+      workType: null,
+      amount: null,
+    },
+  });
+
+  function headingsOnly(): WorkOrderImportPreviewResponse {
+    const base = preview();
+    return {
+      ...base,
+      rows: [heading(2, '1'), heading(3, '1-1')],
+      summary: {
+        ...base.summary,
+        rowCount: 2,
+        headingCount: 2,
+        errorRowCount: 0,
+        warningRowCount: 0,
+        duplicateCodes: [],
+        total: '0',
+      },
+    };
+  }
+
+  it('counts headings from the summary, never as errors, and not in the total', () => {
+    const base = preview();
+    const state = run([
+      {
+        type: 'previewLoaded',
+        preview: {
+          ...base,
+          rows: [heading(2, '1'), ...base.rows.slice(0, 1)],
+          summary: { ...base.summary, rowCount: 2, headingCount: 1, duplicateCodes: [] },
+        },
+      },
+    ]);
+    const selection = deriveSelection(state);
+    expect(selection.counts.headingRows).toBe(1);
+    expect(selection.counts.errorRows).toBe(0);
+    expect(selection.total).toBe('10.5');
+  });
+
+  it('a work order needs an item row (headings are skipped); a contract keeps the headings', () => {
+    const state = run([{ type: 'previewLoaded', preview: headingsOnly() }, withHeader]);
+    expect(commitBlockers(state)).toEqual(['noRows']);
+    expect(commitBlockers(state, { target: 'contract' })).toEqual([]);
+  });
+
+  it('the contract payload has no work-order header and carries the expected version', () => {
+    const state = run([{ type: 'previewLoaded', preview: headingsOnly() }]);
+    const payload = buildContractCommitPayload(state, 4);
+    expect(payload).toMatchObject({ expectedVersion: 4, excludedRowNumbers: [] });
+    expect(payload).not.toHaveProperty('workOrder');
+    expect(buildContractCommitPayload(INITIAL_WIZARD_STATE, 4)).toBeNull();
   });
 });

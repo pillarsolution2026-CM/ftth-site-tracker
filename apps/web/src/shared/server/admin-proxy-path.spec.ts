@@ -4,6 +4,10 @@ import { adminUpstreamPath } from './admin-proxy-path';
 describe('adminUpstreamPath', () => {
   it('maps admin resources under /admin', () => {
     expect(adminUpstreamPath(['projects'])).toBe('/admin/projects');
+    expect(adminUpstreamPath(['contracts'])).toBe('/admin/contracts');
+    expect(adminUpstreamPath(['contracts', 'abc', 'attachments', 'def'])).toBe(
+      '/admin/contracts/abc/attachments/def',
+    );
     expect(adminUpstreamPath(['users', 'abc', 'deactivate'])).toBe('/admin/users/abc/deactivate');
   });
 

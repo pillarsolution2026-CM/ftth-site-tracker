@@ -2,6 +2,7 @@
 
 import { LOCALES } from '@ftth/i18n';
 import type { MessageKey } from '@ftth/i18n';
+import type { ContractSummary } from '@ftth/shared';
 import { Input } from '@/shared/ui/input';
 import { Select } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -11,20 +12,23 @@ interface ProjectFieldsProps {
   idPrefix: string;
   values: ProjectFormValues;
   errors: Partial<Record<ProjectField, MessageKey>>;
-  /** Suggestions from existing projects (datalists); any valid value may be typed. */
-  suggestions: { crsEpsg: string[]; currency: string[]; clients: string[] };
-  /** Edit mode: the CRS and the currency are shown read-only. */
-  fixedCrsAndCurrency: boolean;
+  /** Suggestions from existing projects (datalist); any valid value may be typed. */
+  suggestions: { crsEpsg: string[] };
+  /** Create mode: the contracts to choose from (client and currency come from the contract). */
+  contracts: readonly ContractSummary[];
+  /** Edit mode: the contract and the CRS are shown elsewhere / read-only. */
+  editing: boolean;
   onChange: (field: ProjectField, value: string) => void;
 }
 
-/** Presentational: the fields of the project form. */
+/** Presentational: the fields of the project (work order) form. */
 export function ProjectFields({
   idPrefix,
   values,
   errors,
   suggestions,
-  fixedCrsAndCurrency,
+  contracts,
+  editing,
   onChange,
 }: ProjectFieldsProps) {
   const { t } = useI18n();
@@ -41,21 +45,29 @@ export function ProjectFields({
         error={err('name')}
         onChange={(event) => onChange('name', event.target.value)}
       />
-      <Input
-        id={id('client')}
-        label={t('admin.project.client')}
-        value={values.client}
-        maxLength={200}
-        required
-        list={id('client-list')}
-        error={err('client')}
-        onChange={(event) => onChange('client', event.target.value)}
-      />
-      <datalist id={id('client-list')}>
-        {suggestions.clients.map((value) => (
-          <option key={value} value={value} />
-        ))}
-      </datalist>
+      {editing ? null : (
+        <Select
+          id={id('contractId')}
+          label={t('admin.project.contract')}
+          value={values.contractId}
+          required
+          error={err('contractId')}
+          hint={contracts.length === 0 ? t('admin.project.noContracts') : undefined}
+          onChange={(event) => onChange('contractId', event.target.value)}
+        >
+          <option value="">{t('admin.project.chooseContract')}</option>
+          {contracts.map((contract) => (
+            <option key={contract.id} value={contract.id}>
+              {t('admin.project.contractOption', {
+                number: contract.number,
+                name: contract.name,
+                client: contract.client,
+                currency: contract.currency,
+              })}
+            </option>
+          ))}
+        </Select>
+      )}
       <div className="flex flex-col gap-1">
         <Input
           id={id('crsEpsg')}
@@ -64,37 +76,14 @@ export function ProjectFields({
           dir="ltr"
           inputMode="numeric"
           list={id('crs-list')}
-          readOnly={fixedCrsAndCurrency}
+          readOnly={editing}
           error={err('crsEpsg')}
           onChange={(event) => onChange('crsEpsg', event.target.value)}
         />
-        {fixedCrsAndCurrency ? null : (
-          <p className="text-sm opacity-80">{t('admin.project.crsHint')}</p>
-        )}
+        {editing ? null : <p className="text-sm opacity-80">{t('admin.project.crsHint')}</p>}
       </div>
       <datalist id={id('crs-list')}>
         {suggestions.crsEpsg.map((value) => (
-          <option key={value} value={value} />
-        ))}
-      </datalist>
-      <div className="flex flex-col gap-1">
-        <Input
-          id={id('currency')}
-          label={t('admin.project.currency')}
-          value={values.currency}
-          dir="ltr"
-          maxLength={3}
-          list={id('currency-list')}
-          readOnly={fixedCrsAndCurrency}
-          error={err('currency')}
-          onChange={(event) => onChange('currency', event.target.value.toUpperCase())}
-        />
-        {fixedCrsAndCurrency ? null : (
-          <p className="text-sm opacity-80">{t('admin.project.currencyHint')}</p>
-        )}
-      </div>
-      <datalist id={id('currency-list')}>
-        {suggestions.currency.map((value) => (
           <option key={value} value={value} />
         ))}
       </datalist>

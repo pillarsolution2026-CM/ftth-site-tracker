@@ -100,10 +100,10 @@
       "fr": "Français"
     },
     "project": {
-      "new": "Nouveau projet",
-      "create": "Créer le projet",
+      "new": "Nouvel ordre de travail / projet",
+      "create": "Créer l'ordre de travail / projet",
       "edit": "Modifier le projet",
-      "name": "Nom du projet",
+      "name": "Nom de l'ordre de travail / projet",
       "client": "Client",
       "crs": "Système de coordonnées (EPSG)",
       "crsHint": "WGS 84 / UTM uniquement, p. ex. 32636 (UTM zone 36N). Non modifiable ensuite.",
@@ -113,7 +113,15 @@
       "saved": "Enregistré",
       "fixed": "Le système de coordonnées et la devise sont fixés à la création.",
       "open": "Ouvrir le projet",
-      "back": "Tous les projets"
+      "back": "Tous les projets",
+      "contract": "Contrat",
+      "chooseContract": "Choisir le contrat",
+      "contractOption": "{number} — {name} — {client} — {currency}",
+      "noContracts": "Aucun contrat pour le moment. Créez d'abord un contrat depuis l'écran des contrats.",
+      "contractFixed": "Le client et la devise viennent du contrat et ne changent pas.",
+      "noContract": "Sans contrat (ancien ordre de travail)",
+      "openContract": "Ouvrir le contrat",
+      "contractNumber": "Numéro du contrat"
     },
     "zones": {
       "title": "Zones",
@@ -147,7 +155,82 @@
       "crs": "Codes WGS 84 / UTM uniquement (32601–32660, 32701–32760)",
       "currency": "Trois lettres majuscules, p. ex. EGP",
       "email": "Saisissez une adresse e-mail valide",
-      "password": "Le mot de passe doit contenir 12 à 128 caractères"
+      "password": "Le mot de passe doit contenir 12 à 128 caractères",
+      "contract": "Choisissez le contrat"
+    },
+    "contracts": {
+      "title": "Contrats",
+      "listTitle": "Tous les contrats",
+      "new": "Nouveau contrat",
+      "create": "Créer le contrat",
+      "none": "Aucun contrat pour le moment. Créez le premier.",
+      "manage": "Ouvrir le contrat",
+      "back": "Tous les contrats",
+      "detailTitle": "Contrat",
+      "edit": "Modifier les informations du contrat",
+      "saved": "Enregistré",
+      "number": "Numéro du contrat",
+      "name": "Nom du contrat",
+      "client": "Client",
+      "currency": "Devise",
+      "currencyHint": "Code ISO, p. ex. EGP. Ne peut pas être modifié ensuite.",
+      "startsOn": "Date de début du contrat",
+      "durationDays": "Durée du contrat (jours)",
+      "notes": "Notes",
+      "status": "Statut",
+      "statuses": {
+        "draft": "Brouillon",
+        "approved": "Approuvé"
+      },
+      "itemCount": "Articles",
+      "total": "Total",
+      "projectCount": "Ordres de travail / projets",
+      "version": "Version",
+      "approvedOn": "Approuvé le",
+      "validation": {
+        "duration": "Saisissez un nombre entier de jours (1 à 36500)"
+      },
+      "reload": "Recharger",
+      "reasons": {
+        "STALE_VERSION": "Le contrat a été modifié par un autre utilisateur. Rechargez pour voir la dernière version.",
+        "CONTRACT_APPROVED": "Le contrat est approuvé : les lignes du BOQ ne peuvent plus être modifiées",
+        "DUPLICATE_CODE": "Ce code existe déjà dans le contrat",
+        "LINE_TAKEN": "Ce numéro de ligne est déjà utilisé",
+        "DUPLICATE_NUMBER": "Ce numéro de contrat est déjà utilisé",
+        "NO_PRICED_ITEMS": "Un contrat sans article chiffré ne peut pas être approuvé"
+      },
+      "boq": {
+        "title": "BOQ (articles du contrat)",
+        "empty": "Le BOQ ne contient aucune ligne pour le moment",
+        "quantity": "Quantité contractuelle",
+        "addItem": "Ajouter un article",
+        "addHeading": "Ajouter un titre de section",
+        "editItem": "Modifier l'article",
+        "editHeading": "Modifier le titre",
+        "headingBadge": "Titre de section",
+        "headingTitle": "Titre de la section (facultatif)",
+        "noTitle": "(sans titre)",
+        "confirmDelete": "Supprimer cette ligne ?",
+        "totalLabel": "Total des articles",
+        "locked": "Le contrat est approuvé : le BOQ est verrouillé et ne peut plus être modifié."
+      },
+      "import": {
+        "button": "Importer depuis Excel",
+        "title": "Importer le BOQ du contrat depuis Excel",
+        "replaceWarning": "L'import remplace toutes les lignes actuelles du BOQ par le contenu du fichier. Impossible d'annuler après confirmation.",
+        "confirmReplace": "Je confirme que les lignes actuelles du BOQ ({count}) seront remplacées",
+        "commit": "Remplacer les lignes du BOQ",
+        "committing": "Import en cours…",
+        "cancel": "Annuler l'import",
+        "needConfirm": "Confirmez le remplacement des lignes actuelles"
+      },
+      "approve": {
+        "button": "Approuver le contrat",
+        "title": "Approuver ce contrat ?",
+        "explain": "L'approbation est définitive et irréversible. Le BOQ (articles et titres) est verrouillé : aucune ligne ne peut être ajoutée, modifiée ou supprimée, et le BOQ ne peut pas être remplacé. Les informations du contrat restent modifiables, sauf la devise.",
+        "confirm": "Approuver définitivement",
+        "cancel": "Annuler"
+      }
     }
   },
   "validation": {
@@ -162,7 +245,8 @@
     "content": "Contenu du projet",
     "workOrders": "Ordres de travail",
     "cadFiles": "Fichiers CAO",
-    "designRevisions": "Révisions de conception"
+    "designRevisions": "Révisions de conception",
+    "contract": "Contrat"
   },
   "project": {
     "switcher": "Projet",
@@ -272,7 +356,8 @@
       "included": "Lignes incluses",
       "errors": "Lignes en erreur",
       "warnings": "Lignes avec avertissements",
-      "computedTotal": "Total calculé"
+      "computedTotal": "Total calculé",
+      "headings": "Lignes de titre"
     },
     "duplicates": {
       "title": "Codes répétés",
@@ -300,7 +385,9 @@
       "excludedBadge": "Exclue",
       "rowNumber": "Ligne",
       "issues": "Remarques",
-      "ok": "OK"
+      "ok": "OK",
+      "headingBadge": "Titre de section",
+      "headingNote": "Titre de section : ni quantité ni prix"
     },
     "severity": {
       "error": "Erreur",
@@ -342,7 +429,8 @@
       "FORMULA_WITHOUT_RESULT": "{field} est une formule sans résultat enregistré ; ouvrez et enregistrez le fichier dans Excel",
       "INVALID_WORK_TYPE": "Type de travaux « {value} » inconnu ; autorisés : Génie civil, Installation ou Planification",
       "DUPLICATE_CODE": "Ce code est répété aux lignes {otherRows}",
-      "AMOUNT_MISMATCH": "Le montant de la feuille diffère de quantité × prix unitaire"
+      "AMOUNT_MISMATCH": "Le montant de la feuille diffère de quantité × prix unitaire",
+      "UNIT_FORM_VARIANT": "La même unité est saisie différemment dans les lignes {otherRows}"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Feuille introuvable",
@@ -844,5 +932,10 @@
       },
       "reviewReason": "Motif : {reason}"
     }
+  },
+  "contract": {
+    "title": "Contrat",
+    "noContract": "Ce projet n'a pas de contrat",
+    "readOnly": "Lecture seule"
   }
 }

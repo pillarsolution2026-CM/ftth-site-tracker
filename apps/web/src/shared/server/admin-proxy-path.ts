@@ -1,5 +1,5 @@
 /** Admin resources the BFF exposes under `/api/admin/...` (the API enforces platform-admin). */
-const ADMIN_RESOURCES = new Set(['projects', 'users']);
+const ADMIN_RESOURCES = new Set(['projects', 'users', 'contracts']);
 const SAFE_SEGMENT = /^[A-Za-z0-9._~-]{1,128}$/;
 
 /** `[resource, ...rest]` → `/admin/resource/...`, or null when it is not allowed. */

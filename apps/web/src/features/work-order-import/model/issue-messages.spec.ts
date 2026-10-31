@@ -36,6 +36,20 @@ describe('import issue messages', () => {
     expect(text).toContain('12, 30');
   });
 
+  it('words UNIT_FORM_VARIANT in every locale with the other rows', () => {
+    const issue = {
+      code: 'UNIT_FORM_VARIANT' as const,
+      severity: 'warning' as const,
+      field: 'unit' as const,
+      params: { otherRows: '192, 193' },
+    };
+    const text = (locale: (typeof LOCALES)[number]) =>
+      rowIssueText(issue, (key, params) => translate(locale, key, params));
+    expect(text('ar')).toBe('نفس الوحدة مكتوبة بشكل مختلف في الصفوف 192, 193');
+    expect(text('en')).toContain('192, 193');
+    expect(text('fr')).toContain('192, 193');
+  });
+
   it('names the decimal limit of each field (ADR-016)', () => {
     const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
       translate('en', key, params);

@@ -26,7 +26,7 @@ export interface ProxyDeps {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SAFE_SEGMENT = /^[A-Za-z0-9._~-]{1,128}$/;
 /** Resources a project-scoped proxied call may reach (everything else is not exposed). */
-const ALLOWED_RESOURCES = new Set(['work-orders', 'cad-files', 'design-revisions']);
+const ALLOWED_RESOURCES = new Set(['work-orders', 'cad-files', 'design-revisions', 'contract']);
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
 // `range` lets PMTiles clients read byte ranges of `…/tiles.pmtiles` (the API answers 206).

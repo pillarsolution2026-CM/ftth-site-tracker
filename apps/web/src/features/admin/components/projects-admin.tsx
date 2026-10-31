@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { FormEvent } from 'react';
 import type { MessageKey } from '@ftth/i18n';
-import type { Project } from '@ftth/shared';
+import type { ContractSummary, Project } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { Ltr } from '@/shared/ui/ltr';
@@ -21,7 +21,8 @@ export interface ProjectsAdminViewProps {
   loading: boolean;
   listError: MessageKey | null;
   items: Project[];
-  suggestions: { crsEpsg: string[]; currency: string[]; clients: string[] };
+  contracts: ContractSummary[];
+  suggestions: { crsEpsg: string[] };
   values: ProjectFormValues;
   errors: Partial<Record<ProjectField, MessageKey>>;
   pending: boolean;
@@ -33,6 +34,8 @@ export interface ProjectsAdminViewProps {
 /** Presentational: every project, and the form that creates one. */
 export function ProjectsAdminView(props: ProjectsAdminViewProps) {
   const { t, locale } = useI18n();
+  const contractNumber = (project: Project) =>
+    props.contracts.find((contract) => contract.id === project.contractId)?.number ?? null;
   return (
     <div className="flex flex-col gap-6">
       <section>
@@ -49,6 +52,7 @@ export function ProjectsAdminView(props: ProjectsAdminViewProps) {
             <thead>
               <tr>
                 <Th>{t('admin.project.name')}</Th>
+                <Th>{t('admin.project.contract')}</Th>
                 <Th>{t('admin.project.client')}</Th>
                 <Th>EPSG</Th>
                 <Th>{t('admin.project.currency')}</Th>
@@ -59,6 +63,13 @@ export function ProjectsAdminView(props: ProjectsAdminViewProps) {
               {props.items.map((project) => (
                 <tr key={project.id}>
                   <Td>{project.name}</Td>
+                  <Td>
+                    {contractNumber(project) ? (
+                      <Ltr>{contractNumber(project)}</Ltr>
+                    ) : (
+                      <span className="opacity-80">{t('admin.project.noContract')}</span>
+                    )}
+                  </Td>
                   <Td>{project.client}</Td>
                   <Td>
                     <Ltr>{project.crsEpsg}</Ltr>
@@ -89,7 +100,8 @@ export function ProjectsAdminView(props: ProjectsAdminViewProps) {
             values={props.values}
             errors={props.errors}
             suggestions={props.suggestions}
-            fixedCrsAndCurrency={false}
+            contracts={props.contracts}
+            editing={false}
             onChange={props.onChange}
           />
           {props.submitError ? <Notice kind="error">{t(props.submitError)}</Notice> : null}

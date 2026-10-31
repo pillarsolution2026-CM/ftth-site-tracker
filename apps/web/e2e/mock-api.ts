@@ -44,6 +44,8 @@ import {
   createAdminState,
   handleAdmin,
 } from './mock-admin.ts';
+import { mulDec, sumDec } from './mock-decimal.ts';
+import { configureContracts, handleProjectContract, seedContractId } from './mock-contracts.ts';
 import {
   MOCK_DETECTION,
   handleDesignRevisions,
@@ -133,39 +135,6 @@ function parseMultipart(contentType: string, body: Buffer): Part[] {
 
 async function readMultipart(req: IncomingMessage): Promise<Part[]> {
   return parseMultipart(req.headers['content-type'] ?? '', await readBody(req));
-}
-
-// ---------- exact decimals (mock only) ----------
-
-interface Dec {
-  int: bigint;
-  scale: number;
-}
-
-function parseDec(text: string): Dec {
-  const [whole = '0', fraction = ''] = text.split('.');
-  return { int: BigInt(whole + fraction), scale: fraction.length };
-}
-
-function formatDec(value: Dec): string {
-  const negative = value.int < 0n;
-  const digits = (negative ? -value.int : value.int).toString().padStart(value.scale + 1, '0');
-  const whole = digits.slice(0, digits.length - value.scale);
-  const fraction = digits.slice(digits.length - value.scale).replace(/0+$/, '');
-  return `${negative ? '-' : ''}${whole}${fraction ? `.${fraction}` : ''}`;
-}
-
-function mulDec(a: string, b: string): string {
-  const x = parseDec(a);
-  const y = parseDec(b);
-  return formatDec({ int: x.int * y.int, scale: x.scale + y.scale });
-}
-
-function sumDec(values: string[]): string {
-  const parsed = values.map(parseDec);
-  const scale = parsed.reduce((max, v) => Math.max(max, v.scale), 0);
-  const total = parsed.reduce((sum, v) => sum + v.int * 10n ** BigInt(scale - v.scale), 0n);
-  return formatDec({ int: total, scale });
 }
 
 // ---------- work orders ----------
@@ -354,6 +323,31 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
       IMPORT_FIELDS.map((field) => [field, cell(row, field)]),
     ) as Record<(typeof IMPORT_FIELDS)[number], string | null>;
     const issues: unknown[] = [];
+    // A heading row (owner, 2026-10-31): no unit, no price, quantity and amount empty or zero.
+    const zeroOrEmpty = (value: string | null) => value === null || Number(value) === 0;
+    if (
+      raw.unit === null &&
+      raw.unitPrice === null &&
+      zeroOrEmpty(raw.quantity) &&
+      zeroOrEmpty(raw.amount)
+    ) {
+      if (raw.code === null)
+        issues.push({ code: 'MISSING_VALUE', severity: 'error', field: 'code' });
+      return {
+        rowNumber: index + 2,
+        kind: 'heading' as 'heading' | 'item',
+        raw,
+        code: raw.code,
+        description: raw.description,
+        unit: null as string | null,
+        quantity: null as string | null,
+        unitPrice: null as string | null,
+        workType: null as WorkType | null,
+        sheetAmount: raw.amount,
+        amount: null as string | null,
+        issues,
+      };
+    }
     for (const field of [
       'code',
       'description',
@@ -387,6 +381,7 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
     }
     return {
       rowNumber: index + 2,
+      kind: 'item' as 'heading' | 'item',
       raw,
       code: raw.code,
       description: raw.description,
@@ -416,6 +411,27 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
         field: 'code',
         params: { otherRows: duplicate.rowNumbers.filter((n) => n !== row.rowNumber).join(', ') },
       });
+    }
+  }
+
+  // The same unit typed differently (spaces / line breaks): warn, keep the value as typed.
+  const unitGroups = new Map<string, typeof rows>();
+  for (const row of rows) {
+    if (row.kind !== 'item' || row.unit === null) continue;
+    const key = row.unit.replace(/\s+/g, ' ').trim();
+    unitGroups.set(key, [...(unitGroups.get(key) ?? []), row]);
+  }
+  for (const group of unitGroups.values()) {
+    for (const row of group) {
+      const others = group.filter((other) => other.unit !== row.unit).map((o) => o.rowNumber);
+      if (others.length > 0) {
+        row.issues.push({
+          code: 'UNIT_FORM_VARIANT',
+          severity: 'warning',
+          field: 'unit',
+          params: { otherRows: others.join(', ') },
+        });
+      }
     }
   }
 
@@ -450,6 +466,7 @@ function parsePreview(file: Part, options: { sheetName?: string; mapping?: Mappi
       rows,
       summary: {
         rowCount: rows.length,
+        headingCount: rows.filter((row) => row.kind === 'heading').length,
         errorRowCount: rows.filter(hasError).length,
         warningRowCount: rows.filter(hasWarning).length,
         duplicateCodes,
@@ -655,6 +672,12 @@ async function handleProject(
 
   if (resource === 'work-orders')
     return handleWorkOrders(req, res, method, [id, sub, subId, subSub]);
+  if (resource === 'contract')
+    return handleProjectContract(
+      res,
+      method,
+      adminState.projects.find((project) => project.id === projectId)?.contractId ?? null,
+    );
   if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub]);
   if (resource === 'design-revisions') {
     return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {
@@ -859,7 +882,8 @@ function commitImport(res: ServerResponse, file: Part, payload: Record<string, a
 
   const excluded = new Set<number>(payload.excludedRowNumbers ?? []);
   const accepted = new Set<string>(payload.acceptedDuplicateCodes ?? []);
-  const included = parsed.rows.filter((row) => !excluded.has(row.rowNumber));
+  // Heading rows are skipped by the work-order import (the contract import keeps them).
+  const included = parsed.rows.filter((row) => !excluded.has(row.rowNumber) && row.kind === 'item');
   if (included.length === 0) return invalid('NO_ROWS_INCLUDED');
   const withErrors = included.filter(parsed.hasError);
   if (withErrors.length > 0) {
@@ -972,8 +996,14 @@ async function handleCad(
   return sendError(res, 404, 'NOT_FOUND');
 }
 
+configureContracts({ readMultipart, readFixture, parsePreview, helpers });
+
 const adminTokens = { accessToken: ADMIN_ACCESS, refreshToken: ADMIN_REFRESH, expiresIn: 900 };
-const adminState = createAdminState({ id: PROJECT_ID, name: ME.memberships[0]?.projectName ?? '' });
+const adminState = createAdminState({
+  id: PROJECT_ID,
+  name: ME.memberships[0]?.projectName ?? '',
+  contractId: seedContractId,
+});
 
 createServer(async (req, res) => {
   try {
