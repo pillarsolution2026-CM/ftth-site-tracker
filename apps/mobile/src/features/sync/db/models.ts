@@ -17,11 +17,21 @@ export class RemoteUpdateRecord extends Model {
   static override table = TABLES.remoteUpdates;
 }
 
+export class RemoteAsBuiltEditRecord extends Model {
+  static override table = TABLES.remoteAsBuilt;
+}
+
 export class KeyValueRecord extends Model {
   static override table = TABLES.keyValue;
 }
 
-export const modelClasses = [OutboxOpRecord, LocalPhotoRecord, RemoteUpdateRecord, KeyValueRecord];
+export const modelClasses = [
+  OutboxOpRecord,
+  LocalPhotoRecord,
+  RemoteUpdateRecord,
+  RemoteAsBuiltEditRecord,
+  KeyValueRecord,
+];
 
 export function str(record: Model, column: string): string {
   const value = record._getRaw(column);

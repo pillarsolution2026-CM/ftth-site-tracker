@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { ltr } from '@ftth/i18n';
 import type { ExecutionUpdate } from '@ftth/shared';
@@ -7,6 +7,8 @@ import { useI18n } from '../../../shared/i18n/I18nProvider';
 import { Button } from '../../../shared/ui/Button';
 import { useTheme } from '../../../shared/ui/theme';
 import { useField } from '../hooks/FieldProvider';
+import { OwnEditsList } from '../../asbuilt/components/OwnEditsList';
+import { rejectionKey } from '../../asbuilt/model/own-edits';
 import { SyncStatusBar } from './SyncStatusBar';
 
 const STATE_TOKEN = {
@@ -19,7 +21,15 @@ const STATE_TOKEN = {
 export function PendingScreen({ onBack }: { onBack: () => void }) {
   const { t } = useI18n();
   const theme = useTheme();
-  const { entries, store, bundle } = useField();
+  const { entries: allEntries, store, bundle } = useField();
+  // Execution updates here; As-Built edits are listed with their status below.
+  const entries = useMemo(
+    () =>
+      allEntries.flatMap((e) =>
+        e.op.kind === 'execution_update.record' ? [{ ...e, op: e.op }] : [],
+      ),
+    [allEntries],
+  );
   const [remote, setRemote] = useState<Map<string, ExecutionUpdate>>(new Map());
 
   useEffect(() => {
@@ -49,6 +59,7 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
         keyExtractor={(entry) => entry.clientOpId}
         contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={{ color: theme.text }}>{t('field.pending.empty')}</Text>}
+        ListFooterComponent={<OwnEditsList />}
         renderItem={({ item: entry }) => {
           const token = STATE_TOKEN[entry.state];
           const review = remote.get(entry.clientOpId);
@@ -69,9 +80,7 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
                   : ''}
               </Text>
               {entry.rejection ? (
-                <Text style={{ color: theme.danger }}>
-                  {t(`field.pending.rejections.${entry.rejection}`)}
-                </Text>
+                <Text style={{ color: theme.danger }}>{t(rejectionKey(entry.rejection))}</Text>
               ) : null}
               {review ? (
                 <Text style={{ color: theme.text }}>

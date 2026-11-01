@@ -15,6 +15,8 @@ import { Button } from '../../../shared/ui/Button';
 import { useTheme } from '../../../shared/ui/theme';
 import { SyncStatusBar } from '../../sync/components/SyncStatusBar';
 import { useField } from '../../sync/hooks/FieldProvider';
+import { AsBuiltMode } from '../../asbuilt/components/AsBuiltMode';
+import type { AsBuiltDeps } from '../../asbuilt/hooks/useAsBuiltEditor';
 import { useViewportGestures } from '../hooks/useViewportGestures';
 import {
   boundsOf,
@@ -28,10 +30,12 @@ import { CadCanvas } from './CadCanvas';
 interface CadScreenProps {
   onUpdate: (featureId: string) => void;
   onOpenPending: () => void;
+  /** Device services of the As-Built tools; without them the mode is not offered. */
+  asBuilt?: AsBuiltDeps;
 }
 
 /** Main screen of the supervisor app (plan): the drawing, crosshair, E/N, layers, day/night. */
-export function CadScreen({ onUpdate, onOpenPending }: CadScreenProps) {
+export function CadScreen({ onUpdate, onOpenPending, asBuilt }: CadScreenProps) {
   const { t } = useI18n();
   const theme = useTheme();
   const { bundle, bundleStatus, download, entries } = useField();
@@ -41,6 +45,7 @@ export function CadScreen({ onUpdate, onOpenPending }: CadScreenProps) {
   const [mode, setMode] = useState<CadMode>(theme.dark ? 'night' : 'day');
   const [visible, setVisible] = useState<ReadonlySet<FeatureType>>(new Set(FEATURE_TYPES));
   const [layersOpen, setLayersOpen] = useState(false);
+  const [asBuiltOn, setAsBuiltOn] = useState(false);
   const features = useMemo(() => bundle?.features ?? [], [bundle]);
 
   const fit = () => {
@@ -53,11 +58,18 @@ export function CadScreen({ onUpdate, onOpenPending }: CadScreenProps) {
   const gestures = useViewportGestures(viewport, setViewport, origin);
   const picked = viewport ? pickAtCrosshair(features, viewport, visible) : null;
   const updatedIds = useMemo(
-    () => new Set(entries.filter((e) => e.state !== 'rejected').map((e) => e.op.payload.featureId)),
+    () =>
+      new Set(
+        entries
+          .filter((e) => e.state !== 'rejected' && e.op.kind === 'execution_update.record')
+          .map((e) => e.op.payload.featureId),
+      ),
     [entries],
   );
   const updatesOnPicked = picked
-    ? entries.filter((e) => e.op.payload.featureId === picked.id).length
+    ? entries.filter(
+        (e) => e.op.kind === 'execution_update.record' && e.op.payload.featureId === picked.id,
+      ).length
     : 0;
 
   const onLayout = (event: LayoutChangeEvent) => {
@@ -107,6 +119,13 @@ export function CadScreen({ onUpdate, onOpenPending }: CadScreenProps) {
           testID="mode-toggle"
         />
         <ToolButton label={t('field.cad.fit')} onPress={fit} testID="fit" />
+        {asBuilt && bundle.revision ? (
+          <ToolButton
+            label={asBuiltOn ? t('asbuilt.exit') : t('asbuilt.enter')}
+            onPress={() => setAsBuiltOn((on) => !on)}
+            testID="asbuilt-toggle"
+          />
+        ) : null}
       </View>
       {layersOpen ? (
         <View style={[styles.layers, { backgroundColor: theme.background }]} testID="layers-panel">
@@ -142,50 +161,70 @@ export function CadScreen({ onUpdate, onOpenPending }: CadScreenProps) {
           {bundle.revision ? t('field.noFeatures') : t('field.noRevision')}
         </Text>
       ) : null}
-      <View style={styles.canvas} onLayout={onLayout} testID="cad-area" {...gestures.panHandlers}>
-        {viewport ? (
-          <CadCanvas
-            features={features}
-            viewport={viewport}
-            visible={visible}
-            mode={mode}
-            selectedId={picked?.id ?? null}
-            updatedIds={updatedIds}
-          />
-        ) : null}
-      </View>
-      <View style={[styles.bottom, { backgroundColor: theme.background }]}>
-        {coords ? (
-          <Text style={[styles.coords, { color: theme.text }]} testID="coordinates">
-            {ltr(t('field.cad.coordinates', { e: coords.e, n: coords.n }))}
-          </Text>
-        ) : null}
-        {picked ? (
-          <View style={styles.card} testID="feature-card">
-            <Text style={[styles.cardTitle, { color: theme.text }]}>
-              {t(`featureType.${picked.type}`)} {picked.code ? ltr(picked.code) : ''}
-            </Text>
-            {picked.lengthM ? (
-              <Text style={{ color: theme.text }}>
-                {t('field.cad.designLength', { length: ltr(picked.lengthM) })}
-              </Text>
-            ) : null}
-            {updatesOnPicked > 0 ? (
-              <Text style={{ color: theme.text }}>
-                {t('field.cad.updatesOnFeature', { count: ltr(updatesOnPicked) })}
-              </Text>
+      {asBuilt && asBuiltOn ? (
+        <AsBuiltMode
+          deps={asBuilt}
+          viewport={viewport}
+          setViewport={setViewport}
+          origin={origin}
+          onLayout={onLayout}
+          mode={mode}
+          visible={visible}
+          onExit={() => setAsBuiltOn(false)}
+        />
+      ) : (
+        <>
+          <View
+            style={styles.canvas}
+            onLayout={onLayout}
+            testID="cad-area"
+            {...gestures.panHandlers}
+          >
+            {viewport ? (
+              <CadCanvas
+                features={features}
+                viewport={viewport}
+                visible={visible}
+                mode={mode}
+                selectedId={picked?.id ?? null}
+                updatedIds={updatedIds}
+              />
             ) : null}
           </View>
-        ) : (
-          <Text style={{ color: theme.text }}>{t('field.cad.nothingUnderCrosshair')}</Text>
-        )}
-        <Button
-          label={t('field.cad.update')}
-          onPress={() => picked && onUpdate(picked.id)}
-          disabled={!picked}
-          testID="update-button"
-        />
-      </View>
+          <View style={[styles.bottom, { backgroundColor: theme.background }]}>
+            {coords ? (
+              <Text style={[styles.coords, { color: theme.text }]} testID="coordinates">
+                {ltr(t('field.cad.coordinates', { e: coords.e, n: coords.n }))}
+              </Text>
+            ) : null}
+            {picked ? (
+              <View style={styles.card} testID="feature-card">
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {t(`featureType.${picked.type}`)} {picked.code ? ltr(picked.code) : ''}
+                </Text>
+                {picked.lengthM ? (
+                  <Text style={{ color: theme.text }}>
+                    {t('field.cad.designLength', { length: ltr(picked.lengthM) })}
+                  </Text>
+                ) : null}
+                {updatesOnPicked > 0 ? (
+                  <Text style={{ color: theme.text }}>
+                    {t('field.cad.updatesOnFeature', { count: ltr(updatesOnPicked) })}
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
+              <Text style={{ color: theme.text }}>{t('field.cad.nothingUnderCrosshair')}</Text>
+            )}
+            <Button
+              label={t('field.cad.update')}
+              onPress={() => picked && onUpdate(picked.id)}
+              disabled={!picked}
+              testID="update-button"
+            />
+          </View>
+        </>
+      )}
     </View>
   );
 }

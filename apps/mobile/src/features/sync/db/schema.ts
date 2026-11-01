@@ -1,4 +1,5 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
+import { createTable, schemaMigrations } from '@nozbe/watermelondb/Schema/migrations';
 
 /**
  * Local database of the supervisor app (WatermelonDB / SQLite, ADR-024). Bump `version` and add
@@ -8,11 +9,34 @@ export const TABLES = {
   outbox: 'outbox_ops',
   photos: 'local_photos',
   remoteUpdates: 'remote_updates',
+  remoteAsBuilt: 'remote_asbuilt_edits',
   keyValue: 'key_values',
 } as const;
 
+/** Server copies of As-Built edits (ADR-030); added in schema version 2. */
+const remoteAsBuiltEditsTable: Parameters<typeof tableSchema>[0] = {
+  name: TABLES.remoteAsBuilt,
+  columns: [
+    { name: 'edit_id', type: 'string', isIndexed: true },
+    { name: 'client_op_id', type: 'string', isIndexed: true },
+    { name: 'project_id', type: 'string', isIndexed: true },
+    { name: 'user_id', type: 'string', isIndexed: true },
+    { name: 'feature_id', type: 'string', isIndexed: true },
+    { name: 'status', type: 'string', isIndexed: true },
+    // Sealed JSON (ADR-025), like `remote_updates.json`.
+    { name: 'json', type: 'string' },
+  ],
+};
+
+export const LOCAL_SCHEMA_VERSION = 2;
+
+/** Phones keep their data across updates: version 1 → 2 adds the As-Built edits table. */
+export const localMigrations = schemaMigrations({
+  migrations: [{ toVersion: 2, steps: [createTable(remoteAsBuiltEditsTable)] }],
+});
+
 export const localSchema = appSchema({
-  version: 1,
+  version: LOCAL_SCHEMA_VERSION,
   tables: [
     tableSchema({
       name: TABLES.outbox,
@@ -56,6 +80,7 @@ export const localSchema = appSchema({
         { name: 'json', type: 'string' },
       ],
     }),
+    tableSchema(remoteAsBuiltEditsTable),
     tableSchema({
       name: TABLES.keyValue,
       columns: [
