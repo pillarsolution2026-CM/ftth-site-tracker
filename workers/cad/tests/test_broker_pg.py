@@ -12,14 +12,18 @@ import pytest
 import redis
 
 from cad_worker.adapters.ezdxf_reader import EzdxfReader
+from cad_worker.adapters.ezdxf_writer import EzdxfDxfWriter
+from cad_worker.adapters.postgres_export_repo import PostgresExportRepository
 from cad_worker.adapters.postgres_repo import PostgresCadRepository
 from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepository
 from cad_worker.adapters.queue import RedisJobBroker
 from cad_worker.adapters.storage import FsStorage
 from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
+from cad_worker.application.export_asbuilt import ExportDeps
 from cad_worker.application.import_job import ImportDeps
 from tests.conftest import QueuedFile
+from tests.support.asbuilt import line, queue_export, seed_design
 from tests.support.dxf_samples import write_sample
 from tests.support.fakes import FailingConverter
 from tests.support.revisions import queue_revision, seed_processed_file
@@ -51,7 +55,10 @@ def consumer(database_url: str, redis_client: redis.Redis, tmp_path: Path) -> Co
         reader=EzdxfReader(),
     )
     build = BuildDeps(PostgresRevisionRepository(database_url), FsStorage(tmp_path / "storage"))
-    return Consumer(RedisJobBroker(redis_client, WORKER), deps, WORKER, build)
+    export = ExportDeps(
+        PostgresExportRepository(database_url), FsStorage(tmp_path / "storage"), EzdxfDxfWriter()
+    )
+    return Consumer(RedisJobBroker(redis_client, WORKER), deps, WORKER, build, export)
 
 
 @pytest.fixture
@@ -261,3 +268,66 @@ def test_third_crash_marks_revision_failed(
         ).fetchall()
     ]
     assert types == ["design_revision.failed"]
+
+
+def export_status(db: psycopg.Connection[Any], export_id: uuid.UUID) -> tuple[Any, ...]:
+    row = db.execute(
+        "SELECT status, error_code FROM asbuilt_exports WHERE id = %s", (export_id,)
+    ).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+def seeded_export(db: psycopg.Connection[Any]) -> Any:
+    seeded = seed_design(db, [("R1", "route", "N_DUC_CBL", None, None, line((0, 0), (5, 0)))])
+    return queue_export(db, seeded)
+
+
+def test_export_job_is_dispatched_and_acked(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    q = seeded_export(db)
+    redis_client.lpush("cad:jobs", q.message())
+    assert consumer.process_one(timeout_s=1) is True
+    assert export_status(db, q.export_id) == ("done", None)
+    assert redis_client.llen(f"cad:processing:{WORKER}") == 0
+
+
+def test_stale_export_job_is_acked_and_dropped(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    q = seeded_export(db)
+    db.execute(
+        "UPDATE asbuilt_exports SET current_job_id = %s WHERE id = %s", (uuid.uuid4(), q.export_id)
+    )
+    redis_client.lpush("cad:jobs", q.message())
+    assert consumer.process_one(timeout_s=1) is True
+    assert export_status(db, q.export_id) == ("queued", None)
+    assert redis_client.llen(f"cad:processing:{WORKER}") == 0
+
+
+def test_orphaned_export_job_is_requeued_with_attempt_bumped(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    q = seeded_export(db)
+    redis_client.lpush("cad:processing:dead-4", q.message(attempt=1))
+    consumer.recover(include_own=False)
+    requeued = json.loads(redis_client.lrange("cad:jobs", 0, -1)[0])
+    assert requeued["attempt"] == 2 and requeued["type"] == "cad.export_asbuilt"
+
+
+def test_third_crash_marks_export_failed(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any]
+) -> None:
+    q = seeded_export(db)
+    db.execute("UPDATE asbuilt_exports SET status = 'processing' WHERE id = %s", (q.export_id,))
+    redis_client.lpush("cad:processing:dead-5", q.message(attempt=3))
+    consumer.recover(include_own=False)
+    assert export_status(db, q.export_id) == ("failed", "MAX_ATTEMPTS_EXCEEDED")
+    assert redis_client.llen("cad:processing:dead-5") == 0 and redis_client.llen("cad:jobs") == 0
+    rows = db.execute(
+        "SELECT type, actor_id, payload->>'errorCode' FROM events "
+        "WHERE entity = 'asbuilt_export' AND entity_id = %s",
+        (str(q.export_id),),
+    ).fetchall()
+    assert rows == [("asbuilt_export.failed", None, "MAX_ATTEMPTS_EXCEEDED")]

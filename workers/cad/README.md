@@ -1,6 +1,6 @@
 # CAD worker
 
-Python worker for server-side CAD processing (ADR-002, ADR-013). Two job types on the same Redis
+Python worker for server-side CAD processing (ADR-002, ADR-013). Three job types on the same Redis
 protocol:
 
 - `cad.import` (Phase 1a): DWG/DXF import into raw extraction tables (SRID 0, drawing units), plus
@@ -8,17 +8,25 @@ protocol:
 - `cad.build_revision` (Phase 1b, ADR-017..021): mapping rules -> design features, text links,
   diff against the base revision and a PMTiles archive; the revision ends `draft` (or `failed`).
   Every coordinate is scaled by the revision's `metres_per_unit` (ADR-018: no unit is assumed).
+- `cad.export_asbuilt` (Phase 4, ADR-030): As-Built DXF (R2018, metres) of the export's published
+  revision plus the approved As-Built state: design entities on their original layers, approved
+  edits on `ASBUILT_EDITS`, added features on `ASBUILT_ADDED`, status texts; written to
+  `projects/<projectId>/asbuilt/<exportId>.dxf`, row `done` (or `failed`). Layer names are checked
+  and texts sanitised in `domain/asbuilt_drawing.py`.
 
 Layout:
 
 - `cad_worker/domain`: pure logic (no I/O, no ezdxf): model, flattening, extents, warnings, text
   decoding (`shx_arabic.json` = the owner-confirmed lowercase Arabic 101 table, ADR-019),
   `crs_detect.py`, `design_build.py` (rules -> features), `text_links.py` (ADR-019),
-  `revision_match.py` (ADR-020), `geo.py` = the only place for CRS transforms.
-- `cad_worker/application`: use cases (`import_job`, `extract`, `build_revision`), consumer loop,
+  `revision_match.py` (ADR-020), `asbuilt_drawing.py` (As-Built DXF model), `geo.py` = the only
+  place for CRS transforms.
+- `cad_worker/application`: use cases (`import_job`, `extract`, `build_revision`,
+  `export_asbuilt`), consumer loop,
   ports.
 - `cad_worker/adapters`: ezdxf reader, LibreDWG-WASM converter (Node subprocess), PostgreSQL
-  (psycopg, COPY; `postgres_revision_repo.py` for revisions), `pmtiles_writer.py` (ST_AsMVT in the
+  (psycopg, COPY; `postgres_revision_repo.py` for revisions, `postgres_export_repo.py` for As-Built
+  exports), `ezdxf_writer.py` (As-Built DXF), `pmtiles_writer.py` (ST_AsMVT in the
   build transaction, z12-18, gzip), Redis broker (ADR-013), `fs`/`s3` storage, settings.
 - `converter/`: `dwg2dxf.mjs` + pinned `@mlightcad/libredwg-web@0.8.2` (`npm ci --omit=dev`).
 
