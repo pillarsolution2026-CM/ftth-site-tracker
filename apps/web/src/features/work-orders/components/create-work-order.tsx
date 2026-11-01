@@ -76,13 +76,12 @@ function CreateForm({
     if (!form.validate()) return;
     const lines = picker.payload ?? (picker.checks.length === 0 ? [] : null);
     if (lines === null) return;
-    create.mutate(
-      { ...headerPayload(form.values), lines },
-      {
-        onSuccess: (created) =>
-          router.push(`/${locale}/projects/${projectId}/work-orders/${created.id}`),
-      },
-    );
+    // mutateAsync, not mutate callbacks: the list refetch after success unmounts this form
+    // (the project now has its work order), and mutate() skips callbacks after unmount.
+    create
+      .mutateAsync({ ...headerPayload(form.values), lines })
+      .then((created) => router.push(`/${locale}/projects/${projectId}/work-orders/${created.id}`))
+      .catch(() => undefined); // the error is shown from create.error
   };
 
   const conflict = create.error ? workOrderConflictOf(create.error) : null;
