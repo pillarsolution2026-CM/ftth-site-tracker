@@ -12,7 +12,8 @@ listen_addresses: '0.0.0.0:3000'
 
 postgres:
   # postgres://ftth_tiles:<password>@<host>:5432/<db>, supplied by the environment.
-  connection_string: '${TILES_DATABASE_URL}'
+  # No quotes: Martin only expands ${VAR} in plain YAML values.
+  connection_string: ${TILES_DATABASE_URL}
   auto_publish: false
   functions:
     design_features:
