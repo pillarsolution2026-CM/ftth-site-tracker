@@ -6,13 +6,13 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reports `cd6a08c` (2026-10-30) | — |
+| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reported `639f6e4` on 2026-11-01 | — |
 | Admin setup: projects, zone names, users, assignments | Done — merged (PR #18, ADR-026), added at the owner's request outside the roadmap tasks. Owner decisions open; not yet tried on staging; zones have names only until Phase 2 draws boundaries | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
-| 2 Contract, BOQ & rules | In progress — step 1 (contract + BOQ, ADR-027) merged (PR #20) and on staging; step 2 (work-order lines from the contract, ADR-028) built on branch `feat/phase-2-work-order-from-contract`; next: `type_rules`, zones, matching, web CAD viewer | — |
+| 2 Contract, BOQ & rules | In progress — step 1 (contract + BOQ, ADR-027) merged (PR #20) and on staging; step 2 (work-order lines from the contract, ADR-028) merged (PR #21) and on staging; next: `type_rules`, zones, matching, web CAD viewer | — |
 | 3 Supervisor app (offline) | Done — merged (PR #17), awaiting approval. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval. Not run on a device; the airplane-mode acceptance was simulated | — |
-| 4 As-Built editing | Built — geometry engine merged (PR #5); the rest started 2026-11-01 at the owner's request (ADR-029, ADR-030) and delivered in one PR, awaiting review and approval. Phases 1b and 3 merged but **not approved**, Phase 2 in progress. Not run on a device; DXF not opened in AutoCAD; takeoff half of the acceptance waits for Phase 5 | — |
+| 4 As-Built editing | Done — merged (PR #5, PR #22), awaiting approval. The rest started 2026-11-01 at the owner's request (ADR-029, ADR-030). Phases 1b and 3 merged but **not approved**, Phase 2 in progress. Not run on a device; DXF not opened in AutoCAD; takeoff half of the acceptance waits for Phase 5 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
