@@ -161,7 +161,8 @@ tiles_psql() {
   tiles_compose exec -T postgis psql -U "$(env_get POSTGRES_USER)" -d "$(env_get POSTGRES_DB)" -v ON_ERROR_STOP=1 "$@"
 }
 if tiles_psql -q >/dev/null 2>&1 <<<"ALTER ROLE ftth_tiles LOGIN PASSWORD '$(env_get FTTH_TILES_PASSWORD)'" &&
-  tiles_compose up -d --no-deps martin; then
+  # --force-recreate: git checkout replaces config.yaml, and a running container keeps the old file.
+  tiles_compose up -d --no-deps --force-recreate martin; then
   for _ in {1..30}; do
     curl -fs -m 2 -o /dev/null "http://127.0.0.1:$martin_port/health" && break
     sleep 1
