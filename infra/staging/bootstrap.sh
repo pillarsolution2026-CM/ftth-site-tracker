@@ -139,6 +139,8 @@ systemctl enable --now ftth-autodeploy.timer
 echo "timer enabled (every 2 minutes)"
 
 step "First deploy / أول تشغيل"
+# The timer may be mid-deploy: autodeploy would then exit at once and a --force would be lost.
+if [[ -f "$ROOT/autodeploy.lock" ]]; then flock "$ROOT/autodeploy.lock" true; fi
 as_deploy /usr/local/bin/ftth-autodeploy "${deploy_args[@]}" || warn "deploy failed; see: journalctl -u ftth-autodeploy"
 deployed="$(cat "$ROOT/deployed-sha" 2>/dev/null || true)"
 if [[ -z "$deployed" ]]; then

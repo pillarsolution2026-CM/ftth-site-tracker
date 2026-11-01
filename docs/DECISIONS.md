@@ -261,7 +261,7 @@ Section headings (rows without unit, quantity and price), empty quantities and t
 ## ADR-031: Martin on staging, on the API host, started apart from the deploy — Accepted (2026-11-01)
 **Context:** The owner asked to enable the tile server on staging. ADR-021 and the old `docs/DEPLOY.md` steps assumed a separate `tiles.` host, a DNS record and manual commands on the server. Martin's config had never run against a real server.
 **Decision:**
-- Martin (`ghcr.io/maplibre/martin:1.16.1`, pinned) joins the staging compose in the `tiles` profile. `bootstrap.sh`, which `Deploy (SSH)` runs on every deploy, adds the missing secrets, sets the `ftth_tiles` password and starts it. Existing secrets are never changed.
+- Martin (`ghcr.io/maplibre/martin:1.14.0`, pinned; 1.16.1 failed to install on the staging server: "failed to extract layer ... UtimesNanoAt .../boot", and 1.15.0 and 1.16.0 share that base layer) joins the staging compose in the `tiles` profile. `bootstrap.sh`, which `Deploy (SSH)` runs on every deploy, adds the missing secrets, sets the `ftth_tiles` password and starts it. Existing secrets are never changed.
 - Tiles are served at `/design_features/*` on the API host, so no new DNS record or certificate. Security stays as in ADR-021: Caddy `forward_auth` to `/tiles/verify`, signed one-hour URLs, restricted role, loopback port, nothing else of Martin exposed.
 - A Martin failure only warns. Because of the profile, `up --wait` in `ftth-autodeploy` never depends on it, so it cannot roll the app back.
 - `bootstrap.sh` checks itself in the public log with an all-zero project and revision: catalog, unsigned 401, signed 200/204, and that the role cannot read tables.

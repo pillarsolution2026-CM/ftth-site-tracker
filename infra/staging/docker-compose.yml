@@ -122,7 +122,7 @@ services:
   # problem must not roll the app back. bootstrap.sh starts it after each deploy. Connects as the restricted
   # role ftth_tiles; reached only through Caddy forward_auth on the API host.
   martin:
-    image: ghcr.io/maplibre/martin:1.16.1
+    image: ghcr.io/maplibre/martin:1.14.0
     profiles: [tiles]
     restart: unless-stopped
     command: ['--config', '/config/config.yaml']
