@@ -189,6 +189,10 @@ function wizardDeps(): UpdateWizardDeps {
   };
 }
 
+// Full screen flows (render, LokiJS, encryption, sync) take well under a second alone but share a
+// small CI runner with every other package's tests; one hit Jest's 5 s default there (PR #22 CI).
+jest.setTimeout(30_000);
+
 describe('supervisor field flow', () => {
   it('downloads the drawing and shows the box under the crosshair with its E/N', async () => {
     const { deps, files } = setup();

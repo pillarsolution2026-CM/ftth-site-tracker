@@ -78,6 +78,10 @@ const asBuiltDeps: AsBuiltDeps = {
   locate: async () => null,
 };
 
+// Full screen flows (render, LokiJS, encryption, sync) take well under a second alone but share a
+// small CI runner with every other package's tests; one hit Jest's 5 s default there (PR #22 CI).
+jest.setTimeout(30_000);
+
 describe('As-Built mode on the CAD screen', () => {
   it('reshapes a route by dragging a grip, shows the live length, saves one op to the outbox offline', async () => {
     const { db, deps, files } = setup();
