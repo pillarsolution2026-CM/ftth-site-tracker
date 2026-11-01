@@ -1,4 +1,4 @@
-import type { ExecutionUpdate, SyncOp } from '@ftth/shared';
+import type { AsBuiltEdit, ExecutionUpdate, SyncOp } from '@ftth/shared';
 import type {
   EntryRejection,
   OutboxEntry,
@@ -17,6 +17,7 @@ export class InMemorySyncStore implements SyncStore, PhotoSource {
   private readonly photos = new Map<string, PendingPhoto & { bytes: Uint8Array }>();
   private cursor = '0';
   readonly remote = new Map<string, ExecutionUpdate>();
+  readonly remoteAsBuilt = new Map<string, AsBuiltEdit>();
 
   /** Saves an operation and its photo bytes, as the update tool does in one local transaction. */
   enqueue(op: SyncOp, photoBytes: ReadonlyMap<string, Uint8Array>): void {
@@ -28,7 +29,9 @@ export class InMemorySyncStore implements SyncStore, PhotoSource {
       updateId: null,
       rejection: null,
     });
-    for (const photo of op.payload.photos) {
+    // As-Built edits carry no photos (ADR-030).
+    const photos = op.kind === 'execution_update.record' ? op.payload.photos : [];
+    for (const photo of photos) {
       const bytes = photoBytes.get(photo.photoId);
       if (!bytes) throw new Error(`missing bytes for photo ${photo.photoId}`);
       this.photos.set(photo.photoId, {
@@ -102,6 +105,10 @@ export class InMemorySyncStore implements SyncStore, PhotoSource {
 
   async setCursor(cursor: string): Promise<void> {
     this.cursor = cursor;
+  }
+
+  async applyRemoteAsBuiltEdits(edits: readonly AsBuiltEdit[]): Promise<void> {
+    for (const edit of edits) this.remoteAsBuilt.set(edit.id, edit);
   }
 
   async applyRemoteUpdates(updates: readonly ExecutionUpdate[]): Promise<void> {

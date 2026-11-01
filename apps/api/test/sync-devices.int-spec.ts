@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import type { SyncOp } from '@ftth/shared';
+import type { RecordUpdateOp } from '@ftth/shared';
 import { createHttpTransport, InMemorySyncStore, SyncEngine, type SyncReport } from '@ftth/sync';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import {
@@ -119,12 +119,12 @@ class Device {
   }
 
   /** What the update tool saves: one operation with its compressed photo, offline. */
-  record(featureId: string, itemId: string, quantity: string, photoSize = 20_000): SyncOp {
+  record(featureId: string, itemId: string, quantity: string, photoSize = 20_000): RecordUpdateOp {
     this.seq += 1;
     const photo = jpeg(photoSize, this.seq);
     const photoId = randomUUID();
     const at = this.now();
-    const op: SyncOp = {
+    const op: RecordUpdateOp = {
       kind: 'execution_update.record',
       clientOpId: randomUUID(),
       capturedAt: at,

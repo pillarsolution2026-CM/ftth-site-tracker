@@ -14,6 +14,9 @@ class Handlers {
   @RequirePermission('cad_files:write')
   cadWrite(): void {}
 
+  @RequirePermission('execution:write', 'asbuilt:write')
+  either(): void {}
+
   undeclared(): void {}
 }
 
@@ -51,6 +54,14 @@ describe('PermissionGuard', () => {
 
   it('allows when any of several roles grants it', () => {
     expect(guard.canActivate(contextFor(proto.write, member('supervisor', 'pm')))).toBe(true);
+  });
+
+  it('with several permissions allows a member who holds any one of them', () => {
+    expect(guard.canActivate(contextFor(proto.either, member('supervisor')))).toBe(true);
+    expect(guard.canActivate(contextFor(proto.either, member('pm')))).toBe(true);
+    expect(() => guard.canActivate(contextFor(proto.either, member('qc')))).toThrow(
+      expect.objectContaining({ code: 'FORBIDDEN' }),
+    );
   });
 
   it('always allows a platform admin, even without a project assignment', () => {

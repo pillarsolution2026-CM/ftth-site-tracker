@@ -15,6 +15,8 @@ export const EVENT_ENTITIES = {
   contract: 'contract',
   contractItem: 'contract_item',
   contractAttachment: 'contract_attachment',
+  asBuiltEdit: 'asbuilt_edit',
+  asBuiltExport: 'asbuilt_export',
 } as const;
 
 export const EVENT_TYPES = {
@@ -62,5 +64,15 @@ export const EVENT_TYPES = {
   contractItemRemoved: 'contract_item.removed',
   contractAttachmentAdded: 'contract_attachment.added',
   contractAttachmentRemoved: 'contract_attachment.removed',
+  /** Phase 4 (ADR-030). Payload: clientOpId, deviceId, featureId, kind, baseVersion, geometry, label, lengthM, flags. */
+  asBuiltEditRecorded: 'asbuilt_edit.recorded',
+  /** Payload: featureId, kind, approvedVersion, lengthM. */
+  asBuiltEditApproved: 'asbuilt_edit.approved',
+  /** Payload: featureId, kind, reason. */
+  asBuiltEditRejected: 'asbuilt_edit.rejected',
+  asBuiltExportRequested: 'asbuilt_export.requested',
+  /** Written by the worker (actor_id NULL). Payload: stats, sizeBytes. */
+  asBuiltExportDone: 'asbuilt_export.done',
+  asBuiltExportFailed: 'asbuilt_export.failed',
 } as const;
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

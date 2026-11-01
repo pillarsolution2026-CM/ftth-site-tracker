@@ -22,3 +22,4 @@ export * from './design/design-revision.schemas.js';
 export * from './execution/execution.constants.js';
 export * from './execution/execution.schemas.js';
 export * from './execution/sync.schemas.js';
+export * from './asbuilt/asbuilt.schemas.js';

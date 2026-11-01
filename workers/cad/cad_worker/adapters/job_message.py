@@ -50,14 +50,26 @@ class CadBuildRevisionJob(_Message):
     enqueued_at: datetime = Field(alias="enqueuedAt")
 
 
+class CadExportAsBuiltJob(_Message):
+    """Write the As-Built DXF of a project (Phase 4, ADR-030). The revision and the approved
+    As-Built state are read from the database (`asbuilt_exports` row), never from the message."""
+
+    id: UUID
+    type: Literal["cad.export_asbuilt"]
+    export_id: UUID = Field(alias="exportId")
+    project_id: UUID = Field(alias="projectId")
+    attempt: int = Field(ge=1, le=CAD_JOB_MAX_ATTEMPTS)
+    enqueued_at: datetime = Field(alias="enqueuedAt")
+
+
 class CadHealthJob(_Message):
     id: str = Field(min_length=1)
     type: Literal["health"]
 
 
 # Jobs that touch the database and are redelivered after a crash (ADR-013).
-DurableJob = CadImportJob | CadBuildRevisionJob
-AnyJob = CadImportJob | CadBuildRevisionJob | CadHealthJob
+DurableJob = CadImportJob | CadBuildRevisionJob | CadExportAsBuiltJob
+AnyJob = CadImportJob | CadBuildRevisionJob | CadExportAsBuiltJob | CadHealthJob
 
 CadJob = Annotated[AnyJob, Field(discriminator="type")]
 

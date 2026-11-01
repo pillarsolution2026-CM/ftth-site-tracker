@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  AsBuiltEdit,
   ExecutionUpdate,
   OpResult,
   PhotoUploadStatus,
@@ -53,6 +54,61 @@ function makeOp(photo: Uint8Array, photoId = randomUUID()): SyncOp {
   };
 }
 
+function makeAsBuiltOp(): SyncOp {
+  return {
+    kind: 'asbuilt_edit.record',
+    clientOpId: randomUUID(),
+    capturedAt: '2026-11-01T10:00:00Z',
+    payload: {
+      kind: 'reshape',
+      featureId: randomUUID(),
+      designRevisionId: randomUUID(),
+      baseVersion: 0,
+      note: null,
+      gps: null,
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [330000, 3340000],
+          [330012, 3340009],
+        ],
+      },
+    },
+  };
+}
+
+function asBuiltEditFrom(
+  op: Extract<SyncOp, { kind: 'asbuilt_edit.record' }>,
+  id: string,
+  deviceId: string,
+): AsBuiltEdit {
+  const { payload } = op;
+  return {
+    id,
+    clientOpId: op.clientOpId,
+    featureId: payload.featureId,
+    kind: payload.kind,
+    featureType: 'route',
+    designRevisionId: payload.designRevisionId,
+    baseVersion: 'baseVersion' in payload ? payload.baseVersion : null,
+    geometry: 'geometry' in payload ? payload.geometry : null,
+    label: 'label' in payload ? payload.label : null,
+    lengthM: '15',
+    note: null,
+    userId: randomUUID(),
+    userName: 'Supervisor',
+    deviceId,
+    capturedAt: op.capturedAt,
+    receivedAt: op.capturedAt,
+    flags: [],
+    status: 'pending',
+    reviewReason: null,
+    reviewedBy: null,
+    reviewedAt: null,
+    approvedVersion: null,
+  };
+}
+
 /** Server semantics of ADR-024 in memory: idempotent ops, offset-checked uploads, cursor. */
 class FakeServer implements SyncTransport {
   readonly applied = new Map<string, { updateId: string; json: string }>();
@@ -61,6 +117,7 @@ class FakeServer implements SyncTransport {
     { size: number; sha: string; received: Uint8Array[]; stored: boolean }
   >();
   readonly updates: ExecutionUpdate[] = [];
+  readonly asBuiltEdits: AsBuiltEdit[] = [];
   pushCalls = 0;
   /** Hooks to simulate failures; return true to swallow the response after the server acted. */
   failNext: (() => TransportError | null) | null = null;
@@ -88,6 +145,10 @@ class FakeServer implements SyncTransport {
       }
       const updateId = randomUUID();
       this.applied.set(op.clientOpId, { updateId, json });
+      if (op.kind === 'asbuilt_edit.record') {
+        this.asBuiltEdits.push(asBuiltEditFrom(op, updateId, request.deviceId));
+        return { clientOpId: op.clientOpId, outcome: 'applied', updateId };
+      }
       for (const photo of op.payload.photos) {
         this.photos.set(photo.photoId, {
           size: photo.sizeBytes,
@@ -127,13 +188,16 @@ class FakeServer implements SyncTransport {
 
   async changes(cursor: string, limit: number): Promise<SyncChangesResponse> {
     this.maybeFail();
+    // One server sequence over both record kinds (ADR-030): updates first, then As-Built edits.
+    const all: (ExecutionUpdate | AsBuiltEdit)[] = [...this.updates, ...this.asBuiltEdits];
     const from = Number(cursor);
-    const page = this.updates.slice(from, from + limit);
+    const page = all.slice(from, from + limit);
     return {
       serverTime: new Date().toISOString(),
       cursor: String(from + page.length),
-      hasMore: from + page.length < this.updates.length,
-      updates: page,
+      hasMore: from + page.length < all.length,
+      updates: page.filter((item): item is ExecutionUpdate => 'lines' in item),
+      asBuiltEdits: page.filter((item): item is AsBuiltEdit => 'kind' in item),
     };
   }
 
@@ -208,7 +272,8 @@ function setup(options: { batchSize?: number; chunkBytes?: number } = {}) {
   const record = (size = 2500, seed = 1) => {
     const bytes = jpeg(size, seed);
     const op = makeOp(bytes);
-    const photoId = op.payload.photos[0]?.photoId ?? '';
+    const photoId =
+      (op.kind === 'execution_update.record' ? op.payload.photos[0]?.photoId : undefined) ?? '';
     store.enqueue(op, new Map([[photoId, bytes]]));
     return { op, photoId };
   };
@@ -378,6 +443,28 @@ describe('SyncEngine', () => {
     expect(await store.getCursor()).toBe('0');
     expect((await engine.syncOnce()).pulled).toBe(1);
     expect(await store.getCursor()).toBe('1');
+  });
+});
+
+describe('SyncEngine with As-Built edits (ADR-030)', () => {
+  it('sends an As-Built edit through the same outbox, once, and pulls its server record', async () => {
+    const { server, store, engine, record } = setup();
+    record();
+    const edit = makeAsBuiltOp();
+    store.enqueue(edit, new Map());
+    const report = await engine.syncOnce();
+    expect(report).toMatchObject({ outcome: 'ok', applied: 2, photosStored: 1, pulled: 2 });
+    expect(server.asBuiltEdits).toHaveLength(1);
+    const entry = store.all().find((e) => e.clientOpId === edit.clientOpId);
+    expect(entry?.state).toBe('applied');
+    expect(store.remoteAsBuilt.get(entry?.updateId ?? '')?.clientOpId).toBe(edit.clientOpId);
+    // A lost response then a resend: still one record on the server.
+    const again = makeAsBuiltOp();
+    store.enqueue(again, new Map());
+    server.dropResponseAfterPush = true;
+    expect((await engine.syncOnce()).outcome).toBe('offline');
+    expect(await engine.syncOnce()).toMatchObject({ outcome: 'ok', duplicates: 1 });
+    expect(server.asBuiltEdits).toHaveLength(2);
   });
 });
 

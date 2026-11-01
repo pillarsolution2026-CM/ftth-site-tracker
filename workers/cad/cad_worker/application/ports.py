@@ -10,7 +10,18 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from cad_worker.adapters.job_message import CadBuildRevisionJob, CadImportJob, DurableJob
+from cad_worker.adapters.job_message import (
+    CadBuildRevisionJob,
+    CadExportAsBuiltJob,
+    CadImportJob,
+    DurableJob,
+)
+from cad_worker.domain.asbuilt_drawing import (
+    AsBuiltDrawing,
+    AsBuiltFeatureIn,
+    DesignFeatureIn,
+    ExportStats,
+)
 from cad_worker.domain.crs_detect import CrsDetection
 from cad_worker.domain.design_build import BackgroundSelection, DrawingData
 from cad_worker.domain.extents import Extents
@@ -302,5 +313,87 @@ class RevisionRepository(Protocol):
     def fail(
         self, job: CadBuildRevisionJob, code: RevisionFailureCode, message: str, log: str = ""
     ) -> bool:
+        """Mark `failed` + event, guarded by `current_job_id`. False when superseded."""
+        ...
+
+
+# ---------- As-Built DXF export (Phase 4, ADR-030) ----------
+
+ExportFailureCode = Literal[
+    "REVISION_NOT_PUBLISHED",
+    "GEOMETRY_INVALID",
+    "STORAGE_FAILED",
+    "MAX_ATTEMPTS_EXCEEDED",
+    "INTERNAL",
+]
+
+
+class ExportFailure(Exception):
+    """A handled export failure: the row is marked `failed` with this code (no retry)."""
+
+    def __init__(self, code: ExportFailureCode, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+@dataclass(frozen=True, slots=True)
+class ExportInputs:
+    """The export row and its revision, read under the export row lock."""
+
+    export_id: UUID
+    project_id: UUID
+    revision_id: UUID
+    revision_status: str
+    crs_epsg: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExportResult:
+    storage_key: str
+    size_bytes: int
+    sha256: str
+    stats: ExportStats
+    warnings: tuple[dict[str, object], ...]
+
+
+class DxfWriter(Protocol):
+    def is_valid_layer_name(self, name: str) -> bool: ...
+
+    def write(self, drawing: AsBuiltDrawing) -> bytes:
+        """DXF R2018 bytes (UTF-8), units metres."""
+        ...
+
+
+class AsBuiltExportSession(Protocol):
+    """One open transaction holding the lock on a `processing` export row (current job)."""
+
+    inputs: ExportInputs
+
+    def load_design(self) -> tuple[DesignFeatureIn, ...]:
+        """Design features of the export's revision, in the revision CRS."""
+        ...
+
+    def load_asbuilt(self) -> tuple[AsBuiltFeatureIn, ...]:
+        """Approved As-Built rows of the project with a geometry or a label, revision CRS."""
+        ...
+
+    def finish(self, result: ExportResult) -> None:
+        """Set `done` with key, size, sha256, stats; append `asbuilt_export.done`; commit."""
+        ...
+
+
+class AsBuiltExportRepository(Protocol):
+    def start_export(self, job: CadExportAsBuiltJob, worker_id: str) -> bool:
+        """`queued` -> `processing`; False when the job is not current or the row is final."""
+        ...
+
+    def open_export(
+        self, job: CadExportAsBuiltJob
+    ) -> AbstractContextManager[AsBuiltExportSession | None]:
+        """Lock the export row; None when superseded."""
+        ...
+
+    def fail(self, job: CadExportAsBuiltJob, code: ExportFailureCode, message: str) -> bool:
         """Mark `failed` + event, guarded by `current_job_id`. False when superseded."""
         ...

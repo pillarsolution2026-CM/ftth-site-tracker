@@ -9,7 +9,7 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 import type { Database } from '@nozbe/watermelondb';
-import type { OfflineBundle, SyncOp } from '@ftth/shared';
+import type { AsBuiltEdit, OfflineBundle, RecordAsBuiltEditOp, SyncOp } from '@ftth/shared';
 import {
   createHttpTransport,
   SyncEngine,
@@ -59,11 +59,16 @@ interface FieldContextValue {
   summary: OutboxSummary;
   lastSyncAt: string | null;
   entries: OutboxEntry[];
+  /** Server copies of As-Built edits pulled by sync (ADR-030). */
+  asBuiltEdits: AsBuiltEdit[];
+  userId: string;
   store: WatermelonSyncStore;
   download(): Promise<void>;
   syncNow(): void;
   /** Saves an update and its photos on the device, then asks for a sync. */
   record(op: SyncOp, files: readonly LocalPhotoFile[]): Promise<void>;
+  /** Saves all As-Built edits of one session in one local transaction, then asks for a sync. */
+  recordAsBuilt(ops: readonly RecordAsBuiltEditOp[]): Promise<void>;
 }
 
 const FieldContext = createContext<FieldContextValue | null>(null);
@@ -92,11 +97,13 @@ export function FieldProvider({
   const [summary, setSummary] = useState<OutboxSummary>(EMPTY_SUMMARY);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [entries, setEntries] = useState<OutboxEntry[]>([]);
+  const [asBuiltEdits, setAsBuiltEdits] = useState<AsBuiltEdit[]>([]);
   const schedulerRef = useRef<SyncScheduler | null>(null);
 
   const refreshLocal = useCallback(async () => {
     setSummary(await store.summary());
     setEntries(await store.entries());
+    setAsBuiltEdits(await store.remoteAsBuiltEdits());
     setLastSyncAt(await store.getLastSyncAt());
   }, [store]);
 
@@ -196,6 +203,15 @@ export function FieldProvider({
     [refreshLocal, store],
   );
 
+  const recordAsBuilt = useCallback(
+    async (ops: readonly RecordAsBuiltEditOp[]) => {
+      await store.enqueueAsBuiltEdits(ops);
+      await refreshLocal();
+      schedulerRef.current?.trigger();
+    },
+    [refreshLocal, store],
+  );
+
   const value = useMemo(
     () => ({
       projectId,
@@ -205,12 +221,16 @@ export function FieldProvider({
       summary,
       lastSyncAt,
       entries,
+      asBuiltEdits,
+      userId,
       store,
       download,
       syncNow,
       record,
+      recordAsBuilt,
     }),
     [
+      asBuiltEdits,
       bundle,
       bundleStatus,
       download,
@@ -218,10 +238,12 @@ export function FieldProvider({
       lastSyncAt,
       projectId,
       record,
+      recordAsBuilt,
       store,
       summary,
       syncNow,
       syncState,
+      userId,
     ],
   );
   return <FieldContext.Provider value={value}>{children}</FieldContext.Provider>;

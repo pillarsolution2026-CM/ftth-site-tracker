@@ -32,6 +32,7 @@ describe('project access and navigation', () => {
       'cadFiles',
       'designRevisions',
       'contract',
+      'asbuilt',
     ]);
     expect(can(access, 'work_orders:write')).toBe(true);
     expect(can(access, 'contract:read')).toBe(true);
@@ -39,7 +40,8 @@ describe('project access and navigation', () => {
 
   it('gives a QC user read access but no write actions', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'qc')] }), P1);
-    expect(visibleNavItems(access)).toHaveLength(3);
+    expect(visibleNavItems(access)).toHaveLength(4);
+    expect(visibleNavItems(access).map((item) => item.id)).toContain('asbuilt');
     // The contract is for the PM and the platform admin only.
     expect(visibleNavItems(access).map((item) => item.id)).not.toContain('contract');
     expect(can(access, 'contract:read')).toBe(false);

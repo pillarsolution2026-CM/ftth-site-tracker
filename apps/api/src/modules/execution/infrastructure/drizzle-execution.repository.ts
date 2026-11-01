@@ -1,9 +1,11 @@
-import type { OpResult } from '@ftth/shared';
-import { AppError } from '../../../common/app-error.js';
-import { lockNotAvailable } from '../../../db/pg-errors.js';
+import type { AsBuiltEdit, AsBuiltGeometry, OpResult } from '@ftth/shared';
+import { toDecimalTextOrNull } from '../../../common/decimal-text.js';
+import type { ApprovedVersions } from '../../asbuilt/domain/review.js';
+import { lockProjectForSync } from '../../../common/project-sync-lock.js';
 import { sql, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
+import { rowsOf, uuidArray } from '../../../db/sql.js';
 import type { DomainEventInput } from '../../../common/event-log.port.js';
 import type {
   ExecutionScope,
@@ -12,26 +14,12 @@ import type {
   FeatureInRevision,
   ItemFacts,
   LatestRevision,
+  NewAsBuiltEdit,
   NewUpdate,
   StoredOperation,
 } from '../application/ports.js';
 
-// Arbitrary constant namespace for pg_advisory_xact_lock(int, int); see ADR-024 (pull cursor).
-const SYNC_LOCK_NAMESPACE = 727_002;
-
-export async function rowsOf<T>(db: DbHandle, query: SQL): Promise<T[]> {
-  const result = await db.execute(query);
-  return result.rows as T[];
-}
-
-/** `ARRAY[$1, $2, …]::uuid[]` built from bound parameters (no string interpolation). */
-export function uuidArray(ids: readonly string[]): SQL {
-  if (ids.length === 0) return sql`ARRAY[]::uuid[]`;
-  return sql`ARRAY[${sql.join(
-    ids.map((id) => sql`${id}`),
-    sql`, `,
-  )}]::uuid[]`;
-}
+export { rowsOf, uuidArray };
 
 /**
  * True for features whose design geometry in the given revision intersects one of the caller's
@@ -73,20 +61,7 @@ export class DrizzleExecutionTx implements ExecutionTx {
   }
 
   async lockProject(projectId: string): Promise<void> {
-    // One device cannot hold every other device of the project waiting (security review M4).
-    await this.db.execute(
-      sql`SELECT set_config('lock_timeout', ${`${this.lockTimeoutMs}ms`}, true)`,
-    );
-    try {
-      await this.db.execute(
-        sql`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, hashtext(${projectId}))`,
-      );
-    } catch (error) {
-      if (lockNotAvailable(error)) {
-        throw new AppError('RATE_LIMITED', 'The project is busy syncing; retry shortly');
-      }
-      throw error;
-    }
+    await lockProjectForSync(this.db, projectId, this.lockTimeoutMs);
   }
 
   async findOperation(clientOpId: string): Promise<StoredOperation | null> {
@@ -298,6 +273,146 @@ export class DrizzleExecutionTx implements ExecutionTx {
   async appendEvent(event: DomainEventInput): Promise<void> {
     await this.events.append(event);
   }
+
+  // ---- As-Built edits (Phase 4, ADR-030) -------------------------------------------------
+
+  async publishedRevision(
+    projectId: string,
+    revisionId: string,
+  ): Promise<{ publishedAt: Date; crsEpsg: number } | null> {
+    const [row] = await rowsOf<{ published_at: Date; crs_epsg: number }>(
+      this.db,
+      sql`SELECT published_at, crs_epsg FROM design_revisions
+          WHERE project_id = ${projectId} AND id = ${revisionId} AND status = 'published'`,
+    );
+    return row ? { publishedAt: new Date(row.published_at), crsEpsg: row.crs_epsg } : null;
+  }
+
+  async featureIdTaken(featureId: string): Promise<boolean> {
+    // `features.id` and the one-add-per-id index are global, so the check is too.
+    const rows = await rowsOf(
+      this.db,
+      sql`SELECT 1 FROM features WHERE id = ${featureId}
+          UNION ALL
+          SELECT 1 FROM asbuilt_edits WHERE feature_id = ${featureId}
+            AND kind IN ('add_route', 'add_symbol')
+          LIMIT 1`,
+    );
+    return rows.length > 0;
+  }
+
+  async asBuiltTarget(
+    projectId: string,
+    featureId: string,
+  ): Promise<{ featureType: AsBuiltEdit['featureType']; origin: 'design' | 'added' } | null> {
+    const [row] = await rowsOf<{
+      feature_type: AsBuiltEdit['featureType'];
+      origin: 'design' | 'added';
+    }>(
+      this.db,
+      sql`SELECT feature_type, 'design' AS origin FROM features
+            WHERE project_id = ${projectId} AND id = ${featureId}
+          UNION ALL
+          SELECT feature_type, 'added' AS origin FROM asbuilt_features
+            WHERE project_id = ${projectId} AND feature_id = ${featureId} AND added
+          LIMIT 1`,
+    );
+    return row ? { featureType: row.feature_type, origin: row.origin } : null;
+  }
+
+  async geometryFacts(
+    srid: number,
+    geometry: AsBuiltGeometry,
+  ): Promise<{ valid: boolean; lengthM: number }> {
+    const [row] = await rowsOf<{ valid: boolean; length_m: number }>(
+      this.db,
+      sql`SELECT ST_IsValid(g) AS valid, ST_Length(g) AS length_m
+          FROM (SELECT ${projectGeometry(geometry, srid)} AS g) s`,
+    );
+    return { valid: row?.valid === true, lengthM: Number(row?.length_m ?? 0) };
+  }
+
+  async geometryInScope(
+    projectId: string,
+    srid: number,
+    geometry: AsBuiltGeometry,
+    scope: ExecutionScope,
+  ): Promise<boolean> {
+    if (scope.kind === 'project') return true;
+    if (scope.zoneIds.length === 0) return false;
+    const [row] = await rowsOf<{ ok: boolean }>(
+      this.db,
+      // The whole proposed geometry must lie inside the caller's zones (security review M1:
+      // touching one zone is not enough, a route could otherwise run on into other zones).
+      sql`SELECT coalesce(ST_CoveredBy(${projectGeometry(geometry, srid)}, ST_Union(z.geom)), false) AS ok
+          FROM zones z
+          WHERE z.project_id = ${projectId} AND z.id = ANY(${uuidArray(scope.zoneIds)})
+            AND z.geom IS NOT NULL`,
+    );
+    return row?.ok === true;
+  }
+
+  async addedFeatureInScope(
+    projectId: string,
+    featureId: string,
+    scope: ExecutionScope,
+  ): Promise<boolean> {
+    if (scope.kind === 'project') return true;
+    if (scope.zoneIds.length === 0) return false;
+    const [row] = await rowsOf<{ ok: boolean }>(
+      this.db,
+      sql`SELECT EXISTS (
+            SELECT 1 FROM asbuilt_features a
+            JOIN zones z ON z.project_id = a.project_id
+            WHERE a.project_id = ${projectId} AND a.feature_id = ${featureId} AND a.added
+              AND z.id = ANY(${uuidArray(scope.zoneIds)}) AND z.geom IS NOT NULL
+              AND ST_Intersects(z.geom, a.geom)) AS ok`,
+    );
+    return row?.ok === true;
+  }
+
+  async approvedVersions(projectId: string, featureId: string): Promise<ApprovedVersions> {
+    const [row] = await rowsOf<{ geometry_version: number; label_version: number }>(
+      this.db,
+      sql`SELECT geometry_version, label_version FROM asbuilt_features
+          WHERE project_id = ${projectId} AND feature_id = ${featureId}`,
+    );
+    return {
+      geometryVersion: row?.geometry_version ?? 0,
+      labelVersion: row?.label_version ?? 0,
+    };
+  }
+
+  async insertAsBuiltEdit(edit: NewAsBuiltEdit): Promise<{ lengthM: string | null }> {
+    const gps = edit.gps;
+    const [row] = await rowsOf<{ length_m: string | null }>(
+      this.db,
+      sql`INSERT INTO asbuilt_edits (
+            id, project_id, client_op_id, feature_id, kind, feature_type, design_revision_id,
+            base_version, geom, label, note, user_id, device_id, captured_at, received_at,
+            gps_wgs84, gps_accuracy_m, gps_at, flags)
+          VALUES (
+            ${edit.id}, ${edit.projectId}, ${edit.clientOpId}, ${edit.featureId}, ${edit.kind},
+            ${edit.featureType}, ${edit.designRevisionId}, ${edit.baseVersion}::int,
+            ${edit.geometry ? projectGeometry(edit.geometry, edit.srid) : sql`NULL::geometry`},
+            ${edit.label}, ${edit.note}, ${edit.userId}, ${edit.deviceId},
+            ${edit.capturedAt.toISOString()}, ${edit.receivedAt.toISOString()},
+            ${gps ? sql`ST_SetSRID(ST_MakePoint(${gps.lon}, ${gps.lat}), 4326)` : sql`NULL::geometry`},
+            ${gps?.accuracyM ?? null}::double precision,
+            ${gps ? gps.at.toISOString() : null}::timestamptz,
+            ${enumArray(edit.flags)})
+          RETURNING length_m::text AS length_m`,
+    );
+    return { lengthM: toDecimalTextOrNull(row?.length_m ?? null) };
+  }
+}
+
+/** A project-CRS (metres) GeoJSON geometry in the revision's SRID; never transformed. */
+function projectGeometry(geometry: AsBuiltGeometry, srid: number): SQL {
+  return sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify({
+    type: geometry.type,
+    coordinates: geometry.coordinates,
+  })}::text), ${srid}::int)`;
 }
 
 export async function latestPublished(

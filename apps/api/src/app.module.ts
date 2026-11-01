@@ -9,6 +9,7 @@ import { IdentityModule } from './modules/identity/identity.module.js';
 import { ProjectsModule } from './modules/projects/projects.module.js';
 import { ContractsModule } from './modules/contracts/contracts.module.js';
 import { CadModule } from './modules/cad/cad.module.js';
+import { AsBuiltModule } from './modules/asbuilt/asbuilt.module.js';
 import { ExecutionModule } from './modules/execution/execution.module.js';
 import { WorkOrdersModule } from './modules/work-orders/work-orders.module.js';
 import { StorageModule } from './common/storage/storage.module.js';
@@ -25,6 +26,7 @@ import { StorageModule } from './common/storage/storage.module.js';
     ContractsModule,
     CadModule,
     ExecutionModule,
+    AsBuiltModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],

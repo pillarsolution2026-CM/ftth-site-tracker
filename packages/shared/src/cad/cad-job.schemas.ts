@@ -53,6 +53,22 @@ export const CadBuildRevisionJobSchema = z.object({
 });
 export type CadBuildRevisionJob = z.infer<typeof CadBuildRevisionJobSchema>;
 
+/**
+ * Write the As-Built DXF of a project (Phase 4, ADR-030). The worker reads the latest published
+ * revision named in the `asbuilt_exports` row and the approved As-Built state from the database,
+ * never from the message.
+ */
+export const CadExportAsBuiltJobSchema = z.object({
+  /** Equals asbuilt_exports.current_job_id; a job whose id is no longer current is dropped. */
+  id: z.uuid(),
+  type: z.literal('cad.export_asbuilt'),
+  exportId: z.uuid(),
+  projectId: z.uuid(),
+  attempt: z.number().int().min(1).max(CAD_JOB_MAX_ATTEMPTS),
+  enqueuedAt: z.iso.datetime(),
+});
+export type CadExportAsBuiltJob = z.infer<typeof CadExportAsBuiltJobSchema>;
+
 /** Existing liveness probe job (Phase 0). */
 export const CadHealthJobSchema = z.object({
   id: z.string().min(1),
@@ -63,6 +79,7 @@ export type CadHealthJob = z.infer<typeof CadHealthJobSchema>;
 export const CadJobSchema = z.discriminatedUnion('type', [
   CadImportJobSchema,
   CadBuildRevisionJobSchema,
+  CadExportAsBuiltJobSchema,
   CadHealthJobSchema,
 ]);
 export type CadJob = z.infer<typeof CadJobSchema>;

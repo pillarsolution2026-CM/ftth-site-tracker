@@ -77,6 +77,7 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
     const totals: Record<string, string> = {};
     const since = bundle?.serverTime ?? '';
     for (const entry of entries) {
+      if (entry.op.kind !== 'execution_update.record') continue;
       if (entry.state === 'rejected' || entry.op.capturedAt < since) continue;
       for (const line of entry.op.payload.lines) {
         totals[line.workOrderItemId] = addQuantities(

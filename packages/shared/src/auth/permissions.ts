@@ -17,6 +17,14 @@ export const PERMISSIONS = [
   'execution:write',
   /** Read the contract and BOQ of the project (Phase 2, ADR-027): admin and pm only (owner). */
   'contract:read',
+  /** See As-Built edits and state (Phase 4, ADR-030). Zone-scoped for supervisors. */
+  'asbuilt:read',
+  /** Record As-Built edits from the mobile app. ASSUMPTION: supervisor, pm, admin. */
+  'asbuilt:write',
+  /** Approve or reject As-Built edits. ASSUMPTION (most restrictive reading of the plan): qc, pm, admin; never one's own edit. */
+  'asbuilt:review',
+  /** Request and download the As-Built DXF. ASSUMPTION: pm and admin only. */
+  'asbuilt:export',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -25,14 +33,15 @@ const READ: readonly Permission[] = [
   'cad_files:read',
   'design:read',
   'execution:read',
+  'asbuilt:read',
 ];
 
 /** Role → permissions inside a project. Platform admins (`isAdmin`) always pass. */
 export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   admin: PERMISSIONS,
   pm: PERMISSIONS,
-  qc: READ,
-  supervisor: [...READ, 'execution:write'],
+  qc: [...READ, 'asbuilt:review'],
+  supervisor: [...READ, 'execution:write', 'asbuilt:write'],
   contractor: [],
 };
 

@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  AsBuiltEditSchema,
+  AsBuiltFeatureStateSchema,
+  RecordAsBuiltEditOpSchema,
+} from '../asbuilt/asbuilt.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { FeatureTypeSchema } from '../design/feature-types.js';
 import { WorkTypeSchema } from '../work-orders/work-order.schemas.js';
@@ -12,7 +17,7 @@ import { ExecutionUpdateSchema, RecordUpdatePayloadSchema } from './execution.sc
  * resumable upload `…/sync/photos/:photoId`.
  */
 
-export const OP_KINDS = ['execution_update.record'] as const;
+export const OP_KINDS = ['execution_update.record', 'asbuilt_edit.record'] as const;
 export const OpKindSchema = z.enum(OP_KINDS);
 export type OpKind = z.infer<typeof OpKindSchema>;
 
@@ -25,8 +30,11 @@ export const RecordUpdateOpSchema = z.object({
 });
 export type RecordUpdateOp = z.infer<typeof RecordUpdateOpSchema>;
 
-/** Union of every operation a device may send (Phase 4 adds geometry edits). */
-export const SyncOpSchema = z.discriminatedUnion('kind', [RecordUpdateOpSchema]);
+/** Union of every operation a device may send (Phase 4 adds As-Built edits, ADR-030). */
+export const SyncOpSchema = z.discriminatedUnion('kind', [
+  RecordUpdateOpSchema,
+  RecordAsBuiltEditOpSchema,
+]);
 export type SyncOp = z.infer<typeof SyncOpSchema>;
 
 export const SyncPushRequestSchema = z
@@ -59,11 +67,22 @@ export const OP_REJECTION_CODES = [
   'ITEM_NOT_FOUND',
   /** The item's work type differs from the update's activity. */
   'ITEM_WORK_TYPE_MISMATCH',
+  // ---- As-Built edits (Phase 4, ADR-030) ----
+  /** `add_*` with a featureId that already exists (design or an earlier add). */
+  'FEATURE_ID_REUSED',
+  /** Tool does not fit the feature: `move` on a route, `reshape` on a point. */
+  'GEOMETRY_KIND_MISMATCH',
+  /** Geometry PostGIS finds invalid or a route of zero length. */
+  'GEOMETRY_INVALID',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;
 
 export const OpResultSchema = z.discriminatedUnion('outcome', [
+  /**
+   * `updateId` is the id of the record the op created: an execution update, or an As-Built edit
+   * for `asbuilt_edit.record` (name kept from Phase 3 so devices in the field stay compatible).
+   */
   z.object({
     clientOpId: z.uuid(),
     outcome: z.literal('applied'),
@@ -107,6 +126,11 @@ export const SyncChangesResponseSchema = z.object({
   cursor: SyncCursorSchema,
   hasMore: z.boolean(),
   updates: z.array(ExecutionUpdateSchema),
+  /**
+   * As-Built edits in the caller's scope changed after the cursor (recorded or reviewed), on the
+   * same server sequence as `updates` (ADR-030). Absent from Phase 3 servers → empty.
+   */
+  asBuiltEdits: z.array(AsBuiltEditSchema).default([]),
 });
 export type SyncChangesResponse = z.infer<typeof SyncChangesResponseSchema>;
 
@@ -181,6 +205,11 @@ export const OfflineBundleSchema = z.object({
   /** Features of `revision` inside the caller's scope. */
   features: z.array(OfflineFeatureSchema),
   catalog: z.array(CatalogItemSchema),
+  /**
+   * Approved As-Built state of features in scope that differ from the design or were added
+   * (ADR-030). The device draws these over the design and uses their versions as `baseVersion`.
+   */
+  asBuilt: z.array(AsBuiltFeatureStateSchema).default([]),
   settings: z.object({
     gpsWarningDistanceM: z.number().positive(),
     suggestedQuantity: CapabilityStatusSchema,

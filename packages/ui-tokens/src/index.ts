@@ -40,6 +40,10 @@ export const cadPalette = {
     mh: '#D7A6FF',
     crosshair: '#FFFFFF',
     text: '#E8EDF3',
+    /** Approved As-Built geometry and labels (Phase 4); distinct from every feature colour. */
+    asbuilt: '#FF5FD2',
+    /** The supervisor's own As-Built edits that are not approved yet (always with an icon). */
+    asbuiltPending: '#FFAB40',
   },
   day: {
     background: colors.cadDay,
@@ -50,6 +54,8 @@ export const cadPalette = {
     mh: '#6A1B9A',
     crosshair: '#000000',
     text: '#1B2430',
+    asbuilt: '#B0005E',
+    asbuiltPending: '#9A4A00',
   },
 } as const;
 export type CadMode = keyof typeof cadPalette;
