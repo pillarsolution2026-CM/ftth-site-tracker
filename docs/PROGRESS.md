@@ -12,7 +12,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | In progress — step 1 (contract + BOQ, ADR-027) merged (PR #20) and on staging; step 2 (work-order lines from the contract, ADR-028) built on branch `feat/phase-2-work-order-from-contract`; next: `type_rules`, zones, matching, web CAD viewer | — |
 | 3 Supervisor app (offline) | Done — merged (PR #17), awaiting approval. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval. Not run on a device; the airplane-mode acceptance was simulated | — |
-| 4 As-Built editing | In progress — geometry engine `@ftth/geo` merged (PR #5); the rest started 2026-11-01 at the owner's request (ADR-029) with Phases 1b and 3 merged but **not approved** and Phase 2 still in progress | — |
+| 4 As-Built editing | Built — geometry engine merged (PR #5); the rest started 2026-11-01 at the owner's request (ADR-029, ADR-030) and delivered in one PR, awaiting review and approval. Phases 1b and 3 merged but **not approved**, Phase 2 in progress. Not run on a device; DXF not opened in AutoCAD; takeoff half of the acceptance waits for Phase 5 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
@@ -181,6 +181,48 @@ Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_
 - **Step 2 delivered (ADR-028, migration 0008):** a work-order line is a contract item + quantity (code, description, unit, price, work type copied; edit = quantity only); one work order per project; approved contract required; each contract item once per work order; quantity reserved across every work order of the contract (app check + trigger locking the contract row); availability endpoint and line picker; Excel import matched to the contract by code (`NOT_IN_CONTRACT`, `CONTRACT_MISMATCH`, `CODE_REPEATED`, `QUANTITY_EXCEEDS_CONTRACT` = errors; empty quantity → skipped with a warning, owner 2026-10-31). Dev seed and test fixtures build an approved contract first.
 - **Step 2 test report (local, 2026-10-31):** typecheck, lint, format: pass. Unit: shared 165, api 378, web 268, sync 19, geo 60, i18n 4, ui-tokens 3. API integration (real PostGIS, Linux, full build): 227 pass. Web e2e (mock API): 15. Owner's real files: work order vs contract → 0 errors, 153 lines, 7 skipped (empty quantity), total 78900610.328; reservation verified (a fourth identical work order is refused).
 - **Not done / not verified:** step 2 not deployed or tried on staging; no security review yet (planned before the phase closes); steps 3–6 not started.
+
+### Phase 4 — As-Built editing (rest of the phase, started 2026-11-01, owner request; ADR-029, ADR-030)
+Started with Phases 1b and 3 merged but **not approved** and Phase 2 still in progress (account `sabahyafro-sys`; PRs #20, #21). No phase is marked approved by this work. Contracts: `docs/phase-4-contracts.md`. Migration `0009_asbuilt.sql`. Built on `main` at `460b4aa`, delivered as one PR (not merged by the session).
+- **Done:**
+  - **Contracts** (`packages/shared/src/asbuilt`): sync operation `asbuilt_edit.record` (kinds `move`, `reshape`, `add_route`, `add_symbol`, `label`; full proposed geometry in project-CRS metres; `baseVersion`), server record, approved state, review requests and refusals, approved-length read model, DXF export, CAD job `cad.export_asbuilt`; permissions `asbuilt:read|write|review|export`; events `asbuilt_edit.*`, `asbuilt_export.*`; new rejection codes `FEATURE_ID_REUSED`, `GEOMETRY_KIND_MISMATCH`, `GEOMETRY_INVALID`. Phase 3 devices stay compatible (`asBuiltEdits` / `asBuilt` default to empty).
+  - **Database (0009):** `asbuilt_edits` (immutable; only the one review may change it, and it bumps the pull cursor), `asbuilt_features` (projection of approved state; a trigger accepts geometry and labels only from an approved edit with the matching version), `asbuilt_exports`. Lengths are generated `ST_Length` columns (3 dp). No delete or truncate on any of them.
+  - **API:** As-Built ops through the Phase 3 push path (same idempotency, project lock and cursor); pull and bootstrap carry As-Built edits and approved state; new `asbuilt` module: edit list/detail, approve, reject, approved state, `GET lengths` and the exported `AsBuiltLengthsPort` (for Phase 5), DXF export request/list/status/download. `RequirePermission` now accepts alternative permissions (used only by the push route).
+  - **`@ftth/geo`:** `toAsBuiltRoute` (route sent after a session), coordinate helpers; `@ftth/sync`: `applyRemoteAsBuiltEdits`.
+  - **Mobile:** As-Built mode on the CAD screen with the five tools on `@ftth/geo` (snap 14 px, grips, midpoint insert, vertex delete, live length, draw, insert symbol, label), undo/redo, one op per changed feature on save into the encrypted outbox, design dashed under the As-Built, own pending edits marked, edit status in «في الانتظار». WatermelonDB schema v2 (`remote_asbuilt_edits`). ar/en/fr.
+  - **Web:** `/projects/:id/asbuilt` list and comparison page (design dashed under the approved state and the proposal, lengths and difference, flags in words), approve / reject with reason, DXF export panel. The Phase 2 web CAD viewer has **not** landed, so the comparison is a minimal inline SVG in its own folder (`features/asbuilt-review`, component `ComparisonDrawing`), to be replaced by the Phase 2 viewer. ar/en/fr.
+  - **CAD worker:** job `cad.export_asbuilt`: DXF R2018, metres; design features on their original layers, approved edited geometry on `ASBUILT_EDITS` (red), added features on `ASBUILT_ADDED` (green), labels and status texts; text sanitised (control characters, `%%` codes, no MTEXT), unsafe layer names replaced; job guard and 3-attempt recovery like the other durable jobs.
+- **Bug found by testing and fixed:** the review guard of `asbuilt_edits` compared the generated `length_m` column, which is not computed yet in a BEFORE UPDATE trigger, so every approval or rejection of a route edit was refused (fixed in 0009 before merge; the migration was never deployed).
+- **Test report (local, Linux, Node 22, PostGIS 16 + Redis 7 in Docker, 2026-11-01):**
+  - `pnpm format:check`, `pnpm build`, `pnpm lint`, `pnpm typecheck`: pass.
+  - Unit: shared 173, geo 66 (incl. 5 new fast-check properties at 10,000 runs: route after any session valid with the same length, idempotent normalisation, exact coordinate round trip, undo restores the design, snapped symbol within 14 px), sync 20, i18n 4, ui-tokens 3, api 405, web 300, mobile 99 (49 new).
+  - API integration (real PostGIS + Redis, fresh database): 260 pass (33 new in `asbuilt.int-spec.ts`).
+  - CAD worker: ruff, ruff format, mypy --strict pass; pytest 274 pass, 7 skipped here (DWG converter not installed locally; CI installs it), coverage 96%.
+  - Web e2e (Playwright, mock API): 16 pass, **1 fail, 1 did not run** — see Known issues; the 3 new As-Built e2e tests pass.
+- **Acceptance criteria:**
+  - "A route edit appears after sync": **met in tests** — a reshape pushed through the real sync path appears in `sync/changes` and in the web review list (API integration); on the phone only in Jest with a fake transport.
+  - "Takeoff length = approved As-Built length": **half met** — `GET lengths` / `AsBuiltLengthsPort` return exactly the PostGIS `ST_Length` (3 dp) of the approved geometry, checked against an independent PostGIS computation; pending edits never count. The quantity takeoff is Phase 5 and does not exist, so the full criterion can only be checked in Phase 5.
+  - "DXF opens in AutoCAD": **not verified** — the export passes `ezdxf` recover/audit with 0 errors and reads back through the worker's own reader; it was **not opened in real AutoCAD** (manual check, Phase 6).
+- **Not verified / not done:**
+  - **Nothing ran on a real phone or emulator** (touch, rendering, SQLite JSI and the v1 → v2 local migration, GPS, RTL layout).
+  - The web comparison was checked at DOM level only, not by eye in a browser; no pan/zoom until the Phase 2 viewer.
+  - No delete-feature tool (not in the roadmap). Storage is not strictly write-once for exports (a database lock keeps a finished export from being rewritten).
+- **Known issues:**
+  - `apps/web/e2e/work-orders-contract.spec.ts:68` (Phase 2 area, not changed here) fails **deterministically** here, 5/5 when run alone, and also on unchanged `main` (`460b4aa`) 3/3: after "Create" the page says «This project already has a work order.» (one work order per project, ADR-028) instead of opening WO-100, so the next test in the file does not run. It looks like the mock data and the one-work-order rule disagree, not a timing flake. Left for the Phase 2 owner.
+
+- **Decisions waiting for the owner** (each taken in its most restrictive form; nothing from earlier phases was decided here):
+  1. Who may record As-Built edits: supervisor, pm, admin (same as execution updates); qc never.
+  2. Who may approve/reject: qc, pm, admin; nobody reviews their own edit.
+  3. Who may export the DXF: pm and admin only.
+  4. A review is final: a rejected edit cannot be resubmitted; the supervisor records a new edit on the current state. A rejection needs a reason.
+  5. An edit drawn on an older approved state cannot be approved (`STALE_BASE`), instead of last-writer-wins; geometry and label have separate versions.
+  6. No length tolerance: the approved length is PostGIS `ST_Length` rounded to the millimetre; there is no check of how far a route may move or change length.
+  7. No delete tool; an added feature must be approved before it can be edited again; a rejected add's id is never reused.
+  8. All four point types (box, hhi, joint, mh) may be inserted until Phase 2 `type_rules` say which are allowed.
+  9. Zone-scoped users may edit only inside their zones (the feature's design geometry and the new geometry), and may not move a feature out of their zone.
+  10. A label cannot be cleared (1–200 characters); a moved and relabelled feature sends two edits.
+  11. Edits of a feature missing from the latest revision are flagged `FEATURE_REMOVED`, left out of the lengths and of the DXF export.
+  12. DXF presentation (not business rules, owner may change): edits red (ACI 1), added green (ACI 3), text 0.5 m, symbols 1 m, status text `AS-BUILT G<n> L<n>` / `AS-BUILT ADDED`; only network features are exported (no background drawing entities).
 
 ### Phase 4 (early start) — Geometry engine `packages/geo` (PR #5)
 Started ahead of Phases 1b–3 at the owner's request; only the part with no dependency on CAD mapping or the mobile app. Package decisions G-1..G-7 are in `packages/geo/DECISIONS.md`.
