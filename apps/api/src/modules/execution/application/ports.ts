@@ -1,4 +1,7 @@
 import type {
+  AsBuiltEdit,
+  AsBuiltEditFlag,
+  AsBuiltGeometry,
   CatalogItem,
   ExecutionUpdate,
   OfflineFeature,
@@ -9,6 +12,7 @@ import type {
   WorkType,
 } from '@ftth/shared';
 import type { DomainEventInput } from '../../../common/event-log.port.js';
+import type { ApprovedVersions } from '../../asbuilt/domain/review.js';
 
 /** Where the caller may act: the whole project, or the features inside some zones. */
 export type ExecutionScope = { kind: 'project' } | { kind: 'zones'; zoneIds: readonly string[] };
@@ -112,6 +116,62 @@ export interface ExecutionTx {
   anyPhotoExists(photoIds: readonly string[]): Promise<boolean>;
   insertUpdate(update: NewUpdate): Promise<void>;
   appendEvent(event: DomainEventInput): Promise<void>;
+
+  // ---- As-Built edits (Phase 4, ADR-030) -------------------------------------------------
+  /** The revision only if it is a published revision of the project. */
+  publishedRevision(
+    projectId: string,
+    revisionId: string,
+  ): Promise<{ publishedAt: Date; crsEpsg: number } | null>;
+  /** True when the id is a design feature (any project) or was used by an earlier add. */
+  featureIdTaken(featureId: string): Promise<boolean>;
+  /** A design feature of the project, or an approved added feature; null when neither. */
+  asBuiltTarget(
+    projectId: string,
+    featureId: string,
+  ): Promise<{ featureType: AsBuiltEdit['featureType']; origin: 'design' | 'added' } | null>;
+  /** PostGIS verdict on a proposed geometry in `srid`: `ST_IsValid` and `ST_Length` in metres. */
+  geometryFacts(
+    srid: number,
+    geometry: AsBuiltGeometry,
+  ): Promise<{ valid: boolean; lengthM: number }>;
+  /** True when the proposed geometry intersects one of the scope's zones. */
+  geometryInScope(
+    projectId: string,
+    srid: number,
+    geometry: AsBuiltGeometry,
+    scope: ExecutionScope,
+  ): Promise<boolean>;
+  /** True when the approved As-Built geometry of an added feature is inside the scope. */
+  addedFeatureInScope(
+    projectId: string,
+    featureId: string,
+    scope: ExecutionScope,
+  ): Promise<boolean>;
+  approvedVersions(projectId: string, featureId: string): Promise<ApprovedVersions>;
+  insertAsBuiltEdit(edit: NewAsBuiltEdit): Promise<{ lengthM: string | null }>;
+}
+
+export interface NewAsBuiltEdit {
+  id: string;
+  projectId: string;
+  clientOpId: string;
+  featureId: string;
+  kind: AsBuiltEdit['kind'];
+  featureType: AsBuiltEdit['featureType'];
+  designRevisionId: string;
+  baseVersion: number | null;
+  /** Project-CRS metres in `srid`. */
+  geometry: AsBuiltGeometry | null;
+  srid: number;
+  label: string | null;
+  note: string | null;
+  userId: string;
+  deviceId: string;
+  capturedAt: Date;
+  receivedAt: Date;
+  gps: { lon: number; lat: number; accuracyM: number | null; at: Date } | null;
+  flags: readonly AsBuiltEditFlag[];
 }
 
 export interface ExecutionUnitOfWork {

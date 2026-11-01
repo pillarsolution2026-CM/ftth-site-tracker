@@ -13,6 +13,9 @@ import { systemClock, uuidGenerator, type Clock } from '../../common/clock.js';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.port.js';
 import { PermissionGuard } from '../../common/permission.guard.js';
 import { DB, type Database } from '../../db/db.module.js';
+import { AsBuiltModule } from '../asbuilt/asbuilt.module.js';
+import { ASBUILT_EDIT_FEED, ASBUILT_STATE_READER } from '../asbuilt/asbuilt.tokens.js';
+import type { AsBuiltEditFeed, AsBuiltStateReader } from '../asbuilt/application/ports.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import { Phase2UnavailableCapabilities } from './application/phase2-capabilities.js';
 import {
@@ -88,15 +91,19 @@ const providers: Provider[] = [
   },
   {
     provide: GetOfflineBundleUseCase,
-    inject: [EXECUTION_READ_QUERIES, EXECUTION_CAPABILITIES, EXECUTION_CLOCK],
-    useFactory: (queries: ExecutionReadQueries, caps: ExecutionCapabilities, clock: Clock) =>
-      new GetOfflineBundleUseCase(queries, caps, clock),
+    inject: [EXECUTION_READ_QUERIES, EXECUTION_CAPABILITIES, EXECUTION_CLOCK, ASBUILT_STATE_READER],
+    useFactory: (
+      queries: ExecutionReadQueries,
+      caps: ExecutionCapabilities,
+      clock: Clock,
+      asBuilt: AsBuiltStateReader,
+    ) => new GetOfflineBundleUseCase(queries, caps, clock, asBuilt),
   },
   {
     provide: GetSyncChangesUseCase,
-    inject: [EXECUTION_READ_QUERIES, EXECUTION_CLOCK],
-    useFactory: (queries: ExecutionReadQueries, clock: Clock) =>
-      new GetSyncChangesUseCase(queries, clock),
+    inject: [EXECUTION_READ_QUERIES, EXECUTION_CLOCK, ASBUILT_EDIT_FEED],
+    useFactory: (queries: ExecutionReadQueries, clock: Clock, feed: AsBuiltEditFeed) =>
+      new GetSyncChangesUseCase(queries, clock, feed),
   },
   {
     provide: GetPhotoUploadStatusUseCase,
@@ -119,7 +126,7 @@ const providers: Provider[] = [
 
 /** Phase 3: offline execution updates, idempotent sync and resumable photos (ADR-024). */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, AsBuiltModule],
   controllers: [SyncController],
   providers,
 })

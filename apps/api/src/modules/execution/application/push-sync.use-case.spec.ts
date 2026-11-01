@@ -4,6 +4,28 @@ import type { ExecutionTx, ExecutionUnitOfWork } from './ports.js';
 import { Phase2UnavailableCapabilities } from './phase2-capabilities.js';
 import { PushSyncUseCase } from './push-sync.use-case.js';
 
+/** The As-Built side is not used by these Phase 3 races (see push-asbuilt.use-case.spec.ts). */
+const asBuiltStubs: Pick<
+  ExecutionTx,
+  | 'publishedRevision'
+  | 'featureIdTaken'
+  | 'asBuiltTarget'
+  | 'geometryFacts'
+  | 'geometryInScope'
+  | 'addedFeatureInScope'
+  | 'approvedVersions'
+  | 'insertAsBuiltEdit'
+> = {
+  publishedRevision: async () => null,
+  featureIdTaken: async () => false,
+  asBuiltTarget: async () => null,
+  geometryFacts: async () => ({ valid: true, lengthM: 1 }),
+  geometryInScope: async () => true,
+  addedFeatureInScope: async () => true,
+  approvedVersions: async () => ({ geometryVersion: 0, labelVersion: 0 }),
+  insertAsBuiltEdit: async () => ({ lengthM: null }),
+};
+
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 const op: RecordUpdateOp = {
@@ -61,6 +83,7 @@ function uowFailingOn(constraint: string): ExecutionUnitOfWork {
       throw new Error('Failed query', { cause: pgError });
     },
     appendEvent: async () => undefined,
+    ...asBuiltStubs,
   };
   return { run: (work) => work(tx) };
 }
