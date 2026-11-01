@@ -163,7 +163,7 @@ tiles_psql() {
 if tiles_psql -q >/dev/null 2>&1 <<<"ALTER ROLE ftth_tiles LOGIN PASSWORD '$(env_get FTTH_TILES_PASSWORD)'" &&
   tiles_compose up -d --no-deps martin; then
   for _ in {1..30}; do
-    curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$martin_port/health" && break
+    curl -fs -m 2 -o /dev/null "http://127.0.0.1:$martin_port/health" && break
     sleep 1
   done
   zero=00000000-0000-0000-0000-000000000000
@@ -171,7 +171,13 @@ if tiles_psql -q >/dev/null 2>&1 <<<"ALTER ROLE ftth_tiles LOGIN PASSWORD '$(env
   # Signed the way the API signs (HMAC of source|project|revision|exp); the secret stays inside the container.
   sig="$(tiles_compose exec -T api node -e "process.stdout.write(require('crypto').createHmac('sha256',process.env.TILE_URL_SECRET).update('design_features|$zero|$zero|$exp').digest('base64url'))" 2>/dev/null || true)"
   tile="https://$API_DOMAIN/design_features/14/1/1"
-  echo "martin catalog: $(curl -fsS -m 5 "http://127.0.0.1:$martin_port/catalog" | grep -o design_features | head -n 1 || echo missing)"
+  catalog="$(curl -fs -m 5 "http://127.0.0.1:$martin_port/catalog" | grep -o design_features | head -n 1 || true)"
+  echo "martin catalog: ${catalog:-missing}"
+  if [[ -z "$catalog" ]]; then
+    warn "Martin is not answering. Its last messages (passwords hidden):"
+    tiles_compose logs --no-color --tail 30 martin 2>&1 |
+      sed -E -e "s/$(env_get FTTH_TILES_PASSWORD)/***/g" -e 's#postgres(ql)?://[^[:space:]]+#postgres://***#g' || true
+  fi
   echo "tile without signature (expect 401): $(curl -s -m 20 -o /dev/null -w '%{http_code}' "$tile" || true)"
   echo "tile with signature (expect 200 or 204): $(curl -s -m 20 -o /dev/null -w '%{http_code}' "$tile?p=$zero&r=$zero&exp=$exp&sig=$sig" || true)"
   if tiles_psql -c 'SET ROLE ftth_tiles; SELECT 1 FROM users' >/dev/null 2>&1; then
