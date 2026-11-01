@@ -6,7 +6,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reported `639f6e4` on 2026-11-01 | — |
+| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reported `639f6e4` on 2026-11-01. Tile server (Martin) added by ADR-031 | — |
 | Admin setup: projects, zone names, users, assignments | Done — merged (PR #18, ADR-026), added at the owner's request outside the roadmap tasks. Owner decisions open; not yet tried on staging; zones have names only until Phase 2 draws boundaries | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
