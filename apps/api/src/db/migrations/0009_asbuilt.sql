@@ -167,11 +167,12 @@ BEGIN
   IF OLD.status <> 'pending' THEN
     RAISE EXCEPTION 'asbuilt_edits: a reviewed edit is final' USING ERRCODE = 'restrict_violation';
   END IF;
+  -- `length_m` is generated from `geom` (compared) and is not yet computed in a BEFORE trigger.
   IF (to_jsonb(NEW) - ARRAY['status', 'review_reason', 'reviewed_by', 'reviewed_at',
-                            'approved_version', 'sync_seq'])
+                            'approved_version', 'sync_seq', 'length_m'])
      IS DISTINCT FROM
      (to_jsonb(OLD) - ARRAY['status', 'review_reason', 'reviewed_by', 'reviewed_at',
-                            'approved_version', 'sync_seq']) THEN
+                            'approved_version', 'sync_seq', 'length_m']) THEN
     RAISE EXCEPTION 'asbuilt_edits: only the review fields may change' USING ERRCODE = 'restrict_violation';
   END IF;
   NEW.sync_seq := nextval('execution_sync_seq');
