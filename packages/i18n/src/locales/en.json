@@ -978,6 +978,134 @@
       "reviewReason": "Reason: {reason}"
     }
   },
+  "asbuiltReview": {
+    "nav": "As-Built",
+    "listTitle": "As-Built review",
+    "detailTitle": "As-Built edit",
+    "backToList": "Back to the list",
+    "empty": "No edits match this filter",
+    "filter": {
+      "label": "Status",
+      "pending": "Awaiting review",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "all": "All"
+    },
+    "columns": {
+      "received": "Received",
+      "supervisor": "Supervisor",
+      "tool": "Tool",
+      "featureType": "Feature type",
+      "flags": "Flags",
+      "length": "Proposed length",
+      "status": "Status"
+    },
+    "status": {
+      "pending": "Awaiting review",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
+    "kind": {
+      "move": "Move point",
+      "reshape": "Reshape route",
+      "add_route": "Add route",
+      "add_symbol": "Add symbol",
+      "label": "Change label"
+    },
+    "flag": {
+      "BASE_OUTDATED": "Outdated base",
+      "REVISION_OUTDATED": "Outdated revision",
+      "FEATURE_REMOVED": "Feature removed",
+      "CLOCK_AHEAD": "Clock ahead"
+    },
+    "flagExplain": {
+      "BASE_OUTDATED": "Another edit of this feature was approved after the version this edit was drawn on. It cannot be approved: reject it so the supervisor redraws it on the current state.",
+      "REVISION_OUTDATED": "The supervisor drew this on a design revision that is no longer the latest published one. Check the drawing before approving.",
+      "FEATURE_REMOVED": "This feature is not in the latest published design revision any more. Check that the edit still makes sense.",
+      "CLOCK_AHEAD": "The phone clock was ahead of the server when the edit was saved, so the capture time is not reliable."
+    },
+    "noFlags": "No flags",
+    "detail": {
+      "feature": "Feature",
+      "code": "Design code",
+      "supervisor": "Supervisor",
+      "received": "Received",
+      "captured": "Captured on the phone",
+      "tool": "Tool",
+      "flags": "Flags",
+      "note": "Supervisor note",
+      "noNote": "No note",
+      "label": "Proposed label",
+      "noLabel": "No label",
+      "reviewReason": "Review reason",
+      "reviewedAt": "Reviewed",
+      "lengths": "Lengths",
+      "designLength": "Design length",
+      "proposedLength": "Proposed length",
+      "difference": "Difference",
+      "noLength": "Not a route",
+      "noDesign": "Added feature: no design",
+      "noGeometry": "This edit changes the label only, so there is nothing to draw.",
+      "crs": "Coordinates in project CRS EPSG:{epsg}, metres"
+    },
+    "legend": {
+      "title": "Legend",
+      "design": "Design (dashed line)",
+      "current": "Approved As-Built now (solid thin line)",
+      "proposed": "Proposed by the supervisor (solid thick line)",
+      "point": "Points: square = design, circle = approved now, diamond = proposed"
+    },
+    "drawing": {
+      "label": "Comparison of design and proposed geometry",
+      "scale": "Scale: bar = {metres} m"
+    },
+    "actions": {
+      "approve": "Approve",
+      "approving": "Approving…",
+      "reject": "Reject",
+      "rejecting": "Rejecting…",
+      "cancel": "Cancel"
+    },
+    "notApprovable": {
+      "notPending": "This edit has already been reviewed, so it cannot be approved.",
+      "stale": "It cannot be approved because another edit of this feature was approved after it was drawn. Reject it so the supervisor redraws it.",
+      "noPermission": "You do not have permission to review edits."
+    },
+    "rejectDialog": {
+      "title": "Reject this edit?",
+      "text": "A rejected edit is final. The supervisor must record a new edit. Write the reason the supervisor will see.",
+      "reason": "Reason",
+      "reasonRequired": "A reason is required",
+      "confirm": "Reject the edit"
+    },
+    "error": {
+      "SELF_REVIEW": "You cannot review an edit you recorded yourself.",
+      "NOT_PENDING": "This edit was already reviewed by someone else. The latest state is shown.",
+      "STALE_BASE": "Another edit of this feature was approved in the meantime, so this one can no longer be approved. Reject it instead."
+    },
+    "exports": {
+      "title": "As-Built DXF exports",
+      "request": "Export As-Built DXF",
+      "requesting": "Requesting…",
+      "empty": "No exports yet",
+      "requestedAt": "Requested",
+      "finishedAt": "Finished",
+      "status": {
+        "queued": "Queued",
+        "processing": "Processing",
+        "done": "Done",
+        "failed": "Failed"
+      },
+      "stats": "{design} design, {edited} edited, {added} added",
+      "size": "Size",
+      "download": "Download DXF",
+      "errorCode": "Error code",
+      "autoRefresh": "This list refreshes by itself while an export is running",
+      "error": {
+        "NO_PUBLISHED_REVISION": "The project has no published design revision to export."
+      }
+    }
+  },
   "contract": {
     "title": "Contract",
     "noContract": "This project has no contract",

@@ -123,6 +123,13 @@ describe('upstreamPath (allow-list)', () => {
     expect(upstreamPath([PROJECT, 'contract'])).toBe(`/projects/${PROJECT}/contract`);
   });
 
+  it('allows As-Built review and the DXF export file', () => {
+    expect(upstreamPath([PROJECT, 'asbuilt', 'edits'])).toBe(`/projects/${PROJECT}/asbuilt/edits`);
+    expect(upstreamPath([PROJECT, 'asbuilt', 'exports', 'abc-1', 'file'])).toBe(
+      `/projects/${PROJECT}/asbuilt/exports/abc-1/file`,
+    );
+  });
+
   it('rejects other resources, bad project ids and traversal', () => {
     expect(upstreamPath([PROJECT, 'members'])).toBeNull();
     expect(upstreamPath([PROJECT])).toBeNull();
