@@ -1,5 +1,5 @@
 # Template rendered by bootstrap.sh into /srv/ftth/ftthtracker.caddy, which /etc/caddy/Caddyfile imports.
-# Snippet only, not a full Caddyfile. __WEB_PORT__ / __API_PORT__ come from /srv/ftth/.env.
+# Snippet only, not a full Caddyfile. __WEB_PORT__ / __API_PORT__ / __MARTIN_PORT__ come from /srv/ftth/.env.
 # Re-run bootstrap.sh after changing this file (it validates, reloads Caddy and rolls back on error).
 
 (ftth_headers) {
@@ -22,5 +22,16 @@ staging.ftthtracker.projectflow.site {
 api.staging.ftthtracker.projectflow.site {
 	import ftth_headers
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:__API_PORT__
+	# Tiles on the API host, so no extra DNS record (ADR-031). The API checks the signed URL before Martin sees it.
+	@tiles path /design_features/*
+	handle @tiles {
+		header Access-Control-Allow-Origin "https://staging.ftthtracker.projectflow.site"
+		forward_auth 127.0.0.1:__API_PORT__ {
+			uri /tiles/verify
+		}
+		reverse_proxy 127.0.0.1:__MARTIN_PORT__
+	}
+	handle {
+		reverse_proxy 127.0.0.1:__API_PORT__
+	}
 }

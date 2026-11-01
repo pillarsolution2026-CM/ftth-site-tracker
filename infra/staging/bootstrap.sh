@@ -96,8 +96,19 @@ web_port=$(env_get WEB_PORT)
 api_port=$(env_get API_PORT)
 echo "web -> 127.0.0.1:$web_port, api -> 127.0.0.1:$api_port"
 
+# Tiles (ADR-031): also added to a server bootstrapped earlier, leaving its other secrets alone.
+deploy_args=()
+[[ -n "$(env_get MARTIN_PORT)" ]] || printf 'MARTIN_PORT=%s\n' "$(next_free_port $((api_port + 1)) "$web_port")" >>"$ENV_FILE"
+[[ -n "$(env_get FTTH_TILES_PASSWORD)" ]] || printf 'FTTH_TILES_PASSWORD=%s\n' "$(random_secret)" >>"$ENV_FILE"
+if [[ -z "$(env_get TILE_URL_SECRET)" ]]; then
+  printf 'TILE_URL_SECRET=%s\nTILES_PUBLIC_URL=https://%s\n' "$(random_secret)" "$API_DOMAIN" >>"$ENV_FILE"
+  deploy_args=(--force) # the running API must be recreated to read them
+fi
+martin_port=$(env_get MARTIN_PORT)
+echo "martin -> 127.0.0.1:$martin_port"
+
 step "Caddy (import + validate + reload) / ربط Caddy"
-sed -e "s/__WEB_PORT__/$web_port/" -e "s/__API_PORT__/$api_port/" \
+sed -e "s/__WEB_PORT__/$web_port/" -e "s/__API_PORT__/$api_port/" -e "s/__MARTIN_PORT__/$martin_port/" \
   "$APP/infra/staging/ftthtracker.caddy.template" >"$SNIPPET.new"
 chmod 644 "$SNIPPET.new"
 backup="$CADDYFILE.bak.ftth.$(date +%F-%H%M%S)"
@@ -128,7 +139,9 @@ systemctl enable --now ftth-autodeploy.timer
 echo "timer enabled (every 2 minutes)"
 
 step "First deploy / أول تشغيل"
-as_deploy /usr/local/bin/ftth-autodeploy || warn "deploy failed; see: journalctl -u ftth-autodeploy"
+# The timer may be mid-deploy: autodeploy would then exit at once and a --force would be lost.
+if [[ -f "$ROOT/autodeploy.lock" ]]; then flock "$ROOT/autodeploy.lock" true; fi
+as_deploy /usr/local/bin/ftth-autodeploy "${deploy_args[@]}" || warn "deploy failed; see: journalctl -u ftth-autodeploy"
 deployed="$(cat "$ROOT/deployed-sha" 2>/dev/null || true)"
 if [[ -z "$deployed" ]]; then
   warn "No images for the latest commit yet (GitHub Actions may still be building, or the GHCR packages are private)."
@@ -137,6 +150,44 @@ if [[ -z "$deployed" ]]; then
   exit 0
 fi
 echo "running commit $deployed"
+
+step "Tile server (Martin) / خادم الخرائط"
+# Warnings only: a Martin problem must not stop the deploy (ADR-031). Prints no secret; Actions logs are public.
+tiles_compose() {
+  (cd "$APP" && as_deploy env IMAGE_TAG="$deployed" docker compose --env-file "$ENV_FILE" \
+    -f infra/staging/docker-compose.yml --profile tiles "$@")
+}
+tiles_psql() {
+  tiles_compose exec -T postgis psql -U "$(env_get POSTGRES_USER)" -d "$(env_get POSTGRES_DB)" -v ON_ERROR_STOP=1 "$@"
+}
+if tiles_psql -q >/dev/null 2>&1 <<<"ALTER ROLE ftth_tiles LOGIN PASSWORD '$(env_get FTTH_TILES_PASSWORD)'" &&
+  tiles_compose up -d --no-deps martin; then
+  for _ in {1..30}; do
+    curl -fs -m 2 -o /dev/null "http://127.0.0.1:$martin_port/health" && break
+    sleep 1
+  done
+  zero=00000000-0000-0000-0000-000000000000
+  exp=$(($(date +%s) + 300))
+  # Signed the way the API signs (HMAC of source|project|revision|exp); the secret stays inside the container.
+  sig="$(tiles_compose exec -T api node -e "process.stdout.write(require('crypto').createHmac('sha256',process.env.TILE_URL_SECRET).update('design_features|$zero|$zero|$exp').digest('base64url'))" 2>/dev/null || true)"
+  tile="https://$API_DOMAIN/design_features/14/1/1"
+  catalog="$(curl -fs -m 5 "http://127.0.0.1:$martin_port/catalog" | grep -o design_features | head -n 1 || true)"
+  echo "martin catalog: ${catalog:-missing}"
+  if [[ -z "$catalog" ]]; then
+    warn "Martin is not answering. Its last messages (passwords hidden):"
+    tiles_compose logs --no-color --tail 30 martin 2>&1 |
+      sed -E -e "s/$(env_get FTTH_TILES_PASSWORD)/***/g" -e 's#postgres(ql)?://[^[:space:]]+#postgres://***#g' || true
+  fi
+  echo "tile without signature (expect 401): $(curl -s -m 20 -o /dev/null -w '%{http_code}' "$tile" || true)"
+  echo "tile with signature (expect 200 or 204): $(curl -s -m 20 -o /dev/null -w '%{http_code}' "$tile?p=$zero&r=$zero&exp=$exp&sig=$sig" || true)"
+  if tiles_psql -c 'SET ROLE ftth_tiles; SELECT 1 FROM users' >/dev/null 2>&1; then
+    warn "ftth_tiles can read tables: it must not. / الـrole ده مش المفروض يقرا جداول."
+  else
+    echo "ftth_tiles cannot read tables: ok"
+  fi
+else
+  warn "Martin did not start; the app is not affected. See: docker compose logs martin"
+fi
 
 step "First admin / أول أدمن"
 admin_password=""

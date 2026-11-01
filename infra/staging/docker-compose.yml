@@ -67,6 +67,9 @@ services:
       JWT_ACCESS_TTL_SECONDS: 900
       REFRESH_TOKEN_TTL_DAYS: 30
       CORS_ORIGINS: https://${APP_DOMAIN:?}
+      # Empty until bootstrap.sh adds them; the API then answers 404 on tile-url (ADR-031).
+      TILE_URL_SECRET: ${TILE_URL_SECRET:-}
+      TILES_PUBLIC_URL: ${TILES_PUBLIC_URL:-}
     volumes:
       - ftth-storage:/var/lib/ftth/storage
     ports:
@@ -114,6 +117,21 @@ services:
       DATABASE_URL: *db-url
       REDIS_URL: *redis-url
       WORKER_ID: ${WORKER_ID:-worker-1}
+
+  # Vector tiles (ADR-021, ADR-031). In a profile so the deploy's `up --wait` never depends on it: a Martin
+  # problem must not roll the app back. bootstrap.sh starts it after each deploy. Connects as the restricted
+  # role ftth_tiles; reached only through Caddy forward_auth on the API host.
+  martin:
+    image: ghcr.io/maplibre/martin:1.14.0
+    profiles: [tiles]
+    restart: unless-stopped
+    command: ['--config', '/config/config.yaml']
+    environment:
+      TILES_DATABASE_URL: postgres://ftth_tiles:${FTTH_TILES_PASSWORD:-}@postgis:5432/${POSTGRES_DB:?}
+    volumes:
+      - ../martin/config.yaml:/config/config.yaml:ro
+    ports:
+      - '127.0.0.1:${MARTIN_PORT:-3312}:3000'
 
   # Nightly logical backup kept on the server (7 days). Off-site WAL archiving comes in Phase 7.
   backup:
