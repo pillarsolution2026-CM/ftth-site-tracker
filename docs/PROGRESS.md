@@ -12,7 +12,7 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10), awaiting approval (needs the Qalyub golden run and owner decisions) | — |
 | 2 Contract, BOQ & rules | In progress — step 1 (contract + BOQ, ADR-027) merged (PR #20) and on staging; step 2 (work-order lines from the contract, ADR-028) built on branch `feat/phase-2-work-order-from-contract`; next: `type_rules`, zones, matching, web CAD viewer | — |
 | 3 Supervisor app (offline) | Done — merged (PR #17), awaiting approval. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval. Not run on a device; the airplane-mode acceptance was simulated | — |
-| 4 As-Built editing | Started early (owner request): geometry engine `@ftth/geo` merged (PR #5); the rest waits for Phase 3 | — |
+| 4 As-Built editing | In progress — geometry engine `@ftth/geo` merged (PR #5); the rest started 2026-11-01 at the owner's request (ADR-029) with Phases 1b and 3 merged but **not approved** and Phase 2 still in progress | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
