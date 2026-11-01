@@ -55,6 +55,7 @@ import {
   seedContractId,
   seedDraftContractId,
 } from './mock-contracts.ts';
+import { createAsBuiltMock } from './mock-asbuilt.ts';
 import {
   MOCK_DETECTION,
   handleDesignRevisions,
@@ -818,6 +819,7 @@ function cadCurves() {
 // ---------- mapping / design revisions (see mock-design.ts) ----------
 
 const helpers: Helpers = { send, sendError, readJson, page };
+const asBuiltMock = createAsBuiltMock(ME.id, helpers);
 
 function mockCad(file: CadRecord): MockCadFile {
   return {
@@ -861,6 +863,7 @@ async function handleProject(
   if (resource === 'contract')
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
+  if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
   if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub]);
   if (resource === 'design-revisions') {
     return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {

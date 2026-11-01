@@ -978,6 +978,134 @@
       "reviewReason": "Motif : {reason}"
     }
   },
+  "asbuiltReview": {
+    "nav": "As-Built",
+    "listTitle": "Revue As-Built",
+    "detailTitle": "Modification As-Built",
+    "backToList": "Retour à la liste",
+    "empty": "Aucune modification ne correspond à ce filtre",
+    "filter": {
+      "label": "Statut",
+      "pending": "En attente de revue",
+      "approved": "Approuvée",
+      "rejected": "Rejetée",
+      "all": "Toutes"
+    },
+    "columns": {
+      "received": "Reçue le",
+      "supervisor": "Superviseur",
+      "tool": "Outil",
+      "featureType": "Type d'élément",
+      "flags": "Alertes",
+      "length": "Longueur proposée",
+      "status": "Statut"
+    },
+    "status": {
+      "pending": "En attente de revue",
+      "approved": "Approuvée",
+      "rejected": "Rejetée"
+    },
+    "kind": {
+      "move": "Déplacer un point",
+      "reshape": "Modifier le tracé",
+      "add_route": "Ajouter un tracé",
+      "add_symbol": "Ajouter un symbole",
+      "label": "Changer l'étiquette"
+    },
+    "flag": {
+      "BASE_OUTDATED": "Base obsolète",
+      "REVISION_OUTDATED": "Révision obsolète",
+      "FEATURE_REMOVED": "Élément supprimé",
+      "CLOCK_AHEAD": "Horloge en avance"
+    },
+    "flagExplain": {
+      "BASE_OUTDATED": "Une autre modification de cet élément a été approuvée après la version sur laquelle celle-ci a été dessinée. Elle ne peut pas être approuvée : rejetez-la pour que le superviseur la redessine sur l'état actuel.",
+      "REVISION_OUTDATED": "Le superviseur a dessiné sur une révision de conception qui n'est plus la dernière publiée. Vérifiez le dessin avant d'approuver.",
+      "FEATURE_REMOVED": "Cet élément n'est plus dans la dernière révision de conception publiée. Vérifiez que la modification a encore un sens.",
+      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable."
+    },
+    "noFlags": "Aucune alerte",
+    "detail": {
+      "feature": "Élément",
+      "code": "Code de conception",
+      "supervisor": "Superviseur",
+      "received": "Reçue le",
+      "captured": "Saisie sur le téléphone",
+      "tool": "Outil",
+      "flags": "Alertes",
+      "note": "Note du superviseur",
+      "noNote": "Aucune note",
+      "label": "Étiquette proposée",
+      "noLabel": "Aucune étiquette",
+      "reviewReason": "Motif de la revue",
+      "reviewedAt": "Revue le",
+      "lengths": "Longueurs",
+      "designLength": "Longueur de conception",
+      "proposedLength": "Longueur proposée",
+      "difference": "Écart",
+      "noLength": "Pas un tracé",
+      "noDesign": "Élément ajouté : pas de conception",
+      "noGeometry": "Cette modification ne change que l'étiquette, il n'y a rien à dessiner.",
+      "crs": "Coordonnées dans le CRS du projet EPSG:{epsg}, en mètres"
+    },
+    "legend": {
+      "title": "Légende",
+      "design": "Conception (trait pointillé)",
+      "current": "As-Built approuvé actuel (trait plein fin)",
+      "proposed": "Proposé par le superviseur (trait plein épais)",
+      "point": "Points : carré = conception, cercle = approuvé actuel, losange = proposé"
+    },
+    "drawing": {
+      "label": "Comparaison de la géométrie de conception et de la géométrie proposée",
+      "scale": "Échelle : barre = {metres} m"
+    },
+    "actions": {
+      "approve": "Approuver",
+      "approving": "Approbation…",
+      "reject": "Rejeter",
+      "rejecting": "Rejet…",
+      "cancel": "Annuler"
+    },
+    "notApprovable": {
+      "notPending": "Cette modification a déjà été examinée, elle ne peut plus être approuvée.",
+      "stale": "Elle ne peut pas être approuvée car une autre modification de cet élément a été approuvée depuis. Rejetez-la pour que le superviseur la redessine.",
+      "noPermission": "Vous n'avez pas le droit d'examiner les modifications."
+    },
+    "rejectDialog": {
+      "title": "Rejeter cette modification ?",
+      "text": "Un rejet est définitif. Le superviseur doit enregistrer une nouvelle modification. Écrivez le motif que le superviseur verra.",
+      "reason": "Motif",
+      "reasonRequired": "Un motif est obligatoire",
+      "confirm": "Rejeter la modification"
+    },
+    "error": {
+      "SELF_REVIEW": "Vous ne pouvez pas examiner une modification que vous avez enregistrée.",
+      "NOT_PENDING": "Cette modification a déjà été examinée par quelqu'un d'autre. L'état le plus récent est affiché.",
+      "STALE_BASE": "Une autre modification de cet élément a été approuvée entre-temps, celle-ci ne peut plus l'être. Rejetez-la."
+    },
+    "exports": {
+      "title": "Exports DXF As-Built",
+      "request": "Exporter l'As-Built en DXF",
+      "requesting": "Demande en cours…",
+      "empty": "Aucun export pour l'instant",
+      "requestedAt": "Demandé le",
+      "finishedAt": "Terminé le",
+      "status": {
+        "queued": "En file",
+        "processing": "En cours",
+        "done": "Terminé",
+        "failed": "Échec"
+      },
+      "stats": "{design} conçus, {edited} modifiés, {added} ajoutés",
+      "size": "Taille",
+      "download": "Télécharger le DXF",
+      "errorCode": "Code d'erreur",
+      "autoRefresh": "Cette liste se met à jour seule pendant un export",
+      "error": {
+        "NO_PUBLISHED_REVISION": "Le projet n'a aucune révision de conception publiée à exporter."
+      }
+    }
+  },
   "contract": {
     "title": "Contrat",
     "noContract": "Ce projet n'a pas de contrat",
