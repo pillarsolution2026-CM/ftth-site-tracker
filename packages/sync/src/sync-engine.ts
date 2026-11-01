@@ -268,7 +268,8 @@ export class SyncEngine {
       for (;;) {
         const page = await transport.changes(cursor, this.pullPageSize);
         await store.applyRemoteUpdates(page.updates);
-        report.pulled += page.updates.length;
+        await store.applyRemoteAsBuiltEdits(page.asBuiltEdits);
+        report.pulled += page.updates.length + page.asBuiltEdits.length;
         cursor = page.cursor;
         await store.setCursor(cursor);
         if (!page.hasMore) return;

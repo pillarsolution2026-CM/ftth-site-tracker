@@ -30,6 +30,16 @@ describe('permissions', () => {
     expect(hasPermission(['qc'], 'execution:write')).toBe(false);
   });
 
+  it('As-Built (Phase 4 assumptions): supervisors record, qc reviews, only pm/admin export', () => {
+    expect(hasPermission(['supervisor'], 'asbuilt:write')).toBe(true);
+    expect(hasPermission(['supervisor'], 'asbuilt:read')).toBe(true);
+    expect(hasPermission(['supervisor'], 'asbuilt:review')).toBe(false);
+    expect(hasPermission(['supervisor'], 'asbuilt:export')).toBe(false);
+    expect(hasPermission(['qc'], 'asbuilt:review')).toBe(true);
+    expect(hasPermission(['qc'], 'asbuilt:write')).toBe(false);
+    expect(hasPermission(['qc'], 'asbuilt:export')).toBe(false);
+  });
+
   it('gives contractor nothing for now', () => {
     for (const permission of PERMISSIONS) {
       expect(hasPermission(['contractor'], permission)).toBe(false);

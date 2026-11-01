@@ -1,4 +1,5 @@
 import type {
+  AsBuiltEdit,
   ErrorCode,
   ExecutionUpdate,
   OpRejectionCode,
@@ -57,6 +58,8 @@ export interface SyncStore {
   setCursor(cursor: string): Promise<void>;
   /** Server truth about updates in the user's scope (status, flags, review reason). */
   applyRemoteUpdates(updates: readonly ExecutionUpdate[]): Promise<void>;
+  /** Server truth about As-Built edits in the user's scope (status, approved version; ADR-030). */
+  applyRemoteAsBuiltEdits(edits: readonly AsBuiltEdit[]): Promise<void>;
 }
 
 /** Bytes of a compressed, watermarked photo kept on the device until the server stores it. */
