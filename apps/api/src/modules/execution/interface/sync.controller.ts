@@ -64,6 +64,16 @@ function scopeOf(request: AuthenticatedRequest, permission: Permission): Executi
   return scope.kind === 'project' ? { kind: 'project' } : { kind: 'zones', zoneIds: scope.zoneIds };
 }
 
+/** Like `scopeOf`, but null (instead of 403) when no assignment grants `permission`. */
+function scopeOrNull(request: AuthenticatedRequest, permission: Permission): ExecutionScope | null {
+  try {
+    return scopeOf(request, permission);
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'FORBIDDEN') return null;
+    throw error;
+  }
+}
+
 /** UUIDs are compared as text in places (stored results, storage keys): one canonical case. */
 const canonical = (uuid: string): string => uuid.toLowerCase();
 
@@ -103,7 +113,10 @@ export class SyncController {
   @Post('push')
   @SyncRateLimit('sync')
   @HttpCode(200)
-  @RequirePermission('execution:write')
+  // Both kinds of operation arrive here; each operation is checked against its own permission
+  // (and scope) in the use case, so a member with only one of them still gets the other kind
+  // refused per operation.
+  @RequirePermission('execution:write', 'asbuilt:write')
   @ApiOkResponse({ schema: openApiSchema(SyncPushResponseSchema) })
   async pushOps(
     @ProjectIdParam() projectId: string,
@@ -114,7 +127,8 @@ export class SyncController {
       projectId: canonical(projectId),
       userId: actorIdOf(request),
       deviceId: canonical(body.deviceId),
-      scope: scopeOf(request, 'execution:write'),
+      scope: scopeOrNull(request, 'execution:write'),
+      asBuiltScope: scopeOrNull(request, 'asbuilt:write'),
       ops: body.ops,
     });
     return { serverTime: this.clock.now().toISOString(), results };
@@ -131,6 +145,7 @@ export class SyncController {
     return this.bundle.execute({
       projectId: canonical(projectId),
       scope: scopeOf(request, 'execution:read'),
+      asBuiltScope: scopeOrNull(request, 'asbuilt:read'),
     });
   }
 
@@ -146,6 +161,7 @@ export class SyncController {
     return this.changes.execute({
       projectId: canonical(projectId),
       scope: scopeOf(request, 'execution:read'),
+      asBuiltScope: scopeOrNull(request, 'asbuilt:read'),
       ...query,
     });
   }
