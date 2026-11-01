@@ -13,3 +13,8 @@ def converted_key(original_key: str) -> str:
 def revision_tiles_key(project_id: object, revision_id: object) -> str:
     """PMTiles archive of a design revision (Phase 1b contract, ADR-021)."""
     return f"projects/{project_id}/revisions/{revision_id}/design.pmtiles"
+
+
+def asbuilt_export_key(project_id: object, export_id: object) -> str:
+    """As-Built DXF export (Phase 4 contract, ADR-030); written once per export."""
+    return f"projects/{project_id}/asbuilt/{export_id}.dxf"
