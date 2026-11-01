@@ -44,6 +44,7 @@ import { PermissionGuard, RequirePermission } from '../../../common/permission.g
 import { ZodValidationPipe } from '../../../common/zod-validation.pipe.js';
 import { scopeForPermission } from '../../identity/domain/membership.js';
 import type { AuthenticatedRequest } from '../../identity/interface/auth-request.js';
+import { AsBuiltRateLimitGuard } from './asbuilt-rate-limit.guard.js';
 import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
 import {
@@ -82,7 +83,7 @@ const EmptyBodySchema = z.object({}).strict().optional();
 @ApiTags('asbuilt')
 @ApiBearerAuth()
 @Controller('projects/:projectId/asbuilt')
-@UseGuards(JwtAuthGuard, ProjectScopeGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, AsBuiltRateLimitGuard, ProjectScopeGuard, PermissionGuard)
 export class AsBuiltController {
   constructor(
     @Inject(ListAsBuiltEditsUseCase) private readonly listEdits: ListAsBuiltEditsUseCase,

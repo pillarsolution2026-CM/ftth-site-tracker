@@ -9,3 +9,6 @@ export const ASBUILT_LENGTHS_PORT = 'ASBUILT_LENGTHS_PORT';
 export const ASBUILT_EDIT_FEED = 'ASBUILT_EDIT_FEED';
 /** Used by the sync bootstrap (`asBuilt`). */
 export const ASBUILT_STATE_READER = 'ASBUILT_STATE_READER';
+/** Per-user limiter of the As-Built web routes (security review M2). */
+export const ASBUILT_RATE_LIMITER = 'ASBUILT_RATE_LIMITER';
+export const ASBUILT_RATE_LIMIT = 'ASBUILT_RATE_LIMIT';

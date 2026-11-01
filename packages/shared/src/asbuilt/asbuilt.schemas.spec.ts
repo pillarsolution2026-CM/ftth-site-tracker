@@ -111,6 +111,11 @@ describe('As-Built edit contracts (ADR-030)', () => {
     expect(AsBuiltLabelSchema.safeParse('A\u0000B').success).toBe(false);
     expect(AsBuiltLabelSchema.safeParse('A\u2028B').success).toBe(false);
     expect(AsBuiltLabelSchema.safeParse('مسار ٣ – C-12').success).toBe(true);
+    // Security review L4: bidi overrides and isolates could show a code reversed.
+    expect(AsBuiltLabelSchema.safeParse('C-12\u202E21').success).toBe(false);
+    expect(AsBuiltLabelSchema.safeParse('C-12\u202A21').success).toBe(false);
+    expect(AsBuiltLabelSchema.safeParse('C-12\u206621').success).toBe(false);
+    expect(AsBuiltLabelSchema.safeParse('C-12\u206921').success).toBe(false);
   });
 
   it('travels in a push batch next to execution updates', () => {

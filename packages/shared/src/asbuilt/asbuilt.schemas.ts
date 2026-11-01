@@ -74,10 +74,11 @@ export type AsBuiltGeometry = z.infer<typeof AsBuiltGeometrySchema>;
 
 /**
  * Label text: trimmed, 1..200 characters, no control characters (they would break a DXF text
- * entity or a log line; they never come from a keyboard).
+ * entity or a log line; they never come from a keyboard) and no bidi embedding, override or isolate
+ * characters (security review L4: they can show a code reversed). LRM/RLM marks stay allowed.
  */
 // eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u;
 /** Free text (notes, reasons): line breaks and tabs allowed, other control characters not. */
 // eslint-disable-next-line no-control-regex
 const TEXT_CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;

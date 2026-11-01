@@ -37,7 +37,7 @@ All coordinates are metres in the project CRS (the revision's `crs_epsg`), never
    - geometry not `ST_IsValid`, or a route with `ST_Length = 0` → `GEOMETRY_INVALID`;
    - zone-scoped caller: existing feature's design geometry not in scope (in `designRevisionId`, and in
      the latest revision when the feature is still there — Phase 3 L8), or proposed geometry not
-     intersecting the caller's zones, or an added feature (approved state geometry) not in scope →
+     entirely inside the caller's zones (`ST_CoveredBy` their union; security review M1), or an added feature (approved state geometry) not in scope →
      `FEATURE_OUT_OF_SCOPE`.
 3. Flags (never a rejection): `BASE_OUTDATED` (baseVersion ≠ current approved geometry/label
    version at receipt), `REVISION_OUTDATED`, `FEATURE_REMOVED` (design feature not in the latest
@@ -62,6 +62,9 @@ features that differ from design or were added). Rejection codes are unchanged f
 | GET | `state` | `asbuilt:read` | — | `AsBuiltStateResponse` |
 | GET | `lengths` | `asbuilt:read` | — | `AsBuiltLengthsResponse` |
 
+All `/asbuilt/…` routes are rate limited per user (`SYNC_RATE_LIMIT` per minute, own counter; 429
+`RATE_LIMITED` + `Retry-After`; security review M2).
+
 Review rules (both under the project lock, one transaction):
 - Only `pending` edits: otherwise 409 `CONFLICT` `{reason: NOT_PENDING}`.
 - Approve: `baseVersion` must equal the current approved version (geometry version for
@@ -84,7 +87,7 @@ which. Design routes missing from the latest revision are left out. Nothing pend
 
 | Method | Path | Permission | Answer |
 | --- | --- | --- | --- |
-| POST | `exports` | `asbuilt:export` | 202 `AsBuiltExport` (`queued`); 409 `{reason: NO_PUBLISHED_REVISION}` |
+| POST | `exports` | `asbuilt:export` | 202 `AsBuiltExport` (`queued`); 409 `{reason: NO_PUBLISHED_REVISION}`; 409 `{reason: EXPORT_IN_PROGRESS}` while another export of the project is queued or processing |
 | GET | `exports` | `asbuilt:export` | `AsBuiltExportListResponse` (newest first, ≤ 50) |
 | GET | `exports/:exportId` | `asbuilt:export` | `AsBuiltExport` |
 | GET | `exports/:exportId/file` | `asbuilt:export` | the DXF (`application/dxf`, `attachment`, `nosniff`); 409 until `done` |

@@ -60,7 +60,9 @@ CREATE TABLE asbuilt_edits (
     (status = 'pending') = (reviewed_at IS NULL) AND
     (status = 'pending') = (reviewed_by IS NULL) AND
     (status = 'approved') = (approved_version IS NOT NULL) AND
-    (status <> 'rejected' OR review_reason IS NOT NULL))
+    (status <> 'rejected' OR review_reason IS NOT NULL)),
+  -- Nobody reviews their own edit (security review L1: enforced here too, not only in code).
+  CONSTRAINT asbuilt_edits_no_self_review CHECK (reviewed_by IS NULL OR reviewed_by <> user_id)
 );
 CREATE INDEX asbuilt_edits_project_seq_idx ON asbuilt_edits (project_id, sync_seq);
 CREATE INDEX asbuilt_edits_feature_idx ON asbuilt_edits (project_id, feature_id);
@@ -130,6 +132,10 @@ CREATE TABLE asbuilt_exports (
   CONSTRAINT asbuilt_exports_finished CHECK ((status IN ('done', 'failed')) = (finished_at IS NOT NULL))
 );
 CREATE INDEX asbuilt_exports_project_idx ON asbuilt_exports (project_id, requested_at DESC);
+-- One open export per project (security review M2): repeated requests cannot flood the shared
+-- CAD queue; another request answers 409 EXPORT_IN_PROGRESS until the open one ends.
+CREATE UNIQUE INDEX asbuilt_exports_one_open_idx ON asbuilt_exports (project_id)
+  WHERE status IN ('queued', 'processing');
 
 -- Integrity triggers --------------------------------------------------------------------------
 
@@ -190,9 +196,13 @@ BEGIN
        OR NEW.feature_type <> OLD.feature_type OR NEW.added <> OLD.added THEN
       RAISE EXCEPTION 'asbuilt_features: identity is fixed' USING ERRCODE = 'restrict_violation';
     END IF;
-    IF NEW.geometry_version < OLD.geometry_version OR NEW.label_version < OLD.label_version THEN
-      RAISE EXCEPTION 'asbuilt_features: versions only increase' USING ERRCODE = 'restrict_violation';
+    -- One approval moves a version by exactly one step (security review L1).
+    IF NEW.geometry_version NOT IN (OLD.geometry_version, OLD.geometry_version + 1)
+       OR NEW.label_version NOT IN (OLD.label_version, OLD.label_version + 1) THEN
+      RAISE EXCEPTION 'asbuilt_features: versions move one step at a time' USING ERRCODE = 'restrict_violation';
     END IF;
+  ELSIF NEW.geometry_version > 1 OR NEW.label_version > 1 THEN
+    RAISE EXCEPTION 'asbuilt_features: a new row starts at version 0 or 1' USING ERRCODE = 'restrict_violation';
   END IF;
   IF NEW.geometry_edit_id IS NOT NULL AND NOT EXISTS (
        SELECT 1 FROM asbuilt_edits e
@@ -206,7 +216,8 @@ BEGIN
        SELECT 1 FROM asbuilt_edits e
         WHERE e.project_id = NEW.project_id AND e.id = NEW.label_edit_id
           AND e.feature_id = NEW.feature_id AND e.status = 'approved'
-          AND e.label IS NOT NULL AND e.label = NEW.label) THEN
+          AND e.label IS NOT NULL AND e.label = NEW.label
+          AND e.approved_version = NEW.label_version) THEN
     RAISE EXCEPTION 'asbuilt_features: label must come from an approved edit' USING ERRCODE = 'check_violation';
   END IF;
   NEW.updated_at := now();

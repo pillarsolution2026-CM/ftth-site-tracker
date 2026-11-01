@@ -19,7 +19,7 @@ import {
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Redis } from 'ioredis';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { PushSyncUseCase } from '../src/modules/execution/application/push-sync.use-case.js';
 import { Phase2UnavailableCapabilities } from '../src/modules/execution/application/phase2-capabilities.js';
 import { DrizzleExecutionUnitOfWork } from '../src/modules/execution/infrastructure/drizzle-execution.repository.js';
@@ -396,6 +396,16 @@ describe('recording As-Built edits through sync push', () => {
     expect(await code(addSymbol(f, E0 + 1000, N0 + 1000), f.tokens.supervisorA)).toBe(
       'FEATURE_OUT_OF_SCOPE',
     );
+    // Security review M1: a route that starts in zone A but runs on into zone B is refused too.
+    expect(
+      await code(reshape(f, line([E0, N0], [E0 + 1000, N0 + 950])), f.tokens.supervisorA),
+    ).toBe('FEATURE_OUT_OF_SCOPE');
+    expect(
+      await code(
+        addRoute(f, line([E0 + 10, N0 + 10], [E0 + 1000, N0 + 1000])),
+        f.tokens.supervisorA,
+      ),
+    ).toBe('FEATURE_OUT_OF_SCOPE');
     expect(await countEdits(f)).toBe(before);
     // Inside its own zone supervisor B can still work.
     expect(
@@ -1077,6 +1087,13 @@ describe('As-Built DXF export', () => {
   }, 180_000);
 
   const exportsUrl = (suffix = '') => `/projects/${f.projectId}/asbuilt/exports${suffix}`;
+  /** Test setup only: ends open exports as a worker would, so the next request may queue one. */
+  const settleOpenExports = () =>
+    ctx.pool.query(
+      `UPDATE asbuilt_exports SET status = 'failed', error_code = 'TEST_SETTLED', finished_at = now()
+        WHERE status IN ('queued', 'processing')`,
+    );
+  beforeEach(settleOpenExports);
 
   it('queues an export row and a validated job on the CAD queue', async () => {
     await redis.del(CAD_QUEUE_KEYS.jobs);
@@ -1111,6 +1128,11 @@ describe('As-Built DXF export', () => {
     });
     expect(await eventTypes(ctx.pool, created.id)).toEqual(['asbuilt_export.requested']);
     // The same admin path works too, and the list shows newest first.
+    // Security review M2: one open export per project; another request waits for it to end.
+    const busy = await http().post(exportsUrl()).set(auth(f.tokens.admin)).send();
+    expect(busy.status).toBe(409);
+    expect(busy.body.details).toMatchObject({ reason: 'EXPORT_IN_PROGRESS' });
+    await settleOpenExports();
     const second = await http().post(exportsUrl()).set(auth(f.tokens.admin)).send();
     expect(second.status).toBe(202);
     const list = AsBuiltExportListResponseSchema.parse(
@@ -1260,4 +1282,36 @@ describe('As-Built export when the queue is down', () => {
       await down.close();
     }
   }, 60_000);
+});
+
+describe('As-Built database guards (security review L1)', () => {
+  let f: ExecutionFixture;
+  beforeAll(async () => {
+    f = await createExecutionFixture(ctx);
+  }, 180_000);
+
+  it('refuses a self-approval and version jumps written directly in SQL', async () => {
+    const own = await record(
+      f,
+      f.tokens.supervisorA,
+      reshape(f, line([E0, N0], [E0 + 60, N0 + 20])),
+    );
+    await expect(
+      ctx.pool.query(
+        `UPDATE asbuilt_edits SET status = 'approved', reviewed_by = user_id, reviewed_at = now(),
+                approved_version = 1 WHERE id = $1`,
+        [own],
+      ),
+    ).rejects.toThrow();
+
+    expect((await approve(f, f.tokens.qc, own)).status).toBe(200);
+    // A version may only move one step at a time, and only from an approved edit.
+    await expect(
+      ctx.pool.query(
+        `UPDATE asbuilt_features SET geometry_version = geometry_version + 5
+          WHERE project_id = $1 AND feature_id = $2`,
+        [f.projectId, f.routeA],
+      ),
+    ).rejects.toThrow();
+  });
 });

@@ -3,6 +3,7 @@ import { EVENT_ENTITIES, EVENT_TYPES, type AsBuiltExport } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import type { ObjectStorage } from '../../../common/object-storage.port.js';
+import { uniqueViolation } from '../../../db/pg-errors.js';
 import type {
   AsBuiltExportQueries,
   AsBuiltExportUnitOfWork,
@@ -52,6 +53,26 @@ export class RequestAsBuiltExportUseCase {
     const exportId = this.ids.next();
     const jobId = this.ids.next();
     const now = this.clock.now();
+    try {
+      await this.queueRow(input, exportId, jobId, now);
+    } catch (error) {
+      if (uniqueViolation(error) === 'asbuilt_exports_one_open_idx') {
+        throw new AppError('CONFLICT', 'An export of this project is already running', {
+          reason: 'EXPORT_IN_PROGRESS',
+        });
+      }
+      throw error;
+    }
+    await this.enqueue(input, exportId, jobId, now);
+    return this.exportOf(input.projectId, exportId);
+  }
+
+  private async queueRow(
+    input: { projectId: string; actorId: string },
+    exportId: string,
+    jobId: string,
+    now: Date,
+  ): Promise<void> {
     await this.uow.run(async (tx) => {
       const revision = await tx.latestPublishedRevision(input.projectId);
       if (!revision) {
@@ -76,7 +97,14 @@ export class RequestAsBuiltExportUseCase {
         payload: { revisionId: revision.id, revNo: revision.revNo, jobId },
       });
     });
+  }
 
+  private async enqueue(
+    input: { projectId: string; actorId: string },
+    exportId: string,
+    jobId: string,
+    now: Date,
+  ): Promise<void> {
     // After the commit, like the CAD import: if the queue is down the export is marked failed so
     // the user can request another one instead of waiting for a job that never runs.
     try {
@@ -107,9 +135,11 @@ export class RequestAsBuiltExportUseCase {
         });
       });
     }
+  }
 
+  private exportOf(projectId: string, exportId: string): Promise<AsBuiltExport> {
     return this.uow.run(async (tx) => {
-      const record = await tx.find(input.projectId, exportId);
+      const record = await tx.find(projectId, exportId);
       if (!record) throw new Error('export disappeared');
       return toExport(record);
     });

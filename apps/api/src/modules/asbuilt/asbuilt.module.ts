@@ -1,6 +1,7 @@
 import { Inject, Module, type OnApplicationShutdown, type Provider } from '@nestjs/common';
 import type { ApiEnv } from '@ftth/shared';
 import { systemClock, uuidGenerator } from '../../common/clock.js';
+import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rate-limiter.js';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.port.js';
 import { PermissionGuard } from '../../common/permission.guard.js';
 import { APP_ENV } from '../../config/config.module.js';
@@ -36,6 +37,8 @@ import {
   ASBUILT_EXPORT_UNIT_OF_WORK,
   ASBUILT_JOB_QUEUE,
   ASBUILT_LENGTHS_PORT,
+  ASBUILT_RATE_LIMIT,
+  ASBUILT_RATE_LIMITER,
   ASBUILT_READ_QUERIES,
   ASBUILT_REVIEW_UNIT_OF_WORK,
   ASBUILT_STATE_READER,
@@ -47,10 +50,21 @@ import {
 import { DrizzleAsBuiltReadQueries } from './infrastructure/drizzle-asbuilt-read.queries.js';
 import { DrizzleAsBuiltReviewUnitOfWork } from './infrastructure/drizzle-asbuilt-review.repository.js';
 import { RedisAsBuiltJobQueue } from './infrastructure/redis-asbuilt-job-queue.js';
+import { AsBuiltRateLimitGuard } from './interface/asbuilt-rate-limit.guard.js';
 import { AsBuiltController } from './interface/asbuilt.controller.js';
 
 const providers: Provider[] = [
   PermissionGuard,
+  AsBuiltRateLimitGuard,
+  {
+    provide: ASBUILT_RATE_LIMITER,
+    useFactory: () => new FixedWindowRateLimiter(systemClock, 60_000),
+  },
+  {
+    provide: ASBUILT_RATE_LIMIT,
+    inject: [APP_ENV],
+    useFactory: (env: ApiEnv) => env.SYNC_RATE_LIMIT,
+  },
   {
     provide: ASBUILT_READ_QUERIES,
     inject: [DB],

@@ -342,11 +342,12 @@ export class DrizzleExecutionTx implements ExecutionTx {
     if (scope.zoneIds.length === 0) return false;
     const [row] = await rowsOf<{ ok: boolean }>(
       this.db,
-      sql`SELECT EXISTS (
-            SELECT 1 FROM zones z
-            WHERE z.project_id = ${projectId} AND z.id = ANY(${uuidArray(scope.zoneIds)})
-              AND z.geom IS NOT NULL
-              AND ST_Intersects(z.geom, ${projectGeometry(geometry, srid)})) AS ok`,
+      // The whole proposed geometry must lie inside the caller's zones (security review M1:
+      // touching one zone is not enough, a route could otherwise run on into other zones).
+      sql`SELECT coalesce(ST_CoveredBy(${projectGeometry(geometry, srid)}, ST_Union(z.geom)), false) AS ok
+          FROM zones z
+          WHERE z.project_id = ${projectId} AND z.id = ANY(${uuidArray(scope.zoneIds)})
+            AND z.geom IS NOT NULL`,
     );
     return row?.ok === true;
   }
