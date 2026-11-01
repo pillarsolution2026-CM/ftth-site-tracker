@@ -1,8 +1,12 @@
 import { Q, type Database } from '@nozbe/watermelondb';
 import {
+  AsBuiltEditSchema,
   ExecutionUpdateSchema,
+  RecordAsBuiltEditOpSchema,
   SyncOpSchema,
+  type AsBuiltEdit,
   type ExecutionUpdate,
+  type RecordAsBuiltEditOp,
   type SyncOp,
 } from '@ftth/shared';
 import type {
@@ -18,6 +22,7 @@ import type {
   KeyValueRecord,
   LocalPhotoRecord,
   OutboxOpRecord,
+  RemoteAsBuiltEditRecord,
   RemoteUpdateRecord,
 } from './models';
 import type { Vault } from '../../../shared/crypto/vault';
@@ -53,7 +58,8 @@ async function toEntry(vault: Vault, record: Model): Promise<OutboxEntry> {
   };
 }
 
-type Model = OutboxOpRecord | LocalPhotoRecord | RemoteUpdateRecord | KeyValueRecord;
+type Model =
+  OutboxOpRecord | LocalPhotoRecord | RemoteUpdateRecord | RemoteAsBuiltEditRecord | KeyValueRecord;
 
 /**
  * `SyncStore` on WatermelonDB (ADR-024). Saving an update writes its outbox row and photo rows in
@@ -90,6 +96,9 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
   private get remote() {
     return this.db.get<RemoteUpdateRecord>(TABLES.remoteUpdates);
   }
+  private get remoteAsBuilt() {
+    return this.db.get<RemoteAsBuiltEditRecord>(TABLES.remoteAsBuilt);
+  }
   private get kv() {
     return this.db.get<KeyValueRecord>(TABLES.keyValue);
   }
@@ -97,7 +106,9 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
   /** Saves a validated operation and its photo files in one local transaction. */
   async enqueue(op: SyncOp, files: readonly LocalPhotoFile[]): Promise<void> {
     const valid = SyncOpSchema.parse(op);
-    const declared = new Set(valid.payload.photos.map((photo) => photo.photoId));
+    // As-Built edits carry no photos (ADR-030).
+    const photos = valid.kind === 'execution_update.record' ? valid.payload.photos : [];
+    const declared = new Set(photos.map((photo) => photo.photoId));
     if (files.length !== declared.size || files.some((file) => !declared.has(file.photoId))) {
       throw new Error('Photo files do not match the operation');
     }
@@ -130,6 +141,34 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
         ),
       ];
       await this.db.batch(...batch);
+    });
+  }
+
+  /**
+   * Saves every As-Built edit of one editing session in ONE local transaction: all of them or
+   * none. Content is sealed like any outbox row (ADR-025).
+   */
+  async enqueueAsBuiltEdits(ops: readonly RecordAsBuiltEditOp[]): Promise<void> {
+    const valid = ops.map((op) => RecordAsBuiltEditOpSchema.parse(op));
+    if (valid.length === 0) return;
+    const sealed = await Promise.all(valid.map((op) => this.vault.sealText(JSON.stringify(op))));
+    await this.db.write(async () => {
+      const last = await this.outbox.query(Q.sortBy('seq', Q.desc), Q.take(1)).fetch();
+      const first = (last[0] ? num(last[0], 'seq') : 0) + 1;
+      await this.db.batch(
+        ...valid.map((op, index) =>
+          this.outbox.prepareCreate((record) => {
+            record._setRaw('client_op_id', op.clientOpId);
+            record._setRaw('seq', first + index);
+            record._setRaw('project_id', this.projectId);
+            record._setRaw('user_id', this.userId);
+            record._setRaw('feature_id', op.payload.featureId);
+            record._setRaw('op_json', sealed[index] ?? '');
+            record._setRaw('state', 'pending');
+            record._setRaw('attempts', 0);
+          }),
+        ),
+      );
     });
   }
 
@@ -313,6 +352,50 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
         }),
       );
     });
+  }
+
+  async applyRemoteAsBuiltEdits(edits: readonly AsBuiltEdit[]): Promise<void> {
+    if (edits.length === 0) return;
+    const existing = await this.remoteAsBuilt
+      .query(...this.mine(), Q.where('edit_id', Q.oneOf(edits.map((edit) => edit.id))))
+      .fetch();
+    const byId = new Map(existing.map((record) => [str(record, 'edit_id'), record]));
+    const sealed = await Promise.all(
+      edits.map((edit) => this.vault.sealText(JSON.stringify(edit))),
+    );
+    await this.db.write(async () => {
+      await this.db.batch(
+        ...edits.map((edit, index) => {
+          const json = sealed[index] ?? '';
+          const record = byId.get(edit.id);
+          if (record) {
+            return record.prepareUpdate((r) => {
+              r._setRaw('status', edit.status);
+              r._setRaw('json', json);
+            });
+          }
+          return this.remoteAsBuilt.prepareCreate((r) => {
+            r._setRaw('edit_id', edit.id);
+            r._setRaw('client_op_id', edit.clientOpId);
+            r._setRaw('project_id', this.projectId);
+            r._setRaw('user_id', this.userId);
+            r._setRaw('feature_id', edit.featureId);
+            r._setRaw('status', edit.status);
+            r._setRaw('json', json);
+          });
+        }),
+      );
+    });
+  }
+
+  /** Server copies of As-Built edits in the user's scope (approved state, own edits' review). */
+  async remoteAsBuiltEdits(): Promise<AsBuiltEdit[]> {
+    const records = await this.remoteAsBuilt.query(...this.mine()).fetch();
+    return Promise.all(
+      records.map(async (record) =>
+        AsBuiltEditSchema.parse(JSON.parse(await this.vault.openText(str(record, 'json')))),
+      ),
+    );
   }
 
   /** Server copies of updates on a feature (feature card history). */

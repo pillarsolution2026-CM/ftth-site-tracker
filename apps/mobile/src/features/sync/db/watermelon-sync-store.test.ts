@@ -211,6 +211,7 @@ describe('WatermelonSyncStore', () => {
         cursor: '1',
         hasMore: false,
         updates: [],
+        asBuiltEdits: [],
       }),
       photoStatus: async (id) => ({
         photoId: id,

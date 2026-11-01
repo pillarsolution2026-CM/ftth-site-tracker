@@ -869,6 +869,80 @@
       "none": "No changes to show"
     }
   },
+  "asbuilt": {
+    "title": "As-Built",
+    "enter": "As-Built mode",
+    "exit": "Exit As-Built",
+    "tools": {
+      "move": "Move symbol",
+      "reshape": "Edit route",
+      "draw": "Draw route",
+      "symbol": "Insert symbol",
+      "label": "Edit label"
+    },
+    "hints": {
+      "move": "Drag the symbol to its real position; it snaps to endpoints, vertices and symbols within 14 px.",
+      "reshape": "Pick a route, then drag a vertex grip, or a segment-midpoint grip to add a vertex. Tap a vertex, then press Delete vertex to remove it.",
+      "draw": "Tap to add route vertices (automatic snap), then press Finish.",
+      "symbol": "Choose the symbol type, then tap its place on the drawing.",
+      "label": "Pick a feature, then edit the text shown on the drawing."
+    },
+    "undo": "Undo",
+    "redo": "Redo",
+    "save": "Save edits",
+    "cancel": "Cancel",
+    "finish": "Finish route",
+    "deleteVertex": "Delete vertex",
+    "length": "Length {length}",
+    "vertices": "{count} vertices",
+    "legend": {
+      "design": "Design (dashed)",
+      "approved": "Approved As-Built",
+      "pending": "My edit awaiting approval"
+    },
+    "note": "Note (optional)",
+    "labelInput": "Text on the drawing",
+    "applyLabel": "Apply text",
+    "chooseSymbol": "Symbol type",
+    "selected": "Selected: {name}",
+    "nothingSelected": "Nothing selected",
+    "saved": "Saved on the device — it will be sent when online",
+    "errors": {
+      "STALE_BASE": "The approved state changed since you started. Cancel and redo the edit on the current state.",
+      "NOTHING_TO_SAVE": "Nothing to save",
+      "DRAFT_UNFINISHED": "Finish or undo the route being drawn before saving",
+      "INVALID_OP": "The edit could not be built, check the shape",
+      "NO_REVISION": "No design revision is published",
+      "LABEL_INVALID": "The text is not valid (1 to 200 characters)",
+      "NEED_TWO_VERTICES": "A route needs at least two different vertices",
+      "TOO_FEW_VERTICES": "A route cannot have fewer than two vertices",
+      "SAVE_FAILED": "Could not save on the device, try again"
+    },
+    "own": {
+      "title": "My As-Built edits",
+      "empty": "No As-Built edits.",
+      "kinds": {
+        "move": "Move symbol",
+        "reshape": "Edit route",
+        "add_route": "Draw route",
+        "add_symbol": "Insert symbol",
+        "label": "Edit label"
+      },
+      "status": {
+        "queued": "Saved on the device (not sent)",
+        "pending": "Sent, awaiting approval",
+        "approved": "Approved",
+        "rejected": "Rejected"
+      },
+      "reason": "Reason: {reason}"
+    },
+    "rejections": {
+      "FEATURE_ID_REUSED": "Feature id already used",
+      "GEOMETRY_KIND_MISMATCH": "The tool does not fit this feature type",
+      "GEOMETRY_INVALID": "Invalid shape"
+    },
+    "pendingMark": "Awaiting approval"
+  },
   "field": {
     "title": "Today's work",
     "chooseProject": "Choose a project",

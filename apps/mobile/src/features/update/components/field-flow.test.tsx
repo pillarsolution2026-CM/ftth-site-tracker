@@ -52,6 +52,7 @@ const bundle: OfflineBundle = {
       lengthM: null,
     },
   ],
+  asBuilt: [],
   catalog: [
     {
       id: ITEM,
@@ -111,6 +112,7 @@ class FakeApi {
         cursor: '1',
         hasMore: false,
         updates: [],
+        asBuiltEdits: [],
       });
     }
     const photo = /\/sync\/photos\/([^/]+)(\/content)?$/.exec(url);

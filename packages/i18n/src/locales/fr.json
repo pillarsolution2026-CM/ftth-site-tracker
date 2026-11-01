@@ -869,6 +869,80 @@
       "none": "Aucun changement à afficher"
     }
   },
+  "asbuilt": {
+    "title": "As-Built",
+    "enter": "Mode As-Built",
+    "exit": "Quitter As-Built",
+    "tools": {
+      "move": "Déplacer un symbole",
+      "reshape": "Modifier un tracé",
+      "draw": "Dessiner un tracé",
+      "symbol": "Insérer un symbole",
+      "label": "Modifier le texte"
+    },
+    "hints": {
+      "move": "Faites glisser le symbole à sa position réelle ; il s'accroche aux extrémités, sommets et symboles à 14 px.",
+      "reshape": "Choisissez un tracé puis faites glisser une poignée de sommet, ou celle du milieu d'un segment pour ajouter un sommet. Touchez un sommet puis Supprimer le sommet pour l'enlever.",
+      "draw": "Touchez pour ajouter des sommets (accrochage automatique), puis appuyez sur Terminer.",
+      "symbol": "Choisissez le type de symbole puis touchez son emplacement sur le plan.",
+      "label": "Choisissez un élément puis modifiez le texte affiché sur le plan."
+    },
+    "undo": "Annuler",
+    "redo": "Rétablir",
+    "save": "Enregistrer les modifications",
+    "cancel": "Tout annuler",
+    "finish": "Terminer le tracé",
+    "deleteVertex": "Supprimer le sommet",
+    "length": "Longueur {length}",
+    "vertices": "{count} sommets",
+    "legend": {
+      "design": "Conception (pointillé)",
+      "approved": "As-Built approuvé",
+      "pending": "Ma modification en attente d'approbation"
+    },
+    "note": "Note (facultatif)",
+    "labelInput": "Texte sur le plan",
+    "applyLabel": "Appliquer le texte",
+    "chooseSymbol": "Type de symbole",
+    "selected": "Sélection : {name}",
+    "nothingSelected": "Aucune sélection",
+    "saved": "Enregistré sur l'appareil — envoi dès que la connexion revient",
+    "errors": {
+      "STALE_BASE": "L'état approuvé a changé depuis le début. Annulez et refaites la modification sur l'état actuel.",
+      "NOTHING_TO_SAVE": "Rien à enregistrer",
+      "DRAFT_UNFINISHED": "Terminez ou annulez le tracé en cours avant d'enregistrer",
+      "INVALID_OP": "La modification n'a pas pu être construite, vérifiez la forme",
+      "NO_REVISION": "Aucune révision de conception publiée",
+      "LABEL_INVALID": "Texte invalide (1 à 200 caractères)",
+      "NEED_TWO_VERTICES": "Un tracé nécessite au moins deux sommets différents",
+      "TOO_FEW_VERTICES": "Un tracé ne peut pas avoir moins de deux sommets",
+      "SAVE_FAILED": "Enregistrement impossible sur l'appareil, réessayez"
+    },
+    "own": {
+      "title": "Mes modifications As-Built",
+      "empty": "Aucune modification As-Built.",
+      "kinds": {
+        "move": "Déplacer un symbole",
+        "reshape": "Modifier un tracé",
+        "add_route": "Dessiner un tracé",
+        "add_symbol": "Insérer un symbole",
+        "label": "Modifier le texte"
+      },
+      "status": {
+        "queued": "Enregistré sur l'appareil (non envoyé)",
+        "pending": "Envoyé, en attente d'approbation",
+        "approved": "Approuvé",
+        "rejected": "Rejeté"
+      },
+      "reason": "Motif : {reason}"
+    },
+    "rejections": {
+      "FEATURE_ID_REUSED": "Identifiant déjà utilisé",
+      "GEOMETRY_KIND_MISMATCH": "L'outil ne convient pas à ce type d'élément",
+      "GEOMETRY_INVALID": "Forme invalide"
+    },
+    "pendingMark": "En attente d'approbation"
+  },
   "field": {
     "title": "Travaux du jour",
     "chooseProject": "Choisir un projet",
