@@ -7,7 +7,8 @@ from typing import Literal
 
 Xyz = tuple[float, float, float]
 
-CurveType = Literal["LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "SPLINE"]
+# HATCH = the hatch's outer boundary, closed (ADR-033).
+CurveType = Literal["LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "SPLINE", "HATCH"]
 SkipReason = Literal["unsupported", "degenerate", "proxy", "error"]
 WarningCode = Literal[
     "DWG_CONVERTED",
@@ -54,6 +55,8 @@ class InsertRow:
     scale: Xyz
     aci_color: int
     attributes: tuple[Attribute, ...] = ()
+    # Centre of the drawn block, the symbol's position (ADR-032); None when nothing is drawn.
+    centre: Xyz | None = None
 
 
 @dataclass(frozen=True, slots=True)

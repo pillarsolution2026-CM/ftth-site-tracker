@@ -17,7 +17,13 @@ from typing import Literal
 from shapely import STRtree
 from shapely.geometry import LineString, Point
 
-from cad_worker.domain.design import DesignFeatureDraft, FeatureKey, FeatureType, metres3
+from cad_worker.domain.design import (
+    FEATURE_TYPES,
+    DesignFeatureDraft,
+    FeatureKey,
+    FeatureType,
+    metres3,
+)
 from cad_worker.domain.design_build import LinkText
 
 TextLinkKind = Literal["cable", "duct", "length", "box_id", "box_bpu", "other", "unreadable"]
@@ -40,7 +46,7 @@ TEXT_LINK_PATTERNS: tuple[tuple[TextLinkKind, re.Pattern[str]], ...] = (
     ("box_bpu", re.compile(r"[0-9]+\s*[BPU]", re.IGNORECASE)),
 )
 
-_ALL_TYPES: tuple[FeatureType, ...] = ("route", "box", "hhi", "joint", "mh")
+_ALL_TYPES: tuple[FeatureType, ...] = FEATURE_TYPES
 TEXT_LINK_TARGETS: Mapping[TextLinkKind, tuple[FeatureType, ...]] = {
     "cable": ("route",),
     "duct": ("route",),

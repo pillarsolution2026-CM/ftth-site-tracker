@@ -17,6 +17,7 @@ export * from './cad/drawing-units.js';
 export * from './cad/crs-detection.schemas.js';
 export * from './cad/cad-mapping.schemas.js';
 export * from './design/feature-types.js';
+export * from './design/drawing-problems.js';
 export * from './design/text-link.js';
 export * from './design/design-revision.schemas.js';
 export * from './execution/execution.constants.js';

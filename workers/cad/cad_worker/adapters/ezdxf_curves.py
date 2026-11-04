@@ -6,12 +6,13 @@ import math
 from collections.abc import Iterable
 from typing import Any
 
-from ezdxf.math import Vec3
+from ezdxf import path as ezpath
+from ezdxf.math import BoundingBox, Vec3
 
 from cad_worker.domain.flatten import arc_points, circle_points, polyline_points
 from cad_worker.domain.model import CurveRow, CurveType, SkippedEntity, Xyz
 
-CURVE_TYPES = frozenset({"LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "SPLINE"})
+CURVE_TYPES = frozenset({"LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "SPLINE", "HATCH"})
 _SPLINE_FRAME_FLAG = 16
 
 
@@ -65,7 +66,29 @@ def curve_from_entity(entity: Any, tolerance: float) -> CurveRow | SkippedEntity
         if radius <= 0:
             return SkippedEntity(str(entity.dxf.layer), kind, "degenerate", str(entity.dxf.handle))
         return _row(entity, kind, to_wcs(entity, ring), True, tolerance)
+    if kind == "HATCH":
+        return _hatch(entity, tolerance)
     return _spline(entity, tolerance)
+
+
+def _hatch(entity: Any, tolerance: float) -> CurveRow | SkippedEntity:
+    """A hatch is kept as its outer boundary (the path with the largest extents), closed, in WCS,
+    so a layer of hatched symbols can become point features (ADR-033)."""
+    try:
+        paths = [p for p in ezpath.from_hatch(entity) if len(p) > 0]
+    except Exception:
+        return SkippedEntity(str(entity.dxf.layer), "HATCH", "error", str(entity.dxf.handle))
+    if not paths:
+        return SkippedEntity(str(entity.dxf.layer), "HATCH", "degenerate", str(entity.dxf.handle))
+    outer = max(paths, key=lambda p: _area(BoundingBox(p.control_vertices())))
+    pts = [_xyz(Vec3(v)) for v in outer.flattening(tolerance)]
+    if pts and pts[0] != pts[-1]:
+        pts.append(pts[0])
+    return _row(entity, "HATCH", pts, True, tolerance)
+
+
+def _area(box: BoundingBox) -> float:
+    return box.size.x * box.size.y if box.has_data else 0.0
 
 
 def _lwpolyline(entity: Any, tolerance: float) -> CurveRow | SkippedEntity:

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from ezdxf import recover
+from ezdxf import bbox, recover
 from ezdxf.math import Vec3
 from ezdxf.tools.text import plain_mtext
 
@@ -99,6 +99,7 @@ class EzdxfSource:
             ),
             aci_color=_aci(e),
             attributes=attributes,
+            centre=_drawn_centre(e),
         )
 
     def _attribute(self, a: Any) -> Attribute:
@@ -142,6 +143,21 @@ class EzdxfSource:
         )
 
 
+def _drawn_centre(e: Any) -> Xyz | None:
+    """Centre of what the INSERT draws (ADR-032): a block's base point can be far from its
+    geometry (Palm Plaza `new-box`: ~1,000 km), so the insertion point is not the symbol's place.
+    Attributes are left out: a long label must not pull the centre away."""
+    try:
+        box = bbox.extents(e.virtual_entities(), fast=True)
+    except Exception:
+        return None
+    if not box.has_data:
+        return None
+    c = box.center
+    point = (float(c.x), float(c.y), float(c.z))
+    return point if all(math.isfinite(v) for v in point) else None
+
+
 def _text_anchor(e: Any) -> Any:
     """Alignment point for aligned TEXT, otherwise the insertion point."""
     aligned = e.dxf.get("halign", 0) or e.dxf.get("valign", 0)
@@ -155,6 +171,14 @@ def _is_xref(block_layout: Any) -> bool:
     return block is not None and bool(int(block.dxf.get("flags", 0)) & _XREF_FLAG)
 
 
+def _rgb(value: Any) -> int | None:
+    """The RGB part of a DXF true colour (group 420). LibreDWG keeps the colour-method byte
+    (0xC2 = by RGB) in the top byte, so the value can arrive as a negative 32-bit number."""
+    if value is None:
+        return None
+    return int(value) & 0xFFFFFF
+
+
 def _layer_defs(doc: Any) -> tuple[LayerDef, ...]:
     out: list[LayerDef] = []
     for layer in doc.layers:
@@ -163,7 +187,7 @@ def _layer_defs(doc: Any) -> tuple[LayerDef, ...]:
             LayerDef(
                 name=_clean(str(layer.dxf.name)),
                 aci_color=min(aci, 255),
-                true_color=layer.dxf.get("true_color"),
+                true_color=_rgb(layer.dxf.get("true_color")),
                 linetype=_clean(str(layer.dxf.linetype)) if layer.dxf.hasattr("linetype") else None,
                 is_on=bool(layer.is_on()),
                 is_frozen=bool(layer.is_frozen()),

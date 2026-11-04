@@ -34,7 +34,13 @@ from cad_worker.application.ports import (
     TextLinkRow,
     TileLimitError,
 )
-from cad_worker.domain.design import FEATURE_TYPES, DesignFeatureDraft, FeatureKey
+from cad_worker.domain.design import (
+    FEATURE_TYPES,
+    DesignFeatureDraft,
+    FeatureKey,
+    metres3,
+    polyline_length,
+)
 from cad_worker.domain.design_build import (
     BackgroundSelection,
     DrawingData,
@@ -43,6 +49,7 @@ from cad_worker.domain.design_build import (
     build_features,
     parse_rules,
 )
+from cad_worker.domain.drawing_checks import check_drawing, problems_json
 from cad_worker.domain.revision_match import BaseFeature, diff_counts, match_revision
 from cad_worker.domain.text_links import (
     TextLinkDraft,
@@ -80,6 +87,9 @@ class DesignBuild:
     text_link_counts: dict[str, int]
     diff_counts: dict[str, int]
     zero_length_routes: int
+    # Totals per type / kind / role / status (ADR-033/034) and drawing problems (shared schemas).
+    groups: list[dict[str, object]] = field(default_factory=list)
+    problems: list[dict[str, object]] = field(default_factory=list)
 
 
 def run_build(job: CadBuildRevisionJob, deps: BuildDeps, worker_id: str) -> Outcome:
@@ -116,7 +126,8 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
             rules = parse_rules(inputs.rules)
         except MappingInvalidError as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
-        drawing = tx.load_drawing(rules.layers_with("route"))
+        # Route layers for routes; point layers for their closed shapes (ADR-033).
+        drawing = tx.load_drawing(rules.layers_with(*FEATURE_TYPES))
         base = tx.load_base()
         design = compose_design(drawing, rules, inputs.metres_per_unit, base, deps.new_id)
         route_length = tx.write(design.rows)
@@ -168,6 +179,8 @@ def compose_design(
         ),
     )
     by_type = Counter(f.feature_type for f in features)
+    factor = float(metres_per_unit)
+    found, names = check_drawing(features, drawing.texts, rules, factor)
     return DesignBuild(
         rows=rows,
         background=built.background,
@@ -175,7 +188,43 @@ def compose_design(
         text_link_counts=status_counts(links),
         diff_counts=diff_counts(match.entries),
         zero_length_routes=built.zero_length_routes,
+        groups=feature_groups(features),
+        problems=problems_json(found, features, names, factor),
     )
+
+
+def feature_groups(features: Sequence[DesignFeatureDraft]) -> list[dict[str, object]]:
+    """`counts.groups`: one row per type / kind / role / status, routes with their drawn length."""
+    GroupKey = tuple[str, str | None, str | None, str]
+    counts: Counter[GroupKey] = Counter()
+    lengths: dict[GroupKey, float] = {}
+    for f in features:
+        kind, role = f.attrs.get("kind"), f.attrs.get("role")
+        group: GroupKey = (
+            f.feature_type,
+            str(kind) if kind is not None else None,
+            str(role) if role is not None else None,
+            str(f.attrs.get("status", "new")),
+        )
+        counts[group] += 1
+        if f.is_route:
+            lengths[group] = lengths.get(group, 0.0) + polyline_length(f.coords)
+    order: dict[str, int] = {t: i for i, t in enumerate(FEATURE_TYPES)}
+    rows: list[dict[str, object]] = []
+    for key in sorted(counts, key=lambda k: (order[k[0]], k[1] or "", k[2] or "", k[3])):
+        feature_type, group_kind, group_role, status = key
+        length = lengths.get(key)
+        rows.append(
+            {
+                "type": feature_type,
+                "kind": group_kind,
+                "role": group_role,
+                "status": status,
+                "count": counts[key],
+                "lengthM": None if length is None else f"{metres3(length):.3f}",
+            }
+        )
+    return rows
 
 
 def _with_links(
@@ -251,16 +300,22 @@ def _summary(
     warnings: list[dict[str, object]] = []
     if design.zero_length_routes:
         warnings.append({"code": "ROUTE_ZERO_LENGTH_SKIPPED", "count": design.zero_length_routes})
+    warnings.extend(design.problems)
     lines = [
         f"units: 1 {drawing_unit} = {metres_per_unit} m",
         "features: " + " ".join(f"{t}={n}" for t, n in design.feature_counts.items()),
+        "problems: " + " ".join(f"{p['code']}={p['count']}" for p in design.problems),
         f"route length: {route_length:.3f} m (zero-length skipped: {design.zero_length_routes})",
         "text links: " + " ".join(f"{s}={n}" for s, n in design.text_link_counts.items()),
         "diff: " + " ".join(f"{c}={n}" for c, n in design.diff_counts.items()),
         *timings,
     ]
     return BuildSummary(
-        counts={"features": design.feature_counts, "routeLengthM": f"{route_length:.3f}"},
+        counts={
+            "features": design.feature_counts,
+            "routeLengthM": f"{route_length:.3f}",
+            "groups": design.groups,
+        },
         text_link_counts=design.text_link_counts,
         diff_counts=design.diff_counts,
         tiles_storage_key=tiles_key,

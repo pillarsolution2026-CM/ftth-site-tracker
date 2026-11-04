@@ -622,7 +622,9 @@
     "box": "Box",
     "hhi": "Handhole",
     "joint": "Joint",
-    "mh": "Manhole"
+    "mh": "Manhole",
+    "cabinet": "Cabinet",
+    "ring": "Ring (microduct, no box)"
   },
   "mapping": {
     "title": "CAD mapping",

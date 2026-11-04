@@ -622,7 +622,9 @@
     "box": "Boîtier",
     "hhi": "Chambre (HHI)",
     "joint": "Jonction",
-    "mh": "Regard (MH)"
+    "mh": "Regard (MH)",
+    "cabinet": "Armoire",
+    "ring": "Ring (microconduit sans boîtier)"
   },
   "mapping": {
     "title": "Mapping du fichier CAO",

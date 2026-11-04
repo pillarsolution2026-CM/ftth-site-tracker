@@ -19,7 +19,7 @@ from shapely import wkb
 from cad_worker.adapters.job_message import CadExportAsBuiltJob
 from cad_worker.application.ports import ExportFailureCode, ExportInputs, ExportResult
 from cad_worker.domain.asbuilt_drawing import AsBuiltFeatureIn, DesignFeatureIn
-from cad_worker.domain.design import FeatureType, Xy
+from cad_worker.domain.design import FEATURE_TYPES, FeatureType, Xy
 from cad_worker.domain.geo import reproject
 
 START_SQL = """
@@ -71,7 +71,7 @@ def insert_export_event(
 
 
 def _feature_type(value: object) -> FeatureType:
-    if value not in ("route", "box", "hhi", "joint", "mh"):
+    if value not in FEATURE_TYPES:
         raise ValueError(f"unknown feature type {value!r}")
     return value
 
