@@ -1157,8 +1157,10 @@ describe('a built draft revision', () => {
       publishedAt: expect.any(String),
     });
     expect(published.body.publishedById).toBeTruthy();
+    // The drawing-problems test above ignored one place of this same revision.
     expect(await eventTypes(ctx.pool, revisionId)).toEqual([
       'design_revision.queued',
+      'design_revision.problem_ignored',
       'design_revision.published',
     ]);
     const event = await ctx.pool.query(
