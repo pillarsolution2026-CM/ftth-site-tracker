@@ -1,0 +1,96 @@
+{
+  "comment": "Golden run on Rabaa (ADR-034). The drawing has local coordinates; crsEpsg 32636 and drawingUnit 'm' are TEST PARAMETERS only (placement confirmed by the owner for this drawing), never product defaults. Counts are by symbol. null = not pinned yet: the test prints the actual value; UPDATE_GOLDEN=1 records it. Corrected copy (owner's fixes): no WRONG_LAYER / LABEL_TYPE_MISMATCH.",
+  "file": "rabaa_corrected.dxf",
+  "crsEpsg": 32636,
+  "drawingUnit": "m",
+  "metresPerUnit": "1",
+  "rules": [
+    {
+      "source": "layer",
+      "layer": "OUTER DUCT 4 WAY PRIMARY",
+      "target": "route",
+      "kind": "4 way"
+    },
+    {
+      "source": "layer",
+      "layer": "OUTER DUCT 2 WAY PRIMARY",
+      "target": "route",
+      "kind": "2 way"
+    },
+    {
+      "source": "layer",
+      "layer": "CABINET SITE SUB CABINET",
+      "target": "cabinet",
+      "role": "sub"
+    },
+    {
+      "source": "block",
+      "block": "Sap",
+      "target": "cabinet",
+      "role": "sub"
+    },
+    {
+      "source": "block",
+      "block": "Main Cab",
+      "target": "cabinet",
+      "role": "main"
+    },
+    {
+      "source": "layer",
+      "layer": "HANDHOLES NEW",
+      "target": "hhi",
+      "status": "new"
+    },
+    {
+      "source": "layer",
+      "layer": "HANDHOLES EXISTING",
+      "target": "hhi",
+      "status": "existing"
+    },
+    {
+      "source": "layer",
+      "layer": "jont 144",
+      "target": "joint",
+      "kind": "144"
+    },
+    {
+      "source": "layer",
+      "layer": "joint 36",
+      "target": "joint",
+      "kind": "36"
+    },
+    {
+      "source": "layer",
+      "layer": "jont 36",
+      "target": "joint",
+      "kind": "36"
+    },
+    {
+      "source": "layer",
+      "layer": "Primary Cable Data",
+      "target": "label"
+    }
+  ],
+  "expected": {
+    "groups": {
+      "cabinet/main": 3,
+      "cabinet/sub": 81,
+      "hhi/existing": 15,
+      "joint/144": 24,
+      "joint/36": 13,
+      "hhi/new": 50
+    },
+    "routeLengthM": {
+      "4 way": "23094.401",
+      "2 way": "11270.702"
+    },
+    "problems": {
+      "WRONG_LAYER": 0,
+      "LABEL_TYPE_MISMATCH": 0,
+      "LABEL_MISSING": 14,
+      "ROUTE_SPLIT": 57,
+      "LABEL_LENGTH_MISSING": 53
+    },
+    "problemPlaces": {}
+  }
+}

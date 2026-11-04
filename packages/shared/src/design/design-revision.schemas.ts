@@ -3,7 +3,12 @@ import { DrawingUnitSchema } from '../cad/drawing-units.js';
 import { MappingRuleSchema } from '../cad/cad-mapping.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { BooleanQuerySchema, PageQuerySchema, pageSchema } from '../common/pagination.js';
-import { FeatureTypeSchema, FEATURE_TYPES } from './feature-types.js';
+import {
+  CabinetRoleSchema,
+  FeatureTypeSchema,
+  FEATURE_TYPES,
+  ItemStatusSchema,
+} from './feature-types.js';
 import { TextLinkKindSchema, TextLinkStatusSchema } from './text-link.js';
 
 /**
@@ -55,17 +60,37 @@ export const DIFF_CHANGES = [
 export const DiffChangeSchema = z.enum(DIFF_CHANGES);
 export type DiffChange = z.infer<typeof DiffChangeSchema>;
 
+/** Types added after revisions were already stored (ADR-033): absent there, meaning 0. */
+const LATER_FEATURE_TYPES: readonly string[] = ['cabinet', 'ring'];
+
 const CountsByFeatureType = z.object(
-  Object.fromEntries(FEATURE_TYPES.map((t) => [t, z.number().int().min(0)])) as Record<
-    (typeof FEATURE_TYPES)[number],
-    z.ZodNumber
-  >,
+  Object.fromEntries(
+    FEATURE_TYPES.map((t) => [
+      t,
+      LATER_FEATURE_TYPES.includes(t)
+        ? z.number().int().min(0).default(0)
+        : z.number().int().min(0),
+    ]),
+  ) as Record<(typeof FEATURE_TYPES)[number], z.ZodNumber>,
 );
+
+/** Totals per feature type and rule attributes (ADR-033/034); absent on revisions built before. */
+export const FeatureGroupCountSchema = z.object({
+  type: FeatureTypeSchema,
+  kind: z.string().nullable(),
+  role: CabinetRoleSchema.nullable(),
+  status: ItemStatusSchema,
+  count: z.number().int().min(0),
+  /** Routes only: Σ drawn length in metres, 3 decimals. */
+  lengthM: DecimalStringSchema.nullable(),
+});
+export type FeatureGroupCount = z.infer<typeof FeatureGroupCountSchema>;
 
 export const DesignRevisionCountsSchema = z.object({
   features: CountsByFeatureType,
   /** Σ route lengths in metres (through the revision's drawing unit), 3 decimals. */
   routeLengthM: DecimalStringSchema,
+  groups: z.array(FeatureGroupCountSchema).optional(),
 });
 export type DesignRevisionCounts = z.infer<typeof DesignRevisionCountsSchema>;
 

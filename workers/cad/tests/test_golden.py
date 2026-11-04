@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import json
 import os
-import resource
 import shutil
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 import pytest
@@ -35,6 +35,11 @@ from cad_worker.application.import_job import ImportDeps, run_import
 from tests.support.env import fixtures_dir
 from tests.support.fakes import make_job
 from tests.support.golden import summarize
+
+try:  # Unix only; peak memory is just printed
+    import resource
+except ImportError:  # pragma: no cover - Windows
+    resource = None  # type: ignore[assignment]
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 MAPPING_SUFFIX = "_mapping.json"
@@ -81,17 +86,18 @@ def processed_drawings(
             if not drawing.is_file():
                 continue
             file_id, job_id = uuid.uuid4(), uuid.uuid4()
-            key = f"projects/{project_id}/cad/{file_id}/original.dwg"
+            fmt: Literal["dwg", "dxf"] = "dxf" if drawing.suffix.lower() == ".dxf" else "dwg"
+            key = f"projects/{project_id}/cad/{file_id}/original.{fmt}"
             (root / key).parent.mkdir(parents=True)
             shutil.copyfile(drawing, root / key)
             db.execute(
                 "INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, "
                 "storage_key, status, current_job_id, queued_at) "
-                "VALUES (%s, %s, %s, 'dwg', %s, %s, %s, 'queued', %s, now())",
-                (file_id, project_id, name, drawing.stat().st_size, "b" * 64, key, job_id),
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s, now())",
+                (file_id, project_id, name, fmt, drawing.stat().st_size, "b" * 64, key, job_id),
             )
             started = time.monotonic()
-            outcome = run_import(make_job(project_id, file_id, job_id, key, "dwg"), deps, "golden")
+            outcome = run_import(make_job(project_id, file_id, job_id, key, fmt), deps, "golden")
             elapsed = time.monotonic() - started
             out[name] = {
                 "outcome": outcome,
@@ -100,11 +106,18 @@ def processed_drawings(
                 "project_id": project_id,
                 "cad_file_id": file_id,
             }
-            children_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024
-            self_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
+            memory = ""
+            if resource is not None:
+                children_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024
+                self_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
+                memory = f", python peak {self_mb} MB, node peak {children_mb} MB"
+            failure = db.execute(
+                "SELECT error_code, error_message FROM cad_files WHERE id = %s", (file_id,)
+            ).fetchone()
             print(
-                f"GOLDEN {name}: {outcome} in {elapsed:.1f}s, python peak {self_mb} MB, "
-                f"node peak {children_mb} MB, totals {out[name]['summary']['totals']}"
+                f"GOLDEN {name}: {outcome} in {elapsed:.1f}s{memory}, "
+                f"totals {out[name]['summary']['totals']}"
+                + (f", error {failure}" if failure and failure[0] else "")
             )
     return out
 
@@ -237,4 +250,80 @@ def test_qalyub_sector_1_design_revision(
         assert Decimal(route_m) == pytest.approx(
             Decimal(expected["routeLengthM"]), abs=Decimal("0.01")
         )
+    assert seconds < MAX_BUILD_SECONDS
+
+
+RABAA_MAPPINGS = sorted(GOLDEN_DIR.glob(f"rabaa_*{MAPPING_SUFFIX}"))
+PLACE_TOLERANCE = 3.0  # drawing units, around the symbol / label found with the owner
+
+
+@pytest.mark.skipif(not _node_ready(), reason="node or converter/node_modules (npm ci) missing")
+@pytest.mark.parametrize("mapping_path", RABAA_MAPPINGS, ids=lambda p: p.stem)
+def test_rabaa_design_revision(
+    mapping_path: Path,
+    processed_drawings: dict[str, dict[str, Any]],
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    """ADR-034 acceptance: counts by type / role / status / kind, length per duct kind, and the
+    drawing problems at the places found with the owner."""
+    mapping = _load(mapping_path)
+    result = processed_drawings.get(mapping["file"])
+    if result is None:
+        pytest.skip(f"real drawing {mapping['file']} not found in {fixtures_dir()}")
+    with psycopg.connect(database_url, autocommit=True) as db:
+        # One open revision per project: the drawings share the golden project.
+        db.execute(
+            "UPDATE design_revisions SET status = 'discarded' WHERE project_id = %s "
+            "AND status = 'draft'",
+            (result["project_id"],),
+        )
+        revision_id, outcome, seconds = _build_sector_1(db, database_url, result, mapping, tmp_path)
+        row = db.execute(
+            "SELECT status, error_code, error_message, counts, warnings FROM design_revisions "
+            "WHERE id = %s",
+            (revision_id,),
+        ).fetchone()
+    assert row is not None
+    status, error_code, error_message, counts, warnings = row
+    assert (outcome, status) == ("built", "draft"), (error_code, error_message)
+    groups: dict[str, int] = {}
+    lengths: dict[str, str] = {}
+    for g in counts["groups"]:
+        detail = g["role"] or g["kind"] or g["status"]  # cabinet/sub, joint/144, hhi/existing
+        groups[f"{g['type']}/{detail}"] = g["count"]
+        if g["lengthM"] is not None:
+            lengths[g["kind"]] = g["lengthM"]
+    problems = {w["code"]: w for w in warnings if "items" in w}
+    found = {code: p["count"] for code, p in problems.items()}
+    by_layer = {code: dict(Counter(i["layer"] for i in p["items"])) for code, p in problems.items()}
+    print(
+        f"GOLDEN REVISION {mapping['file']}: groups={groups} lengths={lengths} problems={found} "
+        f"by layer={by_layer} "
+        f"import={result['seconds']:.1f}s build={seconds:.1f}s"
+    )
+    expected = mapping["expected"]
+    if os.environ.get("UPDATE_GOLDEN"):
+        for kind in expected["routeLengthM"]:
+            expected["routeLengthM"][kind] = lengths.get(kind)
+        for code, value in expected["problems"].items():
+            if value is None:
+                expected["problems"][code] = found.get(code, 0)
+        mapping_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    for key, count in expected["groups"].items():
+        assert groups.get(key) == count, key
+    for kind, metres in expected["routeLengthM"].items():
+        if metres is not None:
+            assert Decimal(lengths[kind]) == pytest.approx(Decimal(metres), abs=Decimal("0.01"))
+    for code, count in expected["problems"].items():
+        if count is not None:
+            assert found.get(code, 0) == count, code
+    for code, places in expected["problemPlaces"].items():
+        items = problems[code]["items"]
+        for x, y in places:
+            assert any(
+                abs(i["drawingX"] - x) <= PLACE_TOLERANCE
+                and abs(i["drawingY"] - y) <= PLACE_TOLERANCE
+                for i in items
+            ), (code, x, y)
     assert seconds < MAX_BUILD_SECONDS

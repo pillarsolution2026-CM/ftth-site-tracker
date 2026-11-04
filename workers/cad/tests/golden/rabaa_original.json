@@ -1,0 +1,266 @@
+{
+  "file": "rabaa_original.dwg",
+  "totals": {
+    "layers": 65,
+    "inserts": 175,
+    "texts": 1038,
+    "curves": 23083
+  },
+  "unreadable_texts": 7,
+  "entity_counts_by_layer": {
+    "0": {
+      "INSERT": 3,
+      "LEADER": 5,
+      "LWPOLYLINE": 17
+    },
+    "004_TTL_LEG": {
+      "MTEXT": 73,
+      "LWPOLYLINE": 73
+    },
+    "111111": {
+      "LWPOLYLINE": 24
+    },
+    "33-labols": {
+      "TEXT": 2
+    },
+    "annotations": {
+      "TEXT": 11,
+      "MTEXT": 3,
+      "LWPOLYLINE": 2
+    },
+    "BDL_TXT": {
+      "TEXT": 1
+    },
+    "buildings": {
+      "CIRCLE": 2,
+      "LWPOLYLINE": 3992
+    },
+    "BUILDINGSAnno662": {
+      "TEXT": 52,
+      "MTEXT": 126
+    },
+    "CABINET SITE MAIN ZONE CABINET TEXT": {
+      "MTEXT": 3,
+      "CIRCLE": 3
+    },
+    "CABINET SITE MSAN": {
+      "POINT": 1
+    },
+    "CABINET SITE SUB CABINET": {
+      "TEXT": 69,
+      "INSERT": 73
+    },
+    "CABINET SITE SUB CABINET BOUNDARY": {
+      "CIRCLE": 9,
+      "INSERT": 6,
+      "LWPOLYLINE": 153
+    },
+    "CABINET SITE SUB CABINET TEXT": {
+      "LINE": 74,
+      "MTEXT": 147,
+      "CIRCLE": 73
+    },
+    "CAP F144": {
+      "INSERT": 8
+    },
+    "CART": {
+      "TEXT": 6
+    },
+    "CR-NEW": {
+      "LWPOLYLINE": 2
+    },
+    "CRO": {
+      "TEXT": 1
+    },
+    "EXCH": {
+      "TEXT": 25
+    },
+    "FENCE": {
+      "LINE": 1234,
+      "LWPOLYLINE": 707
+    },
+    "HANDHOLES EXISTING": {
+      "INSERT": 15
+    },
+    "HANDHOLES EXISTING TEXT": {
+      "LINE": 15,
+      "TEXT": 30
+    },
+    "HANDHOLES NEW": {
+      "INSERT": 50
+    },
+    "HANDHOLES NEW TEXT": {
+      "LINE": 50,
+      "TEXT": 104
+    },
+    "ISLAND": {
+      "LWPOLYLINE": 28
+    },
+    "joint 36": {
+      "HATCH": 13,
+      "MTEXT": 13
+    },
+    "jont 144": {
+      "HATCH": 21,
+      "MTEXT": 19
+    },
+    "jont 36": {
+      "TEXT": 5,
+      "INSERT": 3
+    },
+    "LEGEND": {
+      "TEXT": 8
+    },
+    "m-furn.": {
+      "HATCH": 2
+    },
+    "MRG": {
+      "LWPOLYLINE": 8
+    },
+    "N_DUC_CBL": {
+      "LINE": 1
+    },
+    "OOOOOO": {
+      "LWPOLYLINE": 19
+    },
+    "OUTER DUCT 2 WAY PRIMARY": {
+      "POINT": 2,
+      "INSERT": 6,
+      "LEADER": 124,
+      "LWPOLYLINE": 113
+    },
+    "OUTER DUCT 2 WAY SECONDARY": {
+      "TEXT": 73
+    },
+    "OUTER DUCT 4 WAY PRIMARY": {
+      "LWPOLYLINE": 78
+    },
+    "OUTER DUCT 4 WAY PRIMARY DATA": {
+      "TEXT": 69
+    },
+    "P_CAB_TEXTB": {
+      "LINE": 16,
+      "TEXT": 38,
+      "CIRCLE": 16
+    },
+    "P_CAB_TXTB": {
+      "TEXT": 6
+    },
+    "Primary Cable Data": {
+      "TEXT": 154
+    },
+    "P_SYM500": {
+      "INSERT": 2
+    },
+    "ROADS": {
+      "ARC": 681,
+      "LINE": 10066,
+      "LWPOLYLINE": 81
+    },
+    "Sap": {
+      "INSERT": 8
+    },
+    "sub": {
+      "INSERT": 1
+    },
+    "ZOUN": {
+      "LWPOLYLINE": 13
+    },
+    "أرض فضاء": {
+      "LWPOLYLINE": 3
+    },
+    "أنديه ومراكز الشباب": {
+      "LWPOLYLINE": 28
+    },
+    "الشرطه": {
+      "LWPOLYLINE": 3
+    },
+    "المزارع بأنواعها": {
+      "LWPOLYLINE": 2
+    },
+    "سكه حديد": {
+      "LWPOLYLINE": 2
+    },
+    "مباني تعليميه": {
+      "LWPOLYLINE": 45
+    },
+    "مباني حكوميه": {
+      "LWPOLYLINE": 4
+    },
+    "مباني مفرده": {
+      "LWPOLYLINE": 5380
+    },
+    "محطات وقود": {
+      "LWPOLYLINE": 5
+    },
+    "مستشفى": {
+      "LWPOLYLINE": 11
+    },
+    "مسجد": {
+      "LWPOLYLINE": 9
+    },
+    "مقابر": {
+      "LWPOLYLINE": 1
+    },
+    "مكاتب البريد والتلغراف": {
+      "LWPOLYLINE": 3
+    },
+    "مولات تجاريه ومحلات": {
+      "LWPOLYLINE": 1
+    }
+  },
+  "inserts_by_block": {
+    "36": 8,
+    "Exist CH or HH": 15,
+    "hjl": 6,
+    "JONT 36": 3,
+    "Main Cab": 3,
+    "New CH or HH": 50,
+    "P_SYM500": 2,
+    "rt": 4,
+    "Sap": 8,
+    "sub": 1,
+    "Sub Cab": 73,
+    "yjh": 2
+  },
+  "curve_length_by_layer": {
+    "0": 5739.85,
+    "004_TTL_LEG": 2594.53,
+    "111111": 46026.97,
+    "annotations": 47.52,
+    "buildings": 157095.48,
+    "CABINET SITE MAIN ZONE CABINET TEXT": 295.84,
+    "CABINET SITE SUB CABINET BOUNDARY": 94914.22,
+    "CABINET SITE SUB CABINET TEXT": 9905.46,
+    "CR-NEW": 262.54,
+    "FENCE": 98761.95,
+    "HANDHOLES EXISTING TEXT": 643.56,
+    "HANDHOLES NEW TEXT": 2098.55,
+    "ISLAND": 28326.21,
+    "joint 36": 268.15,
+    "jont 144": 433.9,
+    "m-furn.": 102.51,
+    "MRG": 72000.0,
+    "N_DUC_CBL": 0.0,
+    "OOOOOO": 3466.57,
+    "OUTER DUCT 2 WAY PRIMARY": 11270.7,
+    "OUTER DUCT 4 WAY PRIMARY": 23094.4,
+    "P_CAB_TEXTB": 2087.33,
+    "ROADS": 309343.39,
+    "ZOUN": 13813.87,
+    "أرض فضاء": 343.92,
+    "أنديه ومراكز الشباب": 2775.33,
+    "الشرطه": 277.95,
+    "المزارع بأنواعها": 87.66,
+    "سكه حديد": 7918.68,
+    "مباني تعليميه": 5701.27,
+    "مباني حكوميه": 246.36,
+    "مباني مفرده": 216378.41,
+    "محطات وقود": 383.44,
+    "مستشفى": 716.58,
+    "مسجد": 481.67,
+    "مقابر": 254.16,
+    "مكاتب البريد والتلغراف": 158.03,
+    "مولات تجاريه ومحلات": 304.59
+  }
+}

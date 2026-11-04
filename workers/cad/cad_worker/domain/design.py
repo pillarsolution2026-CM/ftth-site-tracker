@@ -12,9 +12,12 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
-FeatureType = Literal["route", "box", "hhi", "joint", "mh"]
-FEATURE_TYPES: tuple[FeatureType, ...] = ("route", "box", "hhi", "joint", "mh")
-POINT_FEATURE_TYPES: frozenset[str] = frozenset({"box", "hhi", "joint", "mh"})
+FeatureType = Literal["route", "box", "hhi", "joint", "mh", "cabinet", "ring"]
+FEATURE_TYPES: tuple[FeatureType, ...] = ("route", "box", "hhi", "joint", "mh", "cabinet", "ring")
+POINT_FEATURE_TYPES: frozenset[str] = frozenset({"box", "hhi", "joint", "mh", "cabinet", "ring"})
+CABINET_ROLES: frozenset[str] = frozenset({"main", "sub"})
+ITEM_STATUSES: frozenset[str] = frozenset({"new", "existing"})
+MAX_KIND_LENGTH = 64
 SourceKind = Literal["curve", "insert", "text"]
 Xy = tuple[float, float]
 # Unique within a revision (`design_features_handle_key`), stable while the drawing is unchanged.

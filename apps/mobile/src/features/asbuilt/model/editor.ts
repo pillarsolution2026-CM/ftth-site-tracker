@@ -25,7 +25,6 @@ import {
 } from '@ftth/geo';
 import {
   AsBuiltLabelSchema,
-  POINT_FEATURE_TYPES,
   RecordAsBuiltEditOpSchema,
   type FeatureType,
   type GpsFix,
@@ -42,10 +41,11 @@ import { labelOf, type AsBuiltState, type StateFeature } from './asbuilt-state';
  */
 
 /**
- * RESTRICTIVE ASSUMPTION until the Phase 2 `type_rules` exist: every point feature type may be
- * inserted (box, hhi, joint, mh). The owner narrows this list per project when the rules land.
+ * RESTRICTIVE ASSUMPTION until the Phase 2 `type_rules` exist: the original point types may be
+ * inserted (box, hhi, joint, mh). Cabinets and rings (ADR-033/034) come from the drawing only
+ * until the owner decides whether a supervisor may add them on site.
  */
-export const ALLOWED_SYMBOL_TYPES: readonly PointFeatureType[] = POINT_FEATURE_TYPES;
+export const ALLOWED_SYMBOL_TYPES: readonly PointFeatureType[] = ['box', 'hhi', 'joint', 'mh'];
 
 /** Half of the 44 dp touch target: a grip is hit when the finger is within this many pixels. */
 export const GRIP_HIT_RADIUS_PX = 22;

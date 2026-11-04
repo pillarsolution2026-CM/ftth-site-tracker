@@ -87,9 +87,22 @@ def test_build_writes_features_links_diff_counts_events_and_tiles(
 
     row = revision_row(db, revision)
     assert row["status"] == "draft" and row["error_code"] is None and row["built_at"] is not None
-    assert row["counts"] == {
-        "features": {"route": 2, "box": 2, "hhi": 1, "joint": 1, "mh": 0},
-        "routeLengthM": "200.000",
+    counts = row["counts"]
+    assert counts["features"] == {
+        "route": 2,
+        "box": 2,
+        "hhi": 1,
+        "joint": 1,
+        "mh": 0,
+        "cabinet": 0,
+        "ring": 0,
+    }
+    assert counts["routeLengthM"] == "200.000"
+    assert {(g["type"], g["count"], g["lengthM"]) for g in counts["groups"]} == {
+        ("route", 2, "200.000"),
+        ("box", 2, None),
+        ("hhi", 1, None),
+        ("joint", 1, None),
     }
     assert row["text_link_counts"] == {
         "auto": 2,
@@ -107,7 +120,11 @@ def test_build_writes_features_links_diff_counts_events_and_tiles(
         "attributes_changed": 0,
         "conflict": 0,
     }
-    assert row["warnings"] == [{"code": "ROUTE_ZERO_LENGTH_SKIPPED", "count": 1}]
+    zero, split = row["warnings"]
+    assert zero == {"code": "ROUTE_ZERO_LENGTH_SKIPPED", "count": 1}
+    # The two sample routes meet end to end 2 m from a box (ADR-033 drawing problem).
+    assert (split["code"], split["severity"], split["count"]) == ("ROUTE_SPLIT", "warning", 1)
+    assert split["items"][0]["near"]["type"] == "box"
     assert "units: 1 m = 1" in row["log"] and "tiles:" in row["log"]
 
     key = f"projects/{revision.project_id}/revisions/{revision.revision_id}/design.pmtiles"

@@ -122,6 +122,8 @@ export const FEATURE_TYPE_LABEL: Record<FeatureType, MessageKey> = {
   hhi: 'featureType.hhi',
   joint: 'featureType.joint',
   mh: 'featureType.mh',
+  cabinet: 'featureType.cabinet',
+  ring: 'featureType.ring',
 };
 
 export type ApproveBlock = 'noPermission' | 'notPending' | 'stale';

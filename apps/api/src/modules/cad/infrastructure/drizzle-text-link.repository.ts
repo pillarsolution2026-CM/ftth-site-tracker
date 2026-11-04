@@ -1,4 +1,4 @@
-import { TEXT_LINK_STATUSES, type TextLinkCounts } from '@ftth/shared';
+import { TEXT_LINK_STATUSES, type FeatureType, type TextLinkCounts } from '@ftth/shared';
 import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import type { DbHandle } from '../../../db/db.module.js';
 import {
@@ -47,7 +47,7 @@ export class DrizzleTextLinkRepository implements TextLinkRepository {
     projectId: string,
     revisionId: string,
     featureId: string,
-  ): Promise<{ id: string; featureType: 'route' | 'box' | 'hhi' | 'joint' | 'mh' } | null> {
+  ): Promise<{ id: string; featureType: FeatureType } | null> {
     const [row] = await this.db
       .select({ id: designFeatures.featureId, featureType: designFeatures.featureType })
       .from(designFeatures)

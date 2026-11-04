@@ -72,13 +72,13 @@ def test_dxf_job_processes_into_postgis(
         (f.cad_file_id,),
     ).fetchone()
     assert status is not None
-    assert status[:9] == ("processed", None, "none", "AC1032", 6, status[5], 5, 6, 8)
+    assert status[:9] == ("processed", None, "none", "AC1032", 6, status[5], 5, 6, 9)  # + hatch
     assert status[9] == pytest.approx(0, abs=1e-6) and status[10] == pytest.approx(220)
     assert status[11] is not None and "extraction:" in status[12]
     assert {w["code"] for w in status[13]} >= {"UNSUPPORTED_ENTITY", "UNREADABLE_TEXT"}
 
     assert count(db, "cad_inserts", f) == 5 and count(db, "cad_texts", f) == 6
-    assert count(db, "cad_curves", f) == 8 and count(db, "cad_layers", f) == status[5]
+    assert count(db, "cad_curves", f) == 9 and count(db, "cad_layers", f) == status[5]
     assert event_types(db, f) == ["cad_file.processing_started", "cad_file.processed"]
 
     srid, kind, ndims = db.execute(
@@ -226,7 +226,7 @@ def test_reprocess_replaces_previous_rows(
     )
     job = make_job(f.project_id, f.cad_file_id, second, f.storage_key, "dxf")
     assert run_import(job, deps, "w1") == "processed"
-    assert count(db, "cad_curves", f) == 8 and count(db, "cad_inserts", f) == 5
+    assert count(db, "cad_curves", f) == 9 and count(db, "cad_inserts", f) == 5
     assert count(db, "cad_texts", f) == 6
     assert event_types(db, f).count("cad_file.processed") == 2
 

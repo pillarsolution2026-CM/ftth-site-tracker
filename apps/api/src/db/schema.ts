@@ -352,6 +352,8 @@ export const cadInserts = pgTable(
     layer: text('layer').notNull(),
     blockName: text('block_name').notNull(),
     position: pointZ('position').notNull(),
+    /** Centre of the drawn block (ADR-032); NULL on files processed before migration 0010. */
+    centre: pointZ('centre'),
     rotation: doublePrecision('rotation').notNull().default(0),
     scaleX: doublePrecision('scale_x').notNull().default(1),
     scaleY: doublePrecision('scale_y').notNull().default(1),

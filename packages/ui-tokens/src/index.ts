@@ -38,6 +38,8 @@ export const cadPalette = {
     hhi: '#FF8A80',
     joint: '#7CFC00',
     mh: '#D7A6FF',
+    cabinet: '#B0BEC5',
+    ring: '#80CBC4',
     crosshair: '#FFFFFF',
     text: '#E8EDF3',
     /** Approved As-Built geometry and labels (Phase 4); distinct from every feature colour. */
@@ -52,6 +54,8 @@ export const cadPalette = {
     hhi: '#B3261E',
     joint: '#2E6B30',
     mh: '#6A1B9A',
+    cabinet: '#37474F',
+    ring: '#00695C',
     crosshair: '#000000',
     text: '#1B2430',
     asbuilt: '#B0005E',

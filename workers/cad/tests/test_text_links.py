@@ -41,7 +41,15 @@ def test_constants_mirror_the_shared_contract() -> None:
     assert (LINK_RADIUS_TEXT_HEIGHTS, LINK_MIN_RADIUS_M) == (15, 1.0)
     assert Decimal("0.8") == AUTO_LINK_MIN_CONFIDENCE
     assert TEXT_LINK_TARGETS["cable"] == ("route",) and TEXT_LINK_TARGETS["box_bpu"] == ("box",)
-    assert TEXT_LINK_TARGETS["unreadable"] == ("route", "box", "hhi", "joint", "mh")
+    assert TEXT_LINK_TARGETS["unreadable"] == (
+        "route",
+        "box",
+        "hhi",
+        "joint",
+        "mh",
+        "cabinet",
+        "ring",
+    )
 
 
 @pytest.mark.parametrize(

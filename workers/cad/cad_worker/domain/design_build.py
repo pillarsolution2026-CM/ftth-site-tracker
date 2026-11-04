@@ -2,12 +2,15 @@
 
 Mirror of `MappingRuleSchema` (`packages/shared/src/cad/cad-mapping.schemas.ts`):
 - `layer` -> `route`: every curve on the layer is one route feature (zero-length ones skipped);
-- `layer` -> point type: every INSERT on the layer is one feature, unless a `block` rule matches;
+- `layer` -> point type: every INSERT on the layer is one feature, unless a `block` rule matches,
+  and every group of closed shapes touching each other on the layer is one feature at the centre
+  of the group (ADR-033);
 - `layer` -> feature type or `label`: its texts are link candidates;
 - `block` (any layer) -> point type | `background` | `ignore`; wins over the layer rule;
 - `text` (exact text, trimmed, case-insensitive, on one layer) -> point type: one feature at the
   text's insertion point; such texts are not linked.
-Layers without a rule are ignored.
+Layers without a rule are ignored. A rule to a feature type may carry `kind`, `status` and (cabinet
+only, required) `role`; the feature keeps them in `attrs` (ADR-033/034).
 
 Every coordinate is multiplied by the revision's `metres_per_unit` (ADR-018): no unit is assumed.
 """
@@ -15,12 +18,15 @@ Every coordinate is multiplied by the revision's `metres_per_unit` (ADR-018): no
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Literal, cast
 
 from cad_worker.domain.design import (
+    CABINET_ROLES,
     FEATURE_TYPES,
+    ITEM_STATUSES,
+    MAX_KIND_LENGTH,
     POINT_FEATURE_TYPES,
     DesignFeatureDraft,
     FeatureType,
@@ -28,15 +34,39 @@ from cad_worker.domain.design import (
     polyline_length,
 )
 
-Target = Literal["route", "box", "hhi", "joint", "mh", "label", "background", "ignore"]
+Target = Literal[
+    "route", "box", "hhi", "joint", "mh", "cabinet", "ring", "label", "background", "ignore"
+]
 MAPPING_TARGETS: frozenset[str] = frozenset({*FEATURE_TYPES, "label", "background", "ignore"})
 BLOCK_TARGETS: frozenset[str] = frozenset({*POINT_FEATURE_TYPES, "background", "ignore"})
 MAX_NAME_LENGTH = 255
 MAX_RULES = 2000
+# Closed shapes on one point layer closer than this (metres) are one symbol (ADR-033). Technical
+# tuning, not a business rule.
+SHAPE_TOUCH_M = 0.05
 
 
 class MappingInvalidError(ValueError):
     """The frozen rules do not satisfy `MappingRuleSchema` (revision fails `MAPPING_INVALID`)."""
+
+
+@dataclass(frozen=True, slots=True)
+class RuleAttrs:
+    """`kind` / `role` / `status` of a feature rule; None = not given (status then means `new`)."""
+
+    kind: str | None = None
+    role: str | None = None
+    status: str | None = None
+
+    def to_attrs(self) -> dict[str, object]:
+        return {
+            k: v
+            for k, v in (("kind", self.kind), ("role", self.role), ("status", self.status))
+            if v is not None
+        }
+
+
+NO_ATTRS = RuleAttrs()
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +75,8 @@ class MappingRules:
     blocks: Mapping[str, Target]
     # (layer, trimmed lower-case text) -> point type
     texts: Mapping[tuple[str, str], FeatureType]
+    # Attributes per rule key: ("layer", name) | ("block", name) | ("text", layer, text key)
+    attrs: Mapping[tuple[str, ...], RuleAttrs] = field(default_factory=dict)
 
     def layers_with(self, *targets: str) -> frozenset[str]:
         return frozenset(name for name, target in self.layers.items() if target in targets)
@@ -55,8 +87,15 @@ class MappingRules:
             return self.blocks[block_name]
         return self.layers.get(layer)
 
+    def insert_rule(self, layer: str, block_name: str) -> tuple[str, ...]:
+        """Key of the rule that decides an INSERT (block rule first)."""
+        return ("block", block_name) if block_name in self.blocks else ("layer", layer)
+
     def text_rule(self, layer: str, text: str) -> FeatureType | None:
         return self.texts.get((layer, text_rule_key(text)))
+
+    def attrs_of(self, key: tuple[str, ...]) -> RuleAttrs:
+        return self.attrs.get(key, NO_ATTRS)
 
 
 def text_rule_key(text: str) -> str:
@@ -77,24 +116,55 @@ def parse_rules(raw: object) -> MappingRules:
     layers: dict[str, Target] = {}
     blocks: dict[str, Target] = {}
     texts: dict[tuple[str, str], FeatureType] = {}
+    attrs: dict[tuple[str, ...], RuleAttrs] = {}
     for item in raw:
         if not isinstance(item, dict):
             raise MappingInvalidError(f"rule {item!r} is not an object")
         rule = cast(Mapping[str, object], item)
         source, target = rule.get("source"), rule.get("target")
+        key: tuple[str, ...]
         if source == "layer" and target in MAPPING_TARGETS:
-            _put(layers, _name(rule, "layer"), cast(Target, target), rule)
+            name = _name(rule, "layer")
+            _put(layers, name, cast(Target, target), rule)
+            key = ("layer", name)
         elif source == "block" and target in BLOCK_TARGETS:
-            _put(blocks, _name(rule, "block"), cast(Target, target), rule)
+            name = _name(rule, "block")
+            _put(blocks, name, cast(Target, target), rule)
+            key = ("block", name)
         elif source == "text" and target in POINT_FEATURE_TYPES:
             text = _name(rule, "text").strip()
             if not text:
                 raise MappingInvalidError(f"rule {dict(rule)!r}: empty text")
-            key = (_name(rule, "layer"), text_rule_key(text))
-            _put(texts, key, cast(FeatureType, target), rule)
+            text_key = (_name(rule, "layer"), text_rule_key(text))
+            _put(texts, text_key, cast(FeatureType, target), rule)
+            key = ("text", *text_key)
         else:
             raise MappingInvalidError(f"rule {dict(rule)!r}: unknown source or target")
-    return MappingRules(layers, blocks, texts)
+        rule_attrs = _rule_attrs(rule, str(target))
+        if rule_attrs != NO_ATTRS:
+            attrs[key] = rule_attrs
+    return MappingRules(layers, blocks, texts, attrs)
+
+
+def _rule_attrs(rule: Mapping[str, object], target: str) -> RuleAttrs:
+    """`kind` / `status` on feature rules only; `role` required on cabinet rules, else absent."""
+    kind, role, status = rule.get("kind"), rule.get("role"), rule.get("status")
+    is_feature = target in FEATURE_TYPES
+    if kind is not None and (
+        not is_feature or not isinstance(kind, str) or not 1 <= len(kind.strip()) <= MAX_KIND_LENGTH
+    ):
+        raise MappingInvalidError(f"rule {dict(rule)!r}: invalid kind")
+    if status is not None and (not is_feature or status not in ITEM_STATUSES):
+        raise MappingInvalidError(f"rule {dict(rule)!r}: invalid status")
+    if target == "cabinet" and role not in CABINET_ROLES:
+        raise MappingInvalidError(f"rule {dict(rule)!r}: a cabinet rule needs role main or sub")
+    if target != "cabinet" and role is not None:
+        raise MappingInvalidError(f"rule {dict(rule)!r}: only cabinet rules have a role")
+    return RuleAttrs(
+        kind.strip() if isinstance(kind, str) else None,
+        role if isinstance(role, str) else None,
+        status if isinstance(status, str) else None,
+    )
 
 
 def _put[K, V](table: dict[K, V], key: K, value: V, rule: Mapping[str, object]) -> None:
@@ -111,6 +181,8 @@ class SourceCurve:
     handle: str
     layer: str
     points: tuple[Xy, ...]
+    closed: bool = False
+    entity_type: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +263,7 @@ def build_features(
     factor = float(metres_per_unit)  # exact decimal kept on the revision; float for geometry only
     routes, zero_length = _routes(drawing.curves, rules, factor)
     points, background_inserts = _insert_features(drawing.inserts, rules, factor)
+    shapes = _shape_features(drawing.curves, rules, factor)
     text_features, consumed = _text_features(drawing.texts, rules, factor)
     candidate_layers = rules.layers_with(*FEATURE_TYPES, "label")
     link_texts = tuple(
@@ -199,7 +272,7 @@ def build_features(
         if t.layer in candidate_layers and t.handle not in consumed
     )
     return BuiltFeatures(
-        features=(*routes, *points, *text_features),
+        features=(*routes, *points, *shapes, *text_features),
         link_texts=link_texts,
         background=BackgroundSelection(rules.layers_with("background"), background_inserts),
         zero_length_routes=zero_length,
@@ -219,8 +292,9 @@ def _routes(
         if len(coords) < 2 or polyline_length(coords) <= 0:
             skipped += 1  # a LineString of zero length is not a route
             continue
+        attrs = rules.attrs_of(("layer", curve.layer)).to_attrs()
         out.append(
-            DesignFeatureDraft("route", curve.layer, None, "curve", curve.handle, coords, {})
+            DesignFeatureDraft("route", curve.layer, None, "curve", curve.handle, coords, attrs)
         )
     return out, skipped
 
@@ -236,6 +310,9 @@ def _insert_features(
             background.add(insert.handle)
         if target not in POINT_FEATURE_TYPES:
             continue
+        attrs = rules.attrs_of(rules.insert_rule(insert.layer, insert.block_name)).to_attrs()
+        if insert.attributes:
+            attrs["attributes"] = _attributes(insert.attributes)
         out.append(
             DesignFeatureDraft(
                 cast(FeatureType, target),
@@ -244,10 +321,78 @@ def _insert_features(
                 "insert",
                 insert.handle,
                 (scale_point(insert.position, factor),),
-                {"attributes": _attributes(insert.attributes)} if insert.attributes else {},
+                attrs,
             )
         )
     return out, frozenset(background)
+
+
+def _shape_features(
+    curves: Iterable[SourceCurve], rules: MappingRules, factor: float
+) -> list[DesignFeatureDraft]:
+    """Closed shapes on a point-type layer; shapes touching each other are one symbol, placed at
+    the centre of their joint extents (ADR-032/033). Keyed by the smallest handle of the group."""
+    point_layers = {
+        name: cast(FeatureType, t) for name, t in rules.layers.items() if t in POINT_FEATURE_TYPES
+    }
+    by_layer: dict[str, list[tuple[str, tuple[float, float, float, float]]]] = {}
+    for curve in curves:
+        if curve.layer in point_layers and curve.closed and len(curve.points) >= 2:
+            xs = [p[0] * factor for p in curve.points]
+            ys = [p[1] * factor for p in curve.points]
+            by_layer.setdefault(curve.layer, []).append(
+                (curve.handle, (min(xs), min(ys), max(xs), max(ys)))
+            )
+    out: list[DesignFeatureDraft] = []
+    for layer, shapes in by_layer.items():
+        attrs = rules.attrs_of(("layer", layer)).to_attrs()
+        for group in _touching_groups(shapes):
+            boxes = [shapes[i][1] for i in group]
+            handles = sorted(shapes[i][0] for i in group)
+            centre = (
+                (min(b[0] for b in boxes) + max(b[2] for b in boxes)) / 2,
+                (min(b[1] for b in boxes) + max(b[3] for b in boxes)) / 2,
+            )
+            extra = {"shapes": handles} if len(handles) > 1 else {}
+            out.append(
+                DesignFeatureDraft(
+                    point_layers[layer],
+                    layer,
+                    None,
+                    "curve",
+                    handles[0],
+                    (centre,),
+                    {**attrs, **extra},
+                )
+            )
+    return out
+
+
+def _touching_groups(
+    shapes: Sequence[tuple[str, tuple[float, float, float, float]]],
+) -> list[list[int]]:
+    """Union-find over extents that overlap or lie within SHAPE_TOUCH_M of each other."""
+    parent = list(range(len(shapes)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    order = sorted(range(len(shapes)), key=lambda i: shapes[i][1][0])
+    for n, i in enumerate(order):
+        a = shapes[i][1]
+        for j in order[n + 1 :]:
+            b = shapes[j][1]
+            if b[0] > a[2] + SHAPE_TOUCH_M:
+                break  # sorted by min x: nothing further can touch
+            if b[1] <= a[3] + SHAPE_TOUCH_M and a[1] <= b[3] + SHAPE_TOUCH_M:
+                parent[find(j)] = find(i)
+    groups: dict[int, list[int]] = {}
+    for i in range(len(shapes)):
+        groups.setdefault(find(i), []).append(i)
+    return sorted(groups.values(), key=lambda g: min(shapes[i][0] for i in g))
 
 
 def _attributes(attributes: Sequence[SourceAttribute]) -> list[dict[str, object]]:
@@ -283,7 +428,10 @@ def _text_features(
                 "text",
                 text.handle,
                 (scale_point(text.position, factor),),
-                {"text": text.text.strip()},
+                {
+                    **rules.attrs_of(("text", text.layer, text_rule_key(text.text))).to_attrs(),
+                    "text": text.text.strip(),
+                },
             )
         )
     return out, frozenset(consumed)

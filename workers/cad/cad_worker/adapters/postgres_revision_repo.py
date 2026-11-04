@@ -28,7 +28,7 @@ from cad_worker.application.ports import (
     RevisionRows,
     TileStats,
 )
-from cad_worker.domain.design import FeatureType, SourceKind, Xy
+from cad_worker.domain.design import FEATURE_TYPES, FeatureType, SourceKind, Xy
 from cad_worker.domain.design_build import (
     BackgroundSelection,
     DrawingData,
@@ -60,12 +60,15 @@ CLEANUP_SQL = (
 BUILD_STATEMENT_TIMEOUT_SQL = "SET LOCAL statement_timeout = '120s'"
 FILE_STATUS_SQL = "SELECT status FROM cad_files WHERE id = %s AND project_id = %s FOR SHARE"
 CURVES_SQL = """
-SELECT handle, layer, ST_AsBinary(ST_Force2D(geom)) FROM cad_curves
+SELECT handle, layer, ST_AsBinary(ST_Force2D(geom)), is_closed, entity_type FROM cad_curves
 WHERE cad_file_id = %s AND project_id = %s AND layer = ANY(%s) ORDER BY handle
 """
+# A symbol's position is the centre of what it draws (ADR-032); files processed before migration
+# 0010 have no centre and keep the insertion point.
 INSERTS_SQL = """
-SELECT handle, layer, block_name, ST_X(position), ST_Y(position), attributes FROM cad_inserts
-WHERE cad_file_id = %s AND project_id = %s ORDER BY handle
+SELECT handle, layer, block_name, ST_X(COALESCE(centre, position)),
+  ST_Y(COALESCE(centre, position)), attributes
+FROM cad_inserts WHERE cad_file_id = %s AND project_id = %s ORDER BY handle
 """
 TEXTS_SQL = """
 SELECT handle, layer, ST_X(position), ST_Y(position), height, raw_text, text, readable
@@ -236,8 +239,10 @@ class PostgresRevisionBuild:
             found = status[0] if status else "missing"
             raise BuildFailure("CAD_FILE_NOT_PROCESSED", f"CAD file is {found}, not processed")
         curves = tuple(
-            SourceCurve(str(h), str(layer), _coords(g))
-            for h, layer, g in self._conn.execute(CURVES_SQL, (*self._ids, sorted(curve_layers)))
+            SourceCurve(str(h), str(layer), _coords(g), bool(closed), str(kind))
+            for h, layer, g, closed, kind in self._conn.execute(
+                CURVES_SQL, (*self._ids, sorted(curve_layers))
+            )
         )
         inserts = tuple(
             SourceInsert(
@@ -413,7 +418,7 @@ class PostgresRevisionBuild:
 
 
 def _feature_type(value: object) -> FeatureType:
-    if value not in ("route", "box", "hhi", "joint", "mh"):
+    if value not in FEATURE_TYPES:
         raise ValueError(f"unknown feature type {value!r}")
     return value
 

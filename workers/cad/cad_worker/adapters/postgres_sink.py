@@ -14,8 +14,8 @@ from cad_worker.application.ports import ExtractionResult
 from cad_worker.domain.model import CurveRow, InsertRow, LayerRow, TextRow
 
 COPY_INSERTS = (
-    "COPY cad_inserts (project_id, cad_file_id, handle, layer, block_name, position, rotation, "
-    "scale_x, scale_y, scale_z, aci_color, attributes) FROM STDIN"
+    "COPY cad_inserts (project_id, cad_file_id, handle, layer, block_name, position, centre, "
+    "rotation, scale_x, scale_y, scale_z, aci_color, attributes) FROM STDIN"
 )
 COPY_TEXTS = (
     "COPY cad_texts (project_id, cad_file_id, handle, kind, layer, position, height, rotation, "
@@ -157,6 +157,7 @@ class PostgresSink:
             r.layer,
             r.block_name,
             point_z(r.position),
+            point_z(r.centre) if r.centre is not None else None,
             r.rotation,
             *r.scale,
             r.aci_color,

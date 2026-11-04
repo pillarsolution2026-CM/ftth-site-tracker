@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import {
+  CabinetRoleSchema,
   FEATURE_TYPES,
+  FeatureKindSchema,
+  ItemStatusSchema,
   POINT_FEATURE_TYPES,
   PointFeatureTypeSchema,
   type FeatureType,
@@ -15,7 +18,7 @@ import { DrawingUnitSchema } from './drawing-units.js';
  * edited by the PM; a design revision stores a frozen copy of it.
  *
  * Targets:
- * - a feature type (`route` | `box` | `hhi` | `joint` | `mh`);
+ * - a feature type (`route` | `box` | `hhi` | `joint` | `mh` | `cabinet` | `ring`);
  * - `label`: texts on the layer are candidates for text-to-feature linking;
  * - `background`: drawn in the background tiles only (buildings, roads, street names);
  * - `ignore`: not used at all. Layers without a rule are ignored.
@@ -29,26 +32,60 @@ const Name = z.string().min(1).max(255);
 /**
  * Rule semantics (applied by the worker when a revision is built):
  * - `layer` → `route`: every curve on the layer is one route feature.
- * - `layer` → point type: every INSERT on the layer is one feature (unless a `block` rule matches).
+ * - `layer` → point type: every INSERT on the layer is one feature (unless a `block` rule matches),
+ *   and so is every group of closed shapes (circle, hatch, closed polyline) touching each other on
+ *   the layer (ADR-033). A point's position is the centre of what is drawn (ADR-032).
  * - `layer` → feature type, `label`: its texts are link candidates.
  * - `block` (by block name, any layer) → point type | `background` | `ignore`; wins over the layer rule.
  * - `text` (exact text, trimmed and case-insensitive, on one layer) → point type: one feature at the
  *   text's insertion point (e.g. "NEW-HHI" on layer RRR = handhole). Such texts are not linked.
+ *
+ * A rule to a feature type may also carry (ADR-033/034): `kind` (free, e.g. `1x12w`, `144`),
+ * `status` (`new` | `existing`, default `new`) and, for `cabinet` only and required, `role`
+ * (`main` | `sub`). Features keep them in `attrs`; revision totals are given per combination.
  */
-export const MappingRuleSchema = z.discriminatedUnion('source', [
-  z.object({ source: z.literal('layer'), layer: Name, target: MappingTargetSchema }),
-  z.object({
-    source: z.literal('block'),
-    block: Name,
-    target: z.enum([...POINT_FEATURE_TYPES, 'background', 'ignore']),
-  }),
-  z.object({
-    source: z.literal('text'),
-    layer: Name,
-    text: z.string().trim().min(1).max(255),
-    target: PointFeatureTypeSchema,
-  }),
-]);
+const FeatureAttrs = {
+  kind: FeatureKindSchema.optional(),
+  role: CabinetRoleSchema.optional(),
+  status: ItemStatusSchema.optional(),
+};
+
+export const MappingRuleSchema = z
+  .discriminatedUnion('source', [
+    z.object({
+      source: z.literal('layer'),
+      layer: Name,
+      target: MappingTargetSchema,
+      ...FeatureAttrs,
+    }),
+    z.object({
+      source: z.literal('block'),
+      block: Name,
+      target: z.enum([...POINT_FEATURE_TYPES, 'background', 'ignore']),
+      ...FeatureAttrs,
+    }),
+    z.object({
+      source: z.literal('text'),
+      layer: Name,
+      text: z.string().trim().min(1).max(255),
+      target: PointFeatureTypeSchema,
+      ...FeatureAttrs,
+    }),
+  ])
+  .superRefine((rule, ctx) => {
+    const isFeature = (FEATURE_TYPES as readonly string[]).includes(rule.target);
+    if (rule.target === 'cabinet' && rule.role === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['role'], message: 'A cabinet rule needs a role' });
+    }
+    if (rule.target !== 'cabinet' && rule.role !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['role'], message: 'Only cabinet rules have a role' });
+    }
+    for (const key of ['kind', 'status'] as const) {
+      if (!isFeature && rule[key] !== undefined) {
+        ctx.addIssue({ code: 'custom', path: [key], message: `Only feature rules have a ${key}` });
+      }
+    }
+  });
 export type MappingRule = z.infer<typeof MappingRuleSchema>;
 
 export const MAX_MAPPING_RULES = 2000;

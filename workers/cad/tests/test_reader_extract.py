@@ -115,6 +115,7 @@ def test_curves_flattening_and_flags(sample: tuple[ListSink, ExtractionResult]) 
         "ARC": 1,
         "CIRCLE": 1,
         "SPLINE": 1,
+        "HATCH": 1,
     }
     by_type: dict[str, list[CurveRow]] = {}
     for c in curves:
@@ -145,7 +146,8 @@ def test_warnings_and_counts(sample: tuple[ListSink, ExtractionResult]) -> None:
     result = sample[1]
     warnings = {(w.code, tuple((w.params or {}).items())): w.count for w in result.warnings}
     assert warnings[("UNSUPPORTED_ENTITY", (("entityType", "ELLIPSE"),))] == 1
-    assert warnings[("UNSUPPORTED_ENTITY", (("entityType", "HATCH"),))] == 1
+    # A hatch is read as its closed outer boundary (ADR-033), no longer unsupported.
+    assert ("UNSUPPORTED_ENTITY", (("entityType", "HATCH"),)) not in warnings
     assert (
         warnings[("UNSUPPORTED_ENTITY", (("entityType", "LWPOLYLINE"), ("reason", "degenerate")))]
         == 1
@@ -154,7 +156,7 @@ def test_warnings_and_counts(sample: tuple[ListSink, ExtractionResult]) -> None:
     assert unreadable == 2  # "12 M" (upper-case key under the legacy font), mojibake
     assert any(w.code == "CURVE_APPROXIMATED" for w in result.warnings)
     assert not any(w.code in ("UNITS_UNSPECIFIED", "EMPTY_MODELSPACE") for w in result.warnings)
-    assert (result.insert_count, result.text_count, result.curve_count) == (5, 6, 8)
+    assert (result.insert_count, result.text_count, result.curve_count) == (5, 6, 9)  # + hatch
 
 
 def test_extents_from_entities(sample: tuple[ListSink, ExtractionResult]) -> None:
@@ -226,3 +228,26 @@ def test_no_mismatch_warning_when_units_agree(tmp_path: Path) -> None:
     _, result = run(write_utm_sample(tmp_path / "utm.dxf", ins_units=6))
     assert result.crs_detection.units_conflict is False
     assert not any(w.code == "UNITS_CRS_MISMATCH" for w in result.warnings)
+
+
+def test_hatch_is_kept_as_its_closed_outer_boundary(
+    sample: tuple[ListSink, ExtractionResult],
+) -> None:
+    hatch = next(r for r in sample[0].rows if isinstance(r, CurveRow) and r.entity_type == "HATCH")
+    assert hatch.is_closed and hatch.layer == "CABLE"
+    assert hatch.points[0] == hatch.points[-1]
+    assert {(x, y) for x, y, _ in hatch.points} == {(0, 0), (1, 0), (1, 1)}
+
+
+def test_layer_true_color_with_the_colour_method_byte_is_kept_as_rgb(tmp_path: Path) -> None:
+    """LibreDWG writes a layer's true colour with its colour-method byte (0xC2 = by RGB) as a
+    signed 32-bit number, e.g. -1027841467 for RGB 0xBC6245; the whole DWG failed on the
+    `cad_layers.true_color` check (Rabaa drawing, layer `annotations`)."""
+    doc = new_dxf()
+    doc.layers.add("annotations").dxf.true_color = -1027841467
+    doc.modelspace().add_line((0, 0), (1, 1), dxfattribs={"layer": "annotations"})
+    path = tmp_path / "true-color.dxf"
+    doc.saveas(path)
+    _, result = run(path)
+    layer = next(row for row in result.layers if row.definition.name == "annotations")
+    assert layer.definition.true_color == 0xBC6245

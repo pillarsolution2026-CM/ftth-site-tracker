@@ -43,8 +43,8 @@ export const TEXT_LINK_TARGETS: Readonly<Record<TextLinkKind, readonly FeatureTy
   length: ['route'],
   box_id: ['box'],
   box_bpu: ['box'],
-  other: ['route', 'box', 'hhi', 'joint', 'mh'],
-  unreadable: ['route', 'box', 'hhi', 'joint', 'mh'],
+  other: ['route', 'box', 'hhi', 'joint', 'mh', 'cabinet', 'ring'],
+  unreadable: ['route', 'box', 'hhi', 'joint', 'mh', 'cabinet', 'ring'],
 };
 
 export function classifyLinkText(text: string): Exclude<TextLinkKind, 'unreadable'> {

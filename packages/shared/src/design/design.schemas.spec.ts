@@ -10,6 +10,7 @@ import { isSupportedProjectEpsg } from '../cad/crs-detection.schemas.js';
 import { drawingUnitFromInsUnits, METRES_PER_UNIT } from '../cad/drawing-units.js';
 import { hasPermission } from '../auth/permissions.js';
 import {
+  DesignRevisionCountsSchema,
   PublishDesignRevisionRequestSchema,
   ReviewTextLinkRequestSchema,
   tileSignaturePayload,
@@ -157,5 +158,46 @@ describe('revision requests', () => {
     expect(hasPermission(['supervisor'], 'design:read')).toBe(true);
     expect(hasPermission(['supervisor'], 'design:write')).toBe(false);
     expect(hasPermission(['contractor'], 'design:read')).toBe(false);
+  });
+});
+
+describe('cabinets, rings and rule attributes (ADR-033/034)', () => {
+  const parse = (rule: Record<string, unknown>) =>
+    CadMappingInputSchema.safeParse({ ...baseMapping, rules: [rule] }).success;
+
+  it('accepts kind, status and a cabinet role', () => {
+    expect(parse({ source: 'layer', layer: 'SUB', target: 'cabinet', role: 'sub' })).toBe(true);
+    expect(parse({ source: 'block', block: 'Main Cab', target: 'cabinet', role: 'main' })).toBe(
+      true,
+    );
+    expect(parse({ source: 'layer', layer: 'D4', target: 'route', kind: '4 way' })).toBe(true);
+    expect(parse({ source: 'layer', layer: 'HH', target: 'hhi', status: 'existing' })).toBe(true);
+    expect(parse({ source: 'layer', layer: 'R', target: 'ring' })).toBe(true);
+  });
+
+  it('rejects a cabinet without role, a role elsewhere and attributes on non-features', () => {
+    expect(parse({ source: 'layer', layer: 'SUB', target: 'cabinet' })).toBe(false);
+    expect(parse({ source: 'layer', layer: 'B', target: 'box', role: 'main' })).toBe(false);
+    expect(parse({ source: 'layer', layer: 'L', target: 'label', kind: 'x' })).toBe(false);
+    expect(parse({ source: 'layer', layer: 'H', target: 'hhi', status: 'old' })).toBe(false);
+  });
+
+  it('lets rings and cabinets receive unreadable or other texts like every type', () => {
+    expect(TEXT_LINK_TARGETS.other).toContain('cabinet');
+    expect(TEXT_LINK_TARGETS.unreadable).toContain('ring');
+  });
+});
+
+describe('revision counts stored before cabinets and rings', () => {
+  it('reads the missing new types as 0 instead of rejecting the counts', () => {
+    const old = { features: { route: 1, box: 2, hhi: 1, joint: 0, mh: 0 }, routeLengthM: '12.5' };
+    expect(DesignRevisionCountsSchema.parse(old).features).toEqual({
+      ...old.features,
+      cabinet: 0,
+      ring: 0,
+    });
+    expect(
+      DesignRevisionCountsSchema.safeParse({ features: { route: 1 }, routeLengthM: '1' }).success,
+    ).toBe(false);
   });
 });

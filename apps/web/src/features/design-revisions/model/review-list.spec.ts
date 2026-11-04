@@ -57,7 +57,7 @@ describe('review list helpers', () => {
   it('limits reassignment to the feature types allowed for the kind', () => {
     expect(allowedFeatureTypes('box_id')).toEqual(['box']);
     expect(allowedFeatureTypes('cable')).toEqual(['route']);
-    expect(allowedFeatureTypes('unreadable')).toHaveLength(5);
+    expect(allowedFeatureTypes('unreadable')).toHaveLength(7);
   });
 
   it('counts open items from link and diff counts', () => {
