@@ -13,19 +13,25 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { LayerSwatch } from '@/features/cad-files/components/layers-table';
 import {
   BLOCK_TARGETS,
+  attrsKey,
   isSuggestedLayer,
   targetLabelKey,
   type BlockChoice,
   type MappingFormState,
+  type RuleAttrsForm,
   type TextChoice,
   type TextRuleRow,
 } from '../model/mapping-form';
+import { RuleAttrsEditor } from './rule-attrs';
 import { RuleSelect } from './rule-select';
+
+type AttrsChange = (key: string, patch: Partial<RuleAttrsForm>) => void;
 
 interface CommonProps {
   view: CadMappingView;
   state: MappingFormState;
   disabled: boolean;
+  onAttrsChange: AttrsChange;
 }
 
 function Section({
@@ -52,6 +58,7 @@ export function LayerRulesTable({
   state,
   disabled,
   onChange,
+  onAttrsChange,
 }: CommonProps & { onChange: (layer: string, target: MappingTarget) => void }) {
   const { t } = useI18n();
   const options = MAPPING_TARGETS.map((target) => ({
@@ -107,6 +114,14 @@ export function LayerRulesTable({
                         disabled={disabled}
                         onChange={(target) => onChange(layer.name, target)}
                       />
+                      <RuleAttrsEditor
+                        id={`layer-attrs-${index}`}
+                        rowLabel={layer.name}
+                        target={current}
+                        value={state.attrs[attrsKey.layer(layer.name)]}
+                        disabled={disabled}
+                        onChange={(patch) => onAttrsChange(attrsKey.layer(layer.name), patch)}
+                      />
                       {isSuggestedLayer(view, layer.name, current) ? (
                         <span
                           title={t('mapping.layers.suggestedHint')}
@@ -133,6 +148,7 @@ export function BlockRulesTable({
   state,
   disabled,
   onChange,
+  onAttrsChange,
 }: CommonProps & { onChange: (block: string, choice: BlockChoice) => void }) {
   const { t } = useI18n();
   const options: { value: BlockChoice; label: string }[] = [
@@ -166,14 +182,24 @@ export function BlockRulesTable({
                   <Ltr className="break-all">{block.layers.join(', ')}</Ltr>
                 </Td>
                 <Td>
-                  <RuleSelect
-                    id={`block-target-${index}`}
-                    label={`${t('mapping.blocks.target')}: ${block.name}`}
-                    value={state.blocks[block.name] ?? 'follow'}
-                    options={options}
-                    disabled={disabled}
-                    onChange={(choice) => onChange(block.name, choice)}
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RuleSelect
+                      id={`block-target-${index}`}
+                      label={`${t('mapping.blocks.target')}: ${block.name}`}
+                      value={state.blocks[block.name] ?? 'follow'}
+                      options={options}
+                      disabled={disabled}
+                      onChange={(choice) => onChange(block.name, choice)}
+                    />
+                    <RuleAttrsEditor
+                      id={`block-attrs-${index}`}
+                      rowLabel={block.name}
+                      target={state.blocks[block.name] ?? 'follow'}
+                      value={state.attrs[attrsKey.block(block.name)]}
+                      disabled={disabled}
+                      onChange={(patch) => onAttrsChange(attrsKey.block(block.name), patch)}
+                    />
+                  </div>
                 </Td>
               </tr>
             ))}
@@ -190,12 +216,14 @@ export function TextRulesTable({
   disabled,
   truncated,
   onChange,
+  onAttrsChange,
 }: {
   rows: readonly TextRuleRow[];
   state: MappingFormState;
   disabled: boolean;
   truncated: boolean;
   onChange: (key: string, choice: TextChoice) => void;
+  onAttrsChange: AttrsChange;
 }) {
   const { t } = useI18n();
   const options: { value: TextChoice; label: string }[] = [
@@ -233,14 +261,24 @@ export function TextRulesTable({
                   <Ltr>{row.count ?? '—'}</Ltr>
                 </Td>
                 <Td>
-                  <RuleSelect
-                    id={`text-target-${index}`}
-                    label={`${t('mapping.texts.target')}: ${row.text}`}
-                    value={state.texts[row.key] ?? 'none'}
-                    options={options}
-                    disabled={disabled}
-                    onChange={(choice) => onChange(row.key, choice)}
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RuleSelect
+                      id={`text-target-${index}`}
+                      label={`${t('mapping.texts.target')}: ${row.text}`}
+                      value={state.texts[row.key] ?? 'none'}
+                      options={options}
+                      disabled={disabled}
+                      onChange={(choice) => onChange(row.key, choice)}
+                    />
+                    <RuleAttrsEditor
+                      id={`text-attrs-${index}`}
+                      rowLabel={row.text}
+                      target={state.texts[row.key] ?? 'none'}
+                      value={state.attrs[attrsKey.text(row.key)]}
+                      disabled={disabled}
+                      onChange={(patch) => onAttrsChange(attrsKey.text(row.key), patch)}
+                    />
+                  </div>
                 </Td>
               </tr>
             ))}

@@ -78,12 +78,14 @@ export function MappingEditor({
         state={form.state}
         disabled={!editable}
         onChange={form.setLayerTarget}
+        onAttrsChange={form.setRuleAttrs}
       />
       <BlockRulesTable
         view={view}
         state={form.state}
         disabled={!editable}
         onChange={form.setBlockChoice}
+        onAttrsChange={form.setRuleAttrs}
       />
       <TextRulesTable
         rows={form.textRows}
@@ -91,6 +93,7 @@ export function MappingEditor({
         disabled={!editable}
         truncated={view.texts.length >= MAPPING_TEXT_ROWS_LIMIT}
         onChange={form.setTextChoice}
+        onAttrsChange={form.setRuleAttrs}
       />
 
       {errorKey ? (
@@ -127,6 +130,11 @@ export function MappingEditor({
           ) : null}
           {canWrite && !form.unitChosen ? (
             <span className="text-sm">{t('mapping.crs.unitRequired')}</span>
+          ) : null}
+          {canWrite && form.missingRoles.length > 0 ? (
+            <span className="text-sm" role="status">
+              {t('mapping.role.required', { names: form.missingRoles.join(', ') })}
+            </span>
           ) : null}
           {canBuild && form.savedVersion === null ? (
             <span className="text-sm">{t('mapping.noSavedMapping')}</span>

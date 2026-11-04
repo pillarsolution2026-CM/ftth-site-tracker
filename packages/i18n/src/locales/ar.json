@@ -729,6 +729,22 @@
       "MAPPING_VERSION_MISMATCH": "تغيّر الربط منذ فتحته. أعد التحميل ثم ابنِ من جديد.",
       "REVISION_IN_PROGRESS": "توجد مراجعة أخرى لهذا المشروع قيد البناء أو بانتظار المراجعة",
       "reload": "إعادة التحميل"
+    },
+    "role": {
+      "label": "نوع الكابينة",
+      "choose": "اختار Main أو Sub",
+      "main": "Main",
+      "sub": "Sub",
+      "required": "اختار Main أو Sub لـ: {names}"
+    },
+    "status": {
+      "label": "الحالة",
+      "new": "جديد",
+      "existing": "قديم (قائم)"
+    },
+    "kind": {
+      "label": "النوع",
+      "placeholder": "مثلًا 4 way أو 144"
     }
   },
   "design": {
@@ -770,7 +786,8 @@
     },
     "counts": {
       "title": "عناصر الشبكة",
-      "routeLength": "طول المسارات (م)"
+      "routeLength": "طول المسارات (م)",
+      "groupsTitle": "حسب النوع"
     },
     "linkCounts": {
       "title": "ربط النصوص"
@@ -869,6 +886,49 @@
       "distance": "المسافة (م)",
       "lengthDelta": "فرق الطول (م)",
       "none": "لا توجد تغييرات للعرض"
+    },
+    "problems": {
+      "title": "مشاكل الرسمة",
+      "hint": "صلّح الرسمة وارفعها تاني، أو تجاهل المكان على مسؤوليتك. الإحداثيات من الرسمة عشان تلاقيها في AutoCAD.",
+      "none": "مفيش مشاكل في الرسمة.",
+      "ignoredCount": "اتجاهل {count} من {total}",
+      "place": "المكان (في الرسمة)",
+      "layer": "الطبقة",
+      "near": "جنب",
+      "status": "الحالة",
+      "showFirst": "اعرض أول {count}",
+      "showAll": "اعرض الكل ({count})",
+      "moreThanListed": "معروض أول {listed} مكان بس.",
+      "label": "الـlabel",
+      "moveTo": "مكانها الصح على طبقة",
+      "ignoredAt": "اتجاهلت على مسؤولية المستخدم، {at}",
+      "confirmTitle": "تجاهل المكان ده",
+      "confirmText": "التجاهل بيسيب الرسمة زي ما هي. المكان ده على مسؤوليتك، وهيتسجل باسمك ووقته.",
+      "confirmIgnore": "على مسؤوليتي: تجاهل",
+      "ignoreFailed": "ما قدرناش نتجاهل المكان ده. جرّب تاني.",
+      "ignore": "تجاهل",
+      "open": "مفتوحة",
+      "severity": {
+        "error": "خطأ",
+        "warning": "تحذير",
+        "info": "معلومة"
+      },
+      "code": {
+        "ROUTE_SPLIT": "خطوط مسار متقطعة",
+        "RING_LABEL_MISMATCH": "الـRing مش مطابق الترقيم",
+        "WRONG_LAYER": "على طبقة غلط",
+        "LABEL_MISSING": "رمز من غير label",
+        "LABEL_TYPE_MISMATCH": "الرمز والـlabel مختلفين",
+        "LABEL_LENGTH_MISSING": "كابل مكتوب من غير طول"
+      },
+      "explain": {
+        "ROUTE_SPLIT": "فيه خطوط في المسار متقطعة ومش كاملة. لازم تكون متصلة عشان المسار يبان صح.",
+        "RING_LABEL_MISMATCH": "فيه Ring من غير ترقيم، أو ترقيم Ring من غير Ring.",
+        "WRONG_LAYER": "العنصر أو الـlabel بتاعه مرسوم على طبقة تانية. وحّد الطبقات عشان الرسمة تتقري ببساطة.",
+        "LABEL_MISSING": "باقي الرموز من النوع ده ليها labels، والرمز ده مالوش.",
+        "LABEL_TYPE_MISMATCH": "الرمز بيقول نوع والـlabel بيقول نوع تاني (زي Joint 36 مكتوب جنبه 144).",
+        "LABEL_LENGTH_MISSING": "نوع الكابل أو الدكت مكتوب من غير الطول. للمعلومة بس."
+      }
     }
   },
   "asbuilt": {

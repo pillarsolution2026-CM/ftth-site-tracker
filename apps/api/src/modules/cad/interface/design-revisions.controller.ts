@@ -24,6 +24,8 @@ import {
   DesignRevisionSummarySchema,
   DiffListQuerySchema,
   DiffPageSchema,
+  DrawingProblemListSchema,
+  IgnoreDrawingProblemRequestSchema,
   PublishDesignRevisionRequestSchema,
   ReviewTextLinkRequestSchema,
   TextLinkListQuerySchema,
@@ -38,6 +40,8 @@ import {
   type DesignRevisionSummary,
   type DiffListQuery,
   type DiffPage,
+  type DrawingProblemList,
+  type IgnoreDrawingProblemRequest,
   type PublishDesignRevisionRequest,
   type ReviewTextLinkRequest,
   type TextLink,
@@ -64,6 +68,10 @@ import {
   ListTextLinksUseCase,
 } from '../application/design-revision-queries.use-cases.js';
 import { DiscardDesignRevisionUseCase } from '../application/discard-design-revision.use-case.js';
+import {
+  IgnoreDrawingProblemUseCase,
+  ListDrawingProblemsUseCase,
+} from '../application/drawing-problems.use-cases.js';
 import { PublishDesignRevisionUseCase } from '../application/publish-design-revision.use-case.js';
 import { ReviewTextLinkUseCase } from '../application/review-text-link.use-case.js';
 import { CreateTileUrlUseCase, GetRevisionTilesUseCase } from '../application/tiles.use-cases.js';
@@ -84,6 +92,9 @@ export class DesignRevisionsController {
     @Inject(ListTextLinksUseCase) private readonly textLinks: ListTextLinksUseCase,
     @Inject(ReviewTextLinkUseCase) private readonly review: ReviewTextLinkUseCase,
     @Inject(ListRevisionDiffUseCase) private readonly diff: ListRevisionDiffUseCase,
+    @Inject(ListDrawingProblemsUseCase) private readonly problems: ListDrawingProblemsUseCase,
+    @Inject(IgnoreDrawingProblemUseCase)
+    private readonly ignoreProblem: IgnoreDrawingProblemUseCase,
     @Inject(PublishDesignRevisionUseCase) private readonly publish: PublishDesignRevisionUseCase,
     @Inject(DiscardDesignRevisionUseCase) private readonly discard: DiscardDesignRevisionUseCase,
     @Inject(GetRevisionTilesUseCase) private readonly tiles: GetRevisionTilesUseCase,
@@ -163,6 +174,36 @@ export class DesignRevisionsController {
       linkId,
       actorId: actorIdOf(request),
       review: body,
+    });
+  }
+
+  @Get(':revisionId/problems')
+  @RequirePermission('design:read')
+  @ApiOkResponse({ schema: openApiSchema(DrawingProblemListSchema) })
+  listProblems(
+    @ProjectIdParam() projectId: string,
+    @Param('revisionId', UuidParamPipe) revisionId: string,
+  ): Promise<DrawingProblemList> {
+    return this.problems.execute(projectId, revisionId);
+  }
+
+  /** ADR-034: the user ignores one place on their own responsibility (draft revisions only). */
+  @Post(':revisionId/problems/ignore')
+  @HttpCode(200)
+  @RequirePermission('design:write')
+  @ApiOkResponse({ schema: openApiSchema(DrawingProblemListSchema) })
+  ignoreOneProblem(
+    @ProjectIdParam() projectId: string,
+    @Param('revisionId', UuidParamPipe) revisionId: string,
+    @Body(new ZodValidationPipe(IgnoreDrawingProblemRequestSchema))
+    body: IgnoreDrawingProblemRequest,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<DrawingProblemList> {
+    return this.ignoreProblem.execute({
+      projectId,
+      revisionId,
+      actorId: actorIdOf(request),
+      request: body,
     });
   }
 

@@ -46,6 +46,8 @@ export const EVENT_TYPES = {
   designRevisionFailed: 'design_revision.failed',
   designRevisionPublished: 'design_revision.published',
   designRevisionDiscarded: 'design_revision.discarded',
+  /** ADR-034. Payload: { code, handle, layer, acceptResponsibility: true }. */
+  designRevisionProblemIgnored: 'design_revision.problem_ignored',
   /** Payload: { before: {status, featureId}, after: {status, featureId} }. */
   textLinkReviewed: 'text_link.reviewed',
   /** Payload: clientOpId, deviceId, featureId, lines, flags (Phase 3). */

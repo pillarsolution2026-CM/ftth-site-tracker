@@ -4,12 +4,15 @@ import { useMemo, useRef, useState } from 'react';
 import type { CadMappingInput, CadMappingView, DrawingUnit, MappingTarget } from '@ftth/shared';
 import { parseEpsg } from '../model/epsg';
 import {
+  EMPTY_ATTRS,
   buildMappingInput,
+  cabinetsWithoutRole,
   formSignature,
   initialFormState,
   textRuleRows,
   type BlockChoice,
   type MappingFormState,
+  type RuleAttrsForm,
   type TextChoice,
 } from '../model/mapping-form';
 import { unitWarnings } from '../model/unit-warnings';
@@ -39,6 +42,7 @@ export function useMappingForm(view: CadMappingView) {
   const epsg = parseEpsg(state.epsg);
   const signature = formSignature(state);
   const textRows = useMemo(() => textRuleRows(view), [view]);
+  const missingRoles = cabinetsWithoutRole(view, state);
 
   return {
     state,
@@ -46,7 +50,9 @@ export function useMappingForm(view: CadMappingView) {
     epsgError: !epsg.ok && (epsgTouched || state.epsg.trim() !== '') ? epsg.error : null,
     warnings: unitWarnings(view.crsDetection, state.unit === '' ? null : state.unit),
     unitChosen: state.unit !== '',
-    canSave: state.unit !== '' && epsg.ok,
+    /** Rows mapped to `cabinet` whose role (main / sub) is not chosen yet. */
+    missingRoles,
+    canSave: state.unit !== '' && epsg.ok && missingRoles.length === 0,
     savedVersion: version,
     justSavedVersion,
     dirty: baseline === null || baseline !== signature,
@@ -62,6 +68,11 @@ export function useMappingForm(view: CadMappingView) {
       change((current) => ({ ...current, blocks: { ...current.blocks, [block]: choice } })),
     setTextChoice: (key: string, choice: TextChoice) =>
       change((current) => ({ ...current, texts: { ...current.texts, [key]: choice } })),
+    setRuleAttrs: (key: string, patch: Partial<RuleAttrsForm>) =>
+      change((current) => ({
+        ...current,
+        attrs: { ...current.attrs, [key]: { ...(current.attrs[key] ?? EMPTY_ATTRS), ...patch } },
+      })),
     /** The payload to send, or null while the form is not valid. */
     prepareSave: (): { input: CadMappingInput; signature: string } | null => {
       const input = buildMappingInput(view, state, version);

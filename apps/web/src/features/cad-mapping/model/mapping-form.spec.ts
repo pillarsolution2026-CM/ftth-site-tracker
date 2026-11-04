@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { initialEpsgText, parseEpsg } from './epsg';
 import { mappingErrorKey, needsReload } from './mapping-errors';
 import {
+  attrsKey,
   buildMappingInput,
+  cabinetsWithoutRole,
   formSignature,
   initialFormState,
   isSuggestedLayer,
@@ -191,5 +193,64 @@ describe('mapping errors', () => {
     expect(needsReload('CONFLICT', 'VERSION_MISMATCH')).toBe(true);
     expect(needsReload('CONFLICT', 'MAPPING_VERSION_MISMATCH')).toBe(true);
     expect(needsReload('CONFLICT', 'NO_MAPPING')).toBe(false);
+  });
+});
+
+describe('rule attributes (ADR-033/034)', () => {
+  it('sends kind, existing status and a cabinet role, and nothing for non-feature targets', () => {
+    const view = mappingView();
+    const state = initialFormState(view);
+    state.unit = 'm';
+    state.layers.N_DUC_CBL = 'route';
+    state.layers.BUILDINGS = 'cabinet';
+    state.blocks['HHI-BLOCK'] = 'hhi';
+    state.attrs = {
+      [attrsKey.layer('N_DUC_CBL')]: { kind: ' 4 way ', role: '', status: 'new' },
+      [attrsKey.layer('BUILDINGS')]: { kind: '', role: 'sub', status: 'new' },
+      [attrsKey.block('HHI-BLOCK')]: { kind: '', role: '', status: 'existing' },
+    };
+    const input = buildMappingInput(view, state, null);
+    expect(input?.rules).toEqual(
+      expect.arrayContaining([
+        { source: 'layer', layer: 'N_DUC_CBL', target: 'route', kind: '4 way' },
+        { source: 'layer', layer: 'BUILDINGS', target: 'cabinet', role: 'sub' },
+        { source: 'block', block: 'HHI-BLOCK', target: 'hhi', status: 'existing' },
+      ]),
+    );
+  });
+
+  it('blocks the save while a cabinet has no role, and names it', () => {
+    const view = mappingView();
+    const state = initialFormState(view);
+    state.unit = 'm';
+    state.layers.BUILDINGS = 'cabinet';
+    expect(cabinetsWithoutRole(view, state)).toEqual(['BUILDINGS']);
+    expect(buildMappingInput(view, state, null)).toBeNull();
+  });
+
+  it('reads saved attributes back and keeps the signature stable', () => {
+    const view = mappingView({
+      mapping: saved({
+        rules: [
+          { source: 'layer', layer: 'N_DUC_CBL', target: 'route', kind: '2 way' },
+          { source: 'layer', layer: 'BUILDINGS', target: 'cabinet', role: 'main' },
+        ],
+      }),
+    });
+    const state = initialFormState(view);
+    expect(state.attrs[attrsKey.layer('N_DUC_CBL')]).toEqual({
+      kind: '2 way',
+      role: '',
+      status: 'new',
+    });
+    expect(state.attrs[attrsKey.layer('BUILDINGS')]?.role).toBe('main');
+    const changed = {
+      ...state,
+      attrs: {
+        ...state.attrs,
+        [attrsKey.layer('N_DUC_CBL')]: { kind: '4 way', role: '', status: 'new' },
+      },
+    } as const;
+    expect(formSignature(changed)).not.toBe(formSignature(state));
   });
 });

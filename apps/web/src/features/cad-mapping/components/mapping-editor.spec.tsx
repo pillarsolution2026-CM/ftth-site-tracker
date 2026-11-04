@@ -76,7 +76,7 @@ describe('MappingEditor', () => {
     renderScreen(<MappingEditor {...props()} />);
     const layers = screen.getByRole('table', { name: 'Layers' });
     const route = within(layers).getByRole('row', { name: /N_DUC_CBL/ });
-    expect(within(route).getByRole('combobox')).toHaveValue('route');
+    expect(within(route).getByRole('combobox', { name: /^Becomes/ })).toHaveValue('route');
     expect(within(route).getByText('Suggested')).toBeInTheDocument();
     expect(within(route).getByText('ACI 1')).toBeInTheDocument();
   });
@@ -156,5 +156,23 @@ describe('MappingEditor', () => {
     );
     expect(screen.getByText(/must be processed/)).toBeInTheDocument();
     expect(screen.getByLabelText('Drawing unit')).toBeDisabled();
+  });
+
+  it('asks for main or sub when a layer becomes a cabinet, then saves the role', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(1);
+    renderScreen(<MappingEditor {...props({ onSave })} />);
+    await user.selectOptions(screen.getByLabelText('Drawing unit'), 'm');
+    await user.selectOptions(screen.getByLabelText('Becomes: BUILDINGS'), 'cabinet');
+    expect(screen.getByText('Choose main or sub for: BUILDINGS')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save mapping' })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText('Cabinet role: BUILDINGS'), 'sub');
+    await user.click(screen.getByRole('button', { name: 'Save mapping' }));
+    expect(onSave.mock.calls[0]?.[0].rules).toContainEqual({
+      source: 'layer',
+      layer: 'BUILDINGS',
+      target: 'cabinet',
+      role: 'sub',
+    });
   });
 });

@@ -97,6 +97,23 @@ export function RevisionSummary({ revision }: { revision: DesignRevisionDetail }
           ]}
         />
       ) : null}
+      {revision.counts?.groups && revision.counts.groups.length > 0 ? (
+        <CountGrid
+          title={t('design.counts.groupsTitle')}
+          rows={revision.counts.groups.map((group): [string, React.ReactNode] => {
+            const parts = [
+              t(`featureType.${group.type}`),
+              group.role ? t(`mapping.role.${group.role}`) : null,
+              group.kind,
+              group.status === 'existing' ? t('mapping.status.existing') : null,
+            ].filter((part): part is string => part !== null);
+            const value = group.lengthM
+              ? `${group.count} · ${formatDecimal(group.lengthM, 'en')} m`
+              : group.count;
+            return [parts.join(' · '), value];
+          })}
+        />
+      ) : null}
       {revision.textLinkCounts ? (
         <CountGrid
           title={t('design.linkCounts.title')}
