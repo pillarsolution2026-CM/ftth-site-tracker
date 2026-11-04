@@ -1,6 +1,8 @@
 import {
   CadMappingInputSchema,
   FEATURE_TYPES,
+  type CabinetRole,
+  type ItemStatus,
   POINT_FEATURE_TYPES,
   isPointFeatureType,
   mappingRuleKey,
@@ -28,6 +30,17 @@ export type BlockChoice = 'follow' | BlockTarget;
 /** `none` = no text rule. */
 export type TextChoice = 'none' | PointFeatureType;
 
+/**
+ * What a rule to a feature type adds (ADR-033/034): `kind` (free, e.g. "4 way", "144"), `status`
+ * (new or existing) and, for cabinets only and required, `role` ('' = not chosen yet: no default).
+ */
+export interface RuleAttrsForm {
+  kind: string;
+  role: CabinetRole | '';
+  status: ItemStatus;
+}
+export const EMPTY_ATTRS: RuleAttrsForm = { kind: '', role: '', status: 'new' };
+
 export interface MappingFormState {
   /** Text of the EPSG input. */
   epsg: string;
@@ -36,6 +49,33 @@ export interface MappingFormState {
   layers: Record<string, MappingTarget>;
   blocks: Record<string, BlockChoice>;
   texts: Record<string, TextChoice>;
+  /** By `attrsKey(…)`; absent = EMPTY_ATTRS. */
+  attrs: Record<string, RuleAttrsForm>;
+}
+
+export const attrsKey = {
+  layer: (name: string) => `layer:${name}`,
+  block: (name: string) => `block:${name}`,
+  text: (rowKey: string) => `text:${rowKey}`,
+};
+
+export function isFeatureTarget(target: string): boolean {
+  return (FEATURE_TYPES as readonly string[]).includes(target);
+}
+
+function attrsOfRule(rule: MappingRule): RuleAttrsForm {
+  return { kind: rule.kind ?? '', role: rule.role ?? '', status: rule.status ?? 'new' };
+}
+
+/** The attributes to send with a rule to `target`; nothing for non-feature targets. */
+function ruleAttrs(target: string, attrs: RuleAttrsForm | undefined) {
+  if (!isFeatureTarget(target) || !attrs) return {};
+  const kind = attrs.kind.trim();
+  return {
+    ...(kind ? { kind } : {}),
+    ...(attrs.status === 'existing' ? { status: attrs.status } : {}),
+    ...(target === 'cabinet' && attrs.role ? { role: attrs.role } : {}),
+  };
 }
 
 export interface TextRuleRow {
@@ -140,13 +180,51 @@ export function initialFormState(view: CadMappingView): MappingFormState {
       : (row.suggestedTarget ?? 'none');
   }
 
+  const attrs: Record<string, RuleAttrsForm> = {};
+  const rowKeyByText = new Map(
+    textRuleRows(view).map((row) => [caselessKey(row.layer, row.text), row.key]),
+  );
+  for (const rule of savedRules(view)) {
+    const value = attrsOfRule(rule);
+    if (value.kind === '' && value.role === '' && value.status === 'new') continue;
+    if (rule.source === 'layer') attrs[attrsKey.layer(rule.layer)] = value;
+    else if (rule.source === 'block') attrs[attrsKey.block(rule.block)] = value;
+    else {
+      const rowKey = rowKeyByText.get(caselessKey(rule.layer, rule.text));
+      if (rowKey) attrs[attrsKey.text(rowKey)] = value;
+    }
+  }
+
   return {
     epsg: initialEpsgText(view),
     unit: view.mapping?.drawingUnit ?? '',
     layers,
     blocks,
     texts,
+    attrs,
   };
+}
+
+/** Rule rows that point at `cabinet` without a chosen role (save stays off until chosen). */
+export function cabinetsWithoutRole(view: CadMappingView, state: MappingFormState): string[] {
+  const missing: string[] = [];
+  const check = (key: string, target: string, label: string) => {
+    if (target === 'cabinet' && (state.attrs[key]?.role ?? '') === '') missing.push(label);
+  };
+  for (const layer of view.layers) {
+    check(
+      attrsKey.layer(layer.name),
+      state.layers[layer.name] ?? layer.suggestedTarget,
+      layer.name,
+    );
+  }
+  for (const block of view.blocks) {
+    check(attrsKey.block(block.name), state.blocks[block.name] ?? 'follow', block.name);
+  }
+  for (const row of textRuleRows(view)) {
+    check(attrsKey.text(row.key), state.texts[row.key] ?? 'none', row.text);
+  }
+  return missing;
 }
 
 /** True when the row shows the name-based suggestion that has never been saved. */
@@ -171,6 +249,10 @@ export function formSignature(state: MappingFormState): string {
     sorted(state.layers),
     sorted(state.blocks),
     sorted(state.texts),
+    Object.entries(state.attrs)
+      .filter(([, a]) => a.kind.trim() !== '' || a.role !== '' || a.status !== 'new')
+      .map(([key, a]): [string, string] => [key, `${a.kind.trim()}|${a.role}|${a.status}`])
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   ]);
 }
 
@@ -189,20 +271,35 @@ export function buildMappingInput(
 
   const rules: MappingRule[] = [];
   for (const layer of view.layers) {
+    const target = state.layers[layer.name] ?? layer.suggestedTarget;
     rules.push({
       source: 'layer',
       layer: layer.name,
-      target: state.layers[layer.name] ?? layer.suggestedTarget,
+      target,
+      ...ruleAttrs(target, state.attrs[attrsKey.layer(layer.name)]),
     });
   }
   for (const block of view.blocks) {
     const choice = state.blocks[block.name] ?? 'follow';
-    if (choice !== 'follow') rules.push({ source: 'block', block: block.name, target: choice });
+    if (choice !== 'follow') {
+      rules.push({
+        source: 'block',
+        block: block.name,
+        target: choice,
+        ...ruleAttrs(choice, state.attrs[attrsKey.block(block.name)]),
+      });
+    }
   }
   for (const row of textRuleRows(view)) {
     const choice = state.texts[row.key] ?? 'none';
     if (choice !== 'none') {
-      rules.push({ source: 'text', layer: row.layer, text: row.text.trim(), target: choice });
+      rules.push({
+        source: 'text',
+        layer: row.layer,
+        text: row.text.trim(),
+        target: choice,
+        ...ruleAttrs(choice, state.attrs[attrsKey.text(row.key)]),
+      });
     }
   }
 

@@ -3,6 +3,7 @@ import type {
   DesignFeaturePage,
   DiffListQuery,
   DiffPage,
+  DrawingProblemCode,
   DrawingUnit,
   FeatureType,
   MappingRule,
@@ -135,6 +136,29 @@ export interface TextLinkRepository {
   /** Recounts links per status and stores the result on the revision. */
   recomputeCounts(projectId: string, revisionId: string): Promise<TextLinkCounts>;
   countOpenItems(projectId: string, revisionId: string): Promise<OpenItems>;
+}
+
+export interface ProblemIgnoreRecord {
+  code: DrawingProblemCode;
+  handle: string;
+  ignoredById: string | null;
+  ignoredAt: Date;
+}
+
+/** Drawing problems written by the worker and the places ignored by users (ADR-034). */
+export interface DrawingProblemRepository {
+  /** `design_revisions.warnings` as stored (problems and older count-only warnings). */
+  warnings(projectId: string, revisionId: string): Promise<unknown>;
+  ignores(projectId: string, revisionId: string): Promise<ProblemIgnoreRecord[]>;
+  /** False when that place was already ignored (the first ignore is kept). */
+  ignore(
+    projectId: string,
+    revisionId: string,
+    code: DrawingProblemCode,
+    handle: string,
+    actorId: string,
+    at: Date,
+  ): Promise<boolean>;
 }
 
 /** Read-side queries over what the worker wrote (lists are paged and ordered). */

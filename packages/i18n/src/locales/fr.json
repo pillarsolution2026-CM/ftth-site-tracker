@@ -729,6 +729,22 @@
       "MAPPING_VERSION_MISMATCH": "Le mapping a changé depuis votre ouverture. Rechargez puis reconstruisez.",
       "REVISION_IN_PROGRESS": "Une autre révision de ce projet est en construction ou en attente de relecture",
       "reload": "Recharger"
+    },
+    "role": {
+      "label": "Rôle de l’armoire",
+      "choose": "Choisir principale ou secondaire",
+      "main": "Principale",
+      "sub": "Secondaire",
+      "required": "Choisissez principale ou secondaire pour : {names}"
+    },
+    "status": {
+      "label": "État",
+      "new": "Nouveau",
+      "existing": "Existant"
+    },
+    "kind": {
+      "label": "Type",
+      "placeholder": "ex. 4 way, 144"
     }
   },
   "design": {
@@ -770,7 +786,8 @@
     },
     "counts": {
       "title": "Objets du réseau",
-      "routeLength": "Longueur des tracés (m)"
+      "routeLength": "Longueur des tracés (m)",
+      "groupsTitle": "Par type"
     },
     "linkCounts": {
       "title": "Liens de textes"
@@ -869,6 +886,49 @@
       "distance": "Distance (m)",
       "lengthDelta": "Écart de longueur (m)",
       "none": "Aucun changement à afficher"
+    },
+    "problems": {
+      "title": "Problèmes du dessin",
+      "hint": "Corrigez le dessin et téléversez-le à nouveau, ou ignorez un emplacement sous votre responsabilité. Les coordonnées sont celles du dessin, pour les retrouver dans AutoCAD.",
+      "none": "Aucun problème trouvé dans le dessin.",
+      "ignoredCount": "{count} sur {total} ignorés",
+      "place": "Emplacement (dessin)",
+      "layer": "Calque",
+      "near": "Près de",
+      "status": "État",
+      "showFirst": "Afficher les {count} premiers",
+      "showAll": "Tout afficher ({count})",
+      "moreThanListed": "Seuls les {listed} premiers emplacements sont listés.",
+      "label": "Étiquette",
+      "moveTo": "Calque attendu",
+      "ignoredAt": "Ignoré sous la responsabilité de l’utilisateur, {at}",
+      "confirmTitle": "Ignorer cet emplacement",
+      "confirmText": "Ignorer laisse le dessin tel quel. Vous en prenez la responsabilité ; votre nom et l’heure sont enregistrés.",
+      "confirmIgnore": "J’en prends la responsabilité : ignorer",
+      "ignoreFailed": "Impossible d’ignorer cet emplacement. Réessayez.",
+      "ignore": "Ignorer",
+      "open": "Ouvert",
+      "severity": {
+        "error": "Erreur",
+        "warning": "Avertissement",
+        "info": "Information"
+      },
+      "code": {
+        "ROUTE_SPLIT": "Lignes de tracé interrompues",
+        "RING_LABEL_MISMATCH": "Rings et étiquettes ne correspondent pas",
+        "WRONG_LAYER": "Sur le mauvais calque",
+        "LABEL_MISSING": "Symbole sans étiquette",
+        "LABEL_TYPE_MISMATCH": "Symbole et étiquette en désaccord",
+        "LABEL_LENGTH_MISSING": "Étiquette de câble sans longueur"
+      },
+      "explain": {
+        "ROUTE_SPLIT": "Des lignes du tracé sont interrompues. Elles doivent être reliées pour que le tracé soit clair.",
+        "RING_LABEL_MISMATCH": "Un ring sans étiquette, ou une étiquette de ring sans ring.",
+        "WRONG_LAYER": "L’élément ou son étiquette est sur un autre calque. Unifiez les calques pour une lecture simple.",
+        "LABEL_MISSING": "Les autres symboles de ce type ont une étiquette ; celui-ci n’en a pas.",
+        "LABEL_TYPE_MISMATCH": "Le symbole indique un type et son étiquette un autre (ex. jonction 36 étiquetée 144).",
+        "LABEL_LENGTH_MISSING": "Le type de câble ou de fourreau est écrit sans sa longueur. Pour information."
+      }
     }
   },
   "asbuilt": {

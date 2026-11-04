@@ -18,6 +18,10 @@ import {
 import { SaveCadMappingUseCase } from './cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './create-design-revision.use-case.js';
 import { DiscardDesignRevisionUseCase } from './discard-design-revision.use-case.js';
+import {
+  IgnoreDrawingProblemUseCase,
+  ListDrawingProblemsUseCase,
+} from './drawing-problems.use-cases.js';
 import { PublishDesignRevisionUseCase } from './publish-design-revision.use-case.js';
 import { ReprocessCadFileUseCase } from './reprocess-cad-file.use-case.js';
 import { ReviewTextLinkUseCase } from './review-text-link.use-case.js';
@@ -638,6 +642,88 @@ describe('tile use cases', () => {
         });
         expect(await reason(download())).toMatchObject({ code: 'NOT_FOUND' });
       }
+    });
+  });
+});
+
+describe('drawing problems (ADR-034)', () => {
+  let revisionId: string;
+  const problem = {
+    code: 'WRONG_LAYER',
+    severity: 'warning',
+    count: 1,
+    items: [
+      {
+        x: 7113,
+        y: 4573,
+        drawingX: 7113,
+        drawingY: 4573,
+        layer: 'Sap',
+        handle: 'A1',
+        suggestedLayer: 'CABINET SITE SUB CABINET',
+        text: null,
+        near: null,
+      },
+    ],
+  };
+  const ignore = (handle = 'A1') =>
+    new IgnoreDrawingProblemUseCase(uow, clock).execute({
+      projectId: PROJECT,
+      revisionId,
+      actorId: ACTOR,
+      request: { code: 'WRONG_LAYER', handle, acceptResponsibility: true },
+    });
+
+  beforeEach(async () => {
+    await save();
+    const revision = await create();
+    revisionId = revision.id;
+    uow.revisions.rows.set(revisionId, { ...revision, status: 'draft' });
+    // Older count-only warnings sit next to the problems and are skipped.
+    uow.problems.stored.set(revisionId, [{ code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 }, problem]);
+  });
+
+  it('lists the problems with no place ignored yet', async () => {
+    const list = await new ListDrawingProblemsUseCase(uow.revisions, uow.problems).execute(
+      PROJECT,
+      revisionId,
+    );
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]).toMatchObject({ code: 'WRONG_LAYER', ignoredCount: 0 });
+    expect(list.items[0]?.items[0]?.ignored).toBeNull();
+  });
+
+  it('records who ignored a place and when, once, with one event', async () => {
+    const first = await ignore();
+    expect(first.items[0]?.ignoredCount).toBe(1);
+    expect(first.items[0]?.items[0]?.ignored).toEqual({
+      byId: ACTOR,
+      at: '2026-10-28T10:00:00.000Z',
+    });
+    await ignore();
+    expect(uow.problems.records).toHaveLength(1);
+    const events = uow.events.events.filter((e) => e.type === 'design_revision.problem_ignored');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({ code: 'WRONG_LAYER', handle: 'A1', layer: 'Sap' });
+  });
+
+  it('refuses a place the worker did not list, another project and a published revision', async () => {
+    expect((await reason(ignore('ZZ'))).code).toBe('NOT_FOUND');
+    expect(
+      (
+        await reason(
+          new ListDrawingProblemsUseCase(uow.revisions, uow.problems).execute(
+            OTHER_PROJECT,
+            revisionId,
+          ),
+        )
+      ).code,
+    ).toBe('NOT_FOUND');
+    const row = must(uow.revisions.rows.get(revisionId));
+    uow.revisions.rows.set(revisionId, { ...row, status: 'published', revNo: 1 });
+    expect(await reason(ignore())).toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'REVISION_LOCKED' },
     });
   });
 });

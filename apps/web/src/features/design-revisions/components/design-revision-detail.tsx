@@ -13,6 +13,7 @@ import { useRevisionDetail } from '../hooks/use-revision-detail';
 import { useTextReview } from '../hooks/use-text-review';
 import { isBuilding } from '../model/revision-status';
 import { DiffSection } from './diff-section';
+import { ProblemsSection } from './problems-section';
 import { PublishDialog } from './publish-dialog';
 import { RevisionStatusBadge } from './revision-status-badge';
 import { RevisionSummary } from './revision-summary';
@@ -114,6 +115,14 @@ export function DesignRevisionDetailScreen({
       </Card>
       {state.built ? (
         <>
+          <Card>
+            <ProblemsSection
+              projectId={projectId}
+              revisionId={revisionId}
+              enabled={state.canRead && state.built}
+              canIgnore={state.canReview}
+            />
+          </Card>
           <Card>
             <TextReviewView state={review} canReview={state.canReview} />
           </Card>

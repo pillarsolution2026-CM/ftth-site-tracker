@@ -35,6 +35,10 @@ import { PublishDesignRevisionUseCase } from './application/publish-design-revis
 import { ReprocessCadFileUseCase } from './application/reprocess-cad-file.use-case.js';
 import { ReviewTextLinkUseCase } from './application/review-text-link.use-case.js';
 import {
+  IgnoreDrawingProblemUseCase,
+  ListDrawingProblemsUseCase,
+} from './application/drawing-problems.use-cases.js';
+import {
   CreateTileUrlUseCase,
   GetRevisionTilesUseCase,
   VerifyTileRequestUseCase,
@@ -48,6 +52,7 @@ import {
   CAD_UNIT_OF_WORK,
   DESIGN_READ_QUERIES,
   DESIGN_REVISION_REPOSITORY,
+  DRAWING_PROBLEM_REPOSITORY,
   JOB_QUEUE,
   PROJECT_EPSG_LOOKUP,
   TILE_CONFIG,
@@ -62,12 +67,14 @@ import type {
   CadMappingViewQueries,
   DesignReadQueries,
   DesignRevisionRepository,
+  DrawingProblemRepository,
 } from './domain/design-revision.repository.js';
 import { DrizzleCadExtractionQueries } from './infrastructure/drizzle-cad-extraction.queries.js';
 import { DrizzleCadFileRepository } from './infrastructure/drizzle-cad-file.repository.js';
 import { DrizzleCadMappingRepository } from './infrastructure/drizzle-cad-mapping.repository.js';
 import { DrizzleCadUnitOfWork } from './infrastructure/drizzle-cad.unit-of-work.js';
 import { DrizzleDesignReadQueries } from './infrastructure/drizzle-design-read.queries.js';
+import { DrizzleDrawingProblemRepository } from './infrastructure/drizzle-drawing-problem.repository.js';
 import { DrizzleDesignRevisionRepository } from './infrastructure/drizzle-design-revision.repository.js';
 import { DrizzleMappingViewQueries } from './infrastructure/drizzle-mapping-view.queries.js';
 import { ProjectsServiceEpsgLookup } from './infrastructure/projects-epsg-lookup.js';
@@ -127,6 +134,11 @@ const providers: Provider[] = [
     provide: DESIGN_READ_QUERIES,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleDesignReadQueries(db),
+  },
+  {
+    provide: DRAWING_PROBLEM_REPOSITORY,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleDrawingProblemRepository(db),
   },
   {
     provide: CAD_UNIT_OF_WORK,
@@ -240,6 +252,17 @@ const providers: Provider[] = [
     inject: [CAD_UNIT_OF_WORK, DESIGN_READ_QUERIES],
     useFactory: (uow: CadUnitOfWork, reads: DesignReadQueries) =>
       new ReviewTextLinkUseCase(uow, reads, systemClock),
+  },
+  {
+    provide: ListDrawingProblemsUseCase,
+    inject: [DESIGN_REVISION_REPOSITORY, DRAWING_PROBLEM_REPOSITORY],
+    useFactory: (revisions: DesignRevisionRepository, problems: DrawingProblemRepository) =>
+      new ListDrawingProblemsUseCase(revisions, problems),
+  },
+  {
+    provide: IgnoreDrawingProblemUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new IgnoreDrawingProblemUseCase(uow, systemClock),
   },
   {
     provide: PublishDesignRevisionUseCase,

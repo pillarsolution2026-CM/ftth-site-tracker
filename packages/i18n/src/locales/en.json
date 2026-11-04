@@ -729,6 +729,22 @@
       "MAPPING_VERSION_MISMATCH": "The mapping changed since you opened it. Reload and build again.",
       "REVISION_IN_PROGRESS": "Another revision of this project is still being built or waiting for review",
       "reload": "Reload"
+    },
+    "role": {
+      "label": "Cabinet role",
+      "choose": "Choose main or sub",
+      "main": "Main",
+      "sub": "Sub",
+      "required": "Choose main or sub for: {names}"
+    },
+    "status": {
+      "label": "Status",
+      "new": "New",
+      "existing": "Existing"
+    },
+    "kind": {
+      "label": "Kind",
+      "placeholder": "e.g. 4 way, 144"
     }
   },
   "design": {
@@ -770,7 +786,8 @@
     },
     "counts": {
       "title": "Network features",
-      "routeLength": "Route length (m)"
+      "routeLength": "Route length (m)",
+      "groupsTitle": "By kind"
     },
     "linkCounts": {
       "title": "Text links"
@@ -869,6 +886,49 @@
       "distance": "Distance (m)",
       "lengthDelta": "Length difference (m)",
       "none": "No changes to show"
+    },
+    "problems": {
+      "title": "Drawing problems",
+      "hint": "Fix the drawing and upload it again, or ignore a place on your own responsibility. Coordinates are in the drawing, to find them in AutoCAD.",
+      "none": "No drawing problems found.",
+      "ignoredCount": "{count} of {total} ignored",
+      "place": "Place (drawing)",
+      "layer": "Layer",
+      "near": "Near",
+      "status": "Status",
+      "showFirst": "Show the first {count}",
+      "showAll": "Show all {count}",
+      "moreThanListed": "Only the first {listed} places are listed.",
+      "label": "Label",
+      "moveTo": "Belongs on layer",
+      "ignoredAt": "Ignored on the user's responsibility, {at}",
+      "confirmTitle": "Ignore this place",
+      "confirmText": "Ignoring leaves the drawing as it is. You take responsibility for this place, and it is recorded with your name and the time.",
+      "confirmIgnore": "I take responsibility: ignore",
+      "ignoreFailed": "Could not ignore this place. Try again.",
+      "ignore": "Ignore",
+      "open": "Open",
+      "severity": {
+        "error": "Error",
+        "warning": "Warning",
+        "info": "Information"
+      },
+      "code": {
+        "ROUTE_SPLIT": "Broken route lines",
+        "RING_LABEL_MISMATCH": "Rings and their labels do not match",
+        "WRONG_LAYER": "On the wrong layer",
+        "LABEL_MISSING": "Symbol without a label",
+        "LABEL_TYPE_MISMATCH": "Symbol and label disagree",
+        "LABEL_LENGTH_MISSING": "Cable label without a length"
+      },
+      "explain": {
+        "ROUTE_SPLIT": "Some lines of the route are broken and not continuous. They must be connected so the route is clear.",
+        "RING_LABEL_MISMATCH": "A ring has no ring label, or a ring label has no ring.",
+        "WRONG_LAYER": "The item or its label is drawn on another layer. Unify the layers so the drawing reads simply.",
+        "LABEL_MISSING": "The other symbols of this type have labels; this one has none.",
+        "LABEL_TYPE_MISMATCH": "The symbol says one type and its label another (for example joint 36 labelled 144).",
+        "LABEL_LENGTH_MISSING": "The cable or duct type is written without its length. For information only."
+      }
     }
   },
   "asbuilt": {

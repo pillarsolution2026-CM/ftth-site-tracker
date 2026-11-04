@@ -74,3 +74,51 @@ export const DrawingProblemSchema = z.object({
   items: z.array(DrawingProblemItemSchema).max(MAX_PROBLEM_ITEMS),
 });
 export type DrawingProblem = z.infer<typeof DrawingProblemSchema>;
+
+// ---------- API: list and ignore (ADR-034) ----------
+
+/** Who ignored a problem place, on their own responsibility, and when. */
+export const ProblemIgnoreSchema = z.object({
+  byId: z.uuid().nullable(),
+  at: z.iso.datetime(),
+});
+
+export const DrawingProblemItemViewSchema = DrawingProblemItemSchema.extend({
+  ignored: ProblemIgnoreSchema.nullable(),
+});
+export type DrawingProblemItemView = z.infer<typeof DrawingProblemItemViewSchema>;
+
+export const DrawingProblemViewSchema = DrawingProblemSchema.extend({
+  items: z.array(DrawingProblemItemViewSchema).max(MAX_PROBLEM_ITEMS),
+  /** Places of this problem ignored so far. */
+  ignoredCount: z.number().int().min(0),
+});
+export type DrawingProblemView = z.infer<typeof DrawingProblemViewSchema>;
+
+/** GET …/design-revisions/:revisionId/problems — empty for revisions built before ADR-033. */
+export const DrawingProblemListSchema = z.object({
+  items: z.array(DrawingProblemViewSchema),
+});
+export type DrawingProblemList = z.infer<typeof DrawingProblemListSchema>;
+
+/**
+ * POST …/design-revisions/:revisionId/problems/ignore — draft revisions only. The user confirms
+ * that ignoring is on their own responsibility; the drawing itself is not changed.
+ */
+export const IgnoreDrawingProblemRequestSchema = z.object({
+  code: DrawingProblemCodeSchema,
+  handle: z.string().min(1).max(64),
+  acceptResponsibility: z.literal(true),
+});
+export type IgnoreDrawingProblemRequest = z.infer<typeof IgnoreDrawingProblemRequestSchema>;
+
+/** Reads the problems out of `design_revisions.warnings` (older count-only warnings are skipped). */
+export function drawingProblemsOf(warnings: unknown): DrawingProblem[] {
+  if (!Array.isArray(warnings)) return [];
+  const out: DrawingProblem[] = [];
+  for (const entry of warnings) {
+    const parsed = DrawingProblemSchema.safeParse(entry);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
+}

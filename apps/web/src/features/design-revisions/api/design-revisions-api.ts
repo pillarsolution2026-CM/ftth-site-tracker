@@ -4,6 +4,7 @@ import {
   DesignRevisionListResponseSchema,
   DesignRevisionSummarySchema,
   DiffPageSchema,
+  DrawingProblemListSchema,
   TextLinkPageSchema,
   TextLinkSchema,
   type CreateDesignRevisionRequest,
@@ -14,6 +15,8 @@ import {
   type DesignRevisionSummary,
   type DiffListQuery,
   type DiffPage,
+  type DrawingProblemList,
+  type IgnoreDrawingProblemRequest,
   type PublishDesignRevisionRequest,
   type ReviewTextLinkRequest,
   type TextLink,
@@ -96,4 +99,19 @@ export function listDiff(
   query: PageParams & { change?: DiffListQuery['change']; changedOnly?: boolean },
 ): Promise<DiffPage> {
   return bffJson(`${one(projectId, id)}/diff${toQueryString(query)}`, DiffPageSchema);
+}
+
+export function listDrawingProblems(projectId: string, id: string): Promise<DrawingProblemList> {
+  return bffJson(`${one(projectId, id)}/problems`, DrawingProblemListSchema);
+}
+
+export function ignoreDrawingProblem(
+  projectId: string,
+  id: string,
+  body: IgnoreDrawingProblemRequest,
+): Promise<DrawingProblemList> {
+  return bffJson(`${one(projectId, id)}/problems/ignore`, DrawingProblemListSchema, {
+    method: 'POST',
+    body,
+  });
 }

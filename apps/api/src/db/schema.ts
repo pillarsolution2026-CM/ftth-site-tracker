@@ -28,6 +28,7 @@ import type {
   DesignRevisionCounts,
   DiffChange,
   DiffCounts,
+  DrawingProblemCode,
   DrawingUnit,
   FeatureType,
   MappingRule,
@@ -595,6 +596,25 @@ export const textLinks = pgTable(
       table.confidence,
       table.textHandle,
     ),
+  ],
+);
+
+/** Drawing problems ignored on the user's own responsibility (ADR-034, migration 0011). */
+export const drawingProblemIgnores = pgTable(
+  'drawing_problem_ignores',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id').notNull(),
+    revisionId: uuid('revision_id').notNull(),
+    code: text('code').$type<DrawingProblemCode>().notNull(),
+    handle: text('handle').notNull(),
+    ignoredBy: uuid('ignored_by').references(() => users.id, { onDelete: 'set null' }),
+    ignoredAt: timestamp('ignored_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('drawing_problem_ignores_place_key').on(table.revisionId, table.code, table.handle),
   ],
 );
 

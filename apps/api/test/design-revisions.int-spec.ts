@@ -8,6 +8,7 @@ import {
   CadMappingSchema,
   CadMappingViewSchema,
   DesignFeaturePageSchema,
+  DrawingProblemListSchema,
   DesignRevisionDetailSchema,
   DesignRevisionListResponseSchema,
   DesignRevisionSummarySchema,
@@ -733,6 +734,48 @@ describe('a built draft revision', () => {
     expect(detail.diffCounts).toMatchObject({ conflict: 1, added: 1 });
   });
 
+  it('lists drawing problems and lets a PM ignore a place on their own responsibility', async () => {
+    const problem = {
+      code: 'LABEL_MISSING',
+      severity: 'warning',
+      count: 1,
+      items: [
+        {
+          ...{ x: 325100, y: 3340000, drawingX: 325100, drawingY: 3340000 },
+          ...{ layer: 'sub', handle: 'B2', suggestedLayer: null, text: null, near: null },
+        },
+      ],
+    };
+    await ctx.pool.query(`UPDATE design_revisions SET warnings = $2 WHERE id = $1`, [
+      revisionId,
+      JSON.stringify([{ code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 }, problem]),
+    ]);
+    const listed = await as(supervisor)(http().get(url('/problems')));
+    expect(listed.status, JSON.stringify(listed.body)).toBe(200);
+    const list = DrawingProblemListSchema.parse(listed.body);
+    expect(list.items.map((p) => [p.code, p.ignoredCount])).toEqual([['LABEL_MISSING', 0]]);
+
+    const body = { code: 'LABEL_MISSING', handle: 'B2', acceptResponsibility: true };
+    expect((await as(supervisor)(http().post(url('/problems/ignore')).send(body))).status).toBe(
+      403,
+    );
+    const noConsent = { ...body, acceptResponsibility: false };
+    expect((await as(pm)(http().post(url('/problems/ignore')).send(noConsent))).status).toBe(400);
+    const unknown = { ...body, handle: 'ZZ' };
+    expect((await as(pm)(http().post(url('/problems/ignore')).send(unknown))).status).toBe(404);
+
+    const ignored = await as(pm)(http().post(url('/problems/ignore')).send(body));
+    expect(ignored.status, JSON.stringify(ignored.body)).toBe(200);
+    const after = DrawingProblemListSchema.parse(ignored.body);
+    expect(after.items[0]?.ignoredCount).toBe(1);
+    expect(after.items[0]?.items[0]?.ignored?.at).toBeTruthy();
+    const events = await ctx.pool.query(
+      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'design_revision.problem_ignored'`,
+      [revisionId],
+    );
+    expect(events.rows).toHaveLength(1);
+  });
+
   it('lists features by type, code and handle with metric anchors and exact lengths', async () => {
     const res = await as(supervisor)(http().get(url('/features')));
     expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -1114,8 +1157,10 @@ describe('a built draft revision', () => {
       publishedAt: expect.any(String),
     });
     expect(published.body.publishedById).toBeTruthy();
+    // The drawing-problems test above ignored one place of this same revision.
     expect(await eventTypes(ctx.pool, revisionId)).toEqual([
       'design_revision.queued',
+      'design_revision.problem_ignored',
       'design_revision.published',
     ]);
     const event = await ctx.pool.query(

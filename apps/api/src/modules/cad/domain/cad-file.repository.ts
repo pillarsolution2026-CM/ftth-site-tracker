@@ -12,6 +12,7 @@ import type { CadFile } from './cad-file.js';
 import type {
   CadMappingRepository,
   DesignRevisionRepository,
+  DrawingProblemRepository,
   TextLinkRepository,
 } from './design-revision.repository.js';
 
@@ -54,6 +55,7 @@ export interface CadTx {
   mappings: CadMappingRepository;
   revisions: DesignRevisionRepository;
   links: TextLinkRepository;
+  problems: DrawingProblemRepository;
   events: EventLog;
 }
 

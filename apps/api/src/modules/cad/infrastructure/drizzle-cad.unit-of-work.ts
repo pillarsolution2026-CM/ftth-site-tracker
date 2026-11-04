@@ -4,6 +4,7 @@ import type { CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import { DrizzleCadFileRepository } from './drizzle-cad-file.repository.js';
 import { DrizzleCadMappingRepository } from './drizzle-cad-mapping.repository.js';
 import { DrizzleDesignRevisionRepository } from './drizzle-design-revision.repository.js';
+import { DrizzleDrawingProblemRepository } from './drizzle-drawing-problem.repository.js';
 import { DrizzleTextLinkRepository } from './drizzle-text-link.repository.js';
 
 /** Repositories and the event log share one transaction, so a state change and its event commit together. */
@@ -17,6 +18,7 @@ export class DrizzleCadUnitOfWork implements CadUnitOfWork {
         mappings: new DrizzleCadMappingRepository(tx),
         revisions: new DrizzleDesignRevisionRepository(tx),
         links: new DrizzleTextLinkRepository(tx),
+        problems: new DrizzleDrawingProblemRepository(tx),
         events: new DrizzleEventLog(tx),
       }),
     );

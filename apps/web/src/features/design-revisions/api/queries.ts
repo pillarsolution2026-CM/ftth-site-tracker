@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CreateDesignRevisionRequest,
+  IgnoreDrawingProblemRequest,
   PublishDesignRevisionRequest,
   ReviewTextLinkRequest,
 } from '@ftth/shared';
@@ -8,9 +9,11 @@ import {
   createDesignRevision,
   discardDesignRevision,
   getDesignRevision,
+  ignoreDrawingProblem,
   listDesignFeatures,
   listDesignRevisions,
   listDiff,
+  listDrawingProblems,
   listTextLinks,
   publishDesignRevision,
   reviewTextLink,
@@ -136,5 +139,22 @@ export function useReviewTextLink(projectId: string, id: string) {
       reviewTextLink(projectId, id, input.linkId, input.body),
     // Counts, box codes (features) and the list itself change after a review.
     onSuccess: invalidate,
+  });
+}
+
+export function useDrawingProblems(projectId: string, id: string, enabled: boolean) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: [...revisionKey(projectId, id), 'problems'],
+    queryFn: () => listDrawingProblems(projectId, id),
+  });
+}
+
+export function useIgnoreDrawingProblem(projectId: string, id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: IgnoreDrawingProblemRequest) => ignoreDrawingProblem(projectId, id, body),
+    onSuccess: (list) => client.setQueryData([...revisionKey(projectId, id), 'problems'], list),
   });
 }

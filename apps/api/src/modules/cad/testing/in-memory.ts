@@ -2,6 +2,7 @@ import {
   TEXT_LINK_STATUSES,
   type CadBuildRevisionJob,
   type CadImportJob,
+  type DrawingProblemCode,
   type FeatureType,
   type TextLinkCounts,
 } from '@ftth/shared';
@@ -16,8 +17,10 @@ import type { DesignRevision } from '../domain/design-revision.js';
 import type {
   CadMappingRepository,
   DesignRevisionRepository,
+  DrawingProblemRepository,
   NewDesignRevision,
   OpenItems,
+  ProblemIgnoreRecord,
   TextLinkRecord,
   TextLinkRepository,
 } from '../domain/design-revision.repository.js';
@@ -335,12 +338,50 @@ export class InMemoryTextLinks implements TextLinkRepository {
   }
 }
 
+export class InMemoryDrawingProblems implements DrawingProblemRepository {
+  /** revisionId -> stored warnings (as the worker writes them). */
+  readonly stored = new Map<string, unknown>();
+  readonly records: (ProblemIgnoreRecord & { revisionId: string })[] = [];
+
+  async warnings(_projectId: string, revisionId: string): Promise<unknown> {
+    return this.stored.get(revisionId) ?? [];
+  }
+
+  async ignores(_projectId: string, revisionId: string): Promise<ProblemIgnoreRecord[]> {
+    return this.records
+      .filter((r) => r.revisionId === revisionId)
+      .map(({ code, handle, ignoredById, ignoredAt }) => ({
+        code,
+        handle,
+        ignoredById,
+        ignoredAt,
+      }));
+  }
+
+  async ignore(
+    _projectId: string,
+    revisionId: string,
+    code: DrawingProblemCode,
+    handle: string,
+    actorId: string,
+    at: Date,
+  ): Promise<boolean> {
+    const exists = this.records.some(
+      (r) => r.revisionId === revisionId && r.code === code && r.handle === handle,
+    );
+    if (exists) return false;
+    this.records.push({ revisionId, code, handle, ignoredById: actorId, ignoredAt: at });
+    return true;
+  }
+}
+
 /** Not transactional (nothing here fails halfway); good enough to test use-case orchestration. */
 export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly files = new InMemoryCadFiles();
   readonly mappings = new InMemoryCadMappings();
   readonly revisions = new InMemoryDesignRevisions();
   readonly links = new InMemoryTextLinks();
+  readonly problems = new InMemoryDrawingProblems();
   readonly events = new InMemoryEventLog();
 
   run<T>(work: (tx: CadTx) => Promise<T>): Promise<T> {
@@ -349,6 +390,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
       mappings: this.mappings,
       revisions: this.revisions,
       links: this.links,
+      problems: this.problems,
       events: this.events,
     });
   }
