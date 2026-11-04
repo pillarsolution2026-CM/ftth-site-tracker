@@ -60,11 +60,18 @@ export const DIFF_CHANGES = [
 export const DiffChangeSchema = z.enum(DIFF_CHANGES);
 export type DiffChange = z.infer<typeof DiffChangeSchema>;
 
+/** Types added after revisions were already stored (ADR-033): absent there, meaning 0. */
+const LATER_FEATURE_TYPES: readonly string[] = ['cabinet', 'ring'];
+
 const CountsByFeatureType = z.object(
-  Object.fromEntries(FEATURE_TYPES.map((t) => [t, z.number().int().min(0)])) as Record<
-    (typeof FEATURE_TYPES)[number],
-    z.ZodNumber
-  >,
+  Object.fromEntries(
+    FEATURE_TYPES.map((t) => [
+      t,
+      LATER_FEATURE_TYPES.includes(t)
+        ? z.number().int().min(0).default(0)
+        : z.number().int().min(0),
+    ]),
+  ) as Record<(typeof FEATURE_TYPES)[number], z.ZodNumber>,
 );
 
 /** Totals per feature type and rule attributes (ADR-033/034); absent on revisions built before. */

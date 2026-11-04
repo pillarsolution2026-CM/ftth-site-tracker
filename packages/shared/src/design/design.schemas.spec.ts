@@ -10,6 +10,7 @@ import { isSupportedProjectEpsg } from '../cad/crs-detection.schemas.js';
 import { drawingUnitFromInsUnits, METRES_PER_UNIT } from '../cad/drawing-units.js';
 import { hasPermission } from '../auth/permissions.js';
 import {
+  DesignRevisionCountsSchema,
   PublishDesignRevisionRequestSchema,
   ReviewTextLinkRequestSchema,
   tileSignaturePayload,
@@ -184,5 +185,19 @@ describe('cabinets, rings and rule attributes (ADR-033/034)', () => {
   it('lets rings and cabinets receive unreadable or other texts like every type', () => {
     expect(TEXT_LINK_TARGETS.other).toContain('cabinet');
     expect(TEXT_LINK_TARGETS.unreadable).toContain('ring');
+  });
+});
+
+describe('revision counts stored before cabinets and rings', () => {
+  it('reads the missing new types as 0 instead of rejecting the counts', () => {
+    const old = { features: { route: 1, box: 2, hhi: 1, joint: 0, mh: 0 }, routeLengthM: '12.5' };
+    expect(DesignRevisionCountsSchema.parse(old).features).toEqual({
+      ...old.features,
+      cabinet: 0,
+      ring: 0,
+    });
+    expect(
+      DesignRevisionCountsSchema.safeParse({ features: { route: 1 }, routeLengthM: '1' }).success,
+    ).toBe(false);
   });
 });

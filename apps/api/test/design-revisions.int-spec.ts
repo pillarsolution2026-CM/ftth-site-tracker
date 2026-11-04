@@ -724,8 +724,9 @@ describe('a built draft revision', () => {
   it('shows the counts the worker stored', async () => {
     const detail = DesignRevisionDetailSchema.parse((await as(pm)(http().get(url()))).body);
     expect(detail.status).toBe('draft');
+    // Stored before cabinets and rings existed (ADR-033): they read as 0.
     expect(detail.counts).toEqual({
-      features: { route: 1, box: 2, hhi: 1, joint: 0, mh: 0 },
+      features: { route: 1, box: 2, hhi: 1, joint: 0, mh: 0, cabinet: 0, ring: 0 },
       routeLengthM: '12.5',
     });
     expect(detail.textLinkCounts).toMatchObject({ review: 3, auto: 1 });
