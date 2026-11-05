@@ -1,6 +1,6 @@
 {
-  "comment": "Golden run on Rabaa (ADR-034). The drawing has local coordinates; crsEpsg 32636 and drawingUnit 'm' are TEST PARAMETERS only (placement confirmed by the owner for this drawing), never product defaults. Counts are by symbol. null = not pinned yet: the test prints the actual value; UPDATE_GOLDEN=1 records it. Original drawing: the 13 problems found with the owner, at their places.",
-  "file": "rabaa_original.dwg",
+  "comment": "Golden run on Rabaa (ADR-034), placed in UTM 36N with one control point (ADR-032): cabinet 1-7 on the owner's KMZ point (30.984507, 32.783249), shift dE +472,019.99 m / dN +3,423,813.34 m, no rotation or scale (four KMZ points that agree fit at rotation 0.04 deg, scale 1.005). The files are UTM copies; the originals are unchanged. Counts are by symbol. null = not pinned yet: the test prints the actual value; UPDATE_GOLDEN=1 records it. Original drawing: the 13 problems found with the owner, at their places.",
+  "file": "rabaa_original_utm.dxf",
   "crsEpsg": 32636,
   "drawingUnit": "m",
   "metresPerUnit": "1",
@@ -88,66 +88,66 @@
       "WRONG_LAYER": 9,
       "LABEL_TYPE_MISMATCH": 3,
       "LABEL_MISSING": 7,
-      "ROUTE_SPLIT": 57,
+      "ROUTE_SPLIT": 59,
       "LABEL_LENGTH_MISSING": 53
     },
     "problemPlaces": {
       "LABEL_MISSING": [
         [
-          5244,
-          2715
+          477264.0,
+          3426528.3
         ]
       ],
       "WRONG_LAYER": [
         [
-          5884,
-          4350
+          477904.0,
+          3428163.3
         ],
         [
-          6287,
-          4569
+          478307.0,
+          3428382.3
         ],
         [
-          6500,
-          4064
+          478520.0,
+          3427877.3
         ],
         [
-          7113,
-          4573
+          479133.0,
+          3428386.3
         ],
         [
-          7284,
-          4092
+          479304.0,
+          3427905.3
         ],
         [
-          7778,
-          4590
+          479798.0,
+          3428403.3
         ],
         [
-          6516,
-          4528
+          478536.0,
+          3428341.3
         ],
         [
-          6785,
-          4576
+          478805.0,
+          3428389.3
         ],
         [
-          6011,
-          4513
+          478031.0,
+          3428326.3
         ]
       ],
       "LABEL_TYPE_MISMATCH": [
         [
-          6507,
-          4550
+          478527.0,
+          3428363.3
         ],
         [
-          6981,
-          4573
+          479001.0,
+          3428386.3
         ],
         [
-          7729,
-          4689
+          479749.0,
+          3428502.3
         ]
       ]
     }

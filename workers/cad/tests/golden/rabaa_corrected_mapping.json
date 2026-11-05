@@ -1,6 +1,6 @@
 {
-  "comment": "Golden run on Rabaa (ADR-034). The drawing has local coordinates; crsEpsg 32636 and drawingUnit 'm' are TEST PARAMETERS only (placement confirmed by the owner for this drawing), never product defaults. Counts are by symbol. null = not pinned yet: the test prints the actual value; UPDATE_GOLDEN=1 records it. Corrected copy (owner's fixes): no WRONG_LAYER / LABEL_TYPE_MISMATCH.",
-  "file": "rabaa_corrected.dxf",
+  "comment": "Golden run on Rabaa (ADR-034), placed in UTM 36N with one control point (ADR-032): cabinet 1-7 on the owner's KMZ point (30.984507, 32.783249), shift dE +472,019.99 m / dN +3,423,813.34 m, no rotation or scale (four KMZ points that agree fit at rotation 0.04 deg, scale 1.005). The files are UTM copies; the originals are unchanged. Counts are by symbol. null = not pinned yet: the test prints the actual value; UPDATE_GOLDEN=1 records it. Corrected copy (owner's fixes): no WRONG_LAYER / LABEL_TYPE_MISMATCH.",
+  "file": "rabaa_corrected_utm.dxf",
   "crsEpsg": 32636,
   "drawingUnit": "m",
   "metresPerUnit": "1",
@@ -88,7 +88,7 @@
       "WRONG_LAYER": 0,
       "LABEL_TYPE_MISMATCH": 0,
       "LABEL_MISSING": 14,
-      "ROUTE_SPLIT": 57,
+      "ROUTE_SPLIT": 59,
       "LABEL_LENGTH_MISSING": 53
     },
     "problemPlaces": {}

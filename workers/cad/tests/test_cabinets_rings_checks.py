@@ -237,3 +237,18 @@ def test_each_split_place_has_its_own_id_even_on_one_line() -> None:
     assert len(places) == 2
     assert len({handle for handle, _, _ in places}) == 2
     assert sorted(handle for handle, _, _ in places) == ["a/m", "b/m"]
+
+
+def test_route_ends_on_either_side_of_a_grid_line_still_meet() -> None:
+    """Ends 2 mm apart fell into neighbouring cells of the 5 cm grid, so a junction of three routes
+    looked like a split of two (Rabaa in UTM: 58 places instead of 57)."""
+    drawing = DrawingData(
+        curves=(
+            SourceCurve("a", "DUCT 4", ((-40, 0), (0.024, 0))),
+            SourceCurve("b", "DUCT 4", ((0.026, 0), (40, 0))),
+            SourceCurve("c", "DUCT 4", ((0.025, 0.001), (0.025, 40))),
+        ),
+        inserts=(),
+        texts=(),
+    )
+    assert "ROUTE_SPLIT" not in _problems(drawing)
