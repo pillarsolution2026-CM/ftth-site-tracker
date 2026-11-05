@@ -251,3 +251,22 @@ def test_layer_true_color_with_the_colour_method_byte_is_kept_as_rgb(tmp_path: P
     _, result = run(path)
     layer = next(row for row in result.layers if row.definition.name == "annotations")
     assert layer.definition.true_color == 0xBC6245
+
+
+def test_extents_use_the_drawn_centre_of_a_block_not_its_far_base_point(tmp_path: Path) -> None:
+    """Rabaa's Sub Cab / Main Cab / handhole blocks have their base point millions of metres from
+    what they draw (as Palm Plaza's new-box): the extents, and the CRS detection that reads them,
+    must follow the drawn symbol (ADR-032), not the insertion point."""
+    doc = new_dxf()
+    block = doc.blocks.new("far-base")
+    block.add_circle((5_000_000, 5_000_000), 1)  # geometry far from the block's base point
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (100, 100))
+    msp.add_blockref("far-base", (-4_999_950, -4_999_950))  # draws a circle at (50, 50)
+    path = tmp_path / "far-base.dxf"
+    doc.saveas(path)
+    _, result = run(path)
+    ext = result.extents
+    assert ext is not None
+    assert (ext.min_x, ext.min_y) == pytest.approx((0, 0), abs=1e-6)
+    assert (ext.max_x, ext.max_y) == pytest.approx((100, 100), abs=1e-6)

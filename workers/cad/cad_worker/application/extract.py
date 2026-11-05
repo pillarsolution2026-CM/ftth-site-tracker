@@ -61,7 +61,9 @@ def extract(
             sink.add(row)
             n_insert += 1
             layer_counts[row.layer]["INSERT"] += 1
-            extents.add(row.position[0], row.position[1])
+            # The symbol is where it draws (ADR-032): a block's base point can lie far away.
+            where = row.centre if row.centre is not None else row.position
+            extents.add(where[0], where[1])
             unreadable = sum(1 for a in row.attributes if not a.readable)
             if unreadable:
                 warnings.add("UNREADABLE_TEXT", unreadable, source="attribute")
