@@ -97,7 +97,7 @@ docs/           PLAN, ROADMAP, ARCHITECTURE, DECISIONS, PROGRESS
 - Tiles security: Martin serves only project-scoped function sources via a read-only DB role, behind Caddy forward_auth / signed tile URLs checked by the API; never auto-publish tables — architect (Opus) + security-reviewer (Opus)
 - Revision matching وتقرير فروقات — cad-engineer (Opus)
 - Golden-file tests على ملف قليوب — test-writer (Sonnet)
-- **قبول:** قليوب ← ~25 مسار (~3,700 م)، 17 صندوق، 6 HHI، 4 Joint، UTM 36N في < دقيقة.
+- **قبول:** قليوب ← ~25 مسار (~3,700 م)، 17 كابينة، 6 HHI، 4 Joint، UTM 36N في < دقيقة.
 
 ### المرحلة 2: العقد والـBOQ والقواعد
 - CRUD تصنيفات/بنود + استيراد Excel للمقايسة لكل أمر تكليف — backend-dev (Sonnet) + web-dev (Sonnet) [‖]

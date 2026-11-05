@@ -191,7 +191,7 @@ Oct 6, 2026 · @Ai team
 - [ ] توليد tiles: خلفية (مباني وطرق ونصوص) كـPMTiles، والشبكة كـGeoJSON أو MVT.
 - [ ] Revision جديد للتصميم: matching بالـfeatures القديمة، وتقرير فروقات.
 
-**معيار القبول:** ملف `General_القطاع_الاول_قليوب.dwg` يتحول ويطلع منه 25 مسار تقريبًا (حوالي 3,700 م)، و17 صندوق، و6 HHI، و4 Joint، وإحداثيات UTM 36N، في أقل من دقيقة.
+**معيار القبول:** ملف `General_القطاع_الاول_قليوب.dwg` يتحول ويطلع منه 25 مسار تقريبًا (حوالي 3,700 م)، و17 كابينة، و6 HHI، و4 Joint، وإحداثيات UTM 36N، في أقل من دقيقة.
 
 ### المرحلة 2: العقد والقواعد (ويب)
 
@@ -315,7 +315,7 @@ Act as a senior systems architect, senior full-stack engineer, and senior UI/UX 
 
 ## Source of truth
 - Read docs/PLAN.md fully before writing any code. It contains the workflow, architecture, data model, UI/UX principles, phases, tasks and acceptance criteria.
-- fixtures/cad/General_القطاع_الاول_قليوب.dwg is the reference drawing (AutoCAD 2018, UTM zone 36N). Known content: layer N_DUC_CBL = new duct+cable routes (~25 polylines, ~3,700 m), block "sub" = distribution boxes (17, labelled 1-1…3-3 with B/P/U codes nearby), text "NEW-HHI" on layer RRR = new handholes (6), block "JONT 144" = joints (4), CAP F36 / CAP F144 = free-text cable/duct/length labels, layer tx = Arabic street names in a legacy SHX font (xarb.shx).
+- fixtures/cad/General_القطاع_الاول_قليوب.dwg is the reference drawing (AutoCAD 2018, UTM zone 36N). Known content: layer N_DUC_CBL = new duct+cable routes (~25 polylines, ~3,700 m), block "sub" = sub cabinets (17, labelled 1-1…3-3 with B/P/U codes nearby; ADR-033), text "NEW-HHI" on layer RRR = new handholes (6), block "JONT 144" = joints (4), CAP F36 / CAP F144 = free-text cable/duct/length labels, layer tx = Arabic street names in a legacy SHX font (xarb.shx).
 - docs/prototype/ contains the interactive prototype (screens, tools, flows). Match its interaction model.
 
 ## Non-negotiable rules
