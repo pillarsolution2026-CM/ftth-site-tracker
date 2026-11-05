@@ -1,14 +1,11 @@
 'use client';
 
 import { ltr } from '@ftth/i18n';
-import { DRAWING_UNITS, METRES_PER_UNIT, type CrsDetection, type DrawingUnit } from '@ftth/shared';
+import { METRES_PER_UNIT, type CrsDetection, type DrawingUnit } from '@ftth/shared';
 import { Card } from '@/shared/ui/card';
 import { Input } from '@/shared/ui/input';
-import { Select } from '@/shared/ui/form-controls';
 import { Ltr } from '@/shared/ui/ltr';
 import { useI18n } from '@/shared/i18n/locale-provider';
-import type { UnitWarning } from '../model/unit-warnings';
-import { UnitWarnings } from './unit-warnings';
 
 export interface CrsPanelProps {
   detection: CrsDetection | null;
@@ -16,11 +13,10 @@ export interface CrsPanelProps {
   insUnits: number | null;
   epsg: string;
   epsgError: 'required' | 'unsupported' | null;
-  unit: DrawingUnit | '';
-  warnings: readonly UnitWarning[];
+  /** Metres unless a mapping saved earlier says otherwise (ADR-035: no picker any more). */
+  unit: DrawingUnit;
   disabled: boolean;
   onEpsgChange: (value: string) => void;
-  onUnitChange: (unit: DrawingUnit | '') => void;
 }
 
 export function CrsPanel({
@@ -30,10 +26,8 @@ export function CrsPanel({
   epsg,
   epsgError,
   unit,
-  warnings,
   disabled,
   onEpsgChange,
-  onUnitChange,
 }: CrsPanelProps) {
   const { t } = useI18n();
   const none = t('mapping.crs.none');
@@ -88,30 +82,16 @@ export function CrsPanel({
           />
           <p className="mt-1 text-sm opacity-80">{t('mapping.crs.epsgHint')}</p>
         </div>
-        <div>
-          <Select
-            id="mapping-unit"
-            label={t('mapping.crs.unitLabel')}
-            hint={unit === '' ? t('mapping.crs.unitRequired') : t('mapping.crs.unitHint')}
-            value={unit}
-            disabled={disabled}
-            onChange={(event) => onUnitChange(event.target.value as DrawingUnit | '')}
-          >
-            <option value="">{t('mapping.crs.unitPlaceholder')}</option>
-            {DRAWING_UNITS.map((value) => (
-              <option key={value} value={value}>
-                {t(`mapping.unit.${value}`)}
-              </option>
-            ))}
-          </Select>
-          {unit !== '' ? (
-            <p className="mt-1 text-sm">
-              {t('mapping.crs.factor', { factor: ltr(METRES_PER_UNIT[unit]) })}
-            </p>
-          ) : null}
+        <div className="rounded-md border border-(--color-border) p-3">
+          <p className="text-sm opacity-80">{t('mapping.crs.unitLabel')}</p>
+          <p className="font-semibold">{t(`mapping.unit.${unit}`)}</p>
+          <p className="mt-1 text-sm">
+            {unit === 'm'
+              ? t('mapping.crs.unitFixed')
+              : t('mapping.crs.factor', { factor: ltr(METRES_PER_UNIT[unit]) })}
+          </p>
         </div>
       </div>
-      <UnitWarnings warnings={warnings} />
     </Card>
   );
 }

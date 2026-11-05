@@ -1,9 +1,11 @@
 import {
   CadMappingSchema,
   CadMappingViewSchema,
+  PlacementDrawingSchema,
   type CadMapping,
   type CadMappingInput,
   type CadMappingView,
+  type PlacementDrawing,
 } from '@ftth/shared';
 import { bffJson, projectApiPath } from '@/shared/api/bff-client';
 
@@ -23,4 +25,12 @@ export function saveMapping(
     method: 'PUT',
     body: input,
   });
+}
+
+/** Items and route lines in drawing units for the placement screen (ADR-035). */
+export function getPlacementDrawing(
+  projectId: string,
+  cadFileId: string,
+): Promise<PlacementDrawing> {
+  return bffJson(`${mappingPath(projectId, cadFileId)}/placement-drawing`, PlacementDrawingSchema);
 }

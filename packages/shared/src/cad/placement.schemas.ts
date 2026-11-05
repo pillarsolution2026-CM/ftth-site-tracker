@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PointFeatureTypeSchema } from '../design/feature-types.js';
 
 /**
  * Where a drawing sits on the earth (ADR-032, ADR-035). Stored with the mapping and frozen on the
@@ -98,3 +99,45 @@ export type Placement = z.infer<typeof PlacementSchema>;
 
 /** Scale changes further than this from 1 are warned before saving (ADR-032). */
 export const PLACEMENT_SCALE_WARNING = 0.001;
+
+// ---------- what the placement screen draws and picks from (ADR-035) ----------
+
+/**
+ * A point item of the latest built revision of the file, at its drawn centre **in drawing units**
+ * (the place the build starts from): an insert's position, a text's position, or the centre of the
+ * joint extents of a shape group. A control point picked from this list uses `x`/`y` and `handle`.
+ */
+export const PLACEMENT_ITEM_MAX_NAMES = 8;
+
+export const PlacementItemSchema = z.object({
+  handle: z.string(),
+  featureType: PointFeatureTypeSchema,
+  /** The item's code (e.g. "04B") when the build found one. */
+  code: z.string().nullable(),
+  /**
+   * Short texts written around the item in the drawing, nearest first: each text whose nearest
+   * item this is, within a few tens of metres (e.g. ["22U", "1-7"] for Rabaa's cabinet 1-7, whose
+   * name sits on another layer). A hint for finding and matching the item only; never stored.
+   */
+  names: z.array(z.string()).max(PLACEMENT_ITEM_MAX_NAMES),
+  layer: z.string(),
+  x: Finite,
+  y: Finite,
+});
+export type PlacementItem = z.infer<typeof PlacementItemSchema>;
+
+/** A route line in drawing units, simplified for the preview: [[x, y], …]. */
+export const PlacementLineSchema = z.array(z.tuple([Finite, Finite])).min(2);
+export type PlacementLine = z.infer<typeof PlacementLineSchema>;
+
+export const PLACEMENT_DRAWING_MAX_LINES = 5000;
+
+export const PlacementDrawingSchema = z.object({
+  /** The built revision the items come from; null when the file has none yet. */
+  revisionId: z.uuid().nullable(),
+  items: z.array(PlacementItemSchema),
+  lines: z.array(PlacementLineSchema),
+  /** More route lines exist than `PLACEMENT_DRAWING_MAX_LINES`; the preview shows the first ones. */
+  truncated: z.boolean(),
+});
+export type PlacementDrawing = z.infer<typeof PlacementDrawingSchema>;

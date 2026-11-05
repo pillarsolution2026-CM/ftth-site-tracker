@@ -16,7 +16,11 @@ import {
   RecordingJobQueue,
   type FakeLink,
 } from '../testing/in-memory.js';
-import { SaveCadMappingUseCase } from './cad-mapping.use-cases.js';
+import {
+  GetPlacementDrawingUseCase,
+  PLACEMENT_DRAWING_LIMITS,
+  SaveCadMappingUseCase,
+} from './cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './create-design-revision.use-case.js';
 import { DiscardDesignRevisionUseCase } from './discard-design-revision.use-case.js';
 import {
@@ -35,7 +39,10 @@ import {
   ListDesignFeaturesUseCase,
   ListTextLinksUseCase,
 } from './design-revision-queries.use-cases.js';
-import type { DesignReadQueries } from '../domain/design-revision.repository.js';
+import type {
+  CadMappingViewQueries,
+  DesignReadQueries,
+} from '../domain/design-revision.repository.js';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const OTHER_PROJECT = '99999999-9999-4999-8999-999999999999';
@@ -182,6 +189,31 @@ describe('SaveCadMappingUseCase', () => {
   it("treats another project's file as not found", async () => {
     expect(await reason(save({}, OTHER_PROJECT))).toMatchObject({ code: 'NOT_FOUND', status: 404 });
     expect(uow.mappings.rows.size).toBe(0);
+  });
+});
+
+describe('GetPlacementDrawingUseCase (ADR-035)', () => {
+  const drawing = { revisionId: null, items: [], lines: [], truncated: false };
+  const calls: unknown[][] = [];
+  const view: CadMappingViewQueries = {
+    blocks: async () => [],
+    texts: async () => [],
+    placementDrawing: async (...args) => {
+      calls.push(args);
+      return drawing;
+    },
+  };
+
+  it('reads the drawing of a file of the project, with the line limit and tolerance', async () => {
+    const useCase = new GetPlacementDrawingUseCase(uow.files, view);
+    expect(await useCase.execute(PROJECT, FILE)).toBe(drawing);
+    expect(calls.at(-1)).toEqual([PROJECT, FILE, PLACEMENT_DRAWING_LIMITS]);
+    expect(PLACEMENT_DRAWING_LIMITS.maxLines).toBe(5000);
+  });
+
+  it("answers NOT_FOUND for another project's file", async () => {
+    const useCase = new GetPlacementDrawingUseCase(uow.files, view);
+    expect(await reason(useCase.execute(OTHER_PROJECT, FILE))).toMatchObject({ code: 'NOT_FOUND' });
   });
 });
 
