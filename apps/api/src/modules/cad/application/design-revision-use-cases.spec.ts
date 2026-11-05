@@ -83,6 +83,7 @@ function processedFile(overrides: Partial<CadFile> = {}): CadFile {
       insUnits: 1,
       declaredUnit: 'in',
       unitsConflict: true,
+      suggestedSourceCrs: 'project',
     },
     counts: null,
     warnings: [],
