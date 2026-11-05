@@ -233,7 +233,10 @@ def _route_splits(features: Sequence[DesignFeatureDraft]) -> list[ProblemItem]:
         p = hits[0][1]
         if any(math.dist(p, s.coords[0]) <= ROUTE_NODE_ITEM_M for s in points):
             continue
-        out.append(ProblemItem(p, layer, hits[0][0].source_handle))
+        # The place is named by the two lines that meet there: one line broken at both ends has
+        # two places, and each must be ignorable on its own.
+        pair = "/".join(sorted(h[0].source_handle for h in hits))
+        out.append(ProblemItem(p, layer, pair))
     return out
 
 
