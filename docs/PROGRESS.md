@@ -161,6 +161,13 @@ The owner replaced Qalyub (known drawing problems) and the Darawish trial with *
 - **Test report:** shared and API unit tests (problems list, ignore once with one event, refused for unknown place / other project / published revision), API integration test (supervisor 403, missing consent 400, unknown place 404, PM 200 + event) — runs on CI (needs Linux paths); web: mapping form (attributes, missing role), editor (role required then saved), problems section (places, ignore after consent, none); typecheck and lint 13/13.
 - **Not done:** un-ignoring a place; the rest of ADR-032 (unit picker removal, placement panel, control points, datum conversion).
 
+#### Phase 1b — staging test with the real Rabaa drawing (2026-11-05, owner present)
+- **Staging** `6fd70fb` (PRs #35–#38), project `test`, user Administrator. The Rabaa UTM copy (`… - UTM.dxf`, 9.2 MB) was uploaded through the web page, mapped like the golden run (EPSG 32636, metres, the same rules) and built.
+- **Result = golden run, exactly:** 65 layers / 175 blocks / 1,038 texts / 23,083 curves; 3 main + 81 sub cabinets; 50 new + 15 existing handholes; joint 144 = 21, joint 36 = 16; duct 2 way 113 · 11,270.702 m, 4 way 77 · 23,094.401 m; problems 59 split routes, 9 wrong layer, 7 without label, 3 symbol / label disagree (error, at the three `JONT 36` places in UTM), 53 cable labels without length.
+- **Ignore:** one place ignored after the responsibility confirmation → "1 of 59", time recorded, kept after reload.
+- **Bugs found by this test and fixed (failing test first):** a line broken at both ends gave two split places one id, so one Ignore hid both (#37); route ends across a grid line were missed, 57 instead of 59 and position-dependent (#37); the file extents used a block's base point (153 Rabaa symbols have it millions of metres away), so the extents spanned ~10,000 km and the CRS detection could not see UTM (this change; Rabaa now E 472,044–480,870 / N 3,423,825–3,431,875, detected as UTM 36N matching the project).
+- The earlier DWG draft of the same test (local coordinates) was discarded with the owner's approval; the project keeps both files.
+
 ### Phase 3 — Supervisor app (offline) — started before Phase 2 (ADR-023)
 Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_rules`, zones UI), which was not built. Phase 1b is still awaiting approval; neither 1b nor 2 is marked approved here. Contracts: `docs/phase-3-contracts.md`. ADRs: 023 (order of phases), 024 (sync design), 025 (on-device encryption). Migration `0006`.
 - **Done:**
