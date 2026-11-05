@@ -7,6 +7,7 @@ import type {
   DrawingUnit,
   FeatureType,
   MappingRule,
+  Placement,
   TextLink,
   TextLinkCounts,
   TextLinkKind,
@@ -44,6 +45,7 @@ export interface NewDesignRevision {
   crsEpsg: number;
   drawingUnit: DrawingUnit;
   metresPerUnit: string;
+  placement: Placement | null;
   insUnits: number | null;
   unitsConflict: boolean;
   createdById: string;

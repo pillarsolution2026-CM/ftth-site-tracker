@@ -1,0 +1,182 @@
+{
+  "comment": "Golden run on Rabaa placed inside the program (ADR-035): the owner's local AutoCAD drawing, unchanged, with one control point, cabinet 1-7 at its drawn centre (7284.2708, 4091.7164) on the owner's KMZ point (30.984507, 32.783249). It must give exactly the result of rabaa_original_utm (same counts, lengths and problems, places compared in project UTM).",
+  "file": "rabaa_local.dxf",
+  "crsEpsg": 32636,
+  "drawingUnit": "m",
+  "metresPerUnit": "1",
+  "placement": {
+    "sourceCrs": "project",
+    "points": [
+      {
+        "id": "cab-1-7",
+        "drawing": {
+          "x": 7284.2708,
+          "y": 4091.7164
+        },
+        "handle": null,
+        "label": "1-7",
+        "lat": 30.984506906326853,
+        "lon": 32.78324905782938,
+        "source": "kml",
+        "excluded": false
+      }
+    ],
+    "fitScaleWithTwoPoints": false,
+    "adjust": {
+      "dx": 0,
+      "dy": 0,
+      "rotationDeg": 0,
+      "scale": 1,
+      "pivot": null
+    }
+  },
+  "placesIn": "project",
+  "rules": [
+    {
+      "source": "layer",
+      "layer": "OUTER DUCT 4 WAY PRIMARY",
+      "target": "route",
+      "kind": "4 way"
+    },
+    {
+      "source": "layer",
+      "layer": "OUTER DUCT 2 WAY PRIMARY",
+      "target": "route",
+      "kind": "2 way"
+    },
+    {
+      "source": "layer",
+      "layer": "CABINET SITE SUB CABINET",
+      "target": "cabinet",
+      "role": "sub"
+    },
+    {
+      "source": "block",
+      "block": "Sap",
+      "target": "cabinet",
+      "role": "sub"
+    },
+    {
+      "source": "block",
+      "block": "Main Cab",
+      "target": "cabinet",
+      "role": "main"
+    },
+    {
+      "source": "layer",
+      "layer": "HANDHOLES NEW",
+      "target": "hhi",
+      "status": "new"
+    },
+    {
+      "source": "layer",
+      "layer": "HANDHOLES EXISTING",
+      "target": "hhi",
+      "status": "existing"
+    },
+    {
+      "source": "layer",
+      "layer": "jont 144",
+      "target": "joint",
+      "kind": "144"
+    },
+    {
+      "source": "layer",
+      "layer": "joint 36",
+      "target": "joint",
+      "kind": "36"
+    },
+    {
+      "source": "layer",
+      "layer": "jont 36",
+      "target": "joint",
+      "kind": "36"
+    },
+    {
+      "source": "layer",
+      "layer": "Primary Cable Data",
+      "target": "label"
+    }
+  ],
+  "expected": {
+    "groups": {
+      "cabinet/main": 3,
+      "cabinet/sub": 81,
+      "hhi/existing": 15,
+      "joint/144": 21,
+      "joint/36": 16,
+      "hhi/new": 50
+    },
+    "routeLengthM": {
+      "4 way": "23094.401",
+      "2 way": "11270.702"
+    },
+    "problems": {
+      "WRONG_LAYER": 9,
+      "LABEL_TYPE_MISMATCH": 3,
+      "LABEL_MISSING": 7,
+      "ROUTE_SPLIT": 59,
+      "LABEL_LENGTH_MISSING": 53
+    },
+    "problemPlaces": {
+      "LABEL_MISSING": [
+        [
+          477264.0,
+          3426528.3
+        ]
+      ],
+      "WRONG_LAYER": [
+        [
+          477904.0,
+          3428163.3
+        ],
+        [
+          478307.0,
+          3428382.3
+        ],
+        [
+          478520.0,
+          3427877.3
+        ],
+        [
+          479133.0,
+          3428386.3
+        ],
+        [
+          479304.0,
+          3427905.3
+        ],
+        [
+          479798.0,
+          3428403.3
+        ],
+        [
+          478536.0,
+          3428341.3
+        ],
+        [
+          478805.0,
+          3428389.3
+        ],
+        [
+          478031.0,
+          3428326.3
+        ]
+      ],
+      "LABEL_TYPE_MISMATCH": [
+        [
+          478527.0,
+          3428363.3
+        ],
+        [
+          479001.0,
+          3428386.3
+        ],
+        [
+          479749.0,
+          3428502.3
+        ]
+      ]
+    }
+  }
+}

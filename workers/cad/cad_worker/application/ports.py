@@ -205,6 +205,7 @@ class RevisionInputs:
     crs_epsg: int
     drawing_unit: str
     metres_per_unit: Decimal
+    placement: object = None  # frozen PlacementSchema JSON; None = as drawn (ADR-035)
 
 
 @dataclass(frozen=True, slots=True)

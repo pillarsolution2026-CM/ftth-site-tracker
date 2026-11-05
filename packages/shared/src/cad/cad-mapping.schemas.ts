@@ -12,6 +12,7 @@ import {
 import { CadFileStatusSchema } from './cad-file.schemas.js';
 import { CrsDetectionSchema, ProjectEpsgSchema } from './crs-detection.schemas.js';
 import { DrawingUnitSchema } from './drawing-units.js';
+import { PlacementSchema } from './placement.schemas.js';
 
 /**
  * Mapping = how a processed drawing becomes design features (ADR-017). One mapping per CAD file,
@@ -111,6 +112,8 @@ export const CadMappingInputSchema = z
     drawingUnit: DrawingUnitSchema,
     /** null on the first save, then the version read (optimistic concurrency). */
     version: z.number().int().min(1).nullable(),
+    /** Where the drawing sits (ADR-035); null = as drawn, already in the project CRS. */
+    placement: PlacementSchema.nullable().default(null),
   })
   .superRefine((input, ctx) => {
     const seen = new Set<string>();
@@ -131,6 +134,7 @@ export const CadMappingSchema = z.object({
   drawingUnit: DrawingUnitSchema,
   /** Decimal string from METRES_PER_UNIT, e.g. "0.0254". */
   metresPerUnit: z.string(),
+  placement: PlacementSchema.nullable().default(null),
   version: z.number().int().min(1),
   updatedById: z.uuid().nullable(),
   updatedAt: z.iso.datetime(),

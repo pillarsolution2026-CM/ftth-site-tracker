@@ -66,6 +66,7 @@ export class CreateDesignRevisionUseCase {
         crsEpsg: mapping.crsEpsg,
         drawingUnit: mapping.drawingUnit,
         metresPerUnit: mapping.metresPerUnit,
+        placement: mapping.placement,
         insUnits: file.insUnits,
         unitsConflict: file.crsDetection?.unitsConflict ?? false,
         createdById: actorId,

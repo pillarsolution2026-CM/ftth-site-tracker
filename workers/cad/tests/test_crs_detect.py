@@ -23,6 +23,7 @@ def test_qalyub_like_extents_match_the_project_utm_zone_with_a_units_conflict() 
         "insUnits": 1,
         "declaredUnit": "in",
         "unitsConflict": True,
+        "suggestedSourceCrs": "project",
     }
 
 
@@ -110,6 +111,7 @@ def test_no_extents() -> None:
         "insUnits": 1,
         "declaredUnit": "in",
         "unitsConflict": False,
+        "suggestedSourceCrs": None,
     }
 
 
@@ -137,3 +139,19 @@ def test_bounds_and_reprojection_and_tiles() -> None:
     assert lonlat_to_tile(0.0, 0.0, 1) == (1, 1)
     assert lonlat_to_tile(-180.0, 89.0, 3) == (0, 0)
     assert lonlat_to_tile(180.0, -89.0, 3) == (7, 7)
+
+
+# El Arish in Red Belt metres (ADR-035): converts to about E 571,978 / N 3,443,380 in UTM 36N.
+EL_ARISH_RED_BELT = Extents(877_000.0, 937_000.0, 878_300.0, 938_300.0)
+
+
+def test_red_belt_extents_are_suggested_for_conversion_into_the_project_zone() -> None:
+    result = detect_crs(EL_ARISH_RED_BELT, 6, 32636)
+    assert (result.kind, result.reason) == ("egypt_red_belt", "EGYPT_RED_BELT_RANGE")
+    assert result.suggested_epsg == 32636 and result.suggested_source_crs == "egypt_red_belt"
+    assert result.implied_unit == "m" and not result.units_conflict
+
+
+def test_red_belt_outside_the_project_zone_is_not_suggested() -> None:
+    result = detect_crs(EL_ARISH_RED_BELT, 6, 32635)
+    assert result.kind != "egypt_red_belt" and result.suggested_source_crs != "egypt_red_belt"

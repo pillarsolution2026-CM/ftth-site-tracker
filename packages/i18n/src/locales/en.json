@@ -642,6 +642,7 @@
       "notDetected": "No detection result for this file",
       "kind": {
         "projected_utm": "Projected (UTM)",
+        "egypt_red_belt": "Red Belt (Egypt 1907)",
         "geographic": "Geographic (degrees)",
         "local": "Local coordinates",
         "unknown": "Unknown"
@@ -649,6 +650,7 @@
       "reason": {
         "MATCHES_PROJECT_CRS": "The extents fall inside the project's UTM zone",
         "UTM_ZONE_UNKNOWN": "The extents look like UTM but the zone cannot be confirmed",
+        "EGYPT_RED_BELT_RANGE": "The coordinates are in the Red Belt; converted to the project's UTM with the general parameters",
         "LONLAT_RANGE": "The values look like longitude and latitude; not supported for revisions",
         "SMALL_LOCAL_COORDINATES": "Small local coordinates; georeferencing is needed",
         "NO_EXTENTS": "The drawing has no extents",

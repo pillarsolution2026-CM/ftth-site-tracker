@@ -1,4 +1,4 @@
-import type { DrawingUnit, MappingRule } from '@ftth/shared';
+import type { DrawingUnit, MappingRule, Placement } from '@ftth/shared';
 
 /** The editable mapping of one CAD file (ADR-017). Revisions keep their own frozen copy. */
 export interface CadMappingRecord {
@@ -9,6 +9,8 @@ export interface CadMappingRecord {
   drawingUnit: DrawingUnit;
   /** Exact decimal string from METRES_PER_UNIT, e.g. "0.0254". */
   metresPerUnit: string;
+  /** Where the drawing sits (ADR-035); null = as drawn. */
+  placement: Placement | null;
   /** Optimistic concurrency token: 1 on insert, +1 on every update. */
   version: number;
   updatedById: string | null;

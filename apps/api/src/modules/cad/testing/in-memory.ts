@@ -172,6 +172,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       crsEpsg: revision.crsEpsg,
       drawingUnit: revision.drawingUnit,
       metresPerUnit: revision.metresPerUnit,
+      placement: revision.placement,
       insUnits: revision.insUnits,
       unitsConflict: revision.unitsConflict,
       counts: null,

@@ -20,6 +20,7 @@ from typing import Literal
 
 from cad_worker.domain.design import POINT_FEATURE_TYPES, DesignFeatureDraft, FeatureKey
 from cad_worker.domain.design_build import MappingRules, SourceText
+from cad_worker.domain.placement import Placer
 from cad_worker.domain.text_links import link_radius_m
 
 ProblemCode = Literal[
@@ -83,7 +84,7 @@ class Named:
 
 
 def labels_for(
-    texts: Sequence[SourceText], rules: MappingRules, factor: float
+    texts: Sequence[SourceText], rules: MappingRules, place: Placer
 ) -> dict[str, list[Label]]:
     """Feature type -> readable texts on the layers mapped to it (text-rule texts excluded)."""
     out: dict[str, list[Label]] = {}
@@ -97,8 +98,8 @@ def labels_for(
             Label(
                 t.handle,
                 t.layer,
-                (t.position[0] * factor, t.position[1] * factor),
-                link_radius_m(abs(t.height) * factor),
+                place.to_project(t.position),
+                link_radius_m(abs(t.height) * place.unit_m),
                 t.text.strip(),
             )
         )
@@ -134,11 +135,11 @@ def check_drawing(
     features: Sequence[DesignFeatureDraft],
     texts: Sequence[SourceText],
     rules: MappingRules,
-    factor: float,
+    place: Placer,
 ) -> tuple[dict[ProblemCode, list[ProblemItem]], dict[FeatureKey, str]]:
     """Problems by code, and a display name per labelled point feature (its code or label)."""
     problems: dict[ProblemCode, list[ProblemItem]] = {c: [] for c in PROBLEM_CODES}
-    labels = labels_for(texts, rules, factor)
+    labels = labels_for(texts, rules, place)
     names: dict[FeatureKey, str] = {f.key: f.code for f in features if f.code}
     points = [f for f in features if not f.is_route]
     for feature_type in sorted({f.feature_type for f in points}):
@@ -176,7 +177,7 @@ def check_drawing(
                     )
     problems["WRONG_LAYER"].extend(_symbols_on_wrong_layer(points, rules))
     problems["ROUTE_SPLIT"].extend(_route_splits(features))
-    problems["LABEL_LENGTH_MISSING"].extend(_labels_without_length(texts, rules, factor))
+    problems["LABEL_LENGTH_MISSING"].extend(_labels_without_length(texts, rules, place))
     return problems, names
 
 
@@ -268,7 +269,7 @@ def _route_splits(features: Sequence[DesignFeatureDraft]) -> list[ProblemItem]:
 
 
 def _labels_without_length(
-    texts: Sequence[SourceText], rules: MappingRules, factor: float
+    texts: Sequence[SourceText], rules: MappingRules, place: Placer
 ) -> list[ProblemItem]:
     """Cable / duct labels (`1x 144 core cable`, `1x4 way`) that do not start with a length."""
     label_layers = rules.layers_with("label", "route")
@@ -278,7 +279,7 @@ def _labels_without_length(
             continue
         value = t.text.strip()
         if _TYPE_WITHOUT_LENGTH.search(value) and not _LENGTH_FIRST.match(value):
-            position = (t.position[0] * factor, t.position[1] * factor)
+            position = place.to_project(t.position)
             out.append(ProblemItem(position, t.layer, t.handle, None, value))
     return out
 
@@ -311,7 +312,7 @@ def problems_json(
     problems: Mapping[ProblemCode, Sequence[ProblemItem]],
     features: Sequence[DesignFeatureDraft],
     names: Mapping[FeatureKey, str],
-    factor: float,
+    place: Placer,
 ) -> list[dict[str, object]]:
     """`design_revisions.warnings` entries for the problems (shape: `DrawingProblemSchema`)."""
     out: list[dict[str, object]] = []
@@ -324,9 +325,7 @@ def problems_json(
                 "code": code,
                 "severity": SEVERITY[code],
                 "count": len(items),
-                "items": [
-                    _item_json(i, features, names, factor) for i in items[:MAX_PROBLEM_ITEMS]
-                ],
+                "items": [_item_json(i, features, names, place) for i in items[:MAX_PROBLEM_ITEMS]],
             }
         )
     return out
@@ -336,14 +335,15 @@ def _item_json(
     item: ProblemItem,
     features: Sequence[DesignFeatureDraft],
     names: Mapping[FeatureKey, str],
-    factor: float,
+    place: Placer,
 ) -> dict[str, object]:
     near = nearest_named(item.position, features, names, skip_handle=item.handle)
+    drawing = place.to_drawing(item.position)
     return {
         "x": round(item.position[0], 3),
         "y": round(item.position[1], 3),
-        "drawingX": round(item.position[0] / factor, 3),
-        "drawingY": round(item.position[1] / factor, 3),
+        "drawingX": round(drawing[0], 3),
+        "drawingY": round(drawing[1], 3),
         "layer": item.layer,
         "handle": item.handle,
         "suggestedLayer": item.suggested_layer,
