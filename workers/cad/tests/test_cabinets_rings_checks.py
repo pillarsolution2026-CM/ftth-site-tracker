@@ -156,7 +156,7 @@ def test_rabaa_like_problems_are_found_with_their_places() -> None:
         "WRONG_LAYER": [("t2", "jont 144", "Joint 144"), ("sap1", "SUB", None)],
         "LABEL_MISSING": [("j3", None, None)],
         "LABEL_TYPE_MISMATCH": [("k1", None, "Joint 144")],
-        "ROUTE_SPLIT": [("d1", None, None)],
+        "ROUTE_SPLIT": [("d1/d2", None, None)],
         "LABEL_LENGTH_MISSING": [("c1", None, "1x 144 core cable")],
     }
 
@@ -219,3 +219,36 @@ def test_problems_and_groups_reach_the_revision_summary() -> None:
     assert item["handle"] == "j3" and (item["x"], item["y"]) == (201.0, 1.0)
     assert item["near"] == {"type": "joint", "name": "J  144 F", "layer": "jont 144",
                             "distanceM": 200.0}  # fmt: skip
+
+
+def test_each_split_place_has_its_own_id_even_on_one_line() -> None:
+    """A line broken at both ends gave two ROUTE_SPLIT places the same id (the line's handle), so
+    ignoring one ignored both (found on staging with Rabaa, line 15049)."""
+    drawing = DrawingData(
+        curves=(
+            SourceCurve("a", "DUCT 4", ((0, 0), (40, 0))),
+            SourceCurve("m", "DUCT 4", ((40, 0), (80, 0))),  # split at both of its ends
+            SourceCurve("b", "DUCT 4", ((80, 0), (120, 0))),
+        ),
+        inserts=(),
+        texts=(),
+    )
+    places = _problems(drawing)["ROUTE_SPLIT"]
+    assert len(places) == 2
+    assert len({handle for handle, _, _ in places}) == 2
+    assert sorted(handle for handle, _, _ in places) == ["a/m", "b/m"]
+
+
+def test_route_ends_on_either_side_of_a_grid_line_still_meet() -> None:
+    """Ends 2 mm apart fell into neighbouring cells of the 5 cm grid, so a junction of three routes
+    looked like a split of two (Rabaa in UTM: 58 places instead of 57)."""
+    drawing = DrawingData(
+        curves=(
+            SourceCurve("a", "DUCT 4", ((-40, 0), (0.024, 0))),
+            SourceCurve("b", "DUCT 4", ((0.026, 0), (40, 0))),
+            SourceCurve("c", "DUCT 4", ((0.025, 0.001), (0.025, 40))),
+        ),
+        inserts=(),
+        texts=(),
+    )
+    assert "ROUTE_SPLIT" not in _problems(drawing)

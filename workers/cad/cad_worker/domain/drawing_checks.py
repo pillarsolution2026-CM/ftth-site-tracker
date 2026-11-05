@@ -216,24 +216,54 @@ def _symbols_on_wrong_layer(
 
 
 def _route_splits(features: Sequence[DesignFeatureDraft]) -> list[ProblemItem]:
-    """Two routes of one layer meeting end to end, with no other route end and no symbol there."""
+    """Two routes of one layer meeting end to end, with no other route end and no symbol there.
+
+    Ends within ROUTE_END_TOUCH_M of each other meet. A grid only finds candidates (this cell and
+    its neighbours): ends close together but on either side of a cell line still meet."""
     step = ROUTE_END_TOUCH_M
-    ends: dict[tuple[str, int, int], list[tuple[DesignFeatureDraft, tuple[float, float]]]] = {}
+    End = tuple[DesignFeatureDraft, tuple[float, float]]
+    ends: list[End] = []
+    grid: dict[tuple[str, int, int], list[int]] = {}
     for f in features:
         if not f.is_route or len(f.coords) < 2:
             continue
         for p in (f.coords[0], f.coords[-1]):
-            cell = (f.layer, round(p[0] / step), round(p[1] / step))
-            ends.setdefault(cell, []).append((f, p))
+            grid.setdefault((f.layer, math.floor(p[0] / step), math.floor(p[1] / step)), []).append(
+                len(ends)
+            )
+            ends.append((f, p))
+    # Union-find over ends that touch.
+    parent = list(range(len(ends)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, (f, p) in enumerate(ends):
+        cx, cy = math.floor(p[0] / step), math.floor(p[1] / step)
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for j in grid.get((f.layer, gx, gy), ()):
+                    if j > i and math.dist(p, ends[j][1]) <= step:
+                        parent[find(j)] = find(i)
+    nodes: dict[int, list[End]] = {}
+    for i, end in enumerate(ends):
+        nodes.setdefault(find(i), []).append(end)
     points = [f for f in features if not f.is_route]
     out: list[ProblemItem] = []
-    for (layer, _, _), hits in sorted(ends.items(), key=lambda kv: kv[0]):
+    for hits in sorted(nodes.values(), key=lambda h: (h[0][0].layer, min(e[1] for e in h))):
+        layer = hits[0][0].layer
         if len(hits) != 2 or hits[0][0].key == hits[1][0].key:
             continue
         p = hits[0][1]
         if any(math.dist(p, s.coords[0]) <= ROUTE_NODE_ITEM_M for s in points):
             continue
-        out.append(ProblemItem(p, layer, hits[0][0].source_handle))
+        # The place is named by the two lines that meet there: one line broken at both ends has
+        # two places, and each must be ignorable on its own.
+        pair = "/".join(sorted(h[0].source_handle for h in hits))
+        out.append(ProblemItem(p, layer, pair))
     return out
 
 
