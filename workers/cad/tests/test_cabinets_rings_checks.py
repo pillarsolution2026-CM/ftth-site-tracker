@@ -18,6 +18,7 @@ from cad_worker.domain.design_build import (
     parse_rules,
 )
 from cad_worker.domain.drawing_checks import check_drawing
+from cad_worker.domain.placement import unit_placer
 
 METRE = Decimal("1")
 
@@ -85,7 +86,7 @@ def test_rule_attributes_land_on_features() -> None:
         ),
         texts=(),
     )
-    built = build_features(drawing, RULES, METRE)
+    built = build_features(drawing, RULES, unit_placer(1.0))
     attrs = {f.source_handle: (f.feature_type, dict(f.attrs)) for f in built.features}
     assert attrs["r1"] == ("route", {"kind": "4 way"})
     assert attrs["m1"] == ("cabinet", {"role": "main"})
@@ -113,7 +114,9 @@ def test_closed_shapes_on_a_point_layer_are_symbols_and_touching_ones_are_one() 
         inserts=(),
         texts=(),
     )
-    joints = sorted(build_features(drawing, RULES, METRE).features, key=lambda f: f.source_handle)
+    joints = sorted(
+        build_features(drawing, RULES, unit_placer(1.0)).features, key=lambda f: f.source_handle
+    )
     assert [f.source_handle for f in joints] == ["a", "c"]
     assert joints[0].coords[0] == pytest.approx((2.015, 1.0))
     assert joints[1].coords[0] == pytest.approx((51.0, 51.0))
@@ -121,8 +124,8 @@ def test_closed_shapes_on_a_point_layer_are_symbols_and_touching_ones_are_one() 
 
 
 def _problems(drawing: DrawingData) -> dict[str, list[tuple[str, str | None, str | None]]]:
-    built = build_features(drawing, RULES, METRE)
-    found, _ = check_drawing(built.features, drawing.texts, RULES, 1.0)
+    built = build_features(drawing, RULES, unit_placer(1.0))
+    found, _ = check_drawing(built.features, drawing.texts, RULES, unit_placer(1.0))
     return {
         code: [(i.handle, i.suggested_layer, i.text) for i in items]
         for code, items in found.items()
@@ -200,7 +203,7 @@ def test_problems_and_groups_reach_the_revision_summary() -> None:
         inserts=(),
         texts=(label("t1", "jont 144", "J  144 F", (3, 3)),),
     )
-    design = compose_design(drawing, RULES, METRE, (), uuid.uuid4)
+    design = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4)
     assert design.groups == [
         {
             "type": "joint",

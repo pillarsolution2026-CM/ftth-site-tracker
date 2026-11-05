@@ -105,6 +105,7 @@ describe('MappingEditor', () => {
       crsEpsg: 32636,
       drawingUnit: 'm',
       version: null,
+      placement: null,
     });
     expect(await screen.findByText('Mapping saved (version 1)')).toBeInTheDocument();
   });

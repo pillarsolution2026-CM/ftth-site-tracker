@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Literal, cast
 
 from cad_worker.domain.design import (
@@ -33,6 +32,7 @@ from cad_worker.domain.design import (
     Xy,
     polyline_length,
 )
+from cad_worker.domain.placement import Placer
 
 Target = Literal[
     "route", "box", "hhi", "joint", "mh", "cabinet", "ring", "label", "background", "ignore"
@@ -253,21 +253,14 @@ class BuiltFeatures:
     zero_length_routes: int
 
 
-def scale_point(point: Xy, factor: float) -> Xy:
-    return (point[0] * factor, point[1] * factor)
-
-
-def build_features(
-    drawing: DrawingData, rules: MappingRules, metres_per_unit: Decimal
-) -> BuiltFeatures:
-    factor = float(metres_per_unit)  # exact decimal kept on the revision; float for geometry only
-    routes, zero_length = _routes(drawing.curves, rules, factor)
-    points, background_inserts = _insert_features(drawing.inserts, rules, factor)
-    shapes = _shape_features(drawing.curves, rules, factor)
-    text_features, consumed = _text_features(drawing.texts, rules, factor)
+def build_features(drawing: DrawingData, rules: MappingRules, place: Placer) -> BuiltFeatures:
+    routes, zero_length = _routes(drawing.curves, rules, place)
+    points, background_inserts = _insert_features(drawing.inserts, rules, place)
+    shapes = _shape_features(drawing.curves, rules, place)
+    text_features, consumed = _text_features(drawing.texts, rules, place)
     candidate_layers = rules.layers_with(*FEATURE_TYPES, "label")
     link_texts = tuple(
-        _link_text(t, factor)
+        _link_text(t, place)
         for t in drawing.texts
         if t.layer in candidate_layers and t.handle not in consumed
     )
@@ -280,7 +273,7 @@ def build_features(
 
 
 def _routes(
-    curves: Iterable[SourceCurve], rules: MappingRules, factor: float
+    curves: Iterable[SourceCurve], rules: MappingRules, place: Placer
 ) -> tuple[list[DesignFeatureDraft], int]:
     route_layers = rules.layers_with("route")
     out: list[DesignFeatureDraft] = []
@@ -288,7 +281,7 @@ def _routes(
     for curve in curves:
         if curve.layer not in route_layers:
             continue
-        coords = tuple(scale_point(p, factor) for p in curve.points)
+        coords = tuple(place.to_project(p) for p in curve.points)
         if len(coords) < 2 or polyline_length(coords) <= 0:
             skipped += 1  # a LineString of zero length is not a route
             continue
@@ -300,7 +293,7 @@ def _routes(
 
 
 def _insert_features(
-    inserts: Iterable[SourceInsert], rules: MappingRules, factor: float
+    inserts: Iterable[SourceInsert], rules: MappingRules, place: Placer
 ) -> tuple[list[DesignFeatureDraft], frozenset[str]]:
     out: list[DesignFeatureDraft] = []
     background: set[str] = set()
@@ -320,7 +313,7 @@ def _insert_features(
                 insert.block_name,
                 "insert",
                 insert.handle,
-                (scale_point(insert.position, factor),),
+                (place.to_project(insert.position),),
                 attrs,
             )
         )
@@ -328,18 +321,19 @@ def _insert_features(
 
 
 def _shape_features(
-    curves: Iterable[SourceCurve], rules: MappingRules, factor: float
+    curves: Iterable[SourceCurve], rules: MappingRules, place: Placer
 ) -> list[DesignFeatureDraft]:
     """Closed shapes on a point-type layer; shapes touching each other are one symbol, placed at
-    the centre of their joint extents (ADR-032/033). Keyed by the smallest handle of the group."""
+    the centre of their joint extents (ADR-032/033). Keyed by the smallest handle of the group.
+    Extents are taken in the drawing (in metres), then the centre is placed (ADR-035)."""
     point_layers = {
         name: cast(FeatureType, t) for name, t in rules.layers.items() if t in POINT_FEATURE_TYPES
     }
     by_layer: dict[str, list[tuple[str, tuple[float, float, float, float]]]] = {}
     for curve in curves:
         if curve.layer in point_layers and curve.closed and len(curve.points) >= 2:
-            xs = [p[0] * factor for p in curve.points]
-            ys = [p[1] * factor for p in curve.points]
+            xs = [p[0] * place.unit_m for p in curve.points]
+            ys = [p[1] * place.unit_m for p in curve.points]
             by_layer.setdefault(curve.layer, []).append(
                 (curve.handle, (min(xs), min(ys), max(xs), max(ys)))
             )
@@ -361,7 +355,7 @@ def _shape_features(
                     None,
                     "curve",
                     handles[0],
-                    (centre,),
+                    (place.to_project((centre[0] / place.unit_m, centre[1] / place.unit_m)),),
                     {**attrs, **extra},
                 )
             )
@@ -409,7 +403,7 @@ def _attributes(attributes: Sequence[SourceAttribute]) -> list[dict[str, object]
 
 
 def _text_features(
-    texts: Iterable[SourceText], rules: MappingRules, factor: float
+    texts: Iterable[SourceText], rules: MappingRules, place: Placer
 ) -> tuple[list[DesignFeatureDraft], frozenset[str]]:
     out: list[DesignFeatureDraft] = []
     consumed: set[str] = set()
@@ -427,7 +421,7 @@ def _text_features(
                 None,
                 "text",
                 text.handle,
-                (scale_point(text.position, factor),),
+                (place.to_project(text.position),),
                 {
                     **rules.attrs_of(("text", text.layer, text_rule_key(text.text))).to_attrs(),
                     "text": text.text.strip(),
@@ -437,12 +431,12 @@ def _text_features(
     return out, frozenset(consumed)
 
 
-def _link_text(text: SourceText, factor: float) -> LinkText:
+def _link_text(text: SourceText, place: Placer) -> LinkText:
     return LinkText(
         handle=text.handle,
         layer=text.layer,
-        position=scale_point(text.position, factor),
-        height_m=abs(text.height) * factor,
+        position=place.to_project(text.position),
+        height_m=abs(text.height) * place.unit_m,
         raw_text=text.raw_text,
         text=text.text if text.readable else None,
         readable=text.readable,

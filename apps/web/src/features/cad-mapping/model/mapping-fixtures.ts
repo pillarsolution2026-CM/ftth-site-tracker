@@ -13,6 +13,7 @@ export function detection(overrides: Partial<CrsDetection> = {}): CrsDetection {
     insUnits: 1,
     declaredUnit: 'in',
     unitsConflict: true,
+    suggestedSourceCrs: 'project',
     ...overrides,
   };
 }

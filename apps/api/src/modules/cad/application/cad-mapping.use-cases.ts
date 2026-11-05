@@ -134,6 +134,7 @@ export class SaveCadMappingUseCase {
         crsEpsg: mapping.crsEpsg,
         drawingUnit: mapping.drawingUnit,
         metresPerUnit: METRES_PER_UNIT[mapping.drawingUnit],
+        placement: mapping.placement,
         updatedById: actorId,
         updatedAt: this.clock.now(),
       };

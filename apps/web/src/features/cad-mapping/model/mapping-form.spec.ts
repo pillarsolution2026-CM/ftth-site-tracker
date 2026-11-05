@@ -26,6 +26,7 @@ function saved(overrides: Partial<CadMapping> = {}): CadMapping {
     crsEpsg: 32636,
     drawingUnit: 'm',
     metresPerUnit: '1',
+    placement: null,
     version: 3,
     updatedById: null,
     updatedAt: '2026-10-28T10:00:00.000Z',
@@ -126,6 +127,7 @@ describe('buildMappingInput', () => {
       crsEpsg: 32636,
       drawingUnit: 'm',
       version: null,
+      placement: null,
     });
   });
 
@@ -133,6 +135,17 @@ describe('buildMappingInput', () => {
     const view = mappingView({ mapping: saved() });
     const input = buildMappingInput(view, initialFormState(view), 3);
     expect(input?.version).toBe(3);
+  });
+
+  it('keeps the saved placement when the rules are saved (ADR-035)', () => {
+    const placement = {
+      sourceCrs: 'egypt_red_belt' as const,
+      points: [],
+      fitScaleWithTwoPoints: false,
+      adjust: { dx: 5, dy: 0, rotationDeg: 0, scale: 1, pivot: null },
+    };
+    const view = mappingView({ mapping: saved({ placement }) });
+    expect(buildMappingInput(view, initialFormState(view), 3)?.placement).toEqual(placement);
   });
 
   it('omits blocks that follow their layer and texts without a rule', () => {

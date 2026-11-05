@@ -3,6 +3,7 @@ import {
   CadBuildRevisionJobSchema,
   CAD_STALE_AFTER_MINUTES,
   type CadMappingInput,
+  PlacementSchema,
 } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../../common/app-error.js';
@@ -52,6 +53,7 @@ const MAPPING: CadMappingInput = {
   crsEpsg: 32636,
   drawingUnit: 'in',
   version: null,
+  placement: null,
 };
 
 function processedFile(overrides: Partial<CadFile> = {}): CadFile {
@@ -209,6 +211,27 @@ describe('CreateDesignRevisionUseCase', () => {
       cadFileId: FILE,
       attempt: 1,
     });
+  });
+
+  it('freezes the placement with the mapping (ADR-035)', async () => {
+    const placement = PlacementSchema.parse({
+      points: [
+        {
+          id: 'cab-1-7',
+          drawing: { x: 7284.2708, y: 4091.7164 },
+          lat: 30.984506906326853,
+          lon: 32.78324905782938,
+          source: 'kml',
+        },
+      ],
+    });
+    expect((await save({ placement })).placement).toEqual(placement);
+    const revision = await create();
+    expect(revision.placement).toEqual(placement);
+    // A later save does not reach the frozen copy.
+    await save({ placement: null, version: 1 });
+    expect(must(uow.revisions.rows.get(revision.id)).placement).toEqual(placement);
+    expect(must(uow.mappings.rows.get(FILE)).placement).toBeNull();
   });
 
   it('takes the latest published revision as the base', async () => {

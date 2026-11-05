@@ -175,8 +175,9 @@ def _build_sector_1(
     revision_id, job_id = uuid.uuid4(), uuid.uuid4()
     db.execute(
         "INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, rules, "
-        "mapping_version, crs_epsg, drawing_unit, metres_per_unit, ins_units, units_conflict) "
-        "SELECT %s, f.project_id, f.id, 'queued', %s, %s, 1, %s, %s, %s, f.ins_units, "
+        "mapping_version, crs_epsg, drawing_unit, metres_per_unit, placement, ins_units, "
+        "units_conflict) SELECT %s, f.project_id, f.id, 'queued', %s, %s, 1, %s, %s, %s, %s, "
+        "f.ins_units, "
         "COALESCE((f.crs_detection->>'unitsConflict')::boolean, false) FROM cad_files f "
         "WHERE f.id = %s",
         (
@@ -186,6 +187,7 @@ def _build_sector_1(
             mapping["crsEpsg"],
             mapping["drawingUnit"],
             Decimal(mapping["metresPerUnit"]),
+            json.dumps(mapping["placement"]) if mapping.get("placement") else None,
             result["cad_file_id"],
         ),
     )
@@ -318,12 +320,13 @@ def test_rabaa_design_revision(
     for code, count in expected["problems"].items():
         if count is not None:
             assert found.get(code, 0) == count, code
+    # Places are in drawing units, or in project metres for a drawing placed in the program.
+    kx, ky = ("x", "y") if mapping.get("placesIn") == "project" else ("drawingX", "drawingY")
     for code, places in expected["problemPlaces"].items():
         items = problems[code]["items"]
         for x, y in places:
             assert any(
-                abs(i["drawingX"] - x) <= PLACE_TOLERANCE
-                and abs(i["drawingY"] - y) <= PLACE_TOLERANCE
+                abs(i[kx] - x) <= PLACE_TOLERANCE and abs(i[ky] - y) <= PLACE_TOLERANCE
                 for i in items
             ), (code, x, y)
     assert seconds < MAX_BUILD_SECONDS

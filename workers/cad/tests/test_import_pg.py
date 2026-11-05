@@ -275,6 +275,7 @@ def test_crs_detection_is_written_with_the_project_epsg(
         "insUnits": 1,
         "declaredUnit": "in",
         "unitsConflict": True,
+        "suggestedSourceCrs": "project",
     }
     assert {
         "code": "UNITS_CRS_MISMATCH",
