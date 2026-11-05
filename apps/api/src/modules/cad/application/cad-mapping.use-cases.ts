@@ -2,6 +2,7 @@ import {
   EVENT_ENTITIES,
   EVENT_TYPES,
   MAPPING_TEXT_ROWS_LIMIT,
+  PLACEMENT_DRAWING_MAX_LINES,
   METRES_PER_UNIT,
   suggestBlockTarget,
   suggestLayerTarget,
@@ -10,6 +11,7 @@ import {
   type MappingBlockRow,
   type MappingLayerRow,
   type MappingTextRow,
+  type PlacementDrawing,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock } from '../../../common/clock.js';
@@ -23,6 +25,7 @@ import type { CadMappingRecord } from '../domain/cad-mapping.js';
 import type {
   CadMappingRepository,
   CadMappingViewQueries,
+  PlacementDrawingLimits,
 } from '../domain/design-revision.repository.js';
 import type { ProjectEpsgLookup } from './ports.js';
 
@@ -34,6 +37,35 @@ export interface CadMappingViewModel {
   blocks: MappingBlockRow[];
   texts: MappingTextRow[];
   mapping: CadMappingRecord | null;
+}
+
+/**
+ * Technical tuning of the placement screen, not business rules: route lines are simplified to
+ * about 0.5 m; a short text (up to 20 characters) names its nearest item within 80 m, as a hint
+ * only (Rabaa writes cabinet names 30-70 m from the symbol, on another layer).
+ */
+export const PLACEMENT_DRAWING_LIMITS: PlacementDrawingLimits = {
+  maxLines: PLACEMENT_DRAWING_MAX_LINES,
+  toleranceM: 0.5,
+  nameRadiusM: 80,
+  nameMaxChars: 20,
+};
+
+/**
+ * What the placement screen draws and picks control points from (ADR-035): the point items and
+ * route lines of the newest built revision of the file, in drawing units.
+ */
+export class GetPlacementDrawingUseCase {
+  constructor(
+    private readonly files: CadFileRepository,
+    private readonly view: CadMappingViewQueries,
+  ) {}
+
+  async execute(projectId: string, cadFileId: string): Promise<PlacementDrawing> {
+    const file = await this.files.find(projectId, cadFileId);
+    if (!file) throw new AppError('NOT_FOUND', 'CAD file not found');
+    return this.view.placementDrawing(projectId, cadFileId, PLACEMENT_DRAWING_LIMITS);
+  }
 }
 
 export class GetCadMappingUseCase {

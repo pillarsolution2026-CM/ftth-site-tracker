@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CadMappingInput } from '@ftth/shared';
-import { getMapping, saveMapping } from './mapping-api';
+import { getMapping, getPlacementDrawing, saveMapping } from './mapping-api';
 
 export const mappingKey = (projectId: string, cadFileId: string) =>
   ['cad-mapping', projectId, cadFileId] as const;
@@ -19,5 +19,15 @@ export function useSaveMapping(projectId: string, cadFileId: string) {
   return useMutation({
     mutationFn: (input: CadMappingInput) => saveMapping(projectId, cadFileId, input),
     onSuccess: () => client.invalidateQueries({ queryKey: mappingKey(projectId, cadFileId) }),
+  });
+}
+
+export function usePlacementDrawing(projectId: string, cadFileId: string, enabled = true) {
+  return useQuery({
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryKey: [...mappingKey(projectId, cadFileId), 'placement-drawing'] as const,
+    queryFn: () => getPlacementDrawing(projectId, cadFileId),
   });
 }

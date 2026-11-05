@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { PageHeader } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { usePlacementDrawing } from '../api/queries';
 import { useMappingScreen } from '../hooks/use-mapping-screen';
 import { MappingEditor } from './mapping-editor';
 
@@ -18,6 +19,11 @@ export function MappingScreen({
 }) {
   const { t } = useI18n();
   const screen = useMappingScreen(projectId, cadFileId);
+  const drawing = usePlacementDrawing(
+    projectId,
+    cadFileId,
+    screen.canRead && screen.view?.fileStatus === 'processed',
+  );
 
   return (
     <div>
@@ -40,6 +46,7 @@ export function MappingScreen({
         <MappingEditor
           key={screen.reloadCount}
           view={screen.view}
+          drawing={drawing.data ?? null}
           canWrite={screen.canWrite}
           canBuild={screen.canBuild}
           saving={screen.saving}

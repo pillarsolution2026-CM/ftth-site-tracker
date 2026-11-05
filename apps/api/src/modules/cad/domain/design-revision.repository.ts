@@ -8,6 +8,7 @@ import type {
   FeatureType,
   MappingRule,
   Placement,
+  PlacementDrawing,
   TextLink,
   TextLinkCounts,
   TextLinkKind,
@@ -193,4 +194,23 @@ export interface CadMappingViewQueries {
   blocks(projectId: string, cadFileId: string): Promise<MappingBlockGroup[]>;
   /** Readable texts grouped by (layer, trimmed text): count DESC, layer, text; at most `limit`. */
   texts(projectId: string, cadFileId: string, limit: number): Promise<MappingTextGroup[]>;
+  /**
+   * Point items and route lines of the newest built (draft or published) revision of the file, in
+   * drawing units, taken from the extracted entities (ADR-035 placement screen). At most
+   * `maxLines` route lines, simplified to about `toleranceM` metres. An item's `names` are the
+   * readable texts of at most `nameMaxChars` characters whose nearest item it is, within
+   * `nameRadiusM` metres.
+   */
+  placementDrawing(
+    projectId: string,
+    cadFileId: string,
+    limits: PlacementDrawingLimits,
+  ): Promise<PlacementDrawing>;
+}
+
+export interface PlacementDrawingLimits {
+  maxLines: number;
+  toleranceM: number;
+  nameRadiusM: number;
+  nameMaxChars: number;
 }
