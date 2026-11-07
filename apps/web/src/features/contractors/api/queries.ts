@@ -1,21 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ProjectContractorsResponse } from '@ftth/shared';
 import {
-  addContractorLine,
   addContractorPrice,
   createContractor,
   getAdminProjectContractors,
   getProjectContractors,
   listContractors,
-  registerContractor,
   removeContractorLine,
   removeRegistration,
   updateContractor,
   updateContractorLine,
-  type AddContractorLineInput,
   type AddContractorPriceInput,
   type CreateContractorInput,
-  type RegisterContractorInput,
   type UpdateContractorInput,
   type UpdateContractorLineInput,
 } from './contractors-api';
@@ -81,14 +77,6 @@ function useRefreshProject(projectId: string) {
   };
 }
 
-export function useRegisterContractor(projectId: string) {
-  const refresh = useRefreshProject(projectId);
-  return useMutation({
-    mutationFn: (body: RegisterContractorInput) => registerContractor(projectId, body),
-    onSuccess: refresh,
-  });
-}
-
 export function useRemoveRegistration(projectId: string) {
   const refresh = useRefreshProject(projectId);
   return useMutation({
@@ -126,15 +114,6 @@ export function useAddContractorPrice(projectId: string) {
       lineId: string;
       body: AddContractorPriceInput;
     }) => addContractorPrice(projectId, input.registrationId, input.lineId, input.body),
-    onSuccess: refresh,
-  });
-}
-
-export function useAddContractorLine(projectId: string) {
-  const refresh = useRefreshProject(projectId);
-  return useMutation({
-    mutationFn: (input: { registrationId: string; body: AddContractorLineInput }) =>
-      addContractorLine(projectId, input.registrationId, input.body),
     onSuccess: refresh,
   });
 }

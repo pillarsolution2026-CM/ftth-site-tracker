@@ -27,9 +27,22 @@ function paramsOf(issue: Issue, t: Translate): Record<string, string | number> {
     availableQuantity: '',
     contractQuantity: '',
     reservedQuantity: '',
+    workOrderValue: '',
+    workOrderQuantity: '',
+    contractPrice: '',
+    otherScopesPrice: '',
+    maxAllowedPrice: '',
+    code: '',
+    scope: '',
     // The server always sends `max` with TOO_MANY_DECIMALS; this only covers older responses.
     max: issue.field === 'unitPrice' ? UNIT_PRICE_MAX_DECIMALS : QUANTITY_MAX_DECIMALS,
     ...issue.params,
+    // A whole line has no scope text: say so instead of leaving a gap.
+    ...(issue.code === 'QUANTITY_EXCEEDS_WORK_ORDER' ||
+    issue.code === 'LINE_ALREADY_ASSIGNED' ||
+    issue.code === 'CODE_SCOPE_REPEATED'
+      ? { scope: String(issue.params?.scope ?? '') || t('contractors.scope.whole') }
+      : {}),
     // The contract's work type arrives as its code ('civil'): show it in the user's language.
     ...(issue.code === 'CONTRACT_MISMATCH' &&
     issue.field === 'workType' &&

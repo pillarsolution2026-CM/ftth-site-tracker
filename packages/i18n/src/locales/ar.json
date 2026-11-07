@@ -392,7 +392,8 @@
       "quantity": "الكمية",
       "unitPrice": "سعر الوحدة",
       "workType": "نوع الأعمال",
-      "amount": "القيمة (للمطابقة)"
+      "amount": "القيمة (للمطابقة)",
+      "scope": "نطاق الشغل"
     },
     "summary": {
       "title": "3. الملخص",
@@ -479,7 +480,15 @@
       "CONTRACT_MISMATCH": "{field} مختلف عن العقد ({contractValue})",
       "CODE_REPEATED": "الكود مكرر في الصفوف {otherRows}؛ البند يظهر مرة واحدة",
       "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد (المتاح {availableQuantity} من {contractQuantity})",
-      "EMPTY_QUANTITY_SKIPPED": "الكمية فارغة: الصف لن يُضاف إلى أمر التكليف"
+      "EMPTY_QUANTITY_SKIPPED": "الكمية فارغة: الصف لن يُضاف إلى أمر التكليف",
+      "NOT_IN_WORK_ORDER": "الكود ليس من بنود أمر التكليف",
+      "WORK_ORDER_MISMATCH": "{field} يختلف عن أمر التكليف ({workOrderValue})",
+      "LEGACY_WORK_ORDER_LINE": "بند أمر التكليف قديم ولا يمكن إسناده لمقاول",
+      "CODE_SCOPE_REPEATED": "نفس الكود ونفس النطاق \"{scope}\" في الصفوف {otherRows}",
+      "WHOLE_AND_SCOPES_MIXED": "لا يمكن إسناد البند {code} كاملًا وبنطاقات معًا",
+      "LINE_ALREADY_ASSIGNED": "المقاول لديه هذا البند ونطاق \"{scope}\" بالفعل",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "الكمية أكبر من المتاح لنطاق {scope}: المتاح {availableQuantity} من {workOrderQuantity} (المحجوز {reservedQuantity})",
+      "PRICE_EXCEEDS_CONTRACT": "مجموع أسعار النطاقات يتعدى سعر العقد {contractPrice}: أقصى سعر مسموح {maxAllowedPrice} (باقي النطاقات {otherScopesPrice})"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "الورقة غير موجودة",
@@ -1366,26 +1375,26 @@
       "phone": "أدخل رقم هاتف: أرقام ومسافات و + - ( )",
       "contractor": "اختر المقاول",
       "date": "أدخل تاريخ التسجيل",
-      "noLines": "اختر بندًا واحدًا على الأقل",
       "quantity": "أدخل كمية أكبر من 0 بحد أقصى 4 خانات عشرية",
       "quantityMax": "الكمية أكبر من المتاح: {available}",
       "price": "أدخل سعرًا بحد أقصى 6 خانات عشرية",
-      "priceMax": "السعر أكبر من سعر العقد: {contractPrice}",
       "priceDate": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latest}",
-      "chooseLine": "اختر بندًا من أمر التكليف"
+      "priceMaxAllowed": "السعر أكبر من أقصى سعر مسموح لهذا النطاق: {maxAllowed}",
+      "chooseTarget": "اختر المقاول وتاريخ التسجيل أولًا"
     },
     "reasons": {
       "CONTRACTOR_NAME_TAKEN": "هذا الاسم مستخدم لمقاول آخر.",
       "NO_WORK_ORDER": "لا يوجد أمر تكليف لهذا المشروع بعد.",
       "CONTRACTOR_ALREADY_REGISTERED": "المقاول مسجَّل بالفعل على أمر التكليف.",
-      "LINE_NOT_IN_WORK_ORDER": "البند ليس من بنود أمر التكليف.",
+      "LINE_NOT_IN_WORK_ORDER": "البند ليس من بنود أمر التكليف. اعرض الملف من جديد.",
       "LEGACY_ITEM": "هذا بند قديم (قبل ربط العقد) ولا يمكن إسناده لمقاول.",
-      "LINE_REPEATED": "المقاول لديه هذا البند بالفعل.",
-      "QUANTITY_EXCEEDS_WORK_ORDER": "الكمية أكبر من المتاح في أمر التكليف للبند {code}: المطلوب {requestedQuantity}، المتاح {availableQuantity} (أمر التكليف {workOrderQuantity}، المحجوز {reservedQuantity}).",
-      "PRICE_EXCEEDS_CONTRACT": "السعر أكبر من سعر العقد للبند {code}: المطلوب {requestedPrice}، سعر العقد {contractPrice}.",
+      "LINE_REPEATED": "المقاول لديه هذا البند ونطاقه بالفعل. اعرض الملف من جديد.",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "الكمية أكبر من المتاح لنطاق {scope} في البند {code}: المطلوب {requestedQuantity}، المتاح {availableQuantity} (أمر التكليف {workOrderQuantity}، المحجوز {reservedQuantity}).",
+      "PRICE_EXCEEDS_CONTRACT": "مجموع أسعار النطاقات يتعدى سعر العقد {contractPrice} للبند {code}: أقصى سعر مسموح {maxAllowedPrice} (باقي النطاقات {otherScopesPrice}، المطلوب {requestedPrice}).",
       "PRICE_DATE_NOT_AFTER_LATEST": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latestEffectiveFrom}.",
       "LAST_LINE": "لا يمكن حذف آخر بند؛ احذف تسجيل المقاول بالكامل.",
-      "STALE_VERSION": "البيانات اتغيرت من مستخدم تاني، حدّث الصفحة وحاول تاني."
+      "STALE_VERSION": "البيانات اتغيرت من مستخدم تاني، حدّث الصفحة وحاول تاني.",
+      "WHOLE_AND_SCOPES_MIXED": "لا يمكن خلط بند كامل وبند بنطاق على نفس بند أمر التكليف. اعرض الملف من جديد."
     },
     "section": {
       "title": "المقاولين الباطن",
@@ -1400,7 +1409,10 @@
       "removeRegistration": "حذف التسجيل",
       "confirmRemoveRegistration": "حذف {name} من أمر التكليف مع كل بنوده وأسعاره؟",
       "lines": "بنود {name}",
-      "noLines": "لا توجد بنود"
+      "noLines": "لا توجد بنود",
+      "files": "الملفات المرفوعة",
+      "uploadMore": "رفع بنود إضافية",
+      "uploadMoreFor": "رفع بنود إضافية للمقاول {name}"
     },
     "line": {
       "code": "الكود",
@@ -1419,34 +1431,31 @@
       "newQuantity": "الكمية الجديدة ({code})",
       "effectiveFrom": "السعر من تاريخ ({code})",
       "newPrice": "السعر الجديد ({code})",
-      "add": "إضافة بند",
-      "addTitle": "إضافة بند للمقاول {name}",
-      "chooseLine": "بند أمر التكليف",
-      "chooseLineOption": "— اختر البند —",
-      "alreadyHas": "مسند لهذا المقاول بالفعل",
-      "availableShort": "المتاح {available}",
-      "firstPriceHint": "أول سعر يبدأ من تاريخ التسجيل: {date}",
       "lastLine": "لا يمكن حذف آخر بند؛ احذف تسجيل المقاول بالكامل",
-      "submitAdd": "إضافة"
+      "scope": "نطاق الشغل",
+      "splitSummary": "مقسّم: {count} نطاقات · متبقي في السعر {priceRoom}",
+      "wholeSummary": "مسند كامل · متبقي في السعر {priceRoom}"
     },
     "register": {
-      "title": "تسجيل مقاول",
       "contractor": "المقاول",
       "chooseContractor": "— اختر المقاول —",
       "alreadyRegistered": "مسجَّل بالفعل",
       "createContractor": "إضافة مقاول جديد",
-      "date": "تاريخ التسجيل",
-      "linesTitle": "البنود المسندة للمقاول",
-      "linesHint": "اختر بنود أمر التكليف ثم أدخل الكمية والسعر لكل بند.",
-      "giveLine": "إسناد البند {code}",
-      "available": "المتاح",
-      "workOrderPrice": "سعر العقد",
-      "quantity": "الكمية ({code})",
-      "price": "السعر ({code})",
-      "priceHeader": "سعر المقاول",
-      "notAssignable": "بند قديم: لا يمكن إسناده لمقاول",
-      "nothingLeft": "لا يوجد متاح للإسناد",
-      "submit": "تسجيل"
+      "date": "تاريخ التسجيل"
+    },
+    "scope": {
+      "whole": "البند كامل",
+      "label": "نطاق الشغل"
+    },
+    "import": {
+      "title": "تسجيل مقاول من ملف",
+      "titleAppend": "رفع بنود إضافية للمقاول {name}",
+      "explain": "البنود تأتي من ملف إكسل فيه الكود والوصف والوحدة ونطاق الشغل والكمية والسعر. النطاق الفارغ يعني البند كامل. أول سعر يبدأ من تاريخ التسجيل.",
+      "back": "الرجوع للمشروع",
+      "targetTitle": "المقاول والتاريخ",
+      "commit": "تسجيل البنود",
+      "committing": "جارٍ الحفظ…",
+      "mappingNote": "نطاق الشغل اختياري، ونوع الأعمال غير مستخدم."
     }
   }
 }

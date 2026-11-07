@@ -36,6 +36,7 @@ export function ProjectContractors({ projectId }: { projectId: string }) {
             key={registration.id}
             registration={registration}
             currency={data.currency}
+            availability={data.availability}
           />
         ))
       )}

@@ -35,6 +35,7 @@ function row(
       unitPrice: '1',
       workType: 'مدني',
       amount: null,
+      scope: null,
     },
     code,
     description: 'd',
@@ -42,6 +43,7 @@ function row(
     quantity: '1',
     unitPrice: '1',
     workType: 'civil',
+    scope: null,
     sheetAmount: null,
     amount,
     issues,
@@ -68,6 +70,7 @@ const MAPPING = {
   unitPrice: 4,
   workType: 5,
   amount: null,
+  scope: null,
 };
 
 function preview(
@@ -280,6 +283,7 @@ describe('heading rows (contract BOQ)', () => {
       unitPrice: null,
       workType: null,
       amount: null,
+      scope: null,
     },
   });
 

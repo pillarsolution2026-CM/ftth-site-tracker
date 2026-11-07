@@ -56,7 +56,11 @@ import {
   seedDraftContractId,
 } from './mock-contracts.ts';
 import { createAsBuiltMock } from './mock-asbuilt.ts';
-import { handleProjectContractors, projectsWithoutWorkOrder } from './mock-contractors.ts';
+import {
+  configureContractors,
+  handleProjectContractors,
+  projectsWithoutWorkOrder,
+} from './mock-contractors.ts';
 import {
   MOCK_DETECTION,
   handleDesignRevisions,
@@ -1223,6 +1227,7 @@ async function handleCad(
 }
 
 configureContracts({ readMultipart, readFixture, parsePreview, helpers });
+configureContractors({ readMultipart, readFixture });
 projectsWithoutWorkOrder([PROJECT_ID, DRAFT_PROJECT_ID]);
 
 const adminTokens = { accessToken: ADMIN_ACCESS, refreshToken: ADMIN_REFRESH, expiresIn: 900 };

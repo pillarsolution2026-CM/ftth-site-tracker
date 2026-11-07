@@ -2,8 +2,11 @@ import {
   ConfirmedColumnMappingSchema,
   IMPORT_FIELDS,
   REQUIRED_IMPORT_FIELDS,
+  ContractorConfirmedColumnMappingSchema,
   type ColumnMapping,
   type ContractImportCommitPayload,
+  type ContractorImportCommitPayload,
+  type ContractorImportTarget,
   type ImportField,
   type ImportPreviewRow,
   type WorkOrderImportCommitPayload,
@@ -199,24 +202,52 @@ export function isDraftApplied(state: WizardState): boolean {
   );
 }
 
-export function mappingProblems(mapping: ColumnMapping): {
+/** Columns of a contractor sheet (ADR-036): no work type, no amount; the scope is optional. */
+export const CONTRACTOR_IMPORT_FIELDS: readonly ImportField[] = [
+  'code',
+  'description',
+  'unit',
+  'scope',
+  'quantity',
+  'unitPrice',
+];
+export const CONTRACTOR_REQUIRED_FIELDS: readonly ImportField[] = [
+  'code',
+  'description',
+  'unit',
+  'quantity',
+  'unitPrice',
+];
+/** Work-order and contract sheets: every field except the contractor-only scope. */
+export const STANDARD_IMPORT_FIELDS: readonly ImportField[] = IMPORT_FIELDS.filter(
+  (field) => field !== 'scope',
+);
+
+export function mappingProblems(
+  mapping: ColumnMapping,
+  required: readonly ImportField[] = REQUIRED_IMPORT_FIELDS,
+): {
   unmapped: ImportField[];
   duplicated: number[];
 } {
-  const unmapped = REQUIRED_IMPORT_FIELDS.filter((field) => mapping[field] === null);
+  const unmapped = required.filter((field) => mapping[field] === null);
   const used = IMPORT_FIELDS.flatMap((field) => (mapping[field] === null ? [] : [mapping[field]]));
   const duplicated = [...new Set(used.filter((value, index) => used.indexOf(value) !== index))];
   return { unmapped, duplicated: duplicated.filter((v): v is number => v !== null) };
 }
 
 /** Options for re-reading the file with the user's draft. */
-export function previewOptionsFromDraft(state: WizardState): WorkOrderImportPreviewOptions {
+export function previewOptionsFromDraft(
+  state: WizardState,
+  contractor = false,
+): WorkOrderImportPreviewOptions {
   const { draft } = state;
   if (!draft) return {};
   return {
     sheetName: draft.sheetName,
     ...(draft.headerRow !== null ? { headerRow: draft.headerRow } : {}),
-    mapping: draft.mapping,
+    // A contractor sheet has no work type or amount column.
+    mapping: contractor ? { ...draft.mapping, workType: null, amount: null } : draft.mapping,
   };
 }
 
@@ -235,11 +266,12 @@ export interface CommitOptions {
    * `workOrder` (default) needs the work-order header and at least one item row (headings are
    * skipped). `contract` has no header step and also stores heading rows.
    */
-  target?: 'workOrder' | 'contract';
+  target?: 'workOrder' | 'contract' | 'contractor';
 }
 
 export function commitBlockers(state: WizardState, options: CommitOptions = {}): CommitBlocker[] {
-  const contract = options.target === 'contract';
+  const contractor = options.target === 'contractor';
+  const contract = options.target === 'contract' || contractor;
   const { preview } = state;
   if (!preview) return ['noRows'];
   const blockers: CommitBlocker[] = [];
@@ -247,20 +279,27 @@ export function commitBlockers(state: WizardState, options: CommitOptions = {}):
   if (!isDraftApplied(state)) blockers.push('draftNotApplied');
   if (preview.fileIssues.length > 0) blockers.push('fileIssues');
   if (preview.headerRow === null) blockers.push('noHeaderRow');
-  const problems = mappingProblems(preview.mapping);
+  const problems = mappingProblems(
+    preview.mapping,
+    contractor ? CONTRACTOR_REQUIRED_FIELDS : REQUIRED_IMPORT_FIELDS,
+  );
   if (problems.unmapped.length > 0 || problems.duplicated.length > 0) {
     blockers.push('mappingIncomplete');
   }
   if (!contract && Object.keys(validateHeader(state.header)).length > 0) {
     blockers.push('headerInvalid');
   }
-  const counting = contract
-    ? selection.included
-    : selection.included.filter((row) => !isHeadingRow(row));
+  const counting = contractor
+    ? selection.included.filter((row) => row.kind === 'item')
+    : contract
+      ? selection.included
+      : selection.included.filter((row) => !isHeadingRow(row));
   if (counting.length === 0) blockers.push('noRows');
   if (selection.blockingErrorRows.length > 0) blockers.push('errorRows');
   // Work orders have no duplicate decision since ADR-028: a repeated code is an error row.
-  if (contract && selection.unresolvedDuplicates.length > 0) blockers.push('unresolvedDuplicates');
+  if (options.target === 'contract' && selection.unresolvedDuplicates.length > 0) {
+    blockers.push('unresolvedDuplicates');
+  }
   return blockers;
 }
 
@@ -308,5 +347,33 @@ export function buildContractCommitPayload(
       .filter(([, decision]) => decision === 'keep')
       .map(([code]) => code),
     expectedVersion,
+  };
+}
+
+/**
+ * Commit payload of a contractor sheet (ADR-036). Headings and rows with an empty quantity are
+ * skipped by the server; the work type and amount columns are not used.
+ */
+export function buildContractorCommitPayload(
+  state: WizardState,
+  target: ContractorImportTarget,
+): ContractorImportCommitPayload | null {
+  const { preview } = state;
+  if (!preview || preview.headerRow === null) return null;
+  if (commitBlockers(state, { target: 'contractor' }).length > 0) return null;
+  const mapping = ContractorConfirmedColumnMappingSchema.safeParse({
+    ...preview.mapping,
+    workType: null,
+    amount: null,
+  });
+  if (!mapping.success) return null;
+  const selection = deriveSelection(state);
+  return {
+    fileSha256: preview.file.sha256,
+    sheetName: preview.sheetName,
+    headerRow: preview.headerRow,
+    mapping: mapping.data,
+    excludedRowNumbers: [...selection.excluded].sort((a, b) => a - b),
+    target,
   };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import type { Dispatch } from 'react';
+import type { Dispatch, ReactNode } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
@@ -15,8 +15,15 @@ import { CreateBlocked } from '@/features/work-orders/components/create-work-ord
 import { workOrderConflictOf } from '@/features/work-orders/model/conflict';
 import { WorkOrderErrorNotice } from '@/features/work-orders/components/work-order-error';
 import { useWorkOrderGate } from '@/features/work-orders/hooks/use-work-order-gate';
+import { contractorErrorMsg, translateMsg } from '@/features/contractors/model/contractor-errors';
 import { useImportWizard } from '../hooks/use-import-wizard';
-import type { CommitBlocker, WizardAction, WizardState } from '../model/import-wizard';
+import {
+  CONTRACTOR_IMPORT_FIELDS,
+  CONTRACTOR_REQUIRED_FIELDS,
+  type CommitBlocker,
+  type WizardAction,
+  type WizardState,
+} from '../model/import-wizard';
 import { DuplicateDecisions } from './duplicate-decisions';
 import { ImportInvalidNotice } from './import-invalid-notice';
 import { ImportRowsTable } from './import-rows-table';
@@ -156,12 +163,15 @@ function ReplaceSection({ replace }: { replace: ContractReplace }) {
 export function ImportWizardView({
   wizard,
   contractReplace,
+  contractor,
 }: {
   wizard: Wizard;
   /** Present only for the contract BOQ import. */
   contractReplace?: ContractReplace;
+  /** Present only for a subcontractor sheet (ADR-036): its page title. */
+  contractor?: { title: string; before?: ReactNode };
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { state, dispatch, selection } = wizard;
   const { preview, draft } = state;
   const forContract = contractReplace !== undefined;
@@ -170,8 +180,13 @@ export function ImportWizardView({
   return (
     <div className="flex max-w-6xl flex-col gap-8">
       <h1 className="text-xl font-semibold">
-        {forContract ? t('admin.contracts.import.title') : t('import.title')}
+        {contractor
+          ? contractor.title
+          : forContract
+            ? t('admin.contracts.import.title')
+            : t('import.title')}
       </h1>
+      {contractor?.before}
       <UploadStep
         reading={wizard.reading}
         progress={wizard.progress}
@@ -190,6 +205,13 @@ export function ImportWizardView({
             onHeaderRow={(headerRow) => dispatch({ type: 'setHeaderRow', headerRow })}
             onMapping={(field, column) => dispatch({ type: 'setMapping', field, column })}
             onReread={wizard.rereadWithDraft}
+            {...(contractor
+              ? {
+                  fields: CONTRACTOR_IMPORT_FIELDS,
+                  required: CONTRACTOR_REQUIRED_FIELDS,
+                  note: t('contractors.import.mappingNote'),
+                }
+              : {})}
           />
           <ImportSummary selection={selection} />
           {forContract ? (
@@ -206,16 +228,21 @@ export function ImportWizardView({
             excludeErrorRows={state.excludeErrorRows}
             onToggleRow={(rowNumber) => dispatch({ type: 'toggleRow', rowNumber })}
             onExcludeErrorRows={(value) => dispatch({ type: 'setExcludeErrorRows', value })}
+            variant={contractor ? 'contractor' : 'standard'}
           />
           {contractReplace ? (
             <ReplaceSection replace={contractReplace} />
-          ) : (
+          ) : contractor ? null : (
             <HeaderSection header={state.header} dispatch={dispatch} />
           )}
           {wizard.invalidDetails || wizard.commitErrorCode === 'IMPORT_INVALID' ? (
             <ImportInvalidNotice details={wizard.invalidDetails} />
           ) : wizard.commitErrorCode ? (
-            forContract ? (
+            contractor ? (
+              <Notice kind="error">
+                {translateMsg(t, locale, contractorErrorMsg(wizard.commitError))}
+              </Notice>
+            ) : forContract ? (
               <Notice kind="error">{t(contractErrorKey(wizard.commitError))}</Notice>
             ) : workOrderConflictOf(wizard.commitError) ? (
               <WorkOrderErrorNotice error={wizard.commitError} />
@@ -237,12 +264,16 @@ export function ImportWizardView({
               disabled={wizard.blockers.length > 0 || wizard.committing || needsConfirm}
             >
               {wizard.committing
-                ? forContract
-                  ? t('admin.contracts.import.committing')
-                  : t('import.committing')
-                : forContract
-                  ? t('admin.contracts.import.commit')
-                  : t('import.commit')}
+                ? contractor
+                  ? t('contractors.import.committing')
+                  : forContract
+                    ? t('admin.contracts.import.committing')
+                    : t('import.committing')
+                : contractor
+                  ? t('contractors.import.commit')
+                  : forContract
+                    ? t('admin.contracts.import.commit')
+                    : t('import.commit')}
             </Button>
           </div>
         </>

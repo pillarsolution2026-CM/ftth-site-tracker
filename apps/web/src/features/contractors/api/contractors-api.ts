@@ -1,11 +1,9 @@
 import {
   AddContractorPriceRequestSchema,
-  AddContractorLineRequestSchema,
   ContractorListResponseSchema,
   ContractorSchema,
   CreateContractorRequestSchema,
   ProjectContractorsResponseSchema,
-  RegisterContractorRequestSchema,
   UpdateContractorLineRequestSchema,
   UpdateContractorRequestSchema,
   type Contractor,
@@ -17,9 +15,7 @@ import { bffJson, bffVoid, projectApiPath } from '@/shared/api/bff-client';
 
 export type CreateContractorInput = z.input<typeof CreateContractorRequestSchema>;
 export type UpdateContractorInput = z.input<typeof UpdateContractorRequestSchema>;
-export type RegisterContractorInput = z.input<typeof RegisterContractorRequestSchema>;
 export type UpdateContractorLineInput = z.input<typeof UpdateContractorLineRequestSchema>;
-export type AddContractorLineInput = z.input<typeof AddContractorLineRequestSchema>;
 export type AddContractorPriceInput = z.input<typeof AddContractorPriceRequestSchema>;
 
 const ADMIN = '/api/admin';
@@ -65,16 +61,6 @@ export function getProjectContractors(projectId: string): Promise<ProjectContrac
   return bffJson(projectApiPath(projectId, '/contractors'), ProjectContractorsResponseSchema);
 }
 
-export function registerContractor(
-  projectId: string,
-  body: RegisterContractorInput,
-): Promise<ProjectContractorsResponse> {
-  return bffJson(registrationsPath(projectId), ProjectContractorsResponseSchema, {
-    method: 'POST',
-    body: RegisterContractorRequestSchema.parse(body),
-  });
-}
-
 export function removeRegistration(projectId: string, registrationId: string): Promise<void> {
   return bffVoid(registrationPath(projectId, registrationId), { method: 'DELETE' });
 }
@@ -111,21 +97,6 @@ export function addContractorPrice(
     {
       method: 'POST',
       body: AddContractorPriceRequestSchema.parse(body),
-    },
-  );
-}
-
-export function addContractorLine(
-  projectId: string,
-  registrationId: string,
-  body: AddContractorLineInput,
-): Promise<ProjectContractorsResponse> {
-  return bffJson(
-    `${registrationPath(projectId, registrationId)}/lines`,
-    ProjectContractorsResponseSchema,
-    {
-      method: 'POST',
-      body: AddContractorLineRequestSchema.parse(body),
     },
   );
 }

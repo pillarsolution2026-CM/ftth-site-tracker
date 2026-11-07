@@ -392,7 +392,8 @@
       "quantity": "Quantity",
       "unitPrice": "Unit price",
       "workType": "Work type",
-      "amount": "Amount (cross-check)"
+      "amount": "Amount (cross-check)",
+      "scope": "Scope of work"
     },
     "summary": {
       "title": "3. Summary",
@@ -479,7 +480,15 @@
       "CONTRACT_MISMATCH": "{field} differs from the contract ({contractValue})",
       "CODE_REPEATED": "The code is repeated in rows {otherRows}; an item appears once",
       "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is available in the contract (available {availableQuantity} of {contractQuantity})",
-      "EMPTY_QUANTITY_SKIPPED": "Quantity is empty: the row is skipped and not added to the work order"
+      "EMPTY_QUANTITY_SKIPPED": "Quantity is empty: the row is skipped and not added to the work order",
+      "NOT_IN_WORK_ORDER": "The code is not a line of the work order",
+      "WORK_ORDER_MISMATCH": "{field} differs from the work order ({workOrderValue})",
+      "LEGACY_WORK_ORDER_LINE": "This work-order line is a legacy line and cannot be given to a subcontractor",
+      "CODE_SCOPE_REPEATED": "The same code and scope \"{scope}\" are in rows {otherRows}",
+      "WHOLE_AND_SCOPES_MIXED": "Item {code} cannot be given both whole and by scope",
+      "LINE_ALREADY_ASSIGNED": "This subcontractor already has this line and scope \"{scope}\"",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "The quantity is above what is available for scope {scope}: available {availableQuantity} of {workOrderQuantity} (reserved {reservedQuantity})",
+      "PRICE_EXCEEDS_CONTRACT": "The scope prices add up to more than the contract price {contractPrice}: the most allowed is {maxAllowedPrice} (other scopes {otherScopesPrice})"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Sheet not found",
@@ -1366,26 +1375,26 @@
       "phone": "Enter a phone number: digits, spaces and + - ( )",
       "contractor": "Choose a subcontractor",
       "date": "Enter the registration date",
-      "noLines": "Choose at least one line",
       "quantity": "Enter a quantity above 0 with at most 4 decimal places",
       "quantityMax": "The quantity is above what is available: {available}",
       "price": "Enter a price with at most 6 decimal places",
-      "priceMax": "The price is above the contract price: {contractPrice}",
       "priceDate": "The date must be after the latest price date: {latest}",
-      "chooseLine": "Choose a work-order line"
+      "priceMaxAllowed": "The price is above the most allowed for this scope: {maxAllowed}",
+      "chooseTarget": "Choose the subcontractor and the registration date first"
     },
     "reasons": {
       "CONTRACTOR_NAME_TAKEN": "This name is already used by another subcontractor.",
       "NO_WORK_ORDER": "This project has no work order yet.",
       "CONTRACTOR_ALREADY_REGISTERED": "This subcontractor is already registered on the work order.",
-      "LINE_NOT_IN_WORK_ORDER": "The line is not a line of this work order.",
+      "LINE_NOT_IN_WORK_ORDER": "The line is not a line of this work order. Preview the sheet again.",
       "LEGACY_ITEM": "This is a legacy line (before the contract link) and cannot be given to a subcontractor.",
-      "LINE_REPEATED": "The subcontractor already has this line.",
-      "QUANTITY_EXCEEDS_WORK_ORDER": "The quantity is above what is available in the work order for item {code}: requested {requestedQuantity}, available {availableQuantity} (work order {workOrderQuantity}, reserved {reservedQuantity}).",
-      "PRICE_EXCEEDS_CONTRACT": "The price is above the contract price for item {code}: requested {requestedPrice}, contract price {contractPrice}.",
+      "LINE_REPEATED": "The subcontractor already has this line and scope. Preview the sheet again.",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "The quantity is above what is available for scope {scope} of item {code}: requested {requestedQuantity}, available {availableQuantity} (work order {workOrderQuantity}, reserved {reservedQuantity}).",
+      "PRICE_EXCEEDS_CONTRACT": "The scope prices add up to more than the contract price {contractPrice} for item {code}: the most allowed is {maxAllowedPrice} (other scopes {otherScopesPrice}, requested {requestedPrice}).",
       "PRICE_DATE_NOT_AFTER_LATEST": "The date must be after the latest price date: {latestEffectiveFrom}.",
       "LAST_LINE": "The last line cannot be removed. Remove the whole registration instead.",
-      "STALE_VERSION": "The data was changed by another user. Reload the page and try again."
+      "STALE_VERSION": "The data was changed by another user. Reload the page and try again.",
+      "WHOLE_AND_SCOPES_MIXED": "A line given whole and a line with a scope cannot be mixed on the same work-order line. Preview the sheet again."
     },
     "section": {
       "title": "Subcontractors",
@@ -1400,7 +1409,10 @@
       "removeRegistration": "Remove registration",
       "confirmRemoveRegistration": "Remove {name} from the work order, with all its lines and prices?",
       "lines": "Lines of {name}",
-      "noLines": "No lines"
+      "noLines": "No lines",
+      "files": "Uploaded files",
+      "uploadMore": "Upload more lines",
+      "uploadMoreFor": "Upload more lines for {name}"
     },
     "line": {
       "code": "Code",
@@ -1419,34 +1431,31 @@
       "newQuantity": "New quantity ({code})",
       "effectiveFrom": "Price from ({code})",
       "newPrice": "New price ({code})",
-      "add": "Add line",
-      "addTitle": "Add a line for {name}",
-      "chooseLine": "Work-order line",
-      "chooseLineOption": "— Choose a line —",
-      "alreadyHas": "already given to this subcontractor",
-      "availableShort": "available {available}",
-      "firstPriceHint": "The first price starts on the registration date: {date}",
       "lastLine": "The last line cannot be removed; remove the whole registration",
-      "submitAdd": "Add"
+      "scope": "Scope of work",
+      "splitSummary": "Split: {count} scopes · price left {priceRoom}",
+      "wholeSummary": "Given whole · price left {priceRoom}"
     },
     "register": {
-      "title": "Register a subcontractor",
       "contractor": "Subcontractor",
       "chooseContractor": "— Choose a subcontractor —",
       "alreadyRegistered": "already registered",
       "createContractor": "Add a new subcontractor",
-      "date": "Registration date",
-      "linesTitle": "Lines given to the subcontractor",
-      "linesHint": "Pick the work-order lines, then enter a quantity and a price for each.",
-      "giveLine": "Give line {code}",
-      "available": "Available",
-      "workOrderPrice": "Contract price",
-      "quantity": "Quantity ({code})",
-      "price": "Price ({code})",
-      "priceHeader": "Subcontractor price",
-      "notAssignable": "Legacy line: cannot be given to a subcontractor",
-      "nothingLeft": "Nothing left to give",
-      "submit": "Register"
+      "date": "Registration date"
+    },
+    "scope": {
+      "whole": "Whole line",
+      "label": "Scope of work"
+    },
+    "import": {
+      "title": "Register a subcontractor from a sheet",
+      "titleAppend": "Upload more lines for {name}",
+      "explain": "The lines come from an Excel sheet with code, description, unit, scope of work, quantity and price. An empty scope means the whole line. The first price starts on the registration date.",
+      "back": "Back to the project",
+      "targetTitle": "Subcontractor and date",
+      "commit": "Register the lines",
+      "committing": "Saving…",
+      "mappingNote": "Scope of work is optional; work type is not used."
     }
   }
 }

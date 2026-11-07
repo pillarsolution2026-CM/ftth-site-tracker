@@ -1,35 +1,30 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
 import { errorCodeOf } from '@/shared/api/bff-client';
-import { Button } from '@/shared/ui/button';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
-import { useAdminProjectContractors, useContractors } from '../api/queries';
+import { useAdminProjectContractors } from '../api/queries';
 import { useLineActions } from '../hooks/use-line-actions';
-import { useRegisterContractorForm } from '../hooks/use-register-contractor';
 import { translateMsg } from '../model/contractor-errors';
-import { RegisterContractorForm } from './register-contractor-form';
 import { RegistrationCard } from './registration-card';
 
 const LINK =
   'inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
+const BUTTON_LINK =
+  'inline-flex min-h-11 items-center rounded-md border border-transparent bg-(--color-brand) px-4 font-semibold text-(--color-brandContrast) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
 const NO_AVAILABILITY: never[] = [];
 
-/** Admin: the subcontractors of the project's work order, with every write action. */
+/**
+ * Admin: the subcontractors of the project's work order. Their lines come only from uploaded
+ * sheets (ADR-036); here the admin edits a quantity, adds a dated price or removes things.
+ */
 export function ProjectContractorsSection({ projectId }: { projectId: string }) {
   const { t, locale } = useI18n();
   const query = useAdminProjectContractors(projectId);
-  const contractors = useContractors();
   const availability = query.data?.availability ?? NO_AVAILABILITY;
-  const register = useRegisterContractorForm(projectId, availability);
   const actions = useLineActions(projectId, availability);
-  const registeredIds = useMemo(
-    () => new Set(query.data?.registrations.map((entry) => entry.contractor.id)),
-    [query.data],
-  );
   const data = query.data;
 
   return (
@@ -50,18 +45,14 @@ export function ProjectContractorsSection({ projectId }: { projectId: string }) 
         </Notice>
       ) : (
         <>
-          {register.open ? (
-            <RegisterContractorForm
-              model={register}
-              contractors={contractors.data?.items ?? []}
-              registeredIds={registeredIds}
-              availability={availability}
-            />
-          ) : (
-            <div>
-              <Button onClick={register.onOpen}>{t('contractors.section.register')}</Button>
-            </div>
-          )}
+          <div>
+            <Link
+              className={BUTTON_LINK}
+              href={`/${locale}/admin/projects/${projectId}/contractors/import`}
+            >
+              {t('contractors.section.register')}
+            </Link>
+          </div>
           {actions.actionError && actions.editor === null ? (
             <Notice kind="error">{translateMsg(t, locale, actions.actionError)}</Notice>
           ) : null}

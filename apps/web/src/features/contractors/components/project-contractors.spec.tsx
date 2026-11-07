@@ -1,8 +1,8 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
 import { PM_ACCESS, PROJECT_ID, QC_ACCESS, renderScreen } from '@/test-utils/render';
-import { projectContractors } from '@/test-utils/contractors';
+import { SCOPE_BOX, projectContractors, scopedProject } from '@/test-utils/contractors';
 import { ProjectContractors } from './project-contractors';
 
 const api = vi.hoisted(() => ({ getProjectContractors: vi.fn() }));
@@ -21,6 +21,18 @@ describe('ProjectContractors (PM, read-only)', () => {
     expect(screen.getByText(/Total for this subcontractor/)).toHaveTextContent('905.00 EGP');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(api.getProjectContractors).toHaveBeenCalledWith(PROJECT_ID);
+  });
+
+  it('shows scopes, the split summary and the uploaded files, still without any action', async () => {
+    api.getProjectContractors.mockResolvedValue(scopedProject());
+    renderScreen(<ProjectContractors projectId={PROJECT_ID} />, { access: PM_ACCESS });
+    const table = await screen.findByRole('table', { name: 'Lines of Nile Cables' });
+    expect(within(table).getByText(/Whole line/)).toBeInTheDocument();
+    expect(within(table).getByText(new RegExp(SCOPE_BOX))).toBeInTheDocument();
+    expect(within(table).getByText(/Split: 3 scopes/)).toBeInTheDocument();
+    expect(screen.getByText('nile-cables.xlsx')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Upload more/ })).not.toBeInTheDocument();
   });
 
   it('is laid out right-to-left in Arabic with Latin, left-to-right numbers', async () => {

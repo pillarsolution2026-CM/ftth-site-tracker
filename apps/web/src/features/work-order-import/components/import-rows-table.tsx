@@ -17,6 +17,8 @@ interface ImportRowsTableProps {
   excludeErrorRows: boolean;
   onToggleRow: (rowNumber: number) => void;
   onExcludeErrorRows: (value: boolean) => void;
+  /** `contractor` shows the scope of work instead of the work type and amount (ADR-036). */
+  variant?: 'standard' | 'contractor';
 }
 
 function IssueList({ issues }: { issues: ImportRowIssue[] }) {
@@ -47,9 +49,11 @@ export function ImportRowsTable({
   excludeErrorRows,
   onToggleRow,
   onExcludeErrorRows,
+  variant = 'standard',
 }: ImportRowsTableProps) {
   const { t } = useI18n();
   const view = useRowsView(rows, excluded);
+  const contractor = variant === 'contractor';
   return (
     <section aria-labelledby="rows-title" className="flex flex-col gap-3">
       <h2 id="rows-title" className="text-lg font-semibold">
@@ -84,9 +88,10 @@ export function ImportRowsTable({
               <Th>{t('import.rows.include')}</Th>
               <Th>{t('import.rows.rowNumber')}</Th>
               <Th>{t('items.code')}</Th>
-              <Th>{t('items.workType')}</Th>
+              {contractor ? null : <Th>{t('items.workType')}</Th>}
               <Th>{t('items.description')}</Th>
               <Th>{t('items.unit')}</Th>
+              {contractor ? <Th>{t('import.fields.scope')}</Th> : null}
               <Th>{t('items.quantity')}</Th>
               <Th>{t('items.unitPrice')}</Th>
               <Th>{t('items.amount')}</Th>
@@ -126,14 +131,21 @@ export function ImportRowsTable({
                     </Td>
                   ) : (
                     <>
-                      <Td>
-                        {row.workType
-                          ? t(`items.workTypes.${row.workType}`)
-                          : (row.raw.workType ?? '—')}
-                      </Td>
+                      {contractor ? null : (
+                        <Td>
+                          {row.workType
+                            ? t(`items.workTypes.${row.workType}`)
+                            : (row.raw.workType ?? '—')}
+                        </Td>
+                      )}
                       <Td>{row.raw.description ?? '—'}</Td>
                       {/* Units can be up to 64 characters: wrap inside a bounded column (ADR-016). */}
                       <Td className="max-w-48 min-w-24 wrap-break-word">{row.raw.unit ?? '—'}</Td>
+                      {contractor ? (
+                        <Td className="max-w-48 min-w-24 wrap-break-word">
+                          {row.scope ?? t('contractors.scope.whole')}
+                        </Td>
+                      ) : null}
                       <Td>
                         <Ltr>{row.raw.quantity ?? '—'}</Ltr>
                       </Td>

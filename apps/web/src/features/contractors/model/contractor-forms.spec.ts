@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
-import { availabilityLine, contractorLine, ITEM_1 } from '@/test-utils/contractors';
+import {
+  boxAvailability,
+  boxLine,
+  availabilityLine,
+  contractorLine,
+} from '@/test-utils/contractors';
 import { contractorErrorMsg, registrationTotal } from './contractor-errors';
 import {
   EMPTY_CONTRACTOR_FORM,
   checkPrice,
   checkQuantity,
-  lineBlockReason,
+  maxAllowedPriceOf,
   validateContractorForm,
+  validateLineQuantity,
+  validateNewTarget,
   validatePriceForm,
-  validateRegistration,
 } from './contractor-forms';
 
 describe('validateContractorForm', () => {
@@ -54,6 +60,22 @@ describe('validateContractorForm', () => {
   });
 });
 
+describe('validateNewTarget', () => {
+  it('needs the contractor and the registration date', () => {
+    expect(validateNewTarget({ contractorId: '', registeredOn: '' })).toMatchObject({
+      ok: false,
+      errors: {
+        contractorId: { key: 'contractors.validation.contractor' },
+        registeredOn: { key: 'contractors.validation.date' },
+      },
+    });
+    expect(validateNewTarget({ contractorId: 'c1', registeredOn: '2026-11-07' })).toEqual({
+      ok: true,
+      target: { kind: 'new', contractorId: 'c1', registeredOn: '2026-11-07' },
+    });
+  });
+});
+
 describe('quantity and price checks', () => {
   it('accepts Arabic digits and compares exactly', () => {
     expect(checkQuantity('٤٠٫٥', '40.5')).toEqual({ value: '40.5' });
@@ -61,13 +83,12 @@ describe('quantity and price checks', () => {
       error: { key: 'contractors.validation.quantity' },
     });
     expect(checkQuantity('0', null)).toHaveProperty('error');
-    expect(checkQuantity('0.30000001', null)).toHaveProperty('error');
     expect(checkQuantity('40.6', '40.5')).toMatchObject({
       error: { key: 'contractors.validation.quantityMax', params: { available: '40.5' } },
     });
     expect(checkPrice('100', '100')).toEqual({ value: '100' });
     expect(checkPrice('100.000001', '100')).toMatchObject({
-      error: { key: 'contractors.validation.priceMax' },
+      error: { key: 'contractors.validation.priceMaxAllowed', params: { maxAllowed: '100' } },
     });
     expect(checkPrice('1.1234567', '100')).toMatchObject({
       error: { key: 'contractors.validation.price' },
@@ -75,64 +96,52 @@ describe('quantity and price checks', () => {
   });
 });
 
-describe('lineBlockReason', () => {
-  it('blocks legacy lines and lines with nothing left', () => {
-    expect(lineBlockReason(availabilityLine())).toBeNull();
-    expect(lineBlockReason(availabilityLine({ assignable: false }))).toBe(
-      'contractors.register.notAssignable',
-    );
-    expect(lineBlockReason(availabilityLine({ availableQuantity: '0' }))).toBe(
-      'contractors.register.nothingLeft',
-    );
-  });
-});
-
-describe('validateRegistration', () => {
-  const availability = [availabilityLine()];
-  it('needs a contractor, a date and at least one line', () => {
-    const result = validateRegistration(
-      { contractorId: '', registeredOn: '', lines: {} },
-      availability,
-    );
-    expect(result).toMatchObject({
+describe('scope-aware limits', () => {
+  it('caps a quantity by the scope availability plus the line own quantity', () => {
+    // box scope: available 80 + own 20
+    expect(validateLineQuantity('100', boxLine(), boxAvailability())).toEqual({
+      ok: true,
+      quantity: '100',
+    });
+    expect(validateLineQuantity('100.0001', boxLine(), boxAvailability())).toMatchObject({
       ok: false,
-      errors: {
-        contractorId: { key: 'contractors.validation.contractor' },
-        registeredOn: { key: 'contractors.validation.date' },
-        lines: { key: 'contractors.validation.noLines' },
-      },
+      error: { params: { available: '100' } },
+    });
+    // a whole line is the scope with no name
+    expect(validateLineQuantity('50', contractorLine(), availabilityLine())).toEqual({
+      ok: true,
+      quantity: '50',
     });
   });
 
-  it('builds the request from the chosen, valid lines only', () => {
-    const result = validateRegistration(
-      {
-        contractorId: '3c1c9f2e-6b3d-4e8a-9c7f-2d4b6a8c0e1f',
-        registeredOn: '2026-11-07',
-        lines: { [ITEM_1]: { selected: true, quantity: '5', unitPrice: '99.5' } },
-      },
-      availability,
-    );
-    expect(result).toMatchObject({
-      ok: true,
-      payload: { lines: [{ workOrderItemId: ITEM_1, quantity: '5', unitPrice: '99.5' }] },
-    });
+  it('allows a price up to the price room plus this scope highest price', () => {
+    expect(maxAllowedPriceOf(boxLine(), boxAvailability())).toBe('12');
+    expect(maxAllowedPriceOf(contractorLine(), availabilityLine())).toBe('100');
+    expect(maxAllowedPriceOf(contractorLine(), undefined)).toBe('100');
   });
-});
 
-describe('validatePriceForm', () => {
-  const line = contractorLine(); // latest price from 2026-11-05
-  it('needs a date after the latest one', () => {
-    expect(validatePriceForm({ effectiveFrom: '2026-11-05', unitPrice: '90' }, line)).toMatchObject(
-      {
-        ok: false,
-        errors: { effectiveFrom: { params: { latest: '2026-11-05' } } },
-      },
-    );
-    expect(validatePriceForm({ effectiveFrom: '2026-11-06', unitPrice: '90' }, line)).toEqual({
-      ok: true,
-      payload: { effectiveFrom: '2026-11-06', unitPrice: '90' },
+  it('needs a date after the latest one and a price within the maximum', () => {
+    const line = contractorLine(); // latest price from 2026-11-05
+    expect(
+      validatePriceForm({ effectiveFrom: '2026-11-05', unitPrice: '90' }, line, availabilityLine()),
+    ).toMatchObject({
+      ok: false,
+      errors: { effectiveFrom: { params: { latest: '2026-11-05' } } },
     });
+    expect(
+      validatePriceForm(
+        { effectiveFrom: '2026-11-06', unitPrice: '100' },
+        line,
+        availabilityLine(),
+      ),
+    ).toEqual({ ok: true, payload: { effectiveFrom: '2026-11-06', unitPrice: '100' } });
+    expect(
+      validatePriceForm(
+        { effectiveFrom: '2026-11-06', unitPrice: '13' },
+        boxLine(),
+        boxAvailability(),
+      ),
+    ).toMatchObject({ ok: false, errors: { unitPrice: { params: { maxAllowed: '12' } } } });
   });
 });
 
@@ -149,14 +158,8 @@ describe('registrationTotal', () => {
     expect(registrationTotal([contractorLine()])).toBe('905');
     expect(
       registrationTotal([
-        contractorLine({
-          quantity: '0.1',
-          prices: [price('0.2')],
-        }),
-        contractorLine({
-          quantity: '1234567.8912',
-          prices: [price('98.123456')],
-        }),
+        contractorLine({ quantity: '0.1', prices: [price('0.2')] }),
+        contractorLine({ quantity: '1234567.8912', prices: [price('98.123456')] }),
       ]),
     ).toBe('121140068.1711759872');
     expect(registrationTotal([])).toBe('0');
@@ -168,17 +171,39 @@ describe('contractorErrorMsg', () => {
     expect(
       contractorErrorMsg(
         new ApiClientError('CONFLICT', 409, {
-          reason: 'PRICE_DATE_NOT_AFTER_LATEST',
-          latestEffectiveFrom: '2026-11-05',
+          reason: 'PRICE_EXCEEDS_CONTRACT',
+          maxAllowedPrice: '70',
+          otherScopesPrice: '30',
         }),
       ),
     ).toEqual({
-      key: 'contractors.reasons.PRICE_DATE_NOT_AFTER_LATEST',
-      params: { latestEffectiveFrom: '2026-11-05' },
+      key: 'contractors.reasons.PRICE_EXCEEDS_CONTRACT',
+      params: { otherScopesPrice: '30', maxAllowedPrice: '70' },
     });
   });
 
-  it('falls back to the error code', () => {
+  it('a quantity overrun on a whole line carries an empty scope', () => {
+    expect(
+      contractorErrorMsg(
+        new ApiClientError('CONFLICT', 409, {
+          reason: 'QUANTITY_EXCEEDS_WORK_ORDER',
+          scope: null,
+          availableQuantity: '5',
+        }),
+      ),
+    ).toEqual({
+      key: 'contractors.reasons.QUANTITY_EXCEEDS_WORK_ORDER',
+      params: { availableQuantity: '5', scope: '' },
+    });
+  });
+
+  it('knows STALE_VERSION, WHOLE_AND_SCOPES_MIXED and the fallbacks', () => {
+    expect(
+      contractorErrorMsg(new ApiClientError('CONFLICT', 409, { reason: 'STALE_VERSION' })),
+    ).toEqual({ key: 'contractors.reasons.STALE_VERSION' });
+    expect(
+      contractorErrorMsg(new ApiClientError('CONFLICT', 409, { reason: 'WHOLE_AND_SCOPES_MIXED' })),
+    ).toMatchObject({ key: 'contractors.reasons.WHOLE_AND_SCOPES_MIXED' });
     expect(contractorErrorMsg(new ApiClientError('CONFLICT', 409))).toEqual({
       key: 'errors.CONFLICT',
     });

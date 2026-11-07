@@ -3,12 +3,12 @@ import {
   Decimal4StringSchema,
   Decimal6StringSchema,
   PhoneSchema,
-  RegisterContractorRequestSchema,
+  scopeKeyOf,
   type Contractor,
   type ContractorInput,
   type ContractorLine,
   type ContractorLineAvailability,
-  type RegisterContractorRequest,
+  type ContractorImportTarget,
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
 import { compareDecimals, normalizeDecimalInput, sumDecimals } from '@/shared/lib/decimal';
@@ -90,46 +90,40 @@ export function validateContractorForm(values: ContractorFormValues): Contractor
 }
 
 // ---------------------------------------------------------------------------------------------
-// Registration (a contractor on the work order)
+// Where an uploaded sheet goes: a new registration or an existing one
 // ---------------------------------------------------------------------------------------------
 
-export interface LineDraft {
-  selected: boolean;
-  quantity: string;
-  unitPrice: string;
-}
-
-export interface RegistrationFormValues {
+export interface NewTargetValues {
   contractorId: string;
   registeredOn: string;
-  /** By work-order line id. */
-  lines: Record<string, LineDraft>;
 }
 
-export interface LineErrors {
-  quantity?: Msg;
-  unitPrice?: Msg;
-}
-
-export interface RegistrationErrors {
+export interface NewTargetErrors {
   contractorId?: Msg;
   registeredOn?: Msg;
-  lines?: Msg;
-  line: Record<string, LineErrors>;
 }
 
-export const EMPTY_REGISTRATION_FORM: RegistrationFormValues = {
-  contractorId: '',
-  registeredOn: '',
-  lines: {},
-};
-
-/** Why a work-order line cannot be given to a contractor, or null when it can. */
-export function lineBlockReason(line: ContractorLineAvailability): MessageKey | null {
-  if (!line.assignable) return 'contractors.register.notAssignable';
-  if (compareDecimals(line.availableQuantity, '0') <= 0) return 'contractors.register.nothingLeft';
-  return null;
+/** The contractor from the list and the registration date; both are needed before the upload. */
+export function validateNewTarget(
+  values: NewTargetValues,
+):
+  | { ok: true; target: Extract<ContractorImportTarget, { kind: 'new' }> }
+  | { ok: false; errors: NewTargetErrors } {
+  const errors: NewTargetErrors = {};
+  if (values.contractorId === '') errors.contractorId = msg('contractors.validation.contractor');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.registeredOn)) {
+    errors.registeredOn = msg('contractors.validation.date');
+  }
+  if (errors.contractorId || errors.registeredOn) return { ok: false, errors };
+  return {
+    ok: true,
+    target: { kind: 'new', contractorId: values.contractorId, registeredOn: values.registeredOn },
+  };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Quantity and price checks
+// ---------------------------------------------------------------------------------------------
 
 /** Quantity rules: above 0, at most 4 decimals, at most `max` (when known). */
 export function checkQuantity(raw: string, max: string | null): { value: string } | { error: Msg } {
@@ -143,151 +137,42 @@ export function checkQuantity(raw: string, max: string | null): { value: string 
   return { value };
 }
 
-/** Price rules: at most 6 decimals, at most the contract price. */
-export function checkPrice(raw: string, contractPrice: string): { value: string } | { error: Msg } {
+/** Price rules: at most 6 decimals, at most `maxAllowed` (what the scopes leave of the contract price). */
+export function checkPrice(raw: string, maxAllowed: string): { value: string } | { error: Msg } {
   const value = normalizeDecimalInput(raw);
   if (!Decimal6StringSchema.safeParse(value).success) {
     return { error: msg('contractors.validation.price') };
   }
-  if (compareDecimals(value, contractPrice) > 0) {
-    return { error: msg('contractors.validation.priceMax', { contractPrice }) };
+  if (compareDecimals(value, maxAllowed) > 0) {
+    return { error: msg('contractors.validation.priceMaxAllowed', { maxAllowed }) };
   }
   return { value };
 }
 
-export type RegistrationResult =
-  { ok: true; payload: RegisterContractorRequest } | { ok: false; errors: RegistrationErrors };
-
-/** Mirrors the server rules so the admin sees the problem before saving; the server still decides. */
-export function validateRegistration(
-  values: RegistrationFormValues,
-  availability: readonly ContractorLineAvailability[],
-): RegistrationResult {
-  const errors: RegistrationErrors = { line: {} };
-  if (values.contractorId === '') errors.contractorId = msg('contractors.validation.contractor');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.registeredOn)) {
-    errors.registeredOn = msg('contractors.validation.date');
-  }
-  const lines: RegisterContractorRequest['lines'] = [];
-  for (const line of availability) {
-    const draft = values.lines[line.workOrderItemId];
-    if (!draft?.selected || lineBlockReason(line) !== null) continue;
-    const quantity = checkQuantity(draft.quantity, line.availableQuantity);
-    const price = checkPrice(draft.unitPrice, line.contractPrice);
-    if ('error' in quantity || 'error' in price) {
-      errors.line[line.workOrderItemId] = {
-        ...('error' in quantity ? { quantity: quantity.error } : {}),
-        ...('error' in price ? { unitPrice: price.error } : {}),
-      };
-      continue;
-    }
-    lines.push({
-      workOrderItemId: line.workOrderItemId,
-      quantity: quantity.value,
-      unitPrice: price.value,
-    });
-  }
-  const chosen = availability.filter(
-    (line) => values.lines[line.workOrderItemId]?.selected && lineBlockReason(line) === null,
-  );
-  if (chosen.length === 0) errors.lines = msg('contractors.validation.noLines');
-
-  const failed =
-    errors.contractorId ||
-    errors.registeredOn ||
-    errors.lines ||
-    Object.keys(errors.line).length > 0;
-  if (failed) return { ok: false, errors };
-  const parsed = RegisterContractorRequestSchema.safeParse({
-    contractorId: values.contractorId,
-    registeredOn: values.registeredOn,
-    lines,
-  });
-  if (!parsed.success) {
-    return {
-      ok: false,
-      errors: { ...errors, contractorId: msg('contractors.validation.contractor') },
-    };
-  }
-  return { ok: true, payload: parsed.data };
+/** The usage of the line's own scope in the work-order line's availability, if any. */
+export function scopeUsageOf(
+  line: ContractorLine,
+  availability: ContractorLineAvailability | undefined,
+) {
+  const key = scopeKeyOf(line.scope);
+  return availability?.scopes.find((entry) => scopeKeyOf(entry.scope) === key);
 }
 
-// ---------------------------------------------------------------------------------------------
-// One line of a registration: quantity and dated price
-// ---------------------------------------------------------------------------------------------
-
 /**
- * A new quantity: at most what the work-order line still has for contractors, counting the
- * quantity this line already holds.
+ * A new quantity: at most what is still free for the line's scope, counting the quantity this
+ * line already holds.
  */
 export function validateLineQuantity(
   raw: string,
   line: ContractorLine,
   availability: ContractorLineAvailability | undefined,
 ): { ok: true; quantity: string } | { ok: false; error: Msg } {
-  const max = availability ? sumDecimals([availability.availableQuantity, line.quantity]) : null;
+  const usage = scopeUsageOf(line, availability);
+  const max = usage ? sumDecimals([usage.availableQuantity, line.quantity]) : null;
   const result = checkQuantity(raw, max);
   return 'error' in result
     ? { ok: false, error: result.error }
     : { ok: true, quantity: result.value };
-}
-
-export interface AddLineValues {
-  workOrderItemId: string;
-  quantity: string;
-  unitPrice: string;
-}
-
-export interface AddLineErrors {
-  workOrderItemId?: Msg;
-  quantity?: Msg;
-  unitPrice?: Msg;
-}
-
-export const EMPTY_ADD_LINE: AddLineValues = { workOrderItemId: '', quantity: '', unitPrice: '' };
-
-/** Why a work-order line cannot be added to this contractor, or null when it can. */
-export function addLineBlockReason(
-  line: ContractorLineAvailability,
-  registration: { lines: readonly ContractorLine[] },
-): MessageKey | null {
-  if (registration.lines.some((entry) => entry.workOrderItemId === line.workOrderItemId)) {
-    return 'contractors.line.alreadyHas';
-  }
-  return lineBlockReason(line);
-}
-
-/** Adding a line to an existing registration: same checks as the registration form. */
-export function validateAddLine(
-  values: AddLineValues,
-  registration: { lines: readonly ContractorLine[] },
-  availability: readonly ContractorLineAvailability[],
-):
-  | { ok: true; payload: { workOrderItemId: string; quantity: string; unitPrice: string } }
-  | { ok: false; errors: AddLineErrors } {
-  const line = availability.find((entry) => entry.workOrderItemId === values.workOrderItemId);
-  if (!line || addLineBlockReason(line, registration) !== null) {
-    return { ok: false, errors: { workOrderItemId: msg('contractors.validation.chooseLine') } };
-  }
-  const quantity = checkQuantity(values.quantity, line.availableQuantity);
-  const price = checkPrice(values.unitPrice, line.contractPrice);
-  if ('error' in quantity || 'error' in price) {
-    return {
-      ok: false,
-      errors: {
-        ...('error' in quantity ? { quantity: quantity.error } : {}),
-        ...('error' in price ? { unitPrice: price.error } : {}),
-      },
-    };
-  }
-  return {
-    ok: true,
-    payload: {
-      workOrderItemId: line.workOrderItemId,
-      quantity: quantity.value,
-      unitPrice: price.value,
-    },
-  };
 }
 
 export interface PriceFormValues {
@@ -300,10 +185,25 @@ export interface PriceFormErrors {
   unitPrice?: Msg;
 }
 
-/** A dated price: after the latest price date (ISO dates compare as text), at most the contract price. */
+/**
+ * The most a new price of this line's scope may be: the room the scopes leave under the contract
+ * price, plus the highest price this scope already counts for. Without availability, the contract
+ * price.
+ */
+export function maxAllowedPriceOf(
+  line: ContractorLine,
+  availability: ContractorLineAvailability | undefined,
+): string {
+  if (!availability) return line.contractPrice;
+  const usage = scopeUsageOf(line, availability);
+  return sumDecimals([availability.priceRoom, usage?.highestPrice ?? '0']);
+}
+
+/** A dated price: after the latest price date (ISO dates compare as text), within the allowed maximum. */
 export function validatePriceForm(
   values: PriceFormValues,
   line: ContractorLine,
+  availability?: ContractorLineAvailability,
 ):
   | { ok: true; payload: { effectiveFrom: string; unitPrice: string } }
   | { ok: false; errors: PriceFormErrors } {
@@ -314,7 +214,7 @@ export function validatePriceForm(
   } else if (latest !== '' && values.effectiveFrom <= latest) {
     errors.effectiveFrom = msg('contractors.validation.priceDate', { latest });
   }
-  const price = checkPrice(values.unitPrice, line.contractPrice);
+  const price = checkPrice(values.unitPrice, maxAllowedPriceOf(line, availability));
   if ('error' in price) errors.unitPrice = price.error;
   if (errors.effectiveFrom || errors.unitPrice || !('value' in price)) return { ok: false, errors };
   return { ok: true, payload: { effectiveFrom: values.effectiveFrom, unitPrice: price.value } };

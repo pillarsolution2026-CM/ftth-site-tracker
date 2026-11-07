@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { ltr } from '@ftth/i18n';
 import type {
   ContractorLine,
   ContractorLineAvailability,
@@ -13,16 +15,39 @@ import { Notice } from '@/shared/ui/notice';
 import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { formatDecimal, formatMoney } from '@/shared/lib/decimal';
-import { AddLineForm } from './add-line-form';
 import type { LineActionsModel } from '../hooks/use-line-actions';
 import { latestPrice, registrationTotal, translateMsg } from '../model/contractor-errors';
+
+const UPLOAD_LINK =
+  'inline-flex min-h-11 items-center rounded-md border border-(--color-brand) px-4 font-semibold text-(--color-brand) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
+
+/** «Split: 3 scopes · price left 0.00» / «Given whole · price left …» for one work-order line. */
+function AvailabilitySummary({
+  availability,
+}: {
+  availability: ContractorLineAvailability | undefined;
+}) {
+  const { t, locale } = useI18n();
+  if (!availability || availability.mode === 'free') return null;
+  const priceRoom = formatDecimal(availability.priceRoom, locale, { minFractionDigits: 2 });
+  return (
+    <div className="text-xs opacity-80">
+      {availability.mode === 'scoped'
+        ? t('contractors.line.splitSummary', {
+            count: availability.scopes.length,
+            priceRoom: ltr(priceRoom),
+          })
+        : t('contractors.line.wholeSummary', { priceRoom: ltr(priceRoom) })}
+    </div>
+  );
+}
 
 interface RegistrationCardProps {
   registration: ContractorRegistration;
   currency: string;
   /** Present for the admin; absent for the read-only PM page. */
   actions?: LineActionsModel | undefined;
-  /** What is left of each work-order line; the admin's «add line» picker needs it. */
+  /** What is left of each work-order line, per scope: shown as a summary under each line. */
   availability?: readonly ContractorLineAvailability[] | undefined;
 }
 
@@ -33,7 +58,7 @@ function LineEditor({ line, actions }: { line: ContractorLine; actions: LineActi
   const id = `${editor.kind}-${line.id}`;
   return (
     <tr>
-      <Td colSpan={9}>
+      <Td colSpan={10}>
         {editor.kind === 'quantity' ? (
           <form
             noValidate
@@ -132,14 +157,13 @@ export function RegistrationCard({
         </div>
         {actions ? (
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={actions.pending}
-              aria-label={`${t('contractors.line.add')} ${contractor.name}`}
-              onClick={() => actions.openAddLine(registration)}
+            <Link
+              className={UPLOAD_LINK}
+              href={`/${locale}/admin/projects/${registration.projectId}/contractors/import?registrationId=${registration.id}`}
+              aria-label={t('contractors.section.uploadMoreFor', { name: contractor.name })}
             >
-              {t('contractors.line.add')}
-            </Button>
+              {t('contractors.section.uploadMore')}
+            </Link>
             <Button
               variant="outline"
               disabled={actions.pending}
@@ -160,6 +184,7 @@ export function RegistrationCard({
               <Th>{t('contractors.line.code')}</Th>
               <Th>{t('contractors.line.description')}</Th>
               <Th>{t('contractors.line.unit')}</Th>
+              <Th>{t('contractors.line.scope')}</Th>
               <Th>{t('contractors.line.contractPrice')}</Th>
               <Th>{t('contractors.line.quantity')}</Th>
               <Th>{t('contractors.line.currentPrice')}</Th>
@@ -177,6 +202,14 @@ export function RegistrationCard({
                   </Td>
                   <Td>{line.description}</Td>
                   <Td>{line.unit}</Td>
+                  <Td>
+                    {line.scope ?? t('contractors.scope.whole')}
+                    <AvailabilitySummary
+                      availability={availability.find(
+                        (entry) => entry.workOrderItemId === line.workOrderItemId,
+                      )}
+                    />
+                  </Td>
                   <Td>
                     <Ltr>{formatDecimal(line.contractPrice, locale, { minFractionDigits: 2 })}</Ltr>
                   </Td>
@@ -250,10 +283,17 @@ export function RegistrationCard({
           </tbody>
         </Table>
       )}
-      {actions &&
-      actions.editor?.kind === 'addLine' &&
-      actions.editor.registrationId === registration.id ? (
-        <AddLineForm registration={registration} availability={availability} actions={actions} />
+      {registration.files.length > 0 ? (
+        <section className="mt-3" aria-label={t('contractors.section.files')}>
+          <h4 className="text-sm font-semibold">{t('contractors.section.files')}</h4>
+          <ul className="m-0 list-none p-0 text-sm">
+            {registration.files.map((file) => (
+              <li key={file.id}>
+                <Ltr>{file.fileName}</Ltr> · <Ltr>{file.createdAt.slice(0, 10)}</Ltr>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
       <p className="mt-3 font-semibold" title={t('contractors.section.totalHint')}>
         {t('contractors.section.total')}: <Ltr>{formatMoney(total, currency, locale)}</Ltr>

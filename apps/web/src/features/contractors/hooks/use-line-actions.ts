@@ -8,7 +8,6 @@ import type {
 } from '@ftth/shared';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import {
-  useAddContractorLine,
   useAddContractorPrice,
   useRemoveContractorLine,
   useRemoveRegistration,
@@ -16,19 +15,15 @@ import {
 } from '../api/queries';
 import { contractorErrorMsg } from '../model/contractor-errors';
 import {
-  EMPTY_ADD_LINE,
-  validateAddLine,
   validateLineQuantity,
   validatePriceForm,
-  type AddLineErrors,
-  type AddLineValues,
   type Msg,
   type PriceFormErrors,
   type PriceFormValues,
 } from '../model/contractor-forms';
 
 export interface Editor {
-  kind: 'quantity' | 'price' | 'addLine';
+  kind: 'quantity' | 'price';
   registrationId: string;
   lineId: string;
 }
@@ -43,7 +38,6 @@ export function useLineActions(
   const { t } = useI18n();
   const updateLine = useUpdateContractorLine(projectId);
   const addPrice = useAddContractorPrice(projectId);
-  const addLine = useAddContractorLine(projectId);
   const removeLine = useRemoveContractorLine(projectId);
   const removeRegistration = useRemoveRegistration(projectId);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -51,8 +45,6 @@ export function useLineActions(
   const [quantityError, setQuantityError] = useState<Msg | null>(null);
   const [price, setPrice] = useState<PriceFormValues>(EMPTY_PRICE);
   const [priceErrors, setPriceErrors] = useState<PriceFormErrors>({});
-  const [addValues, setAddValues] = useState<AddLineValues>(EMPTY_ADD_LINE);
-  const [addErrors, setAddErrors] = useState<AddLineErrors>({});
   const [actionError, setActionError] = useState<Msg | null>(null);
 
   const fail = (error: unknown) => setActionError(contractorErrorMsg(error));
@@ -60,7 +52,6 @@ export function useLineActions(
     setEditor(null);
     setQuantityError(null);
     setPriceErrors({});
-    setAddErrors({});
     setActionError(null);
   };
 
@@ -74,36 +65,6 @@ export function useLineActions(
     close();
     setPrice(EMPTY_PRICE);
     setEditor({ kind: 'price', registrationId: registration.id, lineId: line.id });
-  };
-
-  const openAddLine = (registration: ContractorRegistration) => {
-    close();
-    setAddValues(EMPTY_ADD_LINE);
-    setEditor({ kind: 'addLine', registrationId: registration.id, lineId: '' });
-  };
-
-  const onAddChange = (field: keyof AddLineValues, value: string) => {
-    setAddValues((current) => {
-      if (field !== 'workOrderItemId') return { ...current, [field]: value };
-      // Choosing a line proposes its contract price; the admin may lower it.
-      const chosen = availability.find((entry) => entry.workOrderItemId === value);
-      return { ...current, workOrderItemId: value, unitPrice: chosen?.contractPrice ?? '' };
-    });
-    setAddErrors((current) => ({ ...current, [field]: undefined }));
-  };
-
-  const submitAddLine = (event: FormEvent, registration: ContractorRegistration) => {
-    event.preventDefault();
-    const result = validateAddLine(addValues, registration, availability);
-    if (!result.ok) {
-      setAddErrors(result.errors);
-      return;
-    }
-    setActionError(null);
-    addLine.mutate(
-      { registrationId: registration.id, body: result.payload },
-      { onSuccess: close, onError: fail },
-    );
   };
 
   const submitQuantity = (event: FormEvent, line: ContractorLine) => {
@@ -132,7 +93,11 @@ export function useLineActions(
   const submitPrice = (event: FormEvent, line: ContractorLine) => {
     event.preventDefault();
     if (!editor) return;
-    const result = validatePriceForm(price, line);
+    const result = validatePriceForm(
+      price,
+      line,
+      availability.find((entry) => entry.workOrderItemId === line.workOrderItemId),
+    );
     if (!result.ok) {
       setPriceErrors(result.errors);
       return;
@@ -170,7 +135,6 @@ export function useLineActions(
     pending:
       updateLine.isPending ||
       addPrice.isPending ||
-      addLine.isPending ||
       removeLine.isPending ||
       removeRegistration.isPending,
     onQuantityChange: (value: string) => {
@@ -181,11 +145,6 @@ export function useLineActions(
       setPrice((current) => ({ ...current, [field]: value }));
       setPriceErrors((current) => ({ ...current, [field]: undefined }));
     },
-    addValues,
-    addErrors,
-    openAddLine,
-    onAddChange,
-    submitAddLine,
     openQuantity,
     openPrice,
     close,

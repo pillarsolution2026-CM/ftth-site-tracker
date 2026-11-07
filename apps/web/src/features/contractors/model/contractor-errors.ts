@@ -13,6 +13,9 @@ const PARAM_KEYS = [
   'contractPrice',
   'requestedPrice',
   'latestEffectiveFrom',
+  'scope',
+  'otherScopesPrice',
+  'maxAllowedPrice',
 ] as const;
 
 /**
@@ -32,6 +35,8 @@ export function contractorErrorMsg(error: unknown): Msg {
           const value = record[key];
           if (typeof value === 'string' || typeof value === 'number') params[key] = String(value);
         }
+        // A whole line has no scope text; the message then says «whole line».
+        if (reason === 'QUANTITY_EXCEEDS_WORK_ORDER') params.scope ??= '';
         return { key: `contractors.reasons.${reason}`, params };
       }
     }
@@ -51,7 +56,10 @@ export function translateMsg(
   const params = Object.fromEntries(
     Object.entries(message.params ?? {}).map(([key, value]) => [
       key,
-      ltr(/^-?\d+(\.\d+)?$/.test(value) ? formatDecimal(value, locale) : value),
+      // The scope is free text in the user's language: not isolated, and empty = whole line.
+      key === 'scope'
+        ? value || t('contractors.scope.whole')
+        : ltr(/^-?\d+(\.\d+)?$/.test(value) ? formatDecimal(value, locale) : value),
     ]),
   );
   return t(message.key, params);
