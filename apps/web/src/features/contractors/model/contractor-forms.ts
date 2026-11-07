@@ -232,6 +232,64 @@ export function validateLineQuantity(
     : { ok: true, quantity: result.value };
 }
 
+export interface AddLineValues {
+  workOrderItemId: string;
+  quantity: string;
+  unitPrice: string;
+}
+
+export interface AddLineErrors {
+  workOrderItemId?: Msg;
+  quantity?: Msg;
+  unitPrice?: Msg;
+}
+
+export const EMPTY_ADD_LINE: AddLineValues = { workOrderItemId: '', quantity: '', unitPrice: '' };
+
+/** Why a work-order line cannot be added to this contractor, or null when it can. */
+export function addLineBlockReason(
+  line: ContractorLineAvailability,
+  registration: { lines: readonly ContractorLine[] },
+): MessageKey | null {
+  if (registration.lines.some((entry) => entry.workOrderItemId === line.workOrderItemId)) {
+    return 'contractors.line.alreadyHas';
+  }
+  return lineBlockReason(line);
+}
+
+/** Adding a line to an existing registration: same checks as the registration form. */
+export function validateAddLine(
+  values: AddLineValues,
+  registration: { lines: readonly ContractorLine[] },
+  availability: readonly ContractorLineAvailability[],
+):
+  | { ok: true; payload: { workOrderItemId: string; quantity: string; unitPrice: string } }
+  | { ok: false; errors: AddLineErrors } {
+  const line = availability.find((entry) => entry.workOrderItemId === values.workOrderItemId);
+  if (!line || addLineBlockReason(line, registration) !== null) {
+    return { ok: false, errors: { workOrderItemId: msg('contractors.validation.chooseLine') } };
+  }
+  const quantity = checkQuantity(values.quantity, line.availableQuantity);
+  const price = checkPrice(values.unitPrice, line.contractPrice);
+  if ('error' in quantity || 'error' in price) {
+    return {
+      ok: false,
+      errors: {
+        ...('error' in quantity ? { quantity: quantity.error } : {}),
+        ...('error' in price ? { unitPrice: price.error } : {}),
+      },
+    };
+  }
+  return {
+    ok: true,
+    payload: {
+      workOrderItemId: line.workOrderItemId,
+      quantity: quantity.value,
+      unitPrice: price.value,
+    },
+  };
+}
+
 export interface PriceFormValues {
   effectiveFrom: string;
   unitPrice: string;

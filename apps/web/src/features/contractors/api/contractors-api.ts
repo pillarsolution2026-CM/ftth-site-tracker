@@ -1,28 +1,26 @@
 import {
   AddContractorPriceRequestSchema,
+  AddContractorLineRequestSchema,
   ContractorListResponseSchema,
+  ContractorSchema,
   CreateContractorRequestSchema,
   ProjectContractorsResponseSchema,
   RegisterContractorRequestSchema,
   UpdateContractorLineRequestSchema,
   UpdateContractorRequestSchema,
+  type Contractor,
   type ContractorListResponse,
   type ProjectContractorsResponse,
 } from '@ftth/shared';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { bffJson, bffVoid, projectApiPath } from '@/shared/api/bff-client';
 
 export type CreateContractorInput = z.input<typeof CreateContractorRequestSchema>;
 export type UpdateContractorInput = z.input<typeof UpdateContractorRequestSchema>;
 export type RegisterContractorInput = z.input<typeof RegisterContractorRequestSchema>;
 export type UpdateContractorLineInput = z.input<typeof UpdateContractorLineRequestSchema>;
+export type AddContractorLineInput = z.input<typeof AddContractorLineRequestSchema>;
 export type AddContractorPriceInput = z.input<typeof AddContractorPriceRequestSchema>;
-
-/**
- * The write routes' response bodies are not fixed by the shared contract, and the screens refetch
- * the project's registrations after every write, so the body is accepted as is.
- */
-const ANY_BODY = z.unknown();
 
 const ADMIN = '/api/admin';
 const enc = encodeURIComponent;
@@ -38,18 +36,18 @@ export function listContractors(): Promise<ContractorListResponse> {
   return bffJson(`${ADMIN}/contractors`, ContractorListResponseSchema);
 }
 
-export async function createContractor(body: CreateContractorInput): Promise<void> {
-  await bffJson(`${ADMIN}/contractors`, ANY_BODY, {
+export function createContractor(body: CreateContractorInput): Promise<Contractor> {
+  return bffJson(`${ADMIN}/contractors`, ContractorSchema, {
     method: 'POST',
     body: CreateContractorRequestSchema.parse(body),
   });
 }
 
-export async function updateContractor(
+export function updateContractor(
   contractorId: string,
   body: UpdateContractorInput,
-): Promise<void> {
-  await bffJson(`${ADMIN}/contractors/${enc(contractorId)}`, ANY_BODY, {
+): Promise<Contractor> {
+  return bffJson(`${ADMIN}/contractors/${enc(contractorId)}`, ContractorSchema, {
     method: 'PATCH',
     body: UpdateContractorRequestSchema.parse(body),
   });
@@ -67,11 +65,11 @@ export function getProjectContractors(projectId: string): Promise<ProjectContrac
   return bffJson(projectApiPath(projectId, '/contractors'), ProjectContractorsResponseSchema);
 }
 
-export async function registerContractor(
+export function registerContractor(
   projectId: string,
   body: RegisterContractorInput,
-): Promise<void> {
-  await bffJson(registrationsPath(projectId), ANY_BODY, {
+): Promise<ProjectContractorsResponse> {
+  return bffJson(registrationsPath(projectId), ProjectContractorsResponseSchema, {
     method: 'POST',
     body: RegisterContractorRequestSchema.parse(body),
   });
@@ -81,13 +79,13 @@ export function removeRegistration(projectId: string, registrationId: string): P
   return bffVoid(registrationPath(projectId, registrationId), { method: 'DELETE' });
 }
 
-export async function updateContractorLine(
+export function updateContractorLine(
   projectId: string,
   registrationId: string,
   lineId: string,
   body: UpdateContractorLineInput,
-): Promise<void> {
-  await bffJson(linePath(projectId, registrationId, lineId), ANY_BODY, {
+): Promise<ProjectContractorsResponse> {
+  return bffJson(linePath(projectId, registrationId, lineId), ProjectContractorsResponseSchema, {
     method: 'PATCH',
     body: UpdateContractorLineRequestSchema.parse(body),
   });
@@ -101,14 +99,33 @@ export function removeContractorLine(
   return bffVoid(linePath(projectId, registrationId, lineId), { method: 'DELETE' });
 }
 
-export async function addContractorPrice(
+export function addContractorPrice(
   projectId: string,
   registrationId: string,
   lineId: string,
   body: AddContractorPriceInput,
-): Promise<void> {
-  await bffJson(`${linePath(projectId, registrationId, lineId)}/prices`, ANY_BODY, {
-    method: 'POST',
-    body: AddContractorPriceRequestSchema.parse(body),
-  });
+): Promise<ProjectContractorsResponse> {
+  return bffJson(
+    `${linePath(projectId, registrationId, lineId)}/prices`,
+    ProjectContractorsResponseSchema,
+    {
+      method: 'POST',
+      body: AddContractorPriceRequestSchema.parse(body),
+    },
+  );
+}
+
+export function addContractorLine(
+  projectId: string,
+  registrationId: string,
+  body: AddContractorLineInput,
+): Promise<ProjectContractorsResponse> {
+  return bffJson(
+    `${registrationPath(projectId, registrationId)}/lines`,
+    ProjectContractorsResponseSchema,
+    {
+      method: 'POST',
+      body: AddContractorLineRequestSchema.parse(body),
+    },
+  );
 }

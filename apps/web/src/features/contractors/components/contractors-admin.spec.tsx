@@ -111,4 +111,18 @@ describe('ContractorsAdmin', () => {
     });
     expect(await screen.findByText('Changes saved')).toBeInTheDocument();
   });
+
+  it('says the data changed on a stale version and loads the latest list', async () => {
+    api.updateContractor.mockRejectedValue(
+      new ApiClientError('CONFLICT', 409, { reason: 'STALE_VERSION' }),
+    );
+    renderScreen(<ContractorsAdmin />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Edit Nile Cables' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The data was changed by another user. Reload the page and try again.',
+    );
+    await vi.waitFor(() => expect(api.listContractors).toHaveBeenCalledTimes(2));
+  });
 });

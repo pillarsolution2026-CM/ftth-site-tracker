@@ -11,6 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  AddContractorLineRequestSchema,
   AddContractorPriceRequestSchema,
   ContractorListResponseSchema,
   ContractorRegistrationSchema,
@@ -312,7 +313,7 @@ export async function handleProjectContractors(
       })),
     };
     registrations.push(record);
-    return send(res, 201, registrationView(record));
+    return send(res, 201, projectView(projectId));
   }
 
   const index = registrations.findIndex(
@@ -325,11 +326,53 @@ export async function handleProjectContractors(
     registrations.splice(index, 1);
     return send(res, 204);
   }
+  if (method === 'POST' && linesWord === 'lines' && !lineId) {
+    const body = AddContractorLineRequestSchema.safeParse(await readJson(req));
+    if (!body.success) return invalid();
+    const item = WORK_ORDER_LINES.find((entry) => entry.id === body.data.workOrderItemId);
+    if (!item) return conflict({ reason: 'LINE_NOT_IN_WORK_ORDER' });
+    if (!item.assignable) return conflict({ reason: 'LEGACY_ITEM' });
+    if (record.lines.some((entry) => entry.workOrderItemId === item.id)) {
+      return conflict({ reason: 'LINE_REPEATED' });
+    }
+    const held = reserved(item.id);
+    const available = subDec(item.quantity, held);
+    if (cmpDec(body.data.quantity, available) > 0) {
+      return conflict({
+        reason: 'QUANTITY_EXCEEDS_WORK_ORDER',
+        workOrderItemId: item.id,
+        code: item.code,
+        workOrderQuantity: item.quantity,
+        reservedQuantity: held,
+        requestedQuantity: body.data.quantity,
+        availableQuantity: available,
+      });
+    }
+    if (cmpDec(body.data.unitPrice, item.contractPrice) > 0) {
+      return conflict({
+        reason: 'PRICE_EXCEEDS_CONTRACT',
+        workOrderItemId: item.id,
+        code: item.code,
+        contractPrice: item.contractPrice,
+        requestedPrice: body.data.unitPrice,
+      });
+    }
+    record.lines.push({
+      id: randomUUID(),
+      workOrderItemId: item.id,
+      quantity: body.data.quantity,
+      prices: [
+        { id: randomUUID(), effectiveFrom: record.registeredOn, unitPrice: body.data.unitPrice },
+      ],
+    });
+    return send(res, 201, projectView(projectId));
+  }
   const line = record.lines.find((entry) => entry.id === lineId);
   if (linesWord !== 'lines' || !line) return sendError(res, 404, 'NOT_FOUND');
   const item = itemOf(line.workOrderItemId);
 
   if (method === 'DELETE' && !pricesWord) {
+    if (record.lines.length === 1) return conflict({ reason: 'LAST_LINE' });
     record.lines.splice(record.lines.indexOf(line), 1);
     return send(res, 204);
   }
@@ -349,7 +392,7 @@ export async function handleProjectContractors(
       });
     }
     line.quantity = body.data.quantity;
-    return send(res, 200, registrationView(record));
+    return send(res, 200, projectView(projectId));
   }
   if (method === 'POST' && pricesWord === 'prices') {
     const body = AddContractorPriceRequestSchema.safeParse(await readJson(req));
@@ -372,7 +415,7 @@ export async function handleProjectContractors(
       effectiveFrom: body.data.effectiveFrom,
       unitPrice: body.data.unitPrice,
     });
-    return send(res, 201, registrationView(record));
+    return send(res, 201, projectView(projectId));
   }
   return sendError(res, 404, 'NOT_FOUND');
 }

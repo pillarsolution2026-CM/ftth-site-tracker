@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ProjectContractorsResponse } from '@ftth/shared';
 import {
+  addContractorLine,
   addContractorPrice,
   createContractor,
   getAdminProjectContractors,
@@ -10,6 +12,7 @@ import {
   removeRegistration,
   updateContractor,
   updateContractorLine,
+  type AddContractorLineInput,
   type AddContractorPriceInput,
   type CreateContractorInput,
   type RegisterContractorInput,
@@ -60,18 +63,22 @@ export function useUpdateContractor() {
       updateContractor(input.contractorId, input.body),
     // Registrations show the contractor's contact details.
     onSuccess: () => client.invalidateQueries({ queryKey: ['admin'] }),
+    // A stale version: show the message, and load the latest data.
+    onError: () => client.invalidateQueries({ queryKey: contractorsKey }),
   });
 }
 
 /** Every registration write changes the project's registrations, availability and the counts. */
 function useRefreshProject(projectId: string) {
   const client = useQueryClient();
-  return () =>
-    Promise.all([
+  return (data?: ProjectContractorsResponse | undefined) => {
+    if (data) client.setQueryData(adminProjectContractorsKey(projectId), data);
+    return Promise.all([
       client.invalidateQueries({ queryKey: adminProjectContractorsKey(projectId) }),
       client.invalidateQueries({ queryKey: projectContractorsKey(projectId) }),
       client.invalidateQueries({ queryKey: contractorsKey }),
     ]);
+  };
 }
 
 export function useRegisterContractor(projectId: string) {
@@ -86,7 +93,7 @@ export function useRemoveRegistration(projectId: string) {
   const refresh = useRefreshProject(projectId);
   return useMutation({
     mutationFn: (registrationId: string) => removeRegistration(projectId, registrationId),
-    onSuccess: refresh,
+    onSuccess: () => refresh(),
   });
 }
 
@@ -107,7 +114,7 @@ export function useRemoveContractorLine(projectId: string) {
   return useMutation({
     mutationFn: (input: { registrationId: string; lineId: string }) =>
       removeContractorLine(projectId, input.registrationId, input.lineId),
-    onSuccess: refresh,
+    onSuccess: () => refresh(),
   });
 }
 
@@ -119,6 +126,15 @@ export function useAddContractorPrice(projectId: string) {
       lineId: string;
       body: AddContractorPriceInput;
     }) => addContractorPrice(projectId, input.registrationId, input.lineId, input.body),
+    onSuccess: refresh,
+  });
+}
+
+export function useAddContractorLine(projectId: string) {
+  const refresh = useRefreshProject(projectId);
+  return useMutation({
+    mutationFn: (input: { registrationId: string; body: AddContractorLineInput }) =>
+      addContractorLine(projectId, input.registrationId, input.body),
     onSuccess: refresh,
   });
 }

@@ -1279,7 +1279,8 @@
       "quantityMax": "الكمية أكبر من المتاح: {available}",
       "price": "أدخل سعرًا بحد أقصى 6 خانات عشرية",
       "priceMax": "السعر أكبر من سعر العقد: {contractPrice}",
-      "priceDate": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latest}"
+      "priceDate": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latest}",
+      "chooseLine": "اختر بندًا من أمر التكليف"
     },
     "reasons": {
       "CONTRACTOR_NAME_TAKEN": "هذا الاسم مستخدم لمقاول آخر.",
@@ -1290,7 +1291,9 @@
       "LINE_REPEATED": "المقاول لديه هذا البند بالفعل.",
       "QUANTITY_EXCEEDS_WORK_ORDER": "الكمية أكبر من المتاح في أمر التكليف للبند {code}: المطلوب {requestedQuantity}، المتاح {availableQuantity} (أمر التكليف {workOrderQuantity}، المحجوز {reservedQuantity}).",
       "PRICE_EXCEEDS_CONTRACT": "السعر أكبر من سعر العقد للبند {code}: المطلوب {requestedPrice}، سعر العقد {contractPrice}.",
-      "PRICE_DATE_NOT_AFTER_LATEST": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latestEffectiveFrom}."
+      "PRICE_DATE_NOT_AFTER_LATEST": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latestEffectiveFrom}.",
+      "LAST_LINE": "لا يمكن حذف آخر بند؛ احذف تسجيل المقاول بالكامل.",
+      "STALE_VERSION": "البيانات اتغيرت من مستخدم تاني، حدّث الصفحة وحاول تاني."
     },
     "section": {
       "title": "المقاولين الباطن",
@@ -1323,7 +1326,16 @@
       "confirmRemove": "حذف البند {code} من هذا المقاول مع أسعاره؟",
       "newQuantity": "الكمية الجديدة ({code})",
       "effectiveFrom": "السعر من تاريخ ({code})",
-      "newPrice": "السعر الجديد ({code})"
+      "newPrice": "السعر الجديد ({code})",
+      "add": "إضافة بند",
+      "addTitle": "إضافة بند للمقاول {name}",
+      "chooseLine": "بند أمر التكليف",
+      "chooseLineOption": "— اختر البند —",
+      "alreadyHas": "مسند لهذا المقاول بالفعل",
+      "availableShort": "المتاح {available}",
+      "firstPriceHint": "أول سعر يبدأ من تاريخ التسجيل: {date}",
+      "lastLine": "لا يمكن حذف آخر بند؛ احذف تسجيل المقاول بالكامل",
+      "submitAdd": "إضافة"
     },
     "register": {
       "title": "تسجيل مقاول",

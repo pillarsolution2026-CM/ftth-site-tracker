@@ -1279,7 +1279,8 @@
       "quantityMax": "La quantité dépasse le disponible : {available}",
       "price": "Saisissez un prix avec 6 décimales au plus",
       "priceMax": "Le prix dépasse le prix du contrat : {contractPrice}",
-      "priceDate": "La date doit suivre la dernière date de prix : {latest}"
+      "priceDate": "La date doit suivre la dernière date de prix : {latest}",
+      "chooseLine": "Choisissez une ligne de l’ordre de travail"
     },
     "reasons": {
       "CONTRACTOR_NAME_TAKEN": "Ce nom est déjà utilisé par un autre sous-traitant.",
@@ -1290,7 +1291,9 @@
       "LINE_REPEATED": "Le sous-traitant a déjà cette ligne.",
       "QUANTITY_EXCEEDS_WORK_ORDER": "La quantité dépasse le disponible de l’ordre de travail pour le poste {code} : demandé {requestedQuantity}, disponible {availableQuantity} (ordre de travail {workOrderQuantity}, réservé {reservedQuantity}).",
       "PRICE_EXCEEDS_CONTRACT": "Le prix dépasse le prix du contrat pour le poste {code} : demandé {requestedPrice}, prix du contrat {contractPrice}.",
-      "PRICE_DATE_NOT_AFTER_LATEST": "La date doit suivre la dernière date de prix : {latestEffectiveFrom}."
+      "PRICE_DATE_NOT_AFTER_LATEST": "La date doit suivre la dernière date de prix : {latestEffectiveFrom}.",
+      "LAST_LINE": "La dernière ligne ne peut pas être supprimée. Retirez plutôt tout l’enregistrement.",
+      "STALE_VERSION": "Les données ont été modifiées par un autre utilisateur. Rechargez la page et réessayez."
     },
     "section": {
       "title": "Sous-traitants",
@@ -1323,7 +1326,16 @@
       "confirmRemove": "Supprimer la ligne {code} de ce sous-traitant, avec ses prix ?",
       "newQuantity": "Nouvelle quantité ({code})",
       "effectiveFrom": "Prix à partir du ({code})",
-      "newPrice": "Nouveau prix ({code})"
+      "newPrice": "Nouveau prix ({code})",
+      "add": "Ajouter une ligne",
+      "addTitle": "Ajouter une ligne pour {name}",
+      "chooseLine": "Ligne de l’ordre de travail",
+      "chooseLineOption": "— Choisir une ligne —",
+      "alreadyHas": "déjà confiée à ce sous-traitant",
+      "availableShort": "disponible {available}",
+      "firstPriceHint": "Le premier prix commence à la date d’enregistrement : {date}",
+      "lastLine": "La dernière ligne ne peut pas être supprimée ; retirez tout l’enregistrement",
+      "submitAdd": "Ajouter"
     },
     "register": {
       "title": "Enregistrer un sous-traitant",

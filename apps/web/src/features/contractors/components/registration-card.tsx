@@ -1,6 +1,10 @@
 'use client';
 
-import type { ContractorLine, ContractorRegistration } from '@ftth/shared';
+import type {
+  ContractorLine,
+  ContractorLineAvailability,
+  ContractorRegistration,
+} from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { Input } from '@/shared/ui/input';
@@ -9,6 +13,7 @@ import { Notice } from '@/shared/ui/notice';
 import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { formatDecimal, formatMoney } from '@/shared/lib/decimal';
+import { AddLineForm } from './add-line-form';
 import type { LineActionsModel } from '../hooks/use-line-actions';
 import { latestPrice, registrationTotal, translateMsg } from '../model/contractor-errors';
 
@@ -17,6 +22,8 @@ interface RegistrationCardProps {
   currency: string;
   /** Present for the admin; absent for the read-only PM page. */
   actions?: LineActionsModel | undefined;
+  /** What is left of each work-order line; the admin's «add line» picker needs it. */
+  availability?: readonly ContractorLineAvailability[] | undefined;
 }
 
 function LineEditor({ line, actions }: { line: ContractorLine; actions: LineActionsModel }) {
@@ -102,7 +109,12 @@ function LineEditor({ line, actions }: { line: ContractorLine; actions: LineActi
 }
 
 /** One contractor on the work order: its lines, prices and exact total. Read-only without `actions`. */
-export function RegistrationCard({ registration, currency, actions }: RegistrationCardProps) {
+export function RegistrationCard({
+  registration,
+  currency,
+  actions,
+  availability = [],
+}: RegistrationCardProps) {
   const { t, locale } = useI18n();
   const { contractor } = registration;
   const total = registrationTotal(registration.lines);
@@ -119,14 +131,24 @@ export function RegistrationCard({ registration, currency, actions }: Registrati
           </p>
         </div>
         {actions ? (
-          <Button
-            variant="outline"
-            disabled={actions.pending}
-            aria-label={`${t('contractors.section.removeRegistration')} ${contractor.name}`}
-            onClick={() => actions.onRemoveRegistration(registration)}
-          >
-            {t('contractors.section.removeRegistration')}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={actions.pending}
+              aria-label={`${t('contractors.line.add')} ${contractor.name}`}
+              onClick={() => actions.openAddLine(registration)}
+            >
+              {t('contractors.line.add')}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={actions.pending}
+              aria-label={`${t('contractors.section.removeRegistration')} ${contractor.name}`}
+              onClick={() => actions.onRemoveRegistration(registration)}
+            >
+              {t('contractors.section.removeRegistration')}
+            </Button>
+          </div>
         ) : null}
       </div>
       {registration.lines.length === 0 ? (
@@ -207,12 +229,15 @@ export function RegistrationCard({ registration, currency, actions }: Registrati
                         </Button>
                         <Button
                           variant="outline"
-                          disabled={actions.pending}
+                          disabled={actions.pending || registration.lines.length === 1}
                           aria-label={`${t('contractors.line.remove')} ${line.code}`}
                           onClick={() => actions.onRemoveLine(registration, line)}
                         >
                           {t('contractors.line.remove')}
                         </Button>
+                        {registration.lines.length === 1 ? (
+                          <p className="w-full text-xs">{t('contractors.line.lastLine')}</p>
+                        ) : null}
                       </div>
                     </Td>
                   ) : null}
@@ -225,6 +250,11 @@ export function RegistrationCard({ registration, currency, actions }: Registrati
           </tbody>
         </Table>
       )}
+      {actions &&
+      actions.editor?.kind === 'addLine' &&
+      actions.editor.registrationId === registration.id ? (
+        <AddLineForm registration={registration} availability={availability} actions={actions} />
+      ) : null}
       <p className="mt-3 font-semibold" title={t('contractors.section.totalHint')}>
         {t('contractors.section.total')}: <Ltr>{formatMoney(total, currency, locale)}</Ltr>
       </p>

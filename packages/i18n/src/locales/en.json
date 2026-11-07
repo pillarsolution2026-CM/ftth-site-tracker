@@ -1279,7 +1279,8 @@
       "quantityMax": "The quantity is above what is available: {available}",
       "price": "Enter a price with at most 6 decimal places",
       "priceMax": "The price is above the contract price: {contractPrice}",
-      "priceDate": "The date must be after the latest price date: {latest}"
+      "priceDate": "The date must be after the latest price date: {latest}",
+      "chooseLine": "Choose a work-order line"
     },
     "reasons": {
       "CONTRACTOR_NAME_TAKEN": "This name is already used by another subcontractor.",
@@ -1290,7 +1291,9 @@
       "LINE_REPEATED": "The subcontractor already has this line.",
       "QUANTITY_EXCEEDS_WORK_ORDER": "The quantity is above what is available in the work order for item {code}: requested {requestedQuantity}, available {availableQuantity} (work order {workOrderQuantity}, reserved {reservedQuantity}).",
       "PRICE_EXCEEDS_CONTRACT": "The price is above the contract price for item {code}: requested {requestedPrice}, contract price {contractPrice}.",
-      "PRICE_DATE_NOT_AFTER_LATEST": "The date must be after the latest price date: {latestEffectiveFrom}."
+      "PRICE_DATE_NOT_AFTER_LATEST": "The date must be after the latest price date: {latestEffectiveFrom}.",
+      "LAST_LINE": "The last line cannot be removed. Remove the whole registration instead.",
+      "STALE_VERSION": "The data was changed by another user. Reload the page and try again."
     },
     "section": {
       "title": "Subcontractors",
@@ -1323,7 +1326,16 @@
       "confirmRemove": "Remove line {code} from this subcontractor, with its prices?",
       "newQuantity": "New quantity ({code})",
       "effectiveFrom": "Price from ({code})",
-      "newPrice": "New price ({code})"
+      "newPrice": "New price ({code})",
+      "add": "Add line",
+      "addTitle": "Add a line for {name}",
+      "chooseLine": "Work-order line",
+      "chooseLineOption": "— Choose a line —",
+      "alreadyHas": "already given to this subcontractor",
+      "availableShort": "available {available}",
+      "firstPriceHint": "The first price starts on the registration date: {date}",
+      "lastLine": "The last line cannot be removed; remove the whole registration",
+      "submitAdd": "Add"
     },
     "register": {
       "title": "Register a subcontractor",

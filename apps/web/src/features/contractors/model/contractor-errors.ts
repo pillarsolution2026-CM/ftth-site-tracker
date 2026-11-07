@@ -25,6 +25,7 @@ export function contractorErrorMsg(error: unknown): Msg {
     if (typeof details === 'object' && details !== null) {
       const record = details as Record<string, unknown>;
       const reason = CONTRACTOR_CONFLICT_REASONS.find((candidate) => candidate === record.reason);
+      if (record.reason === 'STALE_VERSION') return { key: 'contractors.reasons.STALE_VERSION' };
       if (reason) {
         const params: Record<string, string> = {};
         for (const key of PARAM_KEYS) {

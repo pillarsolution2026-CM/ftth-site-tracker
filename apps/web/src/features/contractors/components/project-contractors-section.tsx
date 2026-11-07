@@ -74,6 +74,7 @@ export function ProjectContractorsSection({ projectId }: { projectId: string }) 
                 registration={registration}
                 currency={data.currency}
                 actions={actions}
+                availability={availability}
               />
             ))
           )}

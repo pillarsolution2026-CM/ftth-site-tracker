@@ -10,7 +10,9 @@ import {
   LINE_1,
   REGISTRATION_ID,
   contractor,
+  contractorLine,
   projectContractors,
+  registration,
 } from '@/test-utils/contractors';
 import { ProjectContractorsSection } from './project-contractors-section';
 
@@ -21,6 +23,7 @@ const api = vi.hoisted(() => ({
   removeRegistration: vi.fn(),
   updateContractorLine: vi.fn(),
   removeContractorLine: vi.fn(),
+  addContractorLine: vi.fn(),
   addContractorPrice: vi.fn(),
 }));
 vi.mock('../api/contractors-api', () => api);
@@ -45,6 +48,7 @@ describe('ProjectContractorsSection (admin)', () => {
     api.removeRegistration.mockResolvedValue(undefined);
     api.updateContractorLine.mockResolvedValue(undefined);
     api.removeContractorLine.mockResolvedValue(undefined);
+    api.addContractorLine.mockResolvedValue(undefined);
     api.addContractorPrice.mockResolvedValue(undefined);
   });
 
@@ -245,7 +249,77 @@ describe('ProjectContractorsSection (admin)', () => {
     });
   });
 
+  const TWO_LINES = () =>
+    projectContractors({
+      registrations: [
+        registration({
+          lines: [
+            contractorLine(),
+            contractorLine({
+              id: '6a000000-0000-4000-8000-000000000002',
+              workOrderItemId: ITEM_2,
+              code: 'C-002',
+              quantity: '5',
+            }),
+          ],
+        }),
+      ],
+    });
+
+  it('adds a line to a registration: lines it has or that cannot be given are disabled', async () => {
+    renderScreen(<ProjectContractorsSection projectId={PROJECT_ID} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add line Nile Cables' }));
+    const form = screen.getByRole('form', { name: 'Add a line for Nile Cables' });
+    const picker = within(form).getByLabelText('Work-order line');
+    expect(within(form).getByRole('option', { name: /C-001.*already given/ })).toBeDisabled();
+    expect(within(form).getByRole('option', { name: /OLD-1.*Legacy line/ })).toBeDisabled();
+    expect(within(form).getByRole('option', { name: /C-002.*available 200/ })).toBeEnabled();
+    expect(form).toHaveTextContent('The first price starts on the registration date:');
+    expect(plain(form.textContent)).toContain('2026-11-01');
+
+    await user.selectOptions(picker, ITEM_2);
+    expect(within(form).getByLabelText('Subcontractor price')).toHaveValue('12.5');
+    await user.type(within(form).getByLabelText('Quantity'), '201');
+    await user.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(plain(within(form).getByText(/above what is available/).textContent)).toBe(
+      'The quantity is above what is available: 200',
+    );
+    expect(api.addContractorLine).not.toHaveBeenCalled();
+    await user.clear(within(form).getByLabelText('Quantity'));
+    await user.type(within(form).getByLabelText('Quantity'), '20');
+    await user.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(api.addContractorLine).toHaveBeenCalledWith(PROJECT_ID, REGISTRATION_ID, {
+      workOrderItemId: ITEM_2,
+      quantity: '20',
+      unitPrice: '12.5',
+    });
+  });
+
+  it('cannot remove the only line, and shows LAST_LINE if the server says so', async () => {
+    renderScreen(<ProjectContractorsSection projectId={PROJECT_ID} />);
+    expect(await screen.findByRole('button', { name: 'Remove line C-001' })).toBeDisabled();
+    expect(
+      screen.getByText('The last line cannot be removed; remove the whole registration'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the server LAST_LINE answer in words', async () => {
+    api.getAdminProjectContractors.mockResolvedValue(TWO_LINES());
+    api.removeContractorLine.mockRejectedValue(
+      new ApiClientError('CONFLICT', 409, { reason: 'LAST_LINE' }),
+    );
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderScreen(<ProjectContractorsSection projectId={PROJECT_ID} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Remove line C-002' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The last line cannot be removed. Remove the whole registration instead.',
+    );
+  });
+
   it('removes a line and a registration only after the admin confirms', async () => {
+    api.getAdminProjectContractors.mockResolvedValue(TWO_LINES());
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
     renderScreen(<ProjectContractorsSection projectId={PROJECT_ID} />);
     const user = userEvent.setup();

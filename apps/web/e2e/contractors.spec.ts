@@ -72,6 +72,17 @@ test('an admin adds a subcontractor, registers it on a work order with a price, 
   await lines.getByRole('button', { name: 'حفظ' }).click();
   await expect(page.getByText(/إجمالي هذا المقاول/)).toContainText('345.00 EGP');
 
+  // The only line cannot be removed; add a second line, which starts at the registration date.
+  await expect(page.getByRole('button', { name: 'حذف البند T-1' })).toBeDisabled();
+  await page.getByRole('button', { name: 'إضافة بند Nile Cables' }).click();
+  const addForm = page.getByRole('form', { name: 'إضافة بند للمقاول Nile Cables' });
+  await expect(addForm.getByRole('option', { name: /T-1/ })).toBeDisabled();
+  await addForm.getByLabel('بند أمر التكليف').selectOption('5a000000-0000-4000-8000-000000000002');
+  await addForm.getByLabel('الكمية', { exact: true }).fill('10');
+  await addForm.getByRole('button', { name: 'إضافة', exact: true }).click();
+  // 345 + 10 × 3 = 375, exact.
+  await expect(page.getByText(/إجمالي هذا المقاول/)).toContainText('375.00 EGP');
+
   // Remove the registration after confirming.
   page.once('dialog', (dialog) => void dialog.accept());
   await page.getByRole('button', { name: 'حذف التسجيل Nile Cables' }).click();
