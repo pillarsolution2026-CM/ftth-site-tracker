@@ -232,15 +232,13 @@ Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_
 - **Not done / not verified:** no security review yet (planned before the phase closes); steps 3–6 not started.
 - **Subcontractors part 1 (point 2-أ, ADR-036, migration 0013), owner decisions 2026-11-07:**
   - Shared contractor list (admin only): name, contact person and phone required; commercial register and tax card optional.
-  - Registration on the project's work order: registration date and at least one line. A line is a work-order line; its price is at most the contract price; Σ contractor quantities per line ≤ work-order quantity.
-  - Dated price history: append-only, each new date after the latest.
-  - The last line cannot be removed (`LAST_LINE`).
-  - Work-order lines held by contractors cannot be removed or reduced below the contractors' sum; a work order with contractors cannot be deleted.
-  - API module `contractors` (admin routes + PM read `GET /projects/:id/contractors`, `contractors:read`).
-  - Web: admin contractor list, «المقاولين الباطن» section on the admin project page (register, add line, edit quantity, dated price, remove), PM read-only page. ar/en/fr.
-  - **Assumptions to confirm:** names unique ignoring case; quantity > 0; registration date fixed; first price on the registration date, no back-dating; removal allowed while no work is recorded.
-  - **Test report (local, 2026-11-07):** build, typecheck, lint, format: pass. Unit: shared 185, api 435, web 367, sync 20, geo 72, i18n 4, ui-tokens 3. Migration checked by hand on PostGIS 16 (caps, dates, append-only, cascade). Web e2e (mock API): 20 pass. API integration (Linux, real PostGIS 16, full build): 286 pass (16 files; new `contractors.int-spec.ts`, 22 tests).
-  - **Not done:** part 2 (supervisor picks the contractor in each update; overrun refused) and part 3 (read-only contractor login); not tried on staging.
+  - Registration on the project's work order with a registration date; its lines are **uploaded from a sheet** (code, description, unit, scope of work, quantity, price), preview then commit, and more lines can be appended by another upload. No line-by-line entry.
+  - **Scope of work:** one contract line can be split between contractors (e.g. bracket / box / splicing). Quantity capped per scope at the work-order quantity; whole and scoped lines never mix; the scopes' prices add up to at most the contract price.
+  - Dated price history (append-only, each new date after the latest); quantity edit per line; the last line cannot be removed (`LAST_LINE`); work-order lines held by contractors cannot be removed or reduced below the largest scope sum; a work order with contractors cannot be deleted.
+  - Web: admin contractor list, «المقاولين الباطن» section and upload page on the admin project page, PM read-only page. ar/en/fr.
+  - **Assumptions to confirm:** scope comparison ignores spaces, case and Arabic letter forms; names unique ignoring case; quantity > 0; registration date fixed; first price on the registration date, no back-dating; empty-quantity and heading rows skipped as in the work-order import; removal allowed while no work is recorded; the stored sheet is kept when a registration is removed.
+  - **Test report (local, 2026-11-07):** build, typecheck, lint, format: pass. Unit: shared 188, api 451, web 375, sync 20, geo 72, i18n 4, ui-tokens 3. API integration (Linux, real PostGIS 16, full build): 287 pass (16 files; `contractors.int-spec.ts` 23). Web e2e (mock API): 20 pass. Migration rules also checked by hand on PostGIS with the owner's box example.
+  - **Not done:** part 2 (supervisor picks the contractor and scope in each update; overrun refused) and part 3 (read-only contractor login); not tried on staging.
 
 ### Phase 4 — As-Built editing (rest of the phase, started 2026-11-01, owner request; ADR-029, ADR-030)
 Started with Phases 1b and 3 merged but **not approved** and Phase 2 still in progress (account `sabahyafro-sys`; PRs #20, #21). No phase is marked approved by this work. Contracts: `docs/phase-4-contracts.md`. Migration `0009_asbuilt.sql`. Built on `main` at `460b4aa`, delivered as one PR (not merged by the session).
