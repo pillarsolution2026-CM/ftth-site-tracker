@@ -6,10 +6,12 @@ import type {
   ContractorPatch,
   ContractorRecord,
   ContractorSummary,
+  NewImportFile,
   NewLine,
   NewPrice,
   NewRegistration,
   Registration,
+  ScopeHolding,
   WorkOrderLine,
 } from '../domain/contractor.js';
 import type {
@@ -91,15 +93,35 @@ export class InMemoryRegistrations implements RegistrationRepository {
   async workOrderLines(workOrderId: string): Promise<WorkOrderLine[]> {
     return this.lines.get(workOrderId) ?? [];
   }
-  async reservedByLine(workOrderId: string): Promise<Map<string, Decimal>> {
-    const reserved = new Map<string, Decimal>();
+  async holdings(workOrderId: string): Promise<ScopeHolding[]> {
+    const holdings: ScopeHolding[] = [];
     for (const registration of this.rows.values()) {
       if (registration.workOrderId !== workOrderId) continue;
       for (const line of registration.lines) {
-        reserved.set(line.item.id, (reserved.get(line.item.id) ?? Decimal.zero).add(line.quantity));
+        const highest = line.prices.reduce(
+          (max, price) => (price.unitPrice.compare(max) > 0 ? price.unitPrice : max),
+          Decimal.zero,
+        );
+        const found = holdings.find(
+          (holding) =>
+            holding.workOrderItemId === line.item.id &&
+            (holding.scopeKey ?? '') === (line.scopeKey ?? ''),
+        );
+        if (found) {
+          found.quantity = found.quantity.add(line.quantity);
+          if (highest.compare(found.highestPrice) > 0) found.highestPrice = highest;
+        } else {
+          holdings.push({
+            workOrderItemId: line.item.id,
+            scopeKey: line.scopeKey,
+            scope: line.scope,
+            quantity: line.quantity,
+            highestPrice: highest,
+          });
+        }
       }
     }
-    return reserved;
+    return holdings;
   }
   async list(projectId: string): Promise<Registration[]> {
     return [...this.rows.values()].filter((r) => r.projectId === projectId);
@@ -123,7 +145,21 @@ export class InMemoryRegistrations implements RegistrationRepository {
       contractor,
       registeredOn: registration.registeredOn,
       lines: registration.lines.map((line) => this.toLine(registration.workOrderId, line)),
+      files: [],
       createdById: registration.createdById,
+      createdAt: new Date(),
+    });
+  }
+  async insertFile(file: NewImportFile): Promise<void> {
+    const registration = await this.find(file.projectId, file.registrationId);
+    if (!registration) throw new AppError('NOT_FOUND', 'Contractor registration not found');
+    registration.files.push({
+      id: file.id,
+      fileName: file.fileName,
+      sizeBytes: file.sizeBytes,
+      sha256: file.sha256,
+      storageKey: file.storageKey,
+      uploadedById: file.uploadedById,
       createdAt: new Date(),
     });
   }
@@ -182,6 +218,9 @@ export class InMemoryRegistrations implements RegistrationRepository {
     return {
       id: line.id,
       quantity: line.quantity,
+      scope: line.scope,
+      scopeKey: line.scopeKey,
+      sourceRow: line.sourceRow,
       item,
       prices: [{ ...line.firstPrice, createdAt: new Date() }],
     };

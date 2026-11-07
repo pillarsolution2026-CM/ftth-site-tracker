@@ -8,12 +8,14 @@ import type { ContractorHoldings } from '../domain/work-order.repository.js';
 export class DrizzleContractorHoldings implements ContractorHoldings {
   constructor(private readonly db: DbHandle) {}
 
+  /** The largest sum held on any one scope (scopes split a line; they do not add up). */
   async heldQuantity(workOrderItemId: string): Promise<Decimal> {
-    const [row] = await this.db
-      .select({ held: sql<string>`coalesce(sum(${contractorLines.quantity}), 0)::text` })
-      .from(contractorLines)
-      .where(eq(contractorLines.workOrderItemId, workOrderItemId));
-    return Decimal.parse(row?.held ?? '0');
+    const result = await this.db.execute<{ held: string }>(sql`
+      select coalesce(max(scope_sum), 0)::text as held from (
+        select sum(${contractorLines.quantity}) as scope_sum from ${contractorLines}
+        where ${contractorLines.workOrderItemId} = ${workOrderItemId}
+        group by ${contractorLines.scopeKey}) as scopes`);
+    return Decimal.parse(result.rows[0]?.held ?? '0');
   }
 
   async lineCount(workOrderItemId: string): Promise<number> {

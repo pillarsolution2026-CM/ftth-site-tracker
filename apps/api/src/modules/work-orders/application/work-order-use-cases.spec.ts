@@ -40,6 +40,7 @@ const MAPPING: WorkOrderImportCommitPayload['mapping'] = {
   quantity: 4,
   unitPrice: 5,
   amount: 6,
+  scope: null,
 };
 
 const TRENCH = itemIdOfRow(ITEM_ROWS.trench); // contract 300, price 12.5

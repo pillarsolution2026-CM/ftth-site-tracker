@@ -3,6 +3,7 @@ import { AppError } from '../../../common/app-error.js';
 import type { DbHandle } from '../../../db/db.module.js';
 import { triggerViolationMessage, uniqueViolation } from '../../../db/pg-errors.js';
 import {
+  contractorImportFiles,
   contractorLinePrices,
   contractorLines,
   contractorRegistrations,
@@ -12,12 +13,15 @@ import {
 } from '../../../db/schema.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
 import type {
+  ContractorImportFile,
   ContractorLine,
   ContractorPrice,
+  NewImportFile,
   NewLine,
   NewPrice,
   NewRegistration,
   Registration,
+  ScopeHolding,
   WorkOrderLine,
 } from '../domain/contractor.js';
 import type { RegistrationRepository } from '../domain/contractor.repository.js';
@@ -79,12 +83,17 @@ function translate(error: unknown, workOrderItemId?: string): never {
       });
     }
     if (message.includes('above the contract price')) {
-      const [contractPrice, requestedPrice] =
-        numbersIn(message, /contract ([\d.]+), requested ([\d.]+)/) ?? [];
+      const [contractPrice, otherScopesPrice, requestedPrice] =
+        numbersIn(message, /contract ([\d.]+), other scopes ([\d.]+), requested ([\d.]+)/) ?? [];
       throw new AppError('CONFLICT', 'The price is above the contract price', {
         reason: 'PRICE_EXCEEDS_CONTRACT',
         workOrderItemId,
         contractPrice,
+        otherScopesPrice,
+        maxAllowedPrice:
+          contractPrice !== undefined && otherScopesPrice !== undefined
+            ? Decimal.parse(contractPrice).sub(Decimal.parse(otherScopesPrice)).toString()
+            : undefined,
         requestedPrice,
       });
     }
@@ -92,6 +101,12 @@ function translate(error: unknown, workOrderItemId?: string): never {
       throw new AppError('CONFLICT', 'A new price must start after the latest price date', {
         reason: 'PRICE_DATE_NOT_AFTER_LATEST',
         latestEffectiveFrom: /\((\d{4}-\d{2}-\d{2})\)/.exec(message)?.[1],
+      });
+    }
+    if (message.includes('whole and scoped')) {
+      throw new AppError('CONFLICT', 'A line cannot be given both whole and by scope', {
+        reason: 'WHOLE_AND_SCOPES_MIXED',
+        workOrderItemId,
       });
     }
     if (message.includes('not a line of the registration')) {
@@ -113,7 +128,7 @@ function translate(error: unknown, workOrderItemId?: string): never {
       reason: 'CONTRACTOR_ALREADY_REGISTERED',
     });
   }
-  if (constraint === 'contractor_lines_registration_item_key') {
+  if (constraint === 'contractor_lines_registration_item_scope_key') {
     throw new AppError('CONFLICT', 'The contractor already has this line', {
       reason: 'LINE_REPEATED',
       workOrderItemId,
@@ -148,17 +163,60 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
     return rows.map(toWorkOrderLine);
   }
 
-  async reservedByLine(workOrderId: string): Promise<Map<string, Decimal>> {
-    const rows = await this.db
+  async holdings(workOrderId: string): Promise<ScopeHolding[]> {
+    const own = eq(workOrderItems.workOrderId, workOrderId);
+    const quantities = await this.db
       .select({
         itemId: contractorLines.workOrderItemId,
-        reserved: sql<string>`sum(${contractorLines.quantity})::text`,
+        scopeKey: contractorLines.scopeKey,
+        scope: sql<
+          string | null
+        >`(array_agg(${contractorLines.scope} order by ${contractorLines.createdAt}, ${contractorLines.id}))[1]`,
+        quantity: sql<string>`sum(${contractorLines.quantity})::text`,
+        firstAt: sql<Date>`min(${contractorLines.createdAt})`,
+        firstRow: sql<number>`coalesce(min(${contractorLines.sourceRow}), 0)::int`,
       })
       .from(contractorLines)
       .innerJoin(workOrderItems, eq(workOrderItems.id, contractorLines.workOrderItemId))
-      .where(eq(workOrderItems.workOrderId, workOrderId))
-      .groupBy(contractorLines.workOrderItemId);
-    return new Map(rows.map((row) => [row.itemId, Decimal.parse(row.reserved)]));
+      .where(own)
+      .groupBy(contractorLines.workOrderItemId, contractorLines.scopeKey);
+    const highs = await this.db
+      .select({
+        itemId: contractorLines.workOrderItemId,
+        scopeKey: contractorLines.scopeKey,
+        highest: sql<string>`max(${contractorLinePrices.unitPrice})::text`,
+      })
+      .from(contractorLinePrices)
+      .innerJoin(contractorLines, eq(contractorLines.id, contractorLinePrices.contractorLineId))
+      .innerJoin(workOrderItems, eq(workOrderItems.id, contractorLines.workOrderItemId))
+      .where(own)
+      .groupBy(contractorLines.workOrderItemId, contractorLines.scopeKey);
+    const highOf = new Map(
+      highs.map((row) => [`${row.itemId}|${row.scopeKey ?? ''}`, row.highest]),
+    );
+    return quantities
+      .map((row) => ({
+        workOrderItemId: row.itemId,
+        scopeKey: row.scopeKey,
+        scope: row.scope,
+        quantity: Decimal.parse(row.quantity),
+        highestPrice: Decimal.parse(highOf.get(`${row.itemId}|${row.scopeKey ?? ''}`) ?? '0'),
+        firstAt: new Date(row.firstAt).getTime(),
+        firstRow: row.firstRow,
+      }))
+      .sort(
+        (a, b) =>
+          a.firstAt - b.firstAt ||
+          a.firstRow - b.firstRow ||
+          (a.scopeKey ?? '').localeCompare(b.scopeKey ?? ''),
+      )
+      .map((holding): ScopeHolding => ({
+        workOrderItemId: holding.workOrderItemId,
+        scopeKey: holding.scopeKey,
+        scope: holding.scope,
+        quantity: holding.quantity,
+        highestPrice: holding.highestPrice,
+      }));
   }
 
   list(projectId: string): Promise<Registration[]> {
@@ -213,6 +271,19 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
       )
       .returning({ id: contractorRegistrations.id });
     if (deleted.length === 0) throw new AppError('NOT_FOUND', 'Contractor registration not found');
+  }
+
+  async insertFile(file: NewImportFile): Promise<void> {
+    await this.db.insert(contractorImportFiles).values({
+      id: file.id,
+      projectId: file.projectId,
+      registrationId: file.registrationId,
+      fileName: file.fileName,
+      sizeBytes: file.sizeBytes,
+      sha256: file.sha256,
+      storageKey: file.storageKey,
+      uploadedBy: file.uploadedById,
+    });
   }
 
   async insertLine(projectId: string, registrationId: string, line: NewLine): Promise<void> {
@@ -274,7 +345,10 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
       projectId,
       registrationId,
       workOrderItemId: line.workOrderItemId,
+      scope: line.scope,
+      scopeKey: line.scopeKey,
       quantity: line.quantity.toString(),
+      sourceRow: line.sourceRow,
     });
     await this.db.insert(contractorLinePrices).values({
       id: line.firstPrice.id,
@@ -311,7 +385,17 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
       .from(contractorLines)
       .innerJoin(workOrderItems, eq(workOrderItems.id, contractorLines.workOrderItemId))
       .where(inArray(contractorLines.registrationId, registrationIds))
-      .orderBy(asc(workOrderItems.lineNo));
+      .orderBy(
+        asc(workOrderItems.lineNo),
+        asc(contractorLines.sourceRow),
+        asc(contractorLines.createdAt),
+        asc(contractorLines.id),
+      );
+    const files = await this.db
+      .select()
+      .from(contractorImportFiles)
+      .where(inArray(contractorImportFiles.registrationId, registrationIds))
+      .orderBy(asc(contractorImportFiles.createdAt), asc(contractorImportFiles.id));
     const prices =
       lines.length === 0
         ? []
@@ -338,6 +422,9 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
       list.push({
         id: row.line.id,
         quantity: Decimal.parse(row.line.quantity),
+        scope: row.line.scope,
+        scopeKey: row.line.scopeKey,
+        sourceRow: row.line.sourceRow,
         item: toWorkOrderLine(row.item),
         prices: pricesByLine.get(row.line.id) ?? [],
       });
@@ -358,6 +445,17 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
       },
       registeredOn: registration.registeredOn,
       lines: linesByRegistration.get(registration.id) ?? [],
+      files: files
+        .filter((file) => file.registrationId === registration.id)
+        .map((file): ContractorImportFile => ({
+          id: file.id,
+          fileName: file.fileName,
+          sizeBytes: file.sizeBytes,
+          sha256: file.sha256,
+          storageKey: file.storageKey,
+          uploadedById: file.uploadedBy,
+          createdAt: file.createdAt,
+        })),
       createdById: registration.createdBy,
       createdAt: registration.createdAt,
     }));

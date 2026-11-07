@@ -5,12 +5,14 @@ import {
   MAX_IMPORT_ROWS,
   QUANTITY_MAX_DECIMALS,
   REQUIRED_IMPORT_FIELDS,
+  SCOPE_MAX_LENGTH,
   UNIT_PRICE_MAX_DECIMALS,
   WORK_TYPE_SYNONYMS,
   WORK_TYPES,
   type ColumnMapping,
   type WorkType,
   type ImportColumn,
+  type ImportField,
   type ImportFileIssue,
   type ImportPreviewRow,
   type ImportRowIssue,
@@ -37,6 +39,20 @@ import {
 } from './raw-workbook.js';
 
 export type ParsedImport = Omit<WorkOrderImportPreviewResponse, 'file'>;
+
+/**
+ * `standard`: contract and work-order sheets (work type required, no scope).
+ * `contractor`: a subcontractor's sheet (ADR-036): optional scope column, no work type.
+ */
+export type ImportProfile = 'standard' | 'contractor';
+
+const CONTRACTOR_REQUIRED_FIELDS: readonly ImportField[] = [
+  'code',
+  'description',
+  'unit',
+  'quantity',
+  'unitPrice',
+];
 
 /** Longest accepted text per field (same limits as the work_order_items CHECK constraints). */
 const TEXT_LIMITS = ITEM_TEXT_LIMITS;
@@ -70,14 +86,16 @@ function chooseSheet(workbook: RawWorkbook, requested: string | undefined): RawS
   return workbook.sheets.find((sheet) => sheetRowCount(sheet) > 0) ?? workbook.sheets[0] ?? null;
 }
 
-function mappingIssues(mapping: ColumnMapping): ImportFileIssue[] {
+function mappingIssues(
+  mapping: ColumnMapping,
+  required: readonly ImportField[],
+): ImportFileIssue[] {
   const issues: ImportFileIssue[] = [];
   const seen = new Set<number>();
   for (const field of IMPORT_FIELDS) {
     const column = mapping[field];
     if (column === null) {
-      if (REQUIRED_IMPORT_FIELDS.includes(field))
-        issues.push({ code: 'REQUIRED_FIELD_UNMAPPED', field });
+      if (required.includes(field)) issues.push({ code: 'REQUIRED_FIELD_UNMAPPED', field });
     } else if (seen.has(column)) {
       issues.push({ code: 'COLUMN_MAPPED_TWICE', field });
     } else {
@@ -116,6 +134,18 @@ function textField(
   if (value === null || value === '') return { value: null, issue: issue('MISSING_VALUE', field) };
   if (value.length > TEXT_LIMITS[field]) {
     return { value: null, issue: issue('TEXT_TOO_LONG', field, { max: TEXT_LIMITS[field] }) };
+  }
+  return { value };
+}
+
+/** Optional free text; empty = the whole line (null). */
+function scopeField(cell: RawCell | undefined): { value: string | null; issue?: ImportRowIssue } {
+  if (cell?.kind === 'unresolved')
+    return { value: null, issue: issue('FORMULA_WITHOUT_RESULT', 'scope') };
+  const value = cellText(cell)?.trim() ?? '';
+  if (value === '') return { value: null };
+  if (value.length > SCOPE_MAX_LENGTH) {
+    return { value: null, issue: issue('TEXT_TOO_LONG', 'scope', { max: SCOPE_MAX_LENGTH }) };
   }
   return { value };
 }
@@ -232,6 +262,7 @@ function headingRow(
       unitPrice: null,
       workType: raw('workType'),
       amount: raw('amount'),
+      scope: raw('scope'),
     },
     code: code.value,
     description,
@@ -239,6 +270,7 @@ function headingRow(
     quantity: null,
     unitPrice: null,
     workType: null,
+    scope: null,
     sheetAmount: null,
     amount: null,
     issues,
@@ -249,6 +281,7 @@ function parseRow(
   rowNumber: number,
   cells: readonly RawCell[],
   mapping: ColumnMapping,
+  profile: ImportProfile,
 ): ImportPreviewRow {
   const at = (field: keyof ColumnMapping): RawCell | undefined => {
     const column = mapping[field];
@@ -271,7 +304,10 @@ function parseRow(
   const unit = collect('unit', textField(at('unit'), 'unit'));
   const quantity = collect('quantity', numberField(at('quantity'), 'quantity'));
   const unitPrice = collect('unitPrice', numberField(at('unitPrice'), 'unitPrice'));
-  const workType = collect('workType', workTypeField(at('workType')));
+  const workType: { value: WorkType | null } =
+    profile === 'contractor' ? { value: null } : collect('workType', workTypeField(at('workType')));
+  const scope =
+    profile === 'contractor' ? collect('scope', scopeField(at('scope'))) : { value: null };
 
   const computed =
     quantity.value !== null && unitPrice.value !== null
@@ -294,6 +330,7 @@ function parseRow(
       unitPrice: raw('unitPrice'),
       workType: raw('workType'),
       amount: raw('amount'),
+      scope: raw('scope'),
     },
     code: code.value,
     description: description.value,
@@ -301,13 +338,19 @@ function parseRow(
     quantity: quantity.value,
     unitPrice: unitPrice.value,
     workType: workType.value,
+    scope: scope.value,
     sheetAmount: amount.sheetAmount,
     amount: computed?.toString() ?? null,
     issues,
   };
 }
 
-function parseRows(sheet: RawSheet, headerRow: number, mapping: ColumnMapping) {
+function parseRows(
+  sheet: RawSheet,
+  headerRow: number,
+  mapping: ColumnMapping,
+  profile: ImportProfile,
+) {
   const rows: ImportPreviewRow[] = [];
   const fileIssues: ImportFileIssue[] = [];
   const rowNumbers = [...sheet.rows.keys()].filter((n) => n > headerRow).sort((a, b) => a - b);
@@ -318,7 +361,7 @@ function parseRows(sheet: RawSheet, headerRow: number, mapping: ColumnMapping) {
       fileIssues.push({ code: 'TOO_MANY_ROWS', field: null, params: { max: MAX_IMPORT_ROWS } });
       break;
     }
-    rows.push(parseRow(rowNumber, cells, mapping));
+    rows.push(parseRow(rowNumber, cells, mapping, profile));
   }
   return { rows, fileIssues };
 }
@@ -347,6 +390,7 @@ const emptyResult = (
 export function parseImport(
   workbook: RawWorkbook,
   options: WorkOrderImportPreviewOptions,
+  profile: ImportProfile = 'standard',
 ): ParsedImport {
   const sheets = workbook.sheets.map((sheet) => ({
     name: sheet.name,
@@ -371,12 +415,17 @@ export function parseImport(
     );
   }
 
-  const suggestedMapping = (detected?.match ?? matchHeaderRow(sheet.rows.get(headerRow) ?? []))
-    .mapping;
-  const mapping = options.mapping ?? suggestedMapping;
-  const { rows, fileIssues: rowFileIssues } = parseRows(sheet, headerRow, mapping);
+  // Only a contractor sheet has a scope column; a header that looks like one is ignored elsewhere.
+  const withProfile = (mapping: ColumnMapping): ColumnMapping =>
+    profile === 'contractor' ? mapping : { ...mapping, scope: null };
+  const suggestedMapping = withProfile(
+    (detected?.match ?? matchHeaderRow(sheet.rows.get(headerRow) ?? [])).mapping,
+  );
+  const mapping = options.mapping ? withProfile(options.mapping) : suggestedMapping;
+  const { rows, fileIssues: rowFileIssues } = parseRows(sheet, headerRow, mapping, profile);
   const annotated = annotateUnitVariants(annotateDuplicateCodes(rows));
-  const fileIssues = [...mappingIssues(mapping), ...rowFileIssues];
+  const required = profile === 'contractor' ? CONTRACTOR_REQUIRED_FIELDS : REQUIRED_IMPORT_FIELDS;
+  const fileIssues = [...mappingIssues(mapping, required), ...rowFileIssues];
   if (annotated.length === 0) fileIssues.push({ code: 'NO_ITEM_ROWS', field: null });
 
   return {

@@ -793,7 +793,12 @@ export const contractorLines = pgTable(
     projectId: uuid('project_id').notNull(),
     registrationId: uuid('registration_id').notNull(),
     workOrderItemId: uuid('work_order_item_id').notNull(),
+    /** Scope of work as typed; null = the whole line. */
+    scope: text('scope'),
+    /** `scopeKeyOf(scope)` from @ftth/shared; scopes are compared only by this. */
+    scopeKey: text('scope_key'),
     quantity: numeric('quantity', { precision: 18, scale: 4 }).notNull(),
+    sourceRow: integer('source_row'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -808,10 +813,7 @@ export const contractorLines = pgTable(
       columns: [table.projectId, table.workOrderItemId],
       foreignColumns: [workOrderItems.projectId, workOrderItems.id],
     }).onDelete('restrict'),
-    unique('contractor_lines_registration_item_key').on(
-      table.registrationId,
-      table.workOrderItemId,
-    ),
+    // contractor_lines_registration_item_scope_key: unique (registration, line, COALESCE(scope_key, '')).
     index('contractor_lines_item_idx').on(table.workOrderItemId),
   ],
 );
@@ -835,6 +837,31 @@ export const contractorLinePrices = pgTable(
   ],
 );
 
+export const contractorImportFiles = pgTable(
+  'contractor_import_files',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id').notNull(),
+    registrationId: uuid('registration_id').notNull(),
+    fileName: text('file_name').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    storageKey: text('storage_key').notNull().unique(),
+    uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'contractor_import_files_registration_fkey',
+      columns: [table.projectId, table.registrationId],
+      foreignColumns: [contractorRegistrations.projectId, contractorRegistrations.id],
+    }).onDelete('cascade'),
+    index('contractor_import_files_registration_idx').on(table.registrationId, table.createdAt),
+  ],
+);
+
 export const schema = {
   users,
   refreshTokens,
@@ -852,6 +879,7 @@ export const schema = {
   contractorRegistrations,
   contractorLines,
   contractorLinePrices,
+  contractorImportFiles,
   cadFiles,
   cadLayers,
   cadInserts,

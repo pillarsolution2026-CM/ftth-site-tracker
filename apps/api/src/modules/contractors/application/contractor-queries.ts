@@ -1,23 +1,34 @@
 import { AppError } from '../../../common/app-error.js';
-import type { Decimal } from '../../work-orders/domain/decimal.js';
+import { sumDecimals, type Decimal } from '../../work-orders/domain/decimal.js';
 import type { GetProjectUseCase } from '../../projects/application/get-project.use-case.js';
-import {
-  reservedOf,
-  type ContractorSummary,
-  type Registration,
-  type WorkOrderLine,
+import type {
+  ContractorSummary,
+  Registration,
+  ScopeHolding,
+  WorkOrderLine,
 } from '../domain/contractor.js';
 import type {
   ContractorRepository,
   RegistrationRepository,
 } from '../domain/contractor.repository.js';
 
+/** One scope of a work-order line across every contractor. */
+export interface ScopeUsage {
+  scope: string | null;
+  reserved: Decimal;
+  available: Decimal;
+  highestPrice: Decimal;
+}
+
 /** What is left of one work-order line for contractors. */
 export interface AvailabilityRow {
   item: WorkOrderLine;
-  /** Σ quantity of every contractor line on the work-order line. */
-  reserved: Decimal;
-  available: Decimal;
+  mode: 'free' | 'whole' | 'scoped';
+  scopes: ScopeUsage[];
+  /** Σ highest price over the scopes. */
+  scopesPriceTotal: Decimal;
+  /** contract price − scopesPriceTotal. */
+  priceRoom: Decimal;
 }
 
 export interface ProjectContractorsView {
@@ -26,6 +37,32 @@ export interface ProjectContractorsView {
   currency: string;
   registrations: Registration[];
   availability: AvailabilityRow[];
+}
+
+export function availabilityOf(
+  item: WorkOrderLine,
+  holdings: readonly ScopeHolding[],
+): AvailabilityRow {
+  const own = holdings.filter((holding) => holding.workOrderItemId === item.id);
+  const scopes = own.map((holding) => ({
+    scope: holding.scope,
+    reserved: holding.quantity,
+    available: item.quantity.sub(holding.quantity),
+    highestPrice: holding.highestPrice,
+  }));
+  const total = sumDecimals(scopes.map((scope) => scope.highestPrice));
+  return {
+    item,
+    mode:
+      own.length === 0
+        ? 'free'
+        : own.some((holding) => holding.scopeKey === null)
+          ? 'whole'
+          : 'scoped',
+    scopes,
+    scopesPriceTotal: total,
+    priceRoom: item.unitPrice.sub(total),
+  };
 }
 
 /** Reads the project's contractors and availability; works on a transaction's repository too. */
@@ -38,9 +75,9 @@ export async function viewOf(
   if (workOrderId === null) {
     return { projectId, workOrderId, currency, registrations: [], availability: [] };
   }
-  const [lines, reserved, list] = await Promise.all([
+  const [lines, holdings, list] = await Promise.all([
     registrations.workOrderLines(workOrderId),
-    registrations.reservedByLine(workOrderId),
+    registrations.holdings(workOrderId),
     registrations.list(projectId),
   ]);
   return {
@@ -48,10 +85,7 @@ export async function viewOf(
     workOrderId,
     currency,
     registrations: list,
-    availability: lines.map((item) => {
-      const held = reservedOf(reserved, item.id);
-      return { item, reserved: held, available: item.quantity.sub(held) };
-    }),
+    availability: lines.map((item) => availabilityOf(item, holdings)),
   };
 }
 

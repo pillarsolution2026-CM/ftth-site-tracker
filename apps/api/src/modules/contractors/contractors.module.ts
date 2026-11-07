@@ -1,7 +1,10 @@
 import { Module, type Provider } from '@nestjs/common';
 import { systemClock, uuidGenerator } from '../../common/clock.js';
+import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.port.js';
 import { PermissionGuard } from '../../common/permission.guard.js';
 import { DB, type Database } from '../../db/db.module.js';
+import type { WorkbookReader } from '../work-orders/application/ports.js';
+import { ExcelJsWorkbookReader } from '../work-orders/infrastructure/exceljs-workbook-reader.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
@@ -16,9 +19,11 @@ import {
   UpdateContractorUseCase,
 } from './application/contractor.use-cases.js';
 import {
-  AddContractorLineUseCase,
+  CommitContractorImportUseCase,
+  PreviewContractorImportUseCase,
+} from './application/import.use-cases.js';
+import {
   AddContractorPriceUseCase,
-  RegisterContractorUseCase,
   RemoveContractorLineUseCase,
   RemoveRegistrationUseCase,
   UpdateContractorLineUseCase,
@@ -31,11 +36,13 @@ import type {
 import {
   CONTRACTOR_REPOSITORY,
   CONTRACTOR_UNIT_OF_WORK,
+  CONTRACTOR_WORKBOOK_READER,
   REGISTRATION_REPOSITORY,
 } from './contractors.tokens.js';
 import { DrizzleContractorRepository } from './infrastructure/drizzle-contractor.repository.js';
 import { DrizzleContractorUnitOfWork } from './infrastructure/drizzle-contractor.unit-of-work.js';
 import { DrizzleRegistrationRepository } from './infrastructure/drizzle-registration.repository.js';
+import { AdminContractorImportController } from './interface/admin-contractor-import.controller.js';
 import { AdminContractorsController } from './interface/admin-contractors.controller.js';
 import { AdminProjectContractorsController } from './interface/admin-project-contractors.controller.js';
 import { ProjectContractorsController } from './interface/project-contractors.controller.js';
@@ -58,6 +65,50 @@ const providers: Provider[] = [
     provide: CONTRACTOR_UNIT_OF_WORK,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleContractorUnitOfWork(db),
+  },
+  { provide: CONTRACTOR_WORKBOOK_READER, useValue: new ExcelJsWorkbookReader() },
+  {
+    provide: PreviewContractorImportUseCase,
+    inject: [
+      GET_PROJECT_USE_CASE,
+      REGISTRATION_REPOSITORY,
+      CONTRACTOR_REPOSITORY,
+      CONTRACTOR_WORKBOOK_READER,
+    ],
+    useFactory: (
+      projects: GetProjectUseCase,
+      registrations: RegistrationRepository,
+      contractors: ContractorRepository,
+      reader: WorkbookReader,
+    ) => new PreviewContractorImportUseCase(projects, registrations, contractors, reader),
+  },
+  {
+    provide: CommitContractorImportUseCase,
+    inject: [
+      GET_PROJECT_USE_CASE,
+      CONTRACTOR_WORKBOOK_READER,
+      CONTRACTOR_UNIT_OF_WORK,
+      REGISTRATION_REPOSITORY,
+      CONTRACTOR_REPOSITORY,
+      OBJECT_STORAGE,
+    ],
+    useFactory: (
+      projects: GetProjectUseCase,
+      reader: WorkbookReader,
+      uow: ContractorUnitOfWork,
+      registrations: RegistrationRepository,
+      contractors: ContractorRepository,
+      storage: ObjectStorage,
+    ) =>
+      new CommitContractorImportUseCase(
+        projects,
+        reader,
+        uow,
+        registrations,
+        contractors,
+        storage,
+        uuidGenerator,
+      ),
   },
   {
     provide: ListContractorsUseCase,
@@ -87,22 +138,10 @@ const providers: Provider[] = [
     useFactory: (uow: ContractorUnitOfWork) => new UpdateContractorUseCase(uow),
   },
   {
-    provide: RegisterContractorUseCase,
-    inject: withProjectsAndUow,
-    useFactory: (projects: GetProjectUseCase, uow: ContractorUnitOfWork) =>
-      new RegisterContractorUseCase(projects, uow, uuidGenerator),
-  },
-  {
     provide: RemoveRegistrationUseCase,
     inject: withProjectsAndUow,
     useFactory: (projects: GetProjectUseCase, uow: ContractorUnitOfWork) =>
       new RemoveRegistrationUseCase(projects, uow),
-  },
-  {
-    provide: AddContractorLineUseCase,
-    inject: withProjectsAndUow,
-    useFactory: (projects: GetProjectUseCase, uow: ContractorUnitOfWork) =>
-      new AddContractorLineUseCase(projects, uow, uuidGenerator),
   },
   {
     provide: UpdateContractorLineUseCase,
@@ -128,6 +167,7 @@ const providers: Provider[] = [
   imports: [IdentityModule, ProjectsModule],
   controllers: [
     AdminContractorsController,
+    AdminContractorImportController,
     AdminProjectContractorsController,
     ProjectContractorsController,
   ],

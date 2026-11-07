@@ -1,8 +1,12 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
+  ContractorImportPreviewResponseSchema,
   ContractorListResponseSchema,
   ContractorSchema,
   ProjectContractorsResponseSchema,
+  scopeKeyOf,
   type ProjectContractorsResponse,
 } from '@ftth/shared';
 import request from 'supertest';
@@ -12,6 +16,7 @@ import {
   createProjectIn,
   createWorkOrderFrom,
 } from './support/contract-fixtures.js';
+import { buildXlsx } from '../src/modules/work-orders/testing/xlsx-builder.js';
 import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -51,8 +56,8 @@ afterAll(async () => {
 interface World {
   projectId: string;
   workOrderId: string;
-  /** Work-order line id by contract code: A (100 at 10.5) and B (50 at 0.25). */
-  lines: { A: string; B: string };
+  /** Work-order line id by contract code: A (100 at 10.5), B (50 at 0.25), BOX (225 at 2033.12). */
+  lines: { A: string; B: string; BOX: string };
 }
 
 /** A project with an approved contract and a work order of the whole contract, with members. */
@@ -60,6 +65,14 @@ async function world(): Promise<World> {
   const contract = await createApprovedContract(ctx.pool, [
     { code: 'A', quantity: '100', unitPrice: '10.5', workType: 'civil' },
     { code: 'B', quantity: '50', unitPrice: '0.25', workType: 'installation' },
+    {
+      code: 'BOX',
+      description: 'بوكس توزيع',
+      unit: 'عدد',
+      quantity: '225',
+      unitPrice: '2033.12',
+      workType: 'installation',
+    },
   ]);
   const projectId = await createProjectIn(ctx.pool, contract.contractId);
   const {
@@ -77,11 +90,19 @@ async function world(): Promise<World> {
       ...(role === 'supervisor' ? { zoneId: zone?.id ?? '' } : {}),
     });
   }
-  const order = await createWorkOrderFrom(ctx.pool, projectId, contract, { A: '100', B: '50' });
+  const order = await createWorkOrderFrom(ctx.pool, projectId, contract, {
+    A: '100',
+    B: '50',
+    BOX: '225',
+  });
   return {
     projectId,
     workOrderId: order.workOrderId,
-    lines: { A: order.itemIdsByCode.A ?? '', B: order.itemIdsByCode.B ?? '' },
+    lines: {
+      A: order.itemIdsByCode.A ?? '',
+      B: order.itemIdsByCode.B ?? '',
+      BOX: order.itemIdsByCode.BOX ?? '',
+    },
   };
 }
 
@@ -97,39 +118,6 @@ async function newContractor(name = unique('Contractor')): Promise<string> {
 
 const adminUrl = (projectId: string, suffix = '') =>
   `/admin/projects/${projectId}/contractors${suffix}`;
-
-interface Registered {
-  registrationId: string;
-  lineIds: { A?: string; B?: string };
-  view: ProjectContractorsResponse;
-}
-
-async function register(
-  w: World,
-  contractorId: string,
-  lines: { A?: [string, string]; B?: [string, string] },
-  registeredOn = '2026-11-01',
-): Promise<Registered> {
-  const res = await asAdmin(http().post(adminUrl(w.projectId))).send({
-    contractorId,
-    registeredOn,
-    lines: Object.entries(lines).map(([code, [quantity, unitPrice]]) => ({
-      workOrderItemId: w.lines[code as 'A' | 'B'],
-      quantity,
-      unitPrice,
-    })),
-  });
-  expect(res.status, JSON.stringify(res.body)).toBe(201);
-  const view = ProjectContractorsResponseSchema.parse(res.body);
-  const registration = view.registrations.find((r) => r.contractor.id === contractorId);
-  const lineIds: Registered['lineIds'] = {};
-  for (const line of registration?.lines ?? []) {
-    lineIds[line.code as 'A' | 'B'] = line.id;
-  }
-  return { registrationId: registration?.id ?? '', lineIds, view };
-}
-
-const reasonOf = (res: request.Response): unknown => res.body.details?.reason;
 
 describe('contractor list', () => {
   it('creates, lists, reads and updates a contractor under the optimistic version', async () => {
@@ -224,143 +212,333 @@ describe('contractor list', () => {
   });
 });
 
-describe('contractors on a project', () => {
-  it('registers with two lines and reads it as admin and as pm, with availability', async () => {
+/** Row of a contractor sheet: code, scope (null = whole line), quantity, price. */
+type SheetRow = [
+  code: 'A' | 'B' | 'BOX',
+  scope: string | null,
+  quantity: number | null,
+  price: number | null,
+];
+const TEXT: Record<SheetRow[0], [string, string]> = {
+  A: ['Test item A', 'م.ط'],
+  B: ['Test item B', 'م.ط'],
+  BOX: ['بوكس توزيع', 'عدد'],
+};
+const SCOPE_A = 'تركيب الخوصة';
+const SCOPE_B = 'تركيب البوكس';
+const SCOPE_C = 'لحام البوكس';
+
+const sheetOf = (rows: SheetRow[]): Promise<Buffer> =>
+  buildXlsx([
+    {
+      name: 'Sheet1',
+      rows: [
+        ['البند', 'الوصف', 'الوحدة', 'نطاق الشغل', 'الكمية', 'السعر'],
+        ...rows.map(([code, scope, quantity, price]) => [
+          code,
+          TEXT[code][0],
+          TEXT[code][1],
+          scope,
+          quantity,
+          price,
+        ]),
+      ],
+    },
+  ]);
+
+type Target =
+  | { kind: 'new'; contractorId: string; registeredOn: string }
+  | { kind: 'append'; registrationId: string };
+const newTarget = (contractorId: string, registeredOn = '2026-11-01'): Target => ({
+  kind: 'new',
+  contractorId,
+  registeredOn,
+});
+
+const importUrl = (projectId: string, suffix = '') => adminUrl(projectId, `/import${suffix}`);
+const previewReq = (projectId: string, file: Buffer, target: Target, token = admin) =>
+  http()
+    .post(importUrl(projectId, '/preview'))
+    .set('Authorization', `Bearer ${token}`)
+    .field('payload', JSON.stringify({ target }))
+    .attach('file', file, 'contractor.xlsx');
+const commitPayload = (file: Buffer, target: Target, excluded: number[] = []) => ({
+  fileSha256: createHash('sha256').update(file).digest('hex'),
+  sheetName: 'Sheet1',
+  headerRow: 1,
+  mapping: {
+    code: 0,
+    description: 1,
+    unit: 2,
+    scope: 3,
+    quantity: 4,
+    unitPrice: 5,
+    workType: null,
+    amount: null,
+  },
+  excludedRowNumbers: excluded,
+  target,
+});
+const commitReq = (projectId: string, file: Buffer, payload: object, token = admin) =>
+  http()
+    .post(importUrl(projectId))
+    .set('Authorization', `Bearer ${token}`)
+    .field('payload', JSON.stringify(payload))
+    .attach('file', file, 'contractor.xlsx');
+
+interface Registered {
+  registrationId: string;
+  /** Contractor line id by `code|scope` (scope as typed, empty for the whole line). */
+  lineIds: Record<string, string>;
+  view: ProjectContractorsResponse;
+}
+
+/** Uploads a sheet as a new registration (or appends) and expects 201. */
+async function upload(w: World, target: Target, rows: SheetRow[]): Promise<Registered> {
+  const file = await sheetOf(rows);
+  const res = await commitReq(w.projectId, file, commitPayload(file, target));
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
+  const view = ProjectContractorsResponseSchema.parse(res.body);
+  const registration = view.registrations.find((r) =>
+    target.kind === 'new'
+      ? r.contractor.id === target.contractorId
+      : r.id === target.registrationId,
+  );
+  const lineIds: Registered['lineIds'] = {};
+  for (const line of registration?.lines ?? [])
+    lineIds[`${line.code}|${line.scope ?? ''}`] = line.id;
+  return { registrationId: registration?.id ?? '', lineIds, view };
+}
+
+/** Uploads a sheet that must be refused with 422 ROW_ERRORS; returns the issues of each row. */
+async function refusedRows(w: World, target: Target, rows: SheetRow[]) {
+  const file = await sheetOf(rows);
+  const res = await commitReq(w.projectId, file, commitPayload(file, target));
+  expect(res.status, JSON.stringify(res.body)).toBe(422);
+  expect(res.body.code).toBe('IMPORT_INVALID');
+  expect(res.body.details.reason).toBe('ROW_ERRORS');
+  return res.body.details.rows as {
+    rowNumber: number;
+    issues: { code: string; params?: Record<string, unknown> }[];
+  }[];
+}
+
+const reasonOf = (res: request.Response): unknown => res.body.details?.reason;
+
+describe('uploading a contractor sheet', () => {
+  it('previews, commits a new registration, stores the sheet, and reads as admin and pm', async () => {
     const w = await world();
     const contractorId = await newContractor();
-    const { registrationId, view } = await register(w, contractorId, {
-      A: ['60', '10'],
-      B: ['50', '0.25'],
+    const target = newTarget(contractorId, '2026-11-03');
+    const file = await sheetOf([
+      ['BOX', SCOPE_A, 225, 300],
+      ['BOX', SCOPE_B, 100, 900],
+      ['A', null, 60, 10],
+    ]);
+
+    const shown = await previewReq(w.projectId, file, target);
+    expect(shown.status, JSON.stringify(shown.body)).toBe(200);
+    const preview = ContractorImportPreviewResponseSchema.parse(shown.body);
+    expect(preview.rows.map((r) => [r.kind, r.scope, r.issues.length])).toEqual([
+      ['item', SCOPE_A, 0],
+      ['item', SCOPE_B, 0],
+      ['item', null, 0],
+    ]);
+    expect(preview.suggestedMapping).toMatchObject({ scope: 3, quantity: 4, unitPrice: 5 });
+    const nothing = await ctx.pool.query(
+      `SELECT 1 FROM contractor_registrations WHERE project_id = $1`,
+      [w.projectId],
+    );
+    expect(nothing.rowCount).toBe(0);
+
+    const res = await commitReq(w.projectId, file, commitPayload(file, target));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const view = ProjectContractorsResponseSchema.parse(res.body);
+    const registration = view.registrations[0];
+    expect(registration).toMatchObject({
+      registeredOn: '2026-11-03',
+      contractor: { id: contractorId },
     });
+    expect(
+      registration?.lines.map((l) => [
+        l.code,
+        l.scope,
+        l.quantity,
+        l.sourceRow,
+        l.prices[0]?.effectiveFrom,
+      ]),
+    ).toEqual([
+      ['A', null, '60', 4, '2026-11-03'],
+      ['BOX', SCOPE_A, '225', 2, '2026-11-03'],
+      ['BOX', SCOPE_B, '100', 3, '2026-11-03'],
+    ]);
 
-    for (const token of [admin, pm]) {
-      const url = token === admin ? adminUrl(w.projectId) : `/projects/${w.projectId}/contractors`;
-      const res = await as(token)(http().get(url));
-      expect(res.status, JSON.stringify(res.body)).toBe(200);
-      const parsed = ProjectContractorsResponseSchema.parse(res.body);
-      expect(parsed).toMatchObject({
-        projectId: w.projectId,
-        workOrderId: w.workOrderId,
-        currency: 'EGP',
-      });
-      expect(parsed.registrations).toHaveLength(1);
-      const registration = parsed.registrations[0];
-      expect(registration).toMatchObject({
-        id: registrationId,
-        registeredOn: '2026-11-01',
-        contractor: { id: contractorId },
-      });
-      expect(registration?.lines.map((l) => [l.code, l.quantity, l.contractPrice])).toEqual([
-        ['A', '60', '10.5'],
-        ['B', '50', '0.25'],
-      ]);
-      expect(registration?.lines[0]?.prices).toMatchObject([
-        { effectiveFrom: '2026-11-01', unitPrice: '10' },
-      ]);
-      expect(
-        parsed.availability.map((a) => [a.code, a.reservedQuantity, a.availableQuantity]),
-      ).toEqual([
-        ['A', '60', '40'],
-        ['B', '50', '0'],
-      ]);
-      expect(parsed.availability.every((a) => a.assignable)).toBe(true);
-    }
-    expect(view.registrations).toHaveLength(1);
+    // The sheet is stored, listed on the registration, and written once.
+    expect(registration?.files).toHaveLength(1);
+    const stored = await ctx.pool.query<{ storage_key: string; sha256: string }>(
+      `SELECT storage_key, sha256 FROM contractor_import_files WHERE registration_id = $1`,
+      [registration?.id],
+    );
+    expect(stored.rows[0]?.sha256).toBe(registration?.files[0]?.sha256);
+    expect(stored.rows[0]?.sha256).toBe(createHash('sha256').update(file).digest('hex'));
+    expect(await readFile(join(ctx.storageRoot, stored.rows[0]?.storage_key ?? ''))).toEqual(file);
 
+    const box = view.availability.find((a) => a.code === 'BOX');
+    expect(box).toMatchObject({ mode: 'scoped', scopesPriceTotal: '1200', priceRoom: '833.12' });
+    expect(box?.scopes).toEqual([
+      { scope: SCOPE_A, reservedQuantity: '225', availableQuantity: '0', highestPrice: '300' },
+      { scope: SCOPE_B, reservedQuantity: '100', availableQuantity: '125', highestPrice: '900' },
+    ]);
+    expect(view.availability.find((a) => a.code === 'A')?.mode).toBe('whole');
+    expect(view.availability.find((a) => a.code === 'B')?.mode).toBe('free');
+
+    const asPm = await as(pm)(http().get(`/projects/${w.projectId}/contractors`));
+    expect(ProjectContractorsResponseSchema.parse(asPm.body).registrations[0]?.files).toHaveLength(
+      1,
+    );
     const list = ContractorListResponseSchema.parse(
       (await asAdmin(http().get('/admin/contractors'))).body,
     );
     expect(list.items.find((c) => c.id === contractorId)?.workOrderCount).toBe(1);
 
-    const { rows } = await ctx.pool.query<{ type: string; project_id: string | null }>(
-      `SELECT type, project_id FROM events WHERE entity_id = $1 ORDER BY id`,
-      [registrationId],
+    const events = await ctx.pool.query<{
+      type: string;
+      project_id: string | null;
+      payload: Record<string, unknown>;
+    }>(`SELECT type, project_id, payload FROM events WHERE entity_id = $1 ORDER BY id`, [
+      registration?.id,
+    ]);
+    expect(events.rows.map((e) => [e.type, e.project_id])).toEqual([
+      ['contractor_registration.registered', w.projectId],
+    ]);
+    expect(events.rows[0]?.payload).toMatchObject({
+      fileSha256: createHash('sha256').update(file).digest('hex'),
+      sheetName: 'Sheet1',
+      rowCount: 3,
+      lineCount: 3,
+      excludedRowCount: 0,
+    });
+  });
+
+  it('shows every kind of row issue in the preview and refuses the commit', async () => {
+    const w = await world();
+    const contractorId = await newContractor();
+    const file = await buildXlsx([
+      {
+        name: 'Sheet1',
+        rows: [
+          ['البند', 'الوصف', 'الوحدة', 'نطاق الشغل', 'الكمية', 'السعر'],
+          ['A', 'Test item A', 'م.ط', null, 101, 10],
+          ['B', 'غير ذلك', 'كم', null, 1, 0.1],
+          ['ZZ', 'x', 'y', null, 1, 1],
+          ['B', 'Test item B', 'م.ط', null, null, 0.1],
+          ['H', null, null, null, null, null],
+        ],
+      },
+    ]);
+    const shown = await previewReq(w.projectId, file, newTarget(contractorId));
+    const rows = ContractorImportPreviewResponseSchema.parse(shown.body).rows;
+    expect(rows.map((r) => [r.kind, r.issues.map((i) => i.code)])).toEqual([
+      ['item', ['QUANTITY_EXCEEDS_WORK_ORDER']],
+      ['item', ['WORK_ORDER_MISMATCH', 'WORK_ORDER_MISMATCH']],
+      ['item', ['NOT_IN_WORK_ORDER']],
+      ['skipped', ['EMPTY_QUANTITY_SKIPPED']],
+      ['heading', []],
+    ]);
+    expect(rows[0]?.issues[0]?.params).toEqual({
+      scope: '',
+      workOrderQuantity: '100',
+      reservedQuantity: '0',
+      availableQuantity: '100',
+    });
+    expect(rows[1]?.issues[0]?.params).toEqual({ workOrderValue: 'Test item B' });
+
+    const refused = await commitReq(
+      w.projectId,
+      file,
+      commitPayload(file, newTarget(contractorId)),
     );
-    expect(rows).toEqual([{ type: 'contractor_registration.registered', project_id: w.projectId }]);
+    expect(refused.status).toBe(422);
+    expect(refused.body.details.reason).toBe('ROW_ERRORS');
+    expect(refused.body.details.rows.map((r: { rowNumber: number }) => r.rowNumber)).toEqual([
+      2, 3, 4,
+    ]);
+    // Excluding the bad rows lets the clean remainder through (here: nothing left).
+    const empty = await commitReq(
+      w.projectId,
+      file,
+      commitPayload(file, newTarget(contractorId), [2, 3, 4]),
+    );
+    expect(empty.status).toBe(422);
+    expect(empty.body.details.reason).toBe('NO_ROWS_INCLUDED');
   });
 
-  it('answers an empty view for a project without a work order and 409 NO_WORK_ORDER on register', async () => {
+  it('refuses a changed file (FILE_CHANGED) and stores nothing', async () => {
+    const w = await world();
+    const contractorId = await newContractor();
+    const file = await sheetOf([['A', null, 10, 10]]);
+    const other = await sheetOf([['A', null, 11, 10]]);
+    const res = await commitReq(w.projectId, other, commitPayload(file, newTarget(contractorId)));
+    expect(res.status).toBe(422);
+    expect(res.body.details.reason).toBe('FILE_CHANGED');
+    const rows = await ctx.pool.query(
+      `SELECT 1 FROM contractor_registrations WHERE project_id = $1`,
+      [w.projectId],
+    );
+    expect(rows.rowCount).toBe(0);
+    await expect(
+      readdir(join(ctx.storageRoot, 'projects', w.projectId, 'contractors')),
+    ).rejects.toThrow();
+  });
+
+  it('refuses a non-xlsx file with 415', async () => {
+    const w = await world();
+    const contractorId = await newContractor();
+    const res = await http()
+      .post(importUrl(w.projectId, '/preview'))
+      .set('Authorization', `Bearer ${admin}`)
+      .field('payload', JSON.stringify({ target: newTarget(contractorId) }))
+      .attach('file', Buffer.from('a,b'), 'c.csv');
+    expect(res.status).toBe(415);
+  });
+
+  it('answers 409 NO_WORK_ORDER, 404 unknown project and contractor, 409 when already registered', async () => {
+    const contractorId = await newContractor();
+    const file = await sheetOf([['A', null, 1, 1]]);
     const projectId = await createProjectIn(ctx.pool, null);
-    const res = await asAdmin(http().get(adminUrl(projectId)));
-    expect(ProjectContractorsResponseSchema.parse(res.body)).toMatchObject({
-      workOrderId: null,
-      registrations: [],
-      availability: [],
-    });
-    const contractorId = await newContractor();
-    const refused = await asAdmin(http().post(adminUrl(projectId))).send({
-      contractorId,
-      registeredOn: '2026-11-01',
-      lines: [{ workOrderItemId: MISSING, quantity: '1', unitPrice: '1' }],
-    });
-    expect(refused.status).toBe(409);
-    expect(reasonOf(refused)).toBe('NO_WORK_ORDER');
-  });
+    const noOrder = await previewReq(projectId, file, newTarget(contractorId));
+    expect(noOrder.status).toBe(409);
+    expect(reasonOf(noOrder)).toBe('NO_WORK_ORDER');
+    expect((await previewReq(MISSING, file, newTarget(contractorId))).status).toBe(404);
 
-  it('404s an unknown project and an unknown contractor', async () => {
-    expect((await asAdmin(http().get(adminUrl(MISSING)))).status).toBe(404);
     const w = await world();
-    const res = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId: MISSING,
-      registeredOn: '2026-11-01',
-      lines: [{ workOrderItemId: w.lines.A, quantity: '1', unitPrice: '1' }],
-    });
-    expect(res.status).toBe(404);
+    expect((await previewReq(w.projectId, file, newTarget(MISSING))).status).toBe(404);
+    await upload(w, newTarget(contractorId), [['A', null, 1, 1]]);
+    for (const res of [
+      await previewReq(w.projectId, file, newTarget(contractorId)),
+      await commitReq(w.projectId, file, commitPayload(file, newTarget(contractorId))),
+    ]) {
+      expect(res.status).toBe(409);
+      expect(reasonOf(res)).toBe('CONTRACTOR_ALREADY_REGISTERED');
+    }
   });
 
-  it('refuses to register the same contractor twice on a work order', async () => {
-    const w = await world();
-    const contractorId = await newContractor();
-    await register(w, contractorId, { A: ['1', '1'] });
-    const again = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId,
-      registeredOn: '2026-11-02',
-      lines: [{ workOrderItemId: w.lines.B, quantity: '1', unitPrice: '0.2' }],
-    });
-    expect(again.status).toBe(409);
-    expect(reasonOf(again)).toBe('CONTRACTOR_ALREADY_REGISTERED');
-  });
-
-  it('refuses a line of another work order and a repeated line in the request', async () => {
-    const w = await world();
-    const other = await world();
-    const contractorId = await newContractor();
-    const elsewhere = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId,
-      registeredOn: '2026-11-01',
-      lines: [{ workOrderItemId: other.lines.A, quantity: '1', unitPrice: '1' }],
-    });
-    expect(elsewhere.status).toBe(409);
-    expect(reasonOf(elsewhere)).toBe('LINE_NOT_IN_WORK_ORDER');
-    const repeated = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId,
-      registeredOn: '2026-11-01',
-      lines: [
-        { workOrderItemId: w.lines.A, quantity: '1', unitPrice: '1' },
-        { workOrderItemId: w.lines.A, quantity: '2', unitPrice: '1' },
-      ],
-    });
-    expect(repeated.status).toBe(400);
-  });
-
-  it('refuses a line saved before contracts (LEGACY_ITEM)', async () => {
+  it('refuses a line saved before contracts (LEGACY_WORK_ORDER_LINE)', async () => {
     const w = await world();
     // A legacy line (ADR-016 data has no contract link): the trigger of migration 0008 refuses new
     // ones, so it is switched off for the insert only, as in the work-orders suite.
     const client = await ctx.pool.connect();
-    let legacyId: string | undefined;
     try {
       await client.query('BEGIN');
       await client.query(
         'ALTER TABLE work_order_items DISABLE TRIGGER work_order_items_contract_check',
       );
-      const { rows } = await client.query<{ id: string }>(
+      await client.query(
         `INSERT INTO work_order_items (project_id, work_order_id, line_no, code, description, unit,
                                        quantity, unit_price, work_type)
-         VALUES ($1, $2, 99, 'OLD', 'Old line', 'm', 5, 3, 'civil') RETURNING id`,
+         VALUES ($1, $2, 99, 'OLD', 'Old line', 'm', 5, 3, 'civil')`,
         [w.projectId, w.workOrderId],
       );
-      legacyId = rows[0]?.id ?? '';
       await client.query(
         'ALTER TABLE work_order_items ENABLE TRIGGER work_order_items_contract_check',
       );
@@ -371,222 +549,240 @@ describe('contractors on a project', () => {
     } finally {
       client.release();
     }
-    const legacy = { id: legacyId };
     const view = ProjectContractorsResponseSchema.parse(
       (await asAdmin(http().get(adminUrl(w.projectId)))).body,
     );
     expect(view.availability.find((a) => a.code === 'OLD')?.assignable).toBe(false);
-    const contractorId = await newContractor();
-    const res = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId,
-      registeredOn: '2026-11-01',
-      lines: [{ workOrderItemId: legacy?.id, quantity: '1', unitPrice: '1' }],
-    });
-    expect(res.status).toBe(409);
-    expect(reasonOf(res)).toBe('LEGACY_ITEM');
+    const file = await buildXlsx([
+      {
+        name: 'Sheet1',
+        rows: [
+          ['البند', 'الوصف', 'الوحدة', 'نطاق الشغل', 'الكمية', 'السعر'],
+          ['OLD', 'Old line', 'm', null, 1, 1],
+        ],
+      },
+    ]);
+    const shown = await previewReq(w.projectId, file, newTarget(await newContractor()));
+    const rows = ContractorImportPreviewResponseSchema.parse(shown.body).rows;
+    expect(rows[0]?.issues.map((i) => i.code)).toEqual(['LEGACY_WORK_ORDER_LINE']);
   });
 
-  it('caps a line across contractors: the exact remainder is accepted, one more is refused with the numbers', async () => {
+  it('applies the owner example across contractors and sheets', async () => {
     const w = await world();
-    const first = await register(w, await newContractor(), { A: ['60.25', '10.5'] });
-    const second = await newContractor();
-    const refused = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId: second,
-      registeredOn: '2026-11-01',
-      lines: [{ workOrderItemId: w.lines.A, quantity: '39.7501', unitPrice: '10' }],
+    const one = await upload(w, newTarget(await newContractor()), [
+      ['BOX', SCOPE_A, 225, 300],
+      ['BOX', SCOPE_B, 225, 900],
+    ]);
+    expect(one.view.availability.find((a) => a.code === 'BOX')?.priceRoom).toBe('833.12');
+    await upload(w, newTarget(await newContractor()), [['BOX', SCOPE_C, 150, 500]]);
+    const three = newTarget(await newContractor());
+
+    const quantity = await refusedRows(w, three, [['BOX', 'لحام  البوكس', 76, 833.12]]);
+    expect(quantity[0]?.issues).toMatchObject([
+      {
+        code: 'QUANTITY_EXCEEDS_WORK_ORDER',
+        params: {
+          scope: 'لحام  البوكس',
+          workOrderQuantity: '225',
+          reservedQuantity: '150',
+          availableQuantity: '75',
+        },
+      },
+    ]);
+    const price = await refusedRows(w, three, [['BOX', 'لحام  البوكس', 75, 834]]);
+    expect(price[0]?.issues).toMatchObject([
+      {
+        code: 'PRICE_EXCEEDS_CONTRACT',
+        params: { contractPrice: '2033.12', otherScopesPrice: '1200', maxAllowedPrice: '833.12' },
+      },
+    ]);
+    const whole = await refusedRows(w, three, [['BOX', null, 1, 1]]);
+    expect(whole[0]?.issues.map((i) => i.code)).toContain('WHOLE_AND_SCOPES_MIXED');
+    const repeated = await refusedRows(w, three, [
+      ['BOX', SCOPE_C, 5, 1],
+      ['BOX', 'لحام البوكس ', 5, 1],
+    ]);
+    expect(repeated.map((r) => r.issues.map((i) => i.code))).toEqual([
+      expect.arrayContaining(['CODE_SCOPE_REPEATED']),
+      expect.arrayContaining(['CODE_SCOPE_REPEATED']),
+    ]);
+
+    // Exactly the quantity and the price room left: accepted, the scope key ignores the spacing.
+    const ok = await upload(w, three, [['BOX', 'لحام  البوكس', 75, 833.12]]);
+    expect(ok.view.availability.find((a) => a.code === 'BOX')).toMatchObject({
+      scopesPriceTotal: '2033.12',
+      priceRoom: '0',
     });
-    expect(refused.status).toBe(409);
-    expect(refused.body.code).toBe('CONFLICT');
-    expect(refused.body.details).toMatchObject({
-      reason: 'QUANTITY_EXCEEDS_WORK_ORDER',
-      workOrderItemId: w.lines.A,
-      code: 'A',
-      workOrderQuantity: '100',
-      reservedQuantity: '60.25',
-      requestedQuantity: '39.7501',
-      availableQuantity: '39.75',
+    expect(
+      ok.view.availability.find((a) => a.code === 'BOX')?.scopes.find((s) => s.scope === SCOPE_C),
+    ).toMatchObject({ reservedQuantity: '225', availableQuantity: '0', highestPrice: '833.12' });
+  });
+
+  it('caps a whole line across contractors: the exact remainder is accepted, one more is refused', async () => {
+    const w = await world();
+    await upload(w, newTarget(await newContractor()), [['A', null, 60.25, 10.5]]);
+    const second = newTarget(await newContractor());
+    const refused = await refusedRows(w, second, [['A', null, 39.7501, 10]]);
+    expect(refused[0]?.issues[0]).toMatchObject({
+      code: 'QUANTITY_EXCEEDS_WORK_ORDER',
+      params: { workOrderQuantity: '100', reservedQuantity: '60.25', availableQuantity: '39.75' },
     });
-    const exact = await register(w, second, { A: ['39.75', '10'] });
-    expect(exact.view.availability.find((a) => a.code === 'A')).toMatchObject({
+    const exact = await upload(w, second, [['A', null, 39.75, 10]]);
+    expect(exact.view.availability.find((a) => a.code === 'A')?.scopes[0]).toMatchObject({
       reservedQuantity: '100',
       availableQuantity: '0',
     });
+  });
 
-    // Raising the first contractor's quantity now counts the second one's.
-    const raise = await asAdmin(
-      http().patch(adminUrl(w.projectId, `/${first.registrationId}/lines/${first.lineIds.A}`)),
-    ).send({ quantity: '60.2501' });
-    expect(raise.status).toBe(409);
-    expect(raise.body.details).toMatchObject({
+  it('appends to a registration with one file per sheet; a repeated line and scope is refused', async () => {
+    const w = await world();
+    const first = await upload(w, newTarget(await newContractor(), '2026-11-05'), [
+      ['BOX', SCOPE_A, 100, 300],
+    ]);
+    const append: Target = { kind: 'append', registrationId: first.registrationId };
+    const second = await upload(w, append, [
+      ['BOX', SCOPE_B, 50, 900],
+      ['A', null, 5, 10],
+    ]);
+    const registration = second.view.registrations[0];
+    expect(registration?.lines).toHaveLength(3);
+    expect(registration?.files).toHaveLength(2);
+    // Appended lines start on the registration date.
+    expect(registration?.lines.every((l) => l.prices[0]?.effectiveFrom === '2026-11-05')).toBe(
+      true,
+    );
+
+    const repeated = await refusedRows(w, append, [['BOX', 'تركيب  البوكس', 1, 900]]);
+    expect(repeated[0]?.issues.map((i) => i.code)).toContain('LINE_ALREADY_ASSIGNED');
+
+    const events = await ctx.pool.query<{ type: string }>(
+      `SELECT type FROM events WHERE entity = 'contractor_line' AND type = 'contractor_line.added'
+         AND payload->>'registrationId' = $1`,
+      [first.registrationId],
+    );
+    expect(events.rowCount).toBe(2);
+  });
+});
+
+describe('contractor line and price edits', () => {
+  it('changes a quantity per scope, removes a line (never the last), removes a registration', async () => {
+    const w = await world();
+    const { registrationId, lineIds } = await upload(w, newTarget(await newContractor()), [
+      ['BOX', SCOPE_A, 100, 300],
+      ['BOX', SCOPE_B, 100, 900],
+    ]);
+    const url = (lineId: string) => adminUrl(w.projectId, `/${registrationId}/lines/${lineId}`);
+    const lineA = lineIds[`BOX|${SCOPE_A}`] ?? '';
+    const lineB = lineIds[`BOX|${SCOPE_B}`] ?? '';
+
+    const tooMany = await asAdmin(http().patch(url(lineA))).send({ quantity: '225.0001' });
+    expect(tooMany.status).toBe(409);
+    expect(tooMany.body.details).toMatchObject({
       reason: 'QUANTITY_EXCEEDS_WORK_ORDER',
-      reservedQuantity: '39.75',
-      availableQuantity: '60.25',
+      scope: SCOPE_A,
+      reservedQuantity: '0',
+      availableQuantity: '225',
     });
-    // Lowering frees quantity for others.
-    const lower = await asAdmin(
-      http().patch(adminUrl(w.projectId, `/${first.registrationId}/lines/${first.lineIds.A}`)),
-    ).send({ quantity: '50' });
-    expect(lower.status, JSON.stringify(lower.body)).toBe(200);
-    const view = ProjectContractorsResponseSchema.parse(lower.body);
-    expect(view.availability.find((a) => a.code === 'A')?.availableQuantity).toBe('10.25');
+    // Scope B's 100 does not count against scope A: the whole 225 is available to it.
+    const raised = await asAdmin(http().patch(url(lineA))).send({ quantity: '225' });
+    expect(raised.status, JSON.stringify(raised.body)).toBe(200);
+
+    const removed = await asAdmin(http().delete(url(lineB)));
+    expect(removed.status, JSON.stringify(removed.body)).toBe(200);
+    const last = await asAdmin(http().delete(url(lineA)));
+    expect(last.status).toBe(409);
+    expect(reasonOf(last)).toBe('LAST_LINE');
+    const snapshot = await ctx.pool.query<{ payload: { scope: string; prices: unknown[] } }>(
+      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'contractor_line.removed'`,
+      [lineB],
+    );
+    expect(snapshot.rows[0]?.payload).toMatchObject({ scope: SCOPE_B });
+    expect(snapshot.rows[0]?.payload.prices).toHaveLength(1);
+
+    const gone = await asAdmin(http().delete(adminUrl(w.projectId, `/${registrationId}`)));
+    expect(gone.status, JSON.stringify(gone.body)).toBe(200);
+    expect(ProjectContractorsResponseSchema.parse(gone.body).registrations).toHaveLength(0);
+    const event = await ctx.pool.query<{ payload: { lines: unknown[]; files: unknown[] } }>(
+      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'contractor_registration.removed'`,
+      [registrationId],
+    );
+    expect(event.rows[0]?.payload.lines).toHaveLength(1);
+    expect(event.rows[0]?.payload.files).toHaveLength(1);
+    const files = await ctx.pool.query(
+      `SELECT 1 FROM contractor_import_files WHERE registration_id = $1`,
+      [registrationId],
+    );
+    expect(files.rowCount).toBe(0);
   });
 
-  it('adds, repeats and caps a line of an existing registration', async () => {
+  it('keeps a dated price history and blocks a raise that the scopes sum cannot carry', async () => {
     const w = await world();
-    const { registrationId } = await register(w, await newContractor(), { A: ['10', '10'] });
-    const url = adminUrl(w.projectId, `/${registrationId}/lines`);
-    const added = await asAdmin(http().post(url)).send({
-      workOrderItemId: w.lines.B,
-      quantity: '50',
-      unitPrice: '0.25',
-    });
-    expect(added.status, JSON.stringify(added.body)).toBe(201);
-    const view = ProjectContractorsResponseSchema.parse(added.body);
-    expect(view.registrations[0]?.lines.map((l) => l.code)).toEqual(['A', 'B']);
-    expect(view.registrations[0]?.lines[1]?.prices[0]?.effectiveFrom).toBe('2026-11-01');
+    const one = await upload(w, newTarget(await newContractor()), [
+      ['BOX', SCOPE_A, 225, 300],
+      ['BOX', SCOPE_B, 225, 900],
+    ]);
+    await upload(w, newTarget(await newContractor()), [['BOX', SCOPE_C, 150, 500]]);
+    const url = adminUrl(
+      w.projectId,
+      `/${one.registrationId}/lines/${one.lineIds[`BOX|${SCOPE_A}`]}/prices`,
+    );
 
-    const repeated = await asAdmin(http().post(url)).send({
-      workOrderItemId: w.lines.B,
-      quantity: '1',
-      unitPrice: '0.25',
+    // Others: B 900 + C 500 = 1400, so scope A may reach 633.12.
+    const blocked = await asAdmin(http().post(url)).send({
+      effectiveFrom: '2026-12-01',
+      unitPrice: '633.13',
     });
-    expect(repeated.status).toBe(409);
-    expect(reasonOf(repeated)).toBe('LINE_REPEATED');
-  });
-
-  it('refuses a price above the contract price, on register, on a new line and on a new price', async () => {
-    const w = await world();
-    const contractorId = await newContractor();
-    const above = await asAdmin(http().post(adminUrl(w.projectId))).send({
-      contractorId,
-      registeredOn: '2026-11-01',
-      lines: [{ workOrderItemId: w.lines.A, quantity: '1', unitPrice: '10.500001' }],
-    });
-    expect(above.status).toBe(409);
-    expect(above.body.details).toMatchObject({
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.details).toMatchObject({
       reason: 'PRICE_EXCEEDS_CONTRACT',
-      workOrderItemId: w.lines.A,
-      code: 'A',
-      contractPrice: '10.5',
-      requestedPrice: '10.500001',
+      scope: SCOPE_A,
+      contractPrice: '2033.12',
+      otherScopesPrice: '1400',
+      maxAllowedPrice: '633.12',
+      requestedPrice: '633.13',
     });
-    // The contract price itself is allowed.
-    const { registrationId, lineIds } = await register(w, contractorId, { A: ['1', '10.5'] });
-
-    const newLine = await asAdmin(
-      http().post(adminUrl(w.projectId, `/${registrationId}/lines`)),
-    ).send({
-      workOrderItemId: w.lines.B,
-      quantity: '1',
-      unitPrice: '0.26',
+    const up = await asAdmin(http().post(url)).send({
+      effectiveFrom: '2026-12-01',
+      unitPrice: '633.12',
     });
-    expect(newLine.status).toBe(409);
-    expect(reasonOf(newLine)).toBe('PRICE_EXCEEDS_CONTRACT');
-
-    const price = await asAdmin(
-      http().post(adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}/prices`)),
-    ).send({ effectiveFrom: '2026-12-01', unitPrice: '10.6' });
-    expect(price.status).toBe(409);
-    expect(price.body.details).toMatchObject({
-      reason: 'PRICE_EXCEEDS_CONTRACT',
-      contractPrice: '10.5',
-      requestedPrice: '10.6',
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    // A lower price is allowed; the scope still counts at the highest price ever recorded.
+    const down = await asAdmin(http().post(url)).send({
+      effectiveFrom: '2027-01-01',
+      unitPrice: '100',
     });
-  });
-
-  it('keeps a dated price history: the same or an earlier date is refused, a later one is added', async () => {
-    const w = await world();
-    const { registrationId, lineIds } = await register(w, await newContractor(), {
-      A: ['10', '10'],
+    expect(down.status, JSON.stringify(down.body)).toBe(201);
+    const view = ProjectContractorsResponseSchema.parse(down.body);
+    const line = view.registrations.flatMap((r) => r.lines).find((l) => l.scope === SCOPE_A);
+    expect(line?.prices.map((p) => [p.effectiveFrom, p.unitPrice])).toEqual([
+      ['2026-11-01', '300'],
+      ['2026-12-01', '633.12'],
+      ['2027-01-01', '100'],
+    ]);
+    expect(view.availability.find((a) => a.code === 'BOX')).toMatchObject({
+      scopesPriceTotal: '2033.12',
+      priceRoom: '0',
     });
-    const url = adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}/prices`);
 
-    for (const effectiveFrom of ['2026-11-01', '2026-10-01']) {
-      const refused = await asAdmin(http().post(url)).send({ effectiveFrom, unitPrice: '9' });
+    for (const effectiveFrom of ['2027-01-01', '2026-10-01']) {
+      const refused = await asAdmin(http().post(url)).send({ effectiveFrom, unitPrice: '50' });
       expect(refused.status).toBe(409);
       expect(refused.body.details).toMatchObject({
         reason: 'PRICE_DATE_NOT_AFTER_LATEST',
-        latestEffectiveFrom: '2026-11-01',
+        latestEffectiveFrom: '2027-01-01',
       });
     }
-    const later = await asAdmin(http().post(url)).send({
-      effectiveFrom: '2026-12-15',
-      unitPrice: '9.5',
+    const events = await ctx.pool.query<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM events WHERE type = 'contractor_line.price_added' AND entity_id = $1 ORDER BY id`,
+      [one.lineIds[`BOX|${SCOPE_A}`]],
+    );
+    expect(events.rows).toHaveLength(2);
+    expect(events.rows[0]?.payload).toMatchObject({
+      scope: SCOPE_A,
+      effectiveFrom: '2026-12-01',
+      unitPrice: '633.12',
+      previous: { effectiveFrom: '2026-11-01', unitPrice: '300' },
     });
-    expect(later.status, JSON.stringify(later.body)).toBe(201);
-    const afterwards = await asAdmin(http().post(url)).send({
-      effectiveFrom: '2026-12-15',
-      unitPrice: '9',
-    });
-    expect(afterwards.status).toBe(409);
-    expect(afterwards.body.details.latestEffectiveFrom).toBe('2026-12-15');
-
-    const view = ProjectContractorsResponseSchema.parse(
-      (await asAdmin(http().get(adminUrl(w.projectId)))).body,
-    );
-    expect(
-      view.registrations[0]?.lines[0]?.prices.map((p) => [p.effectiveFrom, p.unitPrice]),
-    ).toEqual([
-      ['2026-11-01', '10'],
-      ['2026-12-15', '9.5'],
-    ]);
-
-    const { rows } = await ctx.pool.query<{ type: string; payload: Record<string, unknown> }>(
-      `SELECT type, payload FROM events WHERE entity_id = $1 ORDER BY id`,
-      [lineIds.A],
-    );
-    expect(rows.map((r) => r.type)).toEqual(['contractor_line.price_added']);
-    expect(rows[0]?.payload).toMatchObject({
-      effectiveFrom: '2026-12-15',
-      unitPrice: '9.5',
-      previous: { effectiveFrom: '2026-11-01', unitPrice: '10' },
-    });
-  });
-
-  it('removes a line and a registration, writing a full snapshot event each time', async () => {
-    const w = await world();
-    const { registrationId, lineIds } = await register(w, await newContractor(), {
-      A: ['10', '10'],
-      B: ['5', '0.25'],
-    });
-    await asAdmin(
-      http().post(adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}/prices`)),
-    ).send({ effectiveFrom: '2026-12-01', unitPrice: '9' });
-    const removedLine = await asAdmin(
-      http().delete(adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}`)),
-    );
-    expect(removedLine.status, JSON.stringify(removedLine.body)).toBe(200);
-    expect(
-      ProjectContractorsResponseSchema.parse(removedLine.body).registrations[0]?.lines,
-    ).toHaveLength(1);
-    const lineEvent = await ctx.pool.query<{ payload: { prices: unknown[]; quantity: string } }>(
-      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'contractor_line.removed'`,
-      [lineIds.A],
-    );
-    expect(lineEvent.rows[0]?.payload).toMatchObject({ quantity: '10' });
-    expect(lineEvent.rows[0]?.payload.prices).toHaveLength(2);
-
-    // The item list is required: the last line goes only with the registration.
-    const last = await asAdmin(
-      http().delete(adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.B}`)),
-    );
-    expect(last.status).toBe(409);
-    expect(last.body.details).toMatchObject({ reason: 'LAST_LINE' });
-
-    const removed = await asAdmin(http().delete(adminUrl(w.projectId, `/${registrationId}`)));
-    expect(removed.status, JSON.stringify(removed.body)).toBe(200);
-    expect(ProjectContractorsResponseSchema.parse(removed.body).registrations).toHaveLength(0);
-    const event = await ctx.pool.query<{ project_id: string; payload: { lines: unknown[] } }>(
-      `SELECT project_id, payload FROM events
-       WHERE entity_id = $1 AND type = 'contractor_registration.removed'`,
-      [registrationId],
-    );
-    expect(event.rows[0]?.project_id).toBe(w.projectId);
-    expect(event.rows[0]?.payload.lines).toHaveLength(1);
-    const left = await ctx.pool.query(`SELECT 1 FROM contractor_lines WHERE registration_id = $1`, [
-      registrationId,
-    ]);
-    expect(left.rowCount).toBe(0);
   });
 });
 
@@ -594,33 +790,24 @@ describe('access', () => {
   it('lets only platform admins write; pm, supervisor and qc get 403 on every admin route', async () => {
     const w = await world();
     const contractorId = await newContractor();
-    const { registrationId, lineIds } = await register(w, contractorId, { A: ['1', '1'] });
+    const { registrationId, lineIds } = await upload(w, newTarget(contractorId), [
+      ['A', null, 1, 1],
+      ['B', null, 1, 0.1],
+    ]);
+    const lineA = lineIds['A|'] ?? '';
+    const file = await sheetOf([['BOX', SCOPE_A, 1, 1]]);
     const routes: [string, string, object | undefined][] = [
       ['get', '/admin/contractors', undefined],
       ['post', '/admin/contractors', { name: 'X', contactName: 'X', contactPhone: '0100000' }],
       ['get', `/admin/contractors/${contractorId}`, undefined],
       ['patch', `/admin/contractors/${contractorId}`, { expectedVersion: 1, name: 'Y' }],
       ['get', adminUrl(w.projectId), undefined],
-      [
-        'post',
-        adminUrl(w.projectId),
-        {
-          contractorId,
-          registeredOn: '2026-11-01',
-          lines: [{ workOrderItemId: w.lines.B, quantity: '1', unitPrice: '0.1' }],
-        },
-      ],
       ['delete', adminUrl(w.projectId, `/${registrationId}`), undefined],
+      ['patch', adminUrl(w.projectId, `/${registrationId}/lines/${lineA}`), { quantity: '2' }],
+      ['delete', adminUrl(w.projectId, `/${registrationId}/lines/${lineA}`), undefined],
       [
         'post',
-        adminUrl(w.projectId, `/${registrationId}/lines`),
-        { workOrderItemId: w.lines.B, quantity: '1', unitPrice: '0.1' },
-      ],
-      ['patch', adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}`), { quantity: '2' }],
-      ['delete', adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}`), undefined],
-      [
-        'post',
-        adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.A}/prices`),
+        adminUrl(w.projectId, `/${registrationId}/lines/${lineA}/prices`),
         { effectiveFrom: '2027-01-01', unitPrice: '1' },
       ],
     ];
@@ -630,21 +817,36 @@ describe('access', () => {
         const res = await (body ? req.send(body) : req);
         expect(res.status, `${method} ${url}`).toBe(403);
       }
+      const target: Target = { kind: 'append', registrationId };
+      expect((await previewReq(w.projectId, file, target, token)).status).toBe(403);
+      expect((await commitReq(w.projectId, file, commitPayload(file, target), token)).status).toBe(
+        403,
+      );
     }
     for (const [method, url] of routes) {
-      const res = await http()[method as 'get'](url);
-      expect(res.status, `${method} ${url}`).toBe(401);
+      expect((await http()[method as 'get'](url)).status, `${method} ${url}`).toBe(401);
     }
-    // Nothing changed.
     const view = ProjectContractorsResponseSchema.parse(
       (await asAdmin(http().get(adminUrl(w.projectId)))).body,
     );
-    expect(view.registrations[0]?.lines).toHaveLength(1);
+    expect(view.registrations[0]?.lines).toHaveLength(2);
+  });
+
+  it('removed the typed routes: registering and adding a line by JSON no longer exist', async () => {
+    const w = await world();
+    const contractorId = await newContractor();
+    const { registrationId } = await upload(w, newTarget(contractorId), [['A', null, 1, 1]]);
+    const post = await asAdmin(http().post(adminUrl(w.projectId))).send({});
+    expect(post.status).toBe(404);
+    const line = await asAdmin(http().post(adminUrl(w.projectId, `/${registrationId}/lines`))).send(
+      {},
+    );
+    expect(line.status).toBe(404);
   });
 
   it('lets admin and pm read a project; supervisor and qc get 403; a non-member pm gets 403', async () => {
     const w = await world();
-    await register(w, await newContractor(), { A: ['1', '1'] });
+    await upload(w, newTarget(await newContractor()), [['A', null, 1, 1]]);
     const url = `/projects/${w.projectId}/contractors`;
     for (const token of [admin, pm]) {
       expect((await as(token)(http().get(url))).status).toBe(200);
@@ -654,7 +856,6 @@ describe('access', () => {
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('FORBIDDEN');
     }
-    // A project the pm is not a member of.
     const outsiderProject = await createProjectIn(ctx.pool, null);
     expect((await as(pm)(http().get(`/projects/${outsiderProject}/contractors`))).status).toBe(403);
   });
@@ -662,25 +863,20 @@ describe('access', () => {
   it('answers 404 for a registration or line reached through another project (no IDOR)', async () => {
     const w = await world();
     const other = await world();
-    const { registrationId, lineIds } = await register(w, await newContractor(), {
-      A: ['5', '10'],
-    });
+    const { registrationId, lineIds } = await upload(w, newTarget(await newContractor()), [
+      ['A', null, 5, 10],
+    ]);
+    const lineA = lineIds['A|'] ?? '';
     const otherUrl = (suffix: string) => adminUrl(other.projectId, suffix);
     const attempts: [string, string, object | undefined][] = [
       ['delete', otherUrl(`/${registrationId}`), undefined],
+      ['patch', otherUrl(`/${registrationId}/lines/${lineA}`), { quantity: '2' }],
+      ['delete', otherUrl(`/${registrationId}/lines/${lineA}`), undefined],
       [
         'post',
-        otherUrl(`/${registrationId}/lines`),
-        { workOrderItemId: other.lines.B, quantity: '1', unitPrice: '0.1' },
-      ],
-      ['patch', otherUrl(`/${registrationId}/lines/${lineIds.A}`), { quantity: '2' }],
-      ['delete', otherUrl(`/${registrationId}/lines/${lineIds.A}`), undefined],
-      [
-        'post',
-        otherUrl(`/${registrationId}/lines/${lineIds.A}/prices`),
+        otherUrl(`/${registrationId}/lines/${lineA}/prices`),
         { effectiveFrom: '2027-01-01', unitPrice: '1' },
       ],
-      // The registration is right but the line belongs to nothing here.
       ['patch', adminUrl(w.projectId, `/${registrationId}/lines/${MISSING}`), { quantity: '2' }],
     ];
     for (const [method, url, body] of attempts) {
@@ -688,10 +884,14 @@ describe('access', () => {
       const res = await (body ? req.send(body) : req);
       expect(res.status, `${method} ${url}`).toBe(404);
     }
+    // An append from another project's endpoint finds no registration either.
+    const file = await sheetOf([['B', null, 1, 0.1]]);
+    const target: Target = { kind: 'append', registrationId };
+    expect((await previewReq(other.projectId, file, target)).status).toBe(404);
+    expect((await commitReq(other.projectId, file, commitPayload(file, target))).status).toBe(404);
     const view = ProjectContractorsResponseSchema.parse(
       (await asAdmin(http().get(adminUrl(w.projectId)))).body,
     );
-    expect(view.registrations).toHaveLength(1);
     expect(view.registrations[0]?.lines[0]?.quantity).toBe('5');
   });
 });
@@ -700,40 +900,35 @@ describe('work order protection', () => {
   const woUrl = (w: World, suffix = '') =>
     `/projects/${w.projectId}/work-orders/${w.workOrderId}${suffix}`;
 
-  it('refuses a work-order quantity below what contractors hold, and accepts exactly that', async () => {
+  it('refuses a work-order quantity below the largest scope sum, and accepts exactly that', async () => {
     const w = await world();
-    const first = await register(w, await newContractor(), { A: ['40', '10'] });
-    await register(w, await newContractor(), { A: ['20.5', '10'] });
+    // Scope A holds 225 over two contractors (150 + 75), scope B 100: the largest sum is 225.
+    await upload(w, newTarget(await newContractor()), [
+      ['BOX', SCOPE_A, 150, 300],
+      ['BOX', SCOPE_B, 100, 900],
+    ]);
+    await upload(w, newTarget(await newContractor()), [['BOX', SCOPE_A, 75, 300]]);
     const patch = (quantity: string) =>
-      as(pm)(http().patch(woUrl(w, `/items/${w.lines.A}`))).send({ quantity });
+      as(pm)(http().patch(woUrl(w, `/items/${w.lines.BOX}`))).send({ quantity });
 
-    const refused = await patch('60.4999');
+    const refused = await patch('224.9999');
     expect(refused.status, JSON.stringify(refused.body)).toBe(409);
     expect(refused.body.details).toMatchObject({
       reason: 'QUANTITY_BELOW_CONTRACTORS',
-      workOrderItemId: w.lines.A,
-      code: 'A',
-      contractorsQuantity: '60.5',
-      requestedQuantity: '60.4999',
+      workOrderItemId: w.lines.BOX,
+      code: 'BOX',
+      contractorsQuantity: '225',
+      requestedQuantity: '224.9999',
     });
-    const exact = await patch('60.5');
+    const exact = await patch('225');
     expect(exact.status, JSON.stringify(exact.body)).toBe(200);
-
-    // The cap now follows the lowered quantity.
-    const raise = await asAdmin(
-      http().patch(adminUrl(w.projectId, `/${first.registrationId}/lines/${first.lineIds.A}`)),
-    ).send({ quantity: '40.0001' });
-    expect(raise.status).toBe(409);
-    expect(raise.body.details).toMatchObject({
-      reason: 'QUANTITY_EXCEEDS_WORK_ORDER',
-      workOrderQuantity: '60.5',
-    });
   });
 
   it('refuses to remove a line given to a contractor and to delete the work order, until the registration goes', async () => {
     const w = await world();
-    const { registrationId } = await register(w, await newContractor(), { A: ['10', '10'] });
-
+    const { registrationId } = await upload(w, newTarget(await newContractor()), [
+      ['A', null, 10, 10],
+    ]);
     const line = await as(pm)(http().delete(woUrl(w, `/items/${w.lines.A}`)));
     expect(line.status).toBe(409);
     expect(reasonOf(line)).toBe('LINE_HAS_CONTRACTORS');
@@ -741,7 +936,6 @@ describe('work order protection', () => {
     expect(order.status).toBe(409);
     expect(reasonOf(order)).toBe('WORK_ORDER_HAS_CONTRACTORS');
 
-    // A line no contractor holds can still be removed.
     const free = await as(pm)(http().delete(woUrl(w, `/items/${w.lines.B}`)));
     expect(free.status, JSON.stringify(free.body)).toBe(204);
 
@@ -755,32 +949,28 @@ describe('work order protection', () => {
 describe('database rules (migration 0013)', () => {
   it('refuses UPDATE and DELETE of a price while its line exists, and TRUNCATE', async () => {
     const w = await world();
-    const { lineIds } = await register(w, await newContractor(), { A: ['10', '10'] });
+    const { lineIds } = await upload(w, newTarget(await newContractor()), [['A', null, 10, 10]]);
     await expect(
       ctx.pool.query(
         `UPDATE contractor_line_prices SET unit_price = 1 WHERE contractor_line_id = $1`,
-        [lineIds.A],
+        [lineIds['A|']],
       ),
     ).rejects.toMatchObject({ code: '23001' });
     await expect(
       ctx.pool.query(`DELETE FROM contractor_line_prices WHERE contractor_line_id = $1`, [
-        lineIds.A,
+        lineIds['A|'],
       ]),
     ).rejects.toMatchObject({ code: '23001' });
     await expect(ctx.pool.query(`TRUNCATE contractor_line_prices`)).rejects.toMatchObject({
       code: '23001',
     });
-    const { rows } = await ctx.pool.query(
-      `SELECT unit_price FROM contractor_line_prices WHERE contractor_line_id = $1`,
-      [lineIds.A],
-    );
-    expect(rows).toHaveLength(1);
   });
 
   it('fails a contractor line without a price at commit', async () => {
     const w = await world();
-    const contractorId = await newContractor();
-    const { registrationId } = await register(w, contractorId, { A: ['10', '10'] });
+    const { registrationId } = await upload(w, newTarget(await newContractor()), [
+      ['A', null, 10, 10],
+    ]);
     const client = await ctx.pool.connect();
     try {
       await client.query('BEGIN');
@@ -804,9 +994,13 @@ describe('database rules (migration 0013)', () => {
     expect(rowCount).toBe(0);
   });
 
-  it('enforces the quantity cap and the price ceiling below the application', async () => {
+  it('enforces quantity, scopes and prices below the application', async () => {
     const w = await world();
-    const { lineIds } = await register(w, await newContractor(), { A: ['90', '10'] });
+    await upload(w, newTarget(await newContractor()), [
+      ['A', null, 90, 10],
+      ['BOX', SCOPE_A, 100, 1000],
+      ['BOX', SCOPE_B, 100, 1000],
+    ]);
     const other = await newContractor();
     const {
       rows: [registration],
@@ -815,29 +1009,54 @@ describe('database rules (migration 0013)', () => {
        VALUES ($1, $2, $3, '2026-11-01') RETURNING id`,
       [w.projectId, w.workOrderId, other],
     );
-    await expect(
+    const insertLine = (item: string, quantity: string, scope: string | null) =>
       ctx.pool.query(
-        `INSERT INTO contractor_lines (project_id, registration_id, work_order_item_id, quantity)
-         VALUES ($1, $2, $3, 10.0001)`,
-        [w.projectId, registration?.id, w.lines.A],
-      ),
-    ).rejects.toMatchObject({ code: '23514' });
-    await expect(
-      ctx.pool.query(
-        `INSERT INTO contractor_line_prices (contractor_line_id, effective_from, unit_price)
-         VALUES ($1, '2026-12-01', 10.500001)`,
-        [lineIds.A],
-      ),
-    ).rejects.toMatchObject({ code: '23514' });
-    await expect(
-      ctx.pool.query(
-        `INSERT INTO contractor_line_prices (contractor_line_id, effective_from, unit_price)
-         VALUES ($1, '2026-11-01', 9)`,
-        [lineIds.A],
-      ),
-    ).rejects.toMatchObject({ code: '23514' });
+        `INSERT INTO contractor_lines (project_id, registration_id, work_order_item_id, scope, scope_key, quantity)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [w.projectId, registration?.id, item, scope, scopeKeyOf(scope), quantity],
+      );
+    // Quantity per whole line.
+    await expect(insertLine(w.lines.A, '10.0001', null)).rejects.toMatchObject({ code: '23514' });
+    // Whole and scoped never mix.
+    await expect(insertLine(w.lines.A, '1', 'نطاق')).rejects.toMatchObject({
+      code: '23514',
+      message: expect.stringContaining('whole and scoped'),
+    });
+    await expect(insertLine(w.lines.BOX, '1', null)).rejects.toMatchObject({ code: '23514' });
+    // Quantity per scope: scope A holds 100 of 225.
+    await expect(insertLine(w.lines.BOX, '125.0001', SCOPE_A)).rejects.toMatchObject({
+      code: '23514',
+    });
+
+    // Price sum: scopes A and B at 1000 each; a third scope may cost 33.12 at most.
+    const client = await ctx.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO contractor_lines (project_id, registration_id, work_order_item_id, scope, scope_key, quantity)
+         VALUES ($1, $2, $3, 'ثالث', 'ثالث', 1) RETURNING id`,
+        [w.projectId, registration?.id, w.lines.BOX],
+      );
+      await expect(
+        client.query(
+          `INSERT INTO contractor_line_prices (contractor_line_id, effective_from, unit_price)
+           VALUES ($1, '2026-11-01', 33.13)`,
+          [inserted.rows[0]?.id],
+        ),
+      ).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringContaining('other scopes'),
+      });
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+    // The work-order line never drops below the largest scope sum.
     await expect(
       ctx.pool.query(`UPDATE work_order_items SET quantity = 89.9999 WHERE id = $1`, [w.lines.A]),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      ctx.pool.query(`UPDATE work_order_items SET quantity = 99.9999 WHERE id = $1`, [w.lines.BOX]),
     ).rejects.toMatchObject({ code: '23514' });
   });
 });
