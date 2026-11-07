@@ -104,3 +104,31 @@ Checked with the owner's files (copies, not committed): the work-order sheet
 `contract boq.xlsx` → 0 errors, 153 lines, 7 skipped rows (the contract's zero-quantity items, empty
 in the sheet), 39 headings, total `78900610.328`. With two identical work orders already reserved
 it still fits exactly; a fourth gives `QUANTITY_EXCEEDS_CONTRACT` on 153 rows.
+
+# Subcontractors, part 1 (point 2-أ, ADR-036)
+
+Zod: `packages/shared/src/contractors/contractor.schemas.ts`. Migration: `0013_subcontractors.sql`.
+
+```
+contractors                     shared list: name, contact person, phone, commercial register, tax card
+  └── contractor_registrations  contractor on a project's work order + registration date
+        └── contractor_lines    a work-order line + contractor quantity
+              └── contractor_line_prices   dated prices (append-only)
+```
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET, POST | `/admin/contractors` | admin; 409 `CONTRACTOR_NAME_TAKEN` |
+| GET, PATCH | `/admin/contractors/:contractorId` | admin; PATCH needs `expectedVersion` |
+| GET | `/admin/projects/:projectId/contractors` | registrations + `availability` per work-order line |
+| POST | `/admin/projects/:projectId/contractors` | `{contractorId, registeredOn, lines[]}`; 409 `NO_WORK_ORDER`, `CONTRACTOR_ALREADY_REGISTERED`, `LINE_NOT_IN_WORK_ORDER`, `LEGACY_ITEM`, `QUANTITY_EXCEEDS_WORK_ORDER`, `PRICE_EXCEEDS_CONTRACT` |
+| DELETE | `…/contractors/:registrationId` | snapshot in the event |
+| POST | `…/contractors/:registrationId/lines` | 409 `LINE_REPEATED` and the line reasons above |
+| PATCH, DELETE | `…/lines/:lineId` | quantity only |
+| POST | `…/lines/:lineId/prices` | `{effectiveFrom, unitPrice}`; 409 `PRICE_EXCEEDS_CONTRACT`, `PRICE_DATE_NOT_AFTER_LATEST` |
+| GET | `/projects/:projectId/contractors` | `contractors:read` (admin, pm) |
+
+Work-order writes gain 409 `QUANTITY_BELOW_CONTRACTORS`, `LINE_HAS_CONTRACTORS`, `WORK_ORDER_HAS_CONTRACTORS`.
+
+The price used for work on day D (Phase 5) is the line price with the latest `effectiveFrom` ≤ D.
+
