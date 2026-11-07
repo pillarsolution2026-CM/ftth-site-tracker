@@ -321,7 +321,7 @@ describe('BOQ import', () => {
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const preview = ContractImportPreviewResponseSchema.parse(res.body);
     expect(preview.headerRow).toBe(3);
-    expect(preview.mapping).toEqual(OWNER_MAPPING);
+    expect(preview.mapping).toEqual({ ...OWNER_MAPPING, scope: null });
     expect(preview.summary).toMatchObject({
       rowCount: 10,
       headingCount: 4,

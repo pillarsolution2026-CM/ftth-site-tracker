@@ -246,7 +246,8 @@
     "workOrders": "Ordres de travail",
     "cadFiles": "Fichiers CAO",
     "designRevisions": "Révisions de conception",
-    "contract": "Contrat"
+    "contract": "Contrat",
+    "contractors": "Sous-traitants"
   },
   "project": {
     "switcher": "Projet",
@@ -292,7 +293,10 @@
       "NOT_IN_CONTRACT": "L'article n'est pas dans le contrat.",
       "CONTRACT_ITEM_REPEATED": "L'article est déjà une ligne de l'ordre de travail.",
       "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le reste du contrat pour l'article {code} : demandé {requestedQuantity}, disponible {availableQuantity} (contrat {contractQuantity}, réservé {reservedQuantity}).",
-      "LEGACY_ITEM": "Ligne ancienne sans article de contrat : elle ne peut pas être modifiée."
+      "LEGACY_ITEM": "Ligne ancienne sans article de contrat : elle ne peut pas être modifiée.",
+      "QUANTITY_BELOW_CONTRACTORS": "La quantité du poste {code} ne peut pas descendre sous celle des sous-traitants : demandé {requestedQuantity}, détenu par les sous-traitants {contractorsQuantity}.",
+      "LINE_HAS_CONTRACTORS": "Cette ligne est confiée à un sous-traitant et ne peut pas être supprimée.",
+      "WORK_ORDER_HAS_CONTRACTORS": "Des sous-traitants sont enregistrés sur cet ordre de travail. Retirez-les d’abord."
     }
   },
   "items": {
@@ -388,7 +392,8 @@
       "quantity": "Quantité",
       "unitPrice": "Prix unitaire",
       "workType": "Type de travaux",
-      "amount": "Montant (contrôle)"
+      "amount": "Montant (contrôle)",
+      "scope": "Périmètre des travaux"
     },
     "summary": {
       "title": "3. Résumé",
@@ -475,7 +480,15 @@
       "CONTRACT_MISMATCH": "{field} diffère du contrat ({contractValue})",
       "CODE_REPEATED": "Le code est répété aux lignes {otherRows} ; un article apparaît une fois",
       "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le disponible du contrat (disponible {availableQuantity} sur {contractQuantity})",
-      "EMPTY_QUANTITY_SKIPPED": "Quantité vide : la ligne est ignorée et n'est pas ajoutée à l'ordre de travail"
+      "EMPTY_QUANTITY_SKIPPED": "Quantité vide : la ligne est ignorée et n'est pas ajoutée à l'ordre de travail",
+      "NOT_IN_WORK_ORDER": "Le code n’est pas une ligne de l’ordre de travail",
+      "WORK_ORDER_MISMATCH": "{field} diffère de l’ordre de travail ({workOrderValue})",
+      "LEGACY_WORK_ORDER_LINE": "Cette ligne de l’ordre de travail est ancienne et ne peut pas être confiée à un sous-traitant",
+      "CODE_SCOPE_REPEATED": "Le même code et le même périmètre « {scope} » figurent aux lignes {otherRows}",
+      "WHOLE_AND_SCOPES_MIXED": "Le poste {code} ne peut pas être confié à la fois entier et par périmètre",
+      "LINE_ALREADY_ASSIGNED": "Ce sous-traitant a déjà cette ligne et le périmètre « {scope} »",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "La quantité dépasse le disponible du périmètre {scope} : disponible {availableQuantity} sur {workOrderQuantity} (réservé {reservedQuantity})",
+      "PRICE_EXCEEDS_CONTRACT": "Les prix des périmètres dépassent le prix du contrat {contractPrice} : maximum autorisé {maxAllowedPrice} (autres périmètres {otherScopesPrice})"
     },
     "fileIssues": {
       "SHEET_NOT_FOUND": "Feuille introuvable",
@@ -1338,5 +1351,111 @@
     "title": "Contrat",
     "noContract": "Ce projet n'a pas de contrat",
     "readOnly": "Lecture seule"
+  },
+  "contractors": {
+    "title": "Sous-traitants",
+    "listTitle": "Tous les sous-traitants",
+    "none": "Aucun sous-traitant pour le moment. Ajoutez le premier.",
+    "new": "Nouveau sous-traitant",
+    "edit": "Modifier le sous-traitant",
+    "create": "Créer le sous-traitant",
+    "created": "Sous-traitant créé",
+    "saved": "Modifications enregistrées",
+    "cancelEdit": "Annuler la modification",
+    "optional": "facultatif",
+    "fields": {
+      "name": "Nom",
+      "contactName": "Personne à contacter",
+      "contactPhone": "Téléphone",
+      "commercialRegister": "Registre de commerce",
+      "taxCard": "Carte fiscale",
+      "workOrderCount": "Ordres de travail"
+    },
+    "validation": {
+      "phone": "Saisissez un numéro : chiffres, espaces et + - ( )",
+      "contractor": "Choisissez un sous-traitant",
+      "date": "Saisissez la date d’enregistrement",
+      "quantity": "Saisissez une quantité supérieure à 0 avec 4 décimales au plus",
+      "quantityMax": "La quantité dépasse le disponible : {available}",
+      "price": "Saisissez un prix avec 6 décimales au plus",
+      "priceDate": "La date doit suivre la dernière date de prix : {latest}",
+      "priceMaxAllowed": "Le prix dépasse le maximum autorisé pour ce périmètre : {maxAllowed}",
+      "chooseTarget": "Choisissez d’abord le sous-traitant et la date d’enregistrement"
+    },
+    "reasons": {
+      "CONTRACTOR_NAME_TAKEN": "Ce nom est déjà utilisé par un autre sous-traitant.",
+      "NO_WORK_ORDER": "Ce projet n’a pas encore d’ordre de travail.",
+      "CONTRACTOR_ALREADY_REGISTERED": "Ce sous-traitant est déjà enregistré sur l’ordre de travail.",
+      "LINE_NOT_IN_WORK_ORDER": "La ligne n’appartient pas à cet ordre de travail. Relancez l’aperçu.",
+      "LEGACY_ITEM": "Ligne ancienne (avant le lien avec le contrat) : elle ne peut pas être confiée à un sous-traitant.",
+      "LINE_REPEATED": "Le sous-traitant a déjà cette ligne et ce périmètre. Relancez l’aperçu.",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "La quantité dépasse le disponible du périmètre {scope} du poste {code} : demandé {requestedQuantity}, disponible {availableQuantity} (ordre de travail {workOrderQuantity}, réservé {reservedQuantity}).",
+      "PRICE_EXCEEDS_CONTRACT": "Les prix des périmètres dépassent le prix du contrat {contractPrice} pour le poste {code} : maximum autorisé {maxAllowedPrice} (autres périmètres {otherScopesPrice}, demandé {requestedPrice}).",
+      "PRICE_DATE_NOT_AFTER_LATEST": "La date doit suivre la dernière date de prix : {latestEffectiveFrom}.",
+      "LAST_LINE": "La dernière ligne ne peut pas être supprimée. Retirez plutôt tout l’enregistrement.",
+      "STALE_VERSION": "Les données ont été modifiées par un autre utilisateur. Rechargez la page et réessayez.",
+      "WHOLE_AND_SCOPES_MIXED": "Une ligne confiée entière et une ligne avec périmètre ne peuvent pas être mélangées sur la même ligne de l’ordre de travail. Relancez l’aperçu."
+    },
+    "section": {
+      "title": "Sous-traitants",
+      "readOnly": "Lecture seule",
+      "noWorkOrder": "Ce projet n’a pas encore d’ordre de travail. Créez-le d’abord, puis enregistrez les sous-traitants dessus.",
+      "goToWorkOrders": "Aller aux ordres de travail",
+      "none": "Aucun sous-traitant n’est enregistré sur cet ordre de travail.",
+      "register": "Enregistrer un sous-traitant",
+      "registeredOn": "Enregistré le",
+      "total": "Total de ce sous-traitant",
+      "totalHint": "Quantité × dernier prix, additionné sur ses lignes",
+      "removeRegistration": "Retirer l’enregistrement",
+      "confirmRemoveRegistration": "Retirer {name} de l’ordre de travail, avec toutes ses lignes et ses prix ?",
+      "lines": "Lignes de {name}",
+      "noLines": "Aucune ligne",
+      "files": "Fichiers téléversés",
+      "uploadMore": "Téléverser d’autres lignes",
+      "uploadMoreFor": "Téléverser d’autres lignes pour {name}"
+    },
+    "line": {
+      "code": "Code",
+      "description": "Description",
+      "unit": "Unité",
+      "contractPrice": "Prix du contrat",
+      "quantity": "Quantité",
+      "currentPrice": "Prix actuel",
+      "since": "depuis",
+      "history": "Historique des prix",
+      "actions": "Actions",
+      "editQuantity": "Modifier la quantité",
+      "addPrice": "Ajouter un prix daté",
+      "remove": "Supprimer la ligne",
+      "confirmRemove": "Supprimer la ligne {code} de ce sous-traitant, avec ses prix ?",
+      "newQuantity": "Nouvelle quantité ({code})",
+      "effectiveFrom": "Prix à partir du ({code})",
+      "newPrice": "Nouveau prix ({code})",
+      "lastLine": "La dernière ligne ne peut pas être supprimée ; retirez tout l’enregistrement",
+      "scope": "Périmètre des travaux",
+      "splitSummary": "Réparti : {count} périmètres · prix restant {priceRoom}",
+      "wholeSummary": "Confié entier · prix restant {priceRoom}"
+    },
+    "register": {
+      "contractor": "Sous-traitant",
+      "chooseContractor": "— Choisir un sous-traitant —",
+      "alreadyRegistered": "déjà enregistré",
+      "createContractor": "Ajouter un nouveau sous-traitant",
+      "date": "Date d’enregistrement"
+    },
+    "scope": {
+      "whole": "Ligne entière",
+      "label": "Périmètre des travaux"
+    },
+    "import": {
+      "title": "Enregistrer un sous-traitant depuis un fichier",
+      "titleAppend": "Téléverser d’autres lignes pour {name}",
+      "explain": "Les lignes viennent d’un fichier Excel avec code, description, unité, périmètre des travaux, quantité et prix. Un périmètre vide signifie la ligne entière. Le premier prix commence à la date d’enregistrement.",
+      "back": "Retour au projet",
+      "targetTitle": "Sous-traitant et date",
+      "commit": "Enregistrer les lignes",
+      "committing": "Enregistrement…",
+      "mappingNote": "Le périmètre est facultatif ; le type de travaux n’est pas utilisé."
+    }
   }
 }

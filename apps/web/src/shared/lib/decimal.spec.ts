@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { formatDecimal, formatMoney, normalizeDecimalInput, sumDecimals } from './decimal';
+import {
+  formatDecimal,
+  formatMoney,
+  multiplyDecimals,
+  normalizeDecimalInput,
+  sumDecimals,
+} from './decimal';
+
+describe('multiplyDecimals', () => {
+  it('multiplies exactly, with no float error', () => {
+    expect(multiplyDecimals('0.1', '0.2')).toBe('0.02');
+    expect(multiplyDecimals('1234567.8912', '98.123456')).toBe('121140068.1511759872');
+    expect(multiplyDecimals('100', '2.50')).toBe('250');
+    expect(multiplyDecimals('0', '5.5')).toBe('0');
+    expect(multiplyDecimals('x', '5')).toBe('0');
+  });
+});
 
 describe('formatDecimal', () => {
   it('keeps every digit of a 14-digit amount with 8 decimals', () => {

@@ -58,7 +58,7 @@ function mismatches(row: ImportPreviewRow, item: ContractItemInfo): ImportRowIss
  * with only the EMPTY_QUANTITY_SKIPPED warning, and no other check applies (owner, 2026-10-31).
  * A quantity of 0 or unreadable text is not empty and keeps its normal checks.
  */
-function skipEmptyQuantity(row: ImportPreviewRow): ImportPreviewRow {
+export function skipEmptyQuantity(row: ImportPreviewRow): ImportPreviewRow {
   if (row.kind !== 'item' || row.raw.quantity !== null) return row;
   return {
     ...row,

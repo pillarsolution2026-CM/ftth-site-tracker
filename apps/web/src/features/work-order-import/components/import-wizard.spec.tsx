@@ -52,6 +52,7 @@ function row(
       unitPrice: '1',
       workType: 'مدني',
       amount: null,
+      scope: null,
     },
     code,
     description: `Item ${code}`,
@@ -59,6 +60,7 @@ function row(
     quantity: '1',
     unitPrice: '1',
     workType: 'civil',
+    scope: null,
     sheetAmount: null,
     amount,
     issues,
@@ -73,6 +75,7 @@ const mapping = {
   unitPrice: 4,
   workType: 5,
   amount: null,
+  scope: null,
 };
 
 function preview(): WorkOrderImportPreviewResponse {
@@ -368,6 +371,7 @@ function headingRow(rowNumber: number, code: string, title: string): ImportPrevi
       unitPrice: null,
       workType: null,
       amount: null,
+      scope: null,
     },
   };
 }

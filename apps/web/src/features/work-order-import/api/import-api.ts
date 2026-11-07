@@ -1,5 +1,9 @@
 import {
   ContractDetailSchema,
+  ContractorImportCommitPayloadSchema,
+  ContractorImportPreviewOptionsSchema,
+  ContractorImportPreviewResponseSchema,
+  ProjectContractorsResponseSchema,
   ContractImportCommitPayloadSchema,
   ContractImportPreviewOptionsSchema,
   ContractImportPreviewResponseSchema,
@@ -8,6 +12,8 @@ import {
   WorkOrderImportPreviewOptionsSchema,
   WorkOrderImportPreviewResponseSchema,
   type ContractDetail,
+  type ContractorImportPreviewOptions,
+  type ProjectContractorsResponse,
   type WorkOrderDetail,
   type WorkOrderImportPreviewOptions,
   type WorkOrderImportPreviewResponse,
@@ -84,6 +90,39 @@ export function commitContractImport(
     contractImportPath(contractId),
     multipart(file, ContractImportCommitPayloadSchema.parse(payload)),
     ContractDetailSchema,
+    upload,
+  );
+}
+
+const contractorImportPath = (projectId: string) =>
+  `/api/admin/projects/${encodeURIComponent(projectId)}/contractors/import`;
+
+/** Contractor sheet (ADR-036), step 1: checks every row against the work order; no writes. */
+export function previewContractorImport(
+  projectId: string,
+  file: File,
+  options: ContractorImportPreviewOptions,
+  upload?: UploadOptions,
+): Promise<WorkOrderImportPreviewResponse> {
+  return bffUpload(
+    `${contractorImportPath(projectId)}/preview`,
+    multipart(file, ContractorImportPreviewOptionsSchema.parse(options)),
+    ContractorImportPreviewResponseSchema,
+    upload,
+  );
+}
+
+/** Registers the contractor (or appends lines); answers the project's contractors. */
+export function commitContractorImport(
+  projectId: string,
+  file: File,
+  payload: z.input<typeof ContractorImportCommitPayloadSchema>,
+  upload?: UploadOptions,
+): Promise<ProjectContractorsResponse> {
+  return bffUpload(
+    contractorImportPath(projectId),
+    multipart(file, ContractorImportCommitPayloadSchema.parse(payload)),
+    ProjectContractorsResponseSchema,
     upload,
   );
 }

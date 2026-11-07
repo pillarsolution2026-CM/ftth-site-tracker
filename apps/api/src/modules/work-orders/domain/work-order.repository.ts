@@ -82,11 +82,25 @@ export interface ContractCatalog {
   reservations(contractId: string): Promise<Reservations>;
 }
 
+/**
+ * Read-only view of what subcontractors hold of the work order (ADR-036), supplied by an adapter
+ * so this module never touches the contractors module's internals.
+ */
+export interface ContractorHoldings {
+  /** Σ quantity of every contractor line on the work-order line. */
+  heldQuantity(workOrderItemId: string): Promise<Decimal>;
+  /** Contractor lines on the work-order line. */
+  lineCount(workOrderItemId: string): Promise<number>;
+  /** Contractors registered on the work order. */
+  registrationCount(workOrderId: string): Promise<number>;
+}
+
 /** Repositories and event log bound to one database transaction. */
 export interface WorkOrderTx {
   orders: WorkOrderRepository;
   attachments: WorkOrderAttachmentRepository;
   contracts: ContractCatalog;
+  contractors: ContractorHoldings;
   events: EventLog;
 }
 

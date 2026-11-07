@@ -31,6 +31,8 @@ export const IMPORT_FIELDS = [
   'unitPrice',
   'workType',
   'amount',
+  /** Contractor sheets only (ADR-036): the contractor's scope of work on the line. */
+  'scope',
 ] as const;
 export const ImportFieldSchema = z.enum(IMPORT_FIELDS);
 export type ImportField = z.infer<typeof ImportFieldSchema>;
@@ -70,6 +72,7 @@ export const IMPORT_HEADER_SYNONYMS: Readonly<Record<ImportField, readonly strin
   unitPrice: ['السعر', 'سعر الوحدة', 'الفئة', 'unit price', 'price', 'rate', 'prix unitaire'],
   workType: ['نوع الأعمال', 'نوع العمل', 'work type', 'type of work', 'type de travaux'],
   amount: ['القيمة', 'الإجمالي', 'الاجمالي', 'amount', 'total', 'montant'],
+  scope: ['نطاق الشغل', 'نطاق العمل', 'النطاق', 'scope', 'scope of work', 'périmètre', 'perimetre'],
 };
 
 /** 0-based column index (A = 0). */
@@ -84,6 +87,8 @@ export const ColumnMappingSchema = z.object({
   unitPrice: ColumnIndexSchema.nullable(),
   workType: ColumnIndexSchema.nullable(),
   amount: ColumnIndexSchema.nullable(),
+  /** Contractor sheets only; ignored by the work-order and contract imports. */
+  scope: ColumnIndexSchema.nullable().default(null),
 });
 export type ColumnMapping = z.infer<typeof ColumnMappingSchema>;
 
@@ -97,6 +102,7 @@ export const ConfirmedColumnMappingSchema = z
     unitPrice: ColumnIndexSchema,
     workType: ColumnIndexSchema,
     amount: ColumnIndexSchema.nullable().default(null),
+    scope: ColumnIndexSchema.nullable().default(null),
   })
   .superRefine((mapping, ctx) => {
     const used = Object.values(mapping).filter((value): value is number => value !== null);
@@ -125,6 +131,14 @@ export const IMPORT_ROW_ISSUE_CODES = [
   'CODE_REPEATED',
   'QUANTITY_EXCEEDS_CONTRACT',
   'EMPTY_QUANTITY_SKIPPED',
+  'NOT_IN_WORK_ORDER',
+  'WORK_ORDER_MISMATCH',
+  'LEGACY_WORK_ORDER_LINE',
+  'CODE_SCOPE_REPEATED',
+  'WHOLE_AND_SCOPES_MIXED',
+  'LINE_ALREADY_ASSIGNED',
+  'QUANTITY_EXCEEDS_WORK_ORDER',
+  'PRICE_EXCEEDS_CONTRACT',
 ] as const;
 export const ImportRowIssueCodeSchema = z.enum(IMPORT_ROW_ISSUE_CODES);
 export type ImportRowIssueCode = z.infer<typeof ImportRowIssueCodeSchema>;
@@ -176,6 +190,36 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
      * checked against the contract (owner, 2026-10-31). A quantity of 0 or invalid text is not empty.
      */
     EMPTY_QUANTITY_SKIPPED: 'warning',
+    // ---- Contractor sheet against the project's work order (ADR-036, owner 2026-11-07) ----
+    // An empty quantity cell skips the row as in the work-order import (EMPTY_QUANTITY_SKIPPED).
+    /** No line of the project's work order has this code. */
+    NOT_IN_WORK_ORDER: 'error',
+    /**
+     * `description` or `unit` differs from the work-order line (so from the contract); one issue
+     * per field, `params.workOrderValue`. The file must be fixed.
+     */
+    WORK_ORDER_MISMATCH: 'error',
+    /** The work-order line was saved before ADR-028 and cannot be given to a contractor. */
+    LEGACY_WORK_ORDER_LINE: 'error',
+    /** Same code and same scope on another row of the sheet. `params.otherRows`, `params.scope`. */
+    CODE_SCOPE_REPEATED: 'error',
+    /**
+     * A line given whole (empty scope) and a line with a scope on the same work-order line, in the
+     * sheet or with what other contractors already hold. `params.code`.
+     */
+    WHOLE_AND_SCOPES_MIXED: 'error',
+    /** Appending to a registration that already has this line and scope. `params.scope`. */
+    LINE_ALREADY_ASSIGNED: 'error',
+    /**
+     * Σ quantity of the scope (other contractors + other rows) above the work-order quantity.
+     * `params`: `scope`, `workOrderQuantity`, `reservedQuantity`, `availableQuantity`.
+     */
+    QUANTITY_EXCEEDS_WORK_ORDER: 'error',
+    /**
+     * The scopes' prices on the line would add up to more than the contract price.
+     * `params`: `contractPrice`, `otherScopesPrice`, `maxAllowedPrice`.
+     */
+    PRICE_EXCEEDS_CONTRACT: 'error',
   };
 
 /**
@@ -246,6 +290,7 @@ export const ImportPreviewRowSchema = z.object({
     unitPrice: nullableText,
     workType: nullableText,
     amount: nullableText,
+    scope: nullableText.default(null),
   }),
   /** Parsed values; null when missing or invalid (see issues). */
   code: nullableText,
@@ -254,6 +299,8 @@ export const ImportPreviewRowSchema = z.object({
   quantity: Decimal4StringSchema.nullable(),
   unitPrice: Decimal6StringSchema.nullable(),
   workType: WorkTypeSchema.nullable(),
+  /** Contractor sheets only: scope of work, trimmed; null = the whole line. */
+  scope: nullableText.default(null),
   /** Amount read from the sheet (cross-check only, never stored). */
   sheetAmount: DecimalStringSchema.nullable(),
   /** quantity × unitPrice, exact; null if either is invalid. */

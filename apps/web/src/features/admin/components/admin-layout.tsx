@@ -26,6 +26,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     { href: `/${locale}`, label: t('home.projects'), exact: true },
     { href: `/${locale}/admin/projects`, label: t('admin.projects'), exact: false },
     { href: `/${locale}/admin/contracts`, label: t('admin.contracts.title'), exact: false },
+    { href: `/${locale}/admin/contractors`, label: t('contractors.title'), exact: false },
     { href: `/${locale}/admin/users`, label: t('admin.users.title'), exact: false },
   ];
   return (

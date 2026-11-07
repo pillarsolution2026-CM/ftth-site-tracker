@@ -43,6 +43,7 @@ describe('xlsx import parsing: headers', () => {
       unitPrice: 4,
       workType: 6,
       amount: 5,
+      scope: null,
     });
     expect(parsed.rows.map((r) => [r.code, r.quantity, r.unitPrice, r.amount, r.workType])).toEqual(
       [
@@ -81,6 +82,7 @@ describe('xlsx import parsing: headers', () => {
       unitPrice: 4,
       workType: 6,
       amount: 5,
+      scope: null,
     });
     expect(french.rows[0]?.workType).toBe('planning');
   });
@@ -176,6 +178,7 @@ describe('xlsx import parsing: headers', () => {
         unitPrice: 1,
         workType: null,
         amount: null,
+        scope: null,
       },
     });
     expect(parsed.sheets).toEqual([
@@ -216,6 +219,7 @@ describe('xlsx import parsing: headers', () => {
         unitPrice: 4,
         workType: null,
         amount: null,
+        scope: null,
       },
     });
     expect(twice.fileIssues).toContainEqual({ code: 'COLUMN_MAPPED_TWICE', field: 'description' });
@@ -406,6 +410,7 @@ describe('xlsx import parsing: work type, price decimals, unit length (ADR-016)'
         quantity: 4,
         unitPrice: 5,
         amount: 6,
+        scope: null,
       },
     });
 

@@ -32,6 +32,7 @@ describe('project access and navigation', () => {
       'cadFiles',
       'designRevisions',
       'contract',
+      'contractors',
       'asbuilt',
     ]);
     expect(can(access, 'work_orders:write')).toBe(true);
@@ -44,6 +45,7 @@ describe('project access and navigation', () => {
     expect(visibleNavItems(access).map((item) => item.id)).toContain('asbuilt');
     // The contract is for the PM and the platform admin only.
     expect(visibleNavItems(access).map((item) => item.id)).not.toContain('contract');
+    expect(visibleNavItems(access).map((item) => item.id)).not.toContain('contractors');
     expect(can(access, 'contract:read')).toBe(false);
     expect(can(access, 'design:write')).toBe(false);
     expect(can(access, 'work_orders:write')).toBe(false);

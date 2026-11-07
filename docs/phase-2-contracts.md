@@ -104,3 +104,41 @@ Checked with the owner's files (copies, not committed): the work-order sheet
 `contract boq.xlsx` → 0 errors, 153 lines, 7 skipped rows (the contract's zero-quantity items, empty
 in the sheet), 39 headings, total `78900610.328`. With two identical work orders already reserved
 it still fits exactly; a fourth gives `QUANTITY_EXCEEDS_CONTRACT` on 153 rows.
+
+# Subcontractors, part 1 (point 2-أ, ADR-036)
+
+Zod: `packages/shared/src/contractors/contractor.schemas.ts` (+ import field `scope`).
+Migration: `0013_subcontractors.sql`.
+
+```
+contractors                     shared list: name, contact person, phone, commercial register, tax card
+  └── contractor_registrations  contractor on a project's work order + registration date
+        ├── contractor_lines    work-order line + scope of work (NULL = whole) + quantity + source row
+        │     └── contractor_line_prices   dated prices (append-only)
+        └── contractor_import_files        uploaded sheets (write-once)
+```
+
+Rules: per work-order line and scope Σ quantity ≤ work-order quantity; whole and scoped lines never
+mix; Σ over scopes of each scope's highest price ≤ contract price; first price on the registration
+date, each next one later; the last line of a registration cannot be removed.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET, POST | `/admin/contractors` | admin; 409 `CONTRACTOR_NAME_TAKEN` |
+| GET, PATCH | `/admin/contractors/:contractorId` | admin; PATCH needs `expectedVersion` (409 `STALE_VERSION`) |
+| GET | `/admin/projects/:projectId/contractors` | registrations (lines with scope, files) + `availability` per work-order line and scope |
+| POST | `/admin/projects/:projectId/contractors/import/preview` | multipart file + `{target, sheetName?, headerRow?, mapping?}`; row issues `NOT_IN_WORK_ORDER`, `WORK_ORDER_MISMATCH`, `LEGACY_WORK_ORDER_LINE`, `CODE_SCOPE_REPEATED`, `WHOLE_AND_SCOPES_MIXED`, `LINE_ALREADY_ASSIGNED`, `QUANTITY_EXCEEDS_WORK_ORDER`, `PRICE_EXCEEDS_CONTRACT` |
+| POST | `/admin/projects/:projectId/contractors/import` | target `new` (contractor + date) or `append` (registration); 201; 409 `NO_WORK_ORDER`, `CONTRACTOR_ALREADY_REGISTERED`; 422 `IMPORT_INVALID` |
+| DELETE | `…/contractors/:registrationId` | snapshot in the event |
+| PATCH, DELETE | `…/lines/:lineId` | quantity only (per scope); 409 `LAST_LINE` on delete of the only line |
+| POST | `…/lines/:lineId/prices` | `{effectiveFrom, unitPrice}`; 409 `PRICE_EXCEEDS_CONTRACT` (scope sum), `PRICE_DATE_NOT_AFTER_LATEST` |
+| GET | `/projects/:projectId/contractors` | `contractors:read` (admin, pm) |
+
+Work-order writes gain 409 `QUANTITY_BELOW_CONTRACTORS` (largest scope sum), `LINE_HAS_CONTRACTORS`,
+`WORK_ORDER_HAS_CONTRACTORS`.
+
+Owner's example (checked in PostGIS, unit and integration tests): line 2-12-4-8, work-order quantity
+225, contract price 2,033.12 — «تركيب الخوصة» 225 @300, «تركيب البوكس» 225 @900, «لحام البوكس» 150
+@500 + 75 @833.12 (exactly 2,033.12) accepted; 76 more or 834 refused; a whole-line row refused.
+
+The price used for work on day D (Phase 5) is the line price with the latest `effectiveFrom` ≤ D.

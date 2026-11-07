@@ -31,6 +31,7 @@ const ALLOWED_RESOURCES = new Set([
   'cad-files',
   'design-revisions',
   'contract',
+  'contractors',
   'asbuilt',
 ]);
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);

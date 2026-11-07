@@ -15,6 +15,7 @@ const mapping: ColumnMapping = {
   unitPrice: 4,
   workType: 5,
   amount: null,
+  scope: null,
 };
 
 function workbook(rows: RawCell[][]): RawWorkbook {

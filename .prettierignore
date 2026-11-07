@@ -7,3 +7,5 @@ pnpm-lock.yaml
 workers/
 *.html
 next-env.d.ts
+# Copied from maplibre-gl before dev and build (ADR-035); not source.
+apps/web/public/maplibre-gl-worker.mjs

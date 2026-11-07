@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  IMPORT_FIELDS,
   REQUIRED_IMPORT_FIELDS,
   type ImportField,
   type WorkOrderImportPreviewResponse,
@@ -11,7 +10,7 @@ import { Input } from '@/shared/ui/input';
 import { Notice } from '@/shared/ui/notice';
 import { Select } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
-import { mappingProblems, type WizardState } from '../model/import-wizard';
+import { STANDARD_IMPORT_FIELDS, mappingProblems, type WizardState } from '../model/import-wizard';
 import { fileIssueText } from '../model/issue-messages';
 
 interface MappingEditorProps {
@@ -23,6 +22,12 @@ interface MappingEditorProps {
   onHeaderRow: (row: number | null) => void;
   onMapping: (field: ImportField, column: number | null) => void;
   onReread: () => void;
+  /** Fields offered for mapping (default: every work-order field). */
+  fields?: readonly ImportField[];
+  /** Fields that must be mapped (default: the work-order ones). */
+  required?: readonly ImportField[];
+  /** Extra hint under the fields. */
+  note?: string;
 }
 
 const NONE = '';
@@ -37,9 +42,12 @@ export function MappingEditor({
   onHeaderRow,
   onMapping,
   onReread,
+  fields = STANDARD_IMPORT_FIELDS,
+  required: requiredFields = REQUIRED_IMPORT_FIELDS,
+  note,
 }: MappingEditorProps) {
   const { t } = useI18n();
-  const problems = mappingProblems(draft.mapping);
+  const problems = mappingProblems(draft.mapping, requiredFields);
   return (
     <section aria-labelledby="mapping-title" className="flex flex-col gap-4">
       <h2 id="mapping-title" className="text-lg font-semibold">
@@ -81,8 +89,8 @@ export function MappingEditor({
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {IMPORT_FIELDS.map((field) => {
-          const required = REQUIRED_IMPORT_FIELDS.includes(field);
+        {fields.map((field) => {
+          const required = requiredFields.includes(field);
           const value = draft.mapping[field];
           const missing = required && value === null;
           const duplicated = value !== null && problems.duplicated.includes(value);
@@ -119,7 +127,10 @@ export function MappingEditor({
         </Button>
         {!draftApplied ? <span aria-live="polite">{t('import.mapping.unapplied')}</span> : null}
       </div>
-      <p className="text-sm opacity-80">{t('import.mapping.requiredHint')}</p>
+      <p className="text-sm opacity-80">
+        {t('import.mapping.requiredHint')}
+        {note ? ` ${note}` : ''}
+      </p>
     </section>
   );
 }

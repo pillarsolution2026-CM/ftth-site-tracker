@@ -57,6 +57,11 @@ import {
 } from './mock-contracts.ts';
 import { createAsBuiltMock } from './mock-asbuilt.ts';
 import {
+  configureContractors,
+  handleProjectContractors,
+  projectsWithoutWorkOrder,
+} from './mock-contractors.ts';
+import {
   MOCK_DETECTION,
   handleDesignRevisions,
   handleMapping,
@@ -860,6 +865,11 @@ async function handleProject(
 
   if (resource === 'work-orders')
     return handleWorkOrders(req, res, method, projectId, [id, sub, subId, subSub]);
+  if (resource === 'contractors') {
+    // Read-only for the PM (contractors:read): GET only.
+    if (method !== 'GET' || id !== undefined) return sendError(res, 404, 'NOT_FOUND');
+    return handleProjectContractors(req, res, projectId, [], helpers);
+  }
   if (resource === 'contract')
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
@@ -1217,6 +1227,8 @@ async function handleCad(
 }
 
 configureContracts({ readMultipart, readFixture, parsePreview, helpers });
+configureContractors({ readMultipart, readFixture });
+projectsWithoutWorkOrder([PROJECT_ID, DRAFT_PROJECT_ID]);
 
 const adminTokens = { accessToken: ADMIN_ACCESS, refreshToken: ADMIN_REFRESH, expiresIn: 900 };
 const adminState = createAdminState({
