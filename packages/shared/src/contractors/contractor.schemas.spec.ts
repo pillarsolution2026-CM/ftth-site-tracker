@@ -105,7 +105,8 @@ describe('contractor sheet upload', () => {
     };
     const parsed = ContractorImportCommitPayloadSchema.parse({ ...base, mapping });
     expect(parsed.mapping).toMatchObject({ scope: 3, workType: null, amount: null });
-    const { unitPrice: _price, ...withoutPrice } = mapping;
+    const withoutPrice: Partial<typeof mapping> = { ...mapping };
+    delete withoutPrice.unitPrice;
     expect(
       ContractorImportCommitPayloadSchema.safeParse({ ...base, mapping: withoutPrice }).success,
     ).toBe(false);
