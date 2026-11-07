@@ -1,8 +1,10 @@
 -- 0013 Subcontractors (المقاولين الباطن) and their prices, Phase 2 point 2-أ part 1, ADR-036.
 -- Owner rules (2026-11-07): contractors are entered once in a shared list and registered on a work
--- order with a registration date and lines; a line is a work-order line; its price is at most the
--- contract price; over every contractor of the work order, Σ quantity per line ≤ work-order
--- quantity; a price changes only from a later date and is never overwritten.
+-- order with a registration date and lines uploaded from a sheet. A line is a work-order line plus
+-- a scope of work (NULL = the whole line). Per work-order line and scope, Σ quantity over every
+-- contractor ≤ work-order quantity; whole and scoped lines never mix on one work-order line. The
+-- scopes' prices on one work-order line add up to at most the contract price (a scope's price =
+-- its highest price ever recorded). A price changes only from a later date, never overwritten.
 -- (0012 is the drawing placement migration of PR #42; the runner applies files by name.)
 
 CREATE TABLE contractors (
@@ -60,7 +62,12 @@ CREATE TABLE contractor_lines (
   project_id         uuid           NOT NULL,
   registration_id    uuid           NOT NULL,
   work_order_item_id uuid           NOT NULL,
+  -- Scope of work as typed; NULL = the whole line. `scope_key` is the comparison key computed by
+  -- the application (`scopeKeyOf` in @ftth/shared: spaces, case, Arabic letter forms).
+  scope              text           CHECK (btrim(scope) <> '' AND length(scope) <= 200),
+  scope_key          text           CHECK (scope_key <> '' AND length(scope_key) <= 200),
   quantity           numeric(18, 4) NOT NULL CHECK (quantity > 0),
+  source_row         integer        CHECK (source_row >= 1),
   created_at         timestamptz    NOT NULL DEFAULT now(),
   updated_at         timestamptz    NOT NULL DEFAULT now(),
   CONSTRAINT contractor_lines_registration_fkey
@@ -69,8 +76,11 @@ CREATE TABLE contractor_lines (
   CONSTRAINT contractor_lines_item_fkey
     FOREIGN KEY (project_id, work_order_item_id)
     REFERENCES work_order_items (project_id, id) ON DELETE RESTRICT,
-  CONSTRAINT contractor_lines_registration_item_key UNIQUE (registration_id, work_order_item_id)
+  CONSTRAINT contractor_lines_scope_pair CHECK ((scope IS NULL) = (scope_key IS NULL))
 );
+-- A contractor holds a work-order line once per scope.
+CREATE UNIQUE INDEX contractor_lines_registration_item_scope_key
+  ON contractor_lines (registration_id, work_order_item_id, COALESCE(scope_key, ''));
 CREATE INDEX contractor_lines_item_idx ON contractor_lines (work_order_item_id);
 CREATE TRIGGER contractor_lines_set_updated_at
   BEFORE UPDATE ON contractor_lines FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -88,8 +98,10 @@ DECLARE
 BEGIN
   IF TG_OP = 'UPDATE' AND (NEW.registration_id IS DISTINCT FROM OLD.registration_id
       OR NEW.work_order_item_id IS DISTINCT FROM OLD.work_order_item_id
-      OR NEW.project_id IS DISTINCT FROM OLD.project_id) THEN
-    RAISE EXCEPTION 'a contractor line keeps its registration and work-order line'
+      OR NEW.project_id IS DISTINCT FROM OLD.project_id
+      OR NEW.scope IS DISTINCT FROM OLD.scope
+      OR NEW.scope_key IS DISTINCT FROM OLD.scope_key) THEN
+    RAISE EXCEPTION 'a contractor line keeps its registration, work-order line and scope'
       USING ERRCODE = 'restrict_violation';
   END IF;
 
@@ -107,8 +119,17 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
+  -- Whole and scoped lines never mix on one work-order line.
+  IF EXISTS (SELECT 1 FROM contractor_lines
+             WHERE work_order_item_id = NEW.work_order_item_id AND id <> NEW.id
+               AND (scope_key IS NULL) <> (NEW.scope_key IS NULL)) THEN
+    RAISE EXCEPTION 'whole and scoped contractor lines cannot mix on one work-order line'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
   SELECT COALESCE(sum(quantity), 0) INTO reserved FROM contractor_lines
-    WHERE work_order_item_id = NEW.work_order_item_id AND id <> NEW.id;
+    WHERE work_order_item_id = NEW.work_order_item_id AND id <> NEW.id
+      AND scope_key IS NOT DISTINCT FROM NEW.scope_key;
   IF reserved + NEW.quantity > item_qty THEN
     RAISE EXCEPTION 'contractor quantity above the work-order quantity (work order %, reserved %, requested %)',
       item_qty, reserved, NEW.quantity USING ERRCODE = 'check_violation';
@@ -120,7 +141,7 @@ CREATE TRIGGER contractor_lines_quantity_check
   BEFORE INSERT OR UPDATE ON contractor_lines
   FOR EACH ROW EXECUTE FUNCTION contractor_lines_check();
 
--- A work-order line never drops below what its contractors hold.
+-- A work-order line never drops below what any one scope of its contractors holds.
 CREATE FUNCTION work_order_items_check_contractors() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   held numeric;
@@ -129,8 +150,9 @@ BEGIN
     RETURN NEW;
   END IF;
   PERFORM 1 FROM work_orders WHERE id = NEW.work_order_id FOR UPDATE;
-  SELECT COALESCE(sum(quantity), 0) INTO held FROM contractor_lines
-    WHERE work_order_item_id = NEW.id;
+  SELECT COALESCE(max(scope_sum), 0) INTO held FROM (
+    SELECT sum(quantity) AS scope_sum FROM contractor_lines
+      WHERE work_order_item_id = NEW.id GROUP BY scope_key) AS scopes;
   IF NEW.quantity < held THEN
     RAISE EXCEPTION 'work-order quantity below the contractors'' quantity (contractors %, requested %)',
       held, NEW.quantity USING ERRCODE = 'check_violation';
@@ -154,23 +176,40 @@ CREATE TABLE contractor_line_prices (
 );
 
 -- The first price starts on the registration date; each next one strictly later (ASSUMPTION:
--- most restrictive reading, no back-dating before the latest price). Never above the contract
--- price, which is the work-order line's unit price (ADR-028).
+-- most restrictive reading, no back-dating before the latest price). The scopes' prices on the
+-- work-order line add up to at most the contract price, the work-order line's unit price
+-- (ADR-028). A scope's price is the highest price ever recorded on it (any contractor, any date);
+-- the whole line counts as one scope. The work order row is locked first, like the quantity check.
 CREATE FUNCTION contractor_line_prices_check() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   contract_price numeric;
   reg_date       date;
   latest         date;
+  item_id        uuid;
+  line_scope     text;
+  order_id       uuid;
+  others_total   numeric;
+  own_highest    numeric;
 BEGIN
-  SELECT w.unit_price, r.registered_on INTO contract_price, reg_date
+  SELECT w.unit_price, r.registered_on, w.id, l.scope_key, w.work_order_id
+    INTO contract_price, reg_date, item_id, line_scope, order_id
     FROM contractor_lines l
     JOIN work_order_items w ON w.id = l.work_order_item_id
     JOIN contractor_registrations r ON r.id = l.registration_id
-    WHERE l.id = NEW.contractor_line_id
-    FOR UPDATE OF l;
-  IF NEW.unit_price > contract_price THEN
-    RAISE EXCEPTION 'contractor price above the contract price (contract %, requested %)',
-      contract_price, NEW.unit_price USING ERRCODE = 'check_violation';
+    WHERE l.id = NEW.contractor_line_id;
+  PERFORM 1 FROM work_orders WHERE id = order_id FOR UPDATE;
+
+  SELECT COALESCE(sum(highest), 0) INTO others_total FROM (
+    SELECT max(p.unit_price) AS highest
+      FROM contractor_line_prices p JOIN contractor_lines l ON l.id = p.contractor_line_id
+      WHERE l.work_order_item_id = item_id AND l.scope_key IS DISTINCT FROM line_scope
+      GROUP BY l.scope_key) AS scopes;
+  SELECT COALESCE(max(p.unit_price), 0) INTO own_highest
+    FROM contractor_line_prices p JOIN contractor_lines l ON l.id = p.contractor_line_id
+    WHERE l.work_order_item_id = item_id AND l.scope_key IS NOT DISTINCT FROM line_scope;
+  IF others_total + GREATEST(own_highest, NEW.unit_price) > contract_price THEN
+    RAISE EXCEPTION 'contractor price above the contract price (contract %, other scopes %, requested %)',
+      contract_price, others_total, NEW.unit_price USING ERRCODE = 'check_violation';
   END IF;
   SELECT max(effective_from) INTO latest FROM contractor_line_prices
     WHERE contractor_line_id = NEW.contractor_line_id;
@@ -225,3 +264,21 @@ $$;
 CREATE CONSTRAINT TRIGGER contractor_lines_price_required
   AFTER INSERT ON contractor_lines DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION contractor_lines_require_price();
+
+-- Sheets uploaded for a registration (write-once storage, like work-order import sources).
+CREATE TABLE contractor_import_files (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id       uuid        NOT NULL,
+  registration_id  uuid        NOT NULL,
+  file_name        text        NOT NULL CHECK (btrim(file_name) <> '' AND length(file_name) <= 255),
+  size_bytes       bigint      NOT NULL CHECK (size_bytes > 0),
+  sha256           char(64)    NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+  storage_key      text        NOT NULL UNIQUE,
+  uploaded_by      uuid        REFERENCES users (id) ON DELETE SET NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT contractor_import_files_registration_fkey
+    FOREIGN KEY (project_id, registration_id)
+    REFERENCES contractor_registrations (project_id, id) ON DELETE CASCADE
+);
+CREATE INDEX contractor_import_files_registration_idx
+  ON contractor_import_files (registration_id, created_at);

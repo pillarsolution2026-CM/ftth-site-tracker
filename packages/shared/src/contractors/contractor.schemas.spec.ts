@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { hasPermission } from '../auth/permissions.js';
+import { ColumnMappingSchema } from '../work-orders/work-order-import.schemas.js';
 import {
   AddContractorPriceRequestSchema,
+  ContractorImportCommitPayloadSchema,
+  ContractorImportPreviewOptionsSchema,
   CreateContractorRequestSchema,
-  RegisterContractorRequestSchema,
+  scopeKeyOf,
   UpdateContractorLineRequestSchema,
   UpdateContractorRequestSchema,
 } from './contractor.schemas.js';
 
-const ITEM_A = '11111111-1111-4111-8111-111111111111';
-const ITEM_B = '22222222-2222-4222-8222-222222222222';
 const CONTRACTOR = '33333333-3333-4333-8333-333333333333';
+const REGISTRATION = '44444444-4444-4444-8444-444444444444';
+const SHA = 'a'.repeat(64);
 
 describe('contractor list input', () => {
   const valid = { name: 'شركة النور', contactName: 'أحمد علي', contactPhone: '+20 100 123 4567' };
@@ -45,29 +48,75 @@ describe('contractor list input', () => {
   });
 });
 
-describe('registering a contractor on a work order', () => {
-  const line = { workOrderItemId: ITEM_A, quantity: '100', unitPrice: '70.5' };
+describe('scope of work', () => {
+  it('compares scopes after normalising spaces, case and Arabic letter forms', () => {
+    expect(scopeKeyOf('  لحام  البوكس ')).toBe(scopeKeyOf('لحام البوكس'));
+    expect(scopeKeyOf('تركيب الخوصة')).toBe(scopeKeyOf('تركيب الخوصه'));
+    expect(scopeKeyOf('Splice Box')).toBe(scopeKeyOf('splice  box'));
+    expect(scopeKeyOf('تركيب البوكس')).not.toBe(scopeKeyOf('لحام البوكس'));
+  });
 
-  it('needs a date and at least one line', () => {
-    const ok = { contractorId: CONTRACTOR, registeredOn: '2026-11-07', lines: [line] };
-    expect(RegisterContractorRequestSchema.safeParse(ok).success).toBe(true);
-    expect(RegisterContractorRequestSchema.safeParse({ ...ok, lines: [] }).success).toBe(false);
+  it('treats an empty scope as the whole line', () => {
+    expect(scopeKeyOf(null)).toBeNull();
+    expect(scopeKeyOf('   ')).toBeNull();
+  });
+
+  it('keeps the work-order and contract mappings valid without a scope column', () => {
+    const mapping = ColumnMappingSchema.parse({
+      code: 0,
+      description: 1,
+      unit: 2,
+      quantity: 3,
+      unitPrice: 4,
+      workType: 5,
+      amount: null,
+    });
+    expect(mapping.scope).toBeNull();
+  });
+});
+
+describe('contractor sheet upload', () => {
+  const mapping = { code: 0, description: 1, unit: 2, scope: 3, quantity: 4, unitPrice: 5 };
+
+  it('previews for a new registration or for appending', () => {
     expect(
-      RegisterContractorRequestSchema.safeParse({ ...ok, registeredOn: undefined }).success,
+      ContractorImportPreviewOptionsSchema.safeParse({
+        target: { kind: 'new', contractorId: CONTRACTOR, registeredOn: '2026-11-07' },
+      }).success,
+    ).toBe(true);
+    expect(
+      ContractorImportPreviewOptionsSchema.safeParse({
+        target: { kind: 'append', registrationId: REGISTRATION },
+      }).success,
+    ).toBe(true);
+    expect(
+      ContractorImportPreviewOptionsSchema.safeParse({
+        target: { kind: 'new', contractorId: CONTRACTOR },
+      }).success,
     ).toBe(false);
   });
 
-  it('refuses the same work-order line twice', () => {
-    const body = {
-      contractorId: CONTRACTOR,
-      registeredOn: '2026-11-07',
-      lines: [line, { ...line, quantity: '5' }],
+  it('needs code, description, unit, quantity and price columns; scope and work type are optional', () => {
+    const base = {
+      fileSha256: SHA,
+      sheetName: 'Sheet1',
+      headerRow: 1,
+      target: { kind: 'append', registrationId: REGISTRATION },
     };
-    expect(RegisterContractorRequestSchema.safeParse(body).success).toBe(false);
-    body.lines[1] = { ...line, workOrderItemId: ITEM_B };
-    expect(RegisterContractorRequestSchema.safeParse(body).success).toBe(true);
+    const parsed = ContractorImportCommitPayloadSchema.parse({ ...base, mapping });
+    expect(parsed.mapping).toMatchObject({ scope: 3, workType: null, amount: null });
+    const { unitPrice: _price, ...withoutPrice } = mapping;
+    expect(
+      ContractorImportCommitPayloadSchema.safeParse({ ...base, mapping: withoutPrice }).success,
+    ).toBe(false);
+    expect(
+      ContractorImportCommitPayloadSchema.safeParse({ ...base, mapping: { ...mapping, scope: 0 } })
+        .success,
+    ).toBe(false);
   });
+});
 
+describe('single-field edits', () => {
   it('needs a quantity above 0', () => {
     for (const quantity of ['0', '0.0000']) {
       expect(UpdateContractorLineRequestSchema.safeParse({ quantity }).success).toBe(false);
