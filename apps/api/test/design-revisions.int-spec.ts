@@ -38,6 +38,7 @@ const DETECTION: CrsDetection = {
   insUnits: 1,
   declaredUnit: 'in',
   unitsConflict: true,
+  suggestedSourceCrs: 'project',
 };
 /** UTM 36N, around Cairo: a real place so ST_Transform to web mercator is well defined. */
 const E0 = 330000;

@@ -15,6 +15,7 @@ function toRecord(row: Row): CadMappingRecord {
     crsEpsg: row.crsEpsg,
     drawingUnit: row.drawingUnit,
     metresPerUnit: toDecimalText(row.metresPerUnit),
+    placement: row.placement ?? null,
     version: row.version,
     updatedById: row.updatedBy,
     updatedAt: row.updatedAt,
@@ -47,6 +48,7 @@ export class DrizzleCadMappingRepository implements CadMappingRepository {
         crsEpsg: mapping.crsEpsg,
         drawingUnit: mapping.drawingUnit,
         metresPerUnit: mapping.metresPerUnit,
+        placement: mapping.placement,
         version: 1,
         updatedBy: mapping.updatedById,
       })
@@ -66,6 +68,7 @@ export class DrizzleCadMappingRepository implements CadMappingRepository {
         crsEpsg: mapping.crsEpsg,
         drawingUnit: mapping.drawingUnit,
         metresPerUnit: mapping.metresPerUnit,
+        placement: mapping.placement,
         version: expectedVersion + 1,
         updatedBy: mapping.updatedById,
       })

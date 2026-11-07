@@ -38,6 +38,7 @@ from cad_worker.domain.design_build import (
     SourceText,
 )
 from cad_worker.domain.geo import reproject
+from cad_worker.domain.placement import parse_placement
 from cad_worker.domain.revision_match import BaseFeature
 
 START_SQL = """
@@ -45,7 +46,7 @@ UPDATE design_revisions SET status = 'building', build_started_at = now()
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status IN ('queued', 'building')
 """
 LOCK_SQL = """
-SELECT cad_file_id, base_revision_id, rules, crs_epsg, drawing_unit, metres_per_unit
+SELECT cad_file_id, base_revision_id, rules, crs_epsg, drawing_unit, metres_per_unit, placement
 FROM design_revisions
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'building'
 FOR UPDATE
@@ -183,6 +184,7 @@ class PostgresRevisionRepository:
                 crs_epsg=int(row[3]),
                 drawing_unit=str(row[4]),
                 metres_per_unit=Decimal(row[5]),
+                placement=row[6],
             )
             build = PostgresRevisionBuild(conn, job, inputs)
             yield build
@@ -378,6 +380,7 @@ class PostgresRevisionBuild:
             cad_file_id=self.inputs.cad_file_id,
             crs_epsg=self.inputs.crs_epsg,
             metres_per_unit=self.inputs.metres_per_unit,
+            placement=parse_placement(self.inputs.placement),
             background=background,
         )
         return write_revision_pmtiles(self._conn, source, dest)

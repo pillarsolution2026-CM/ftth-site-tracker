@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DrawingUnitSchema } from './drawing-units.js';
+import { PlacementSourceCrsSchema } from './placement.schemas.js';
 
 /**
  * Coordinate systems a design revision may use: WGS 84 / UTM north (326zz) and south (327zz).
@@ -24,11 +25,20 @@ export const ProjectEpsgSchema = z
  * - `projected_utm`: extents fit UTM easting/northing ranges when read as metres.
  *   `suggestedEpsg` is set only when the project's own UTM CRS places the drawing inside its zone
  *   (easting alone cannot tell the zone).
+ * - `egypt_red_belt`: extents fit Egypt 1907 / Red Belt metres and, converted with the general
+ *   parameters, fall inside the project's UTM zone (ADR-035). `suggestedEpsg` is the project CRS;
+ *   `suggestedSourceCrs` says to convert from Red Belt.
  * - `geographic`: values look like longitude/latitude degrees (not metric; not supported for revisions).
  * - `local`: small coordinates around an arbitrary origin (needs georeferencing, out of scope v1).
  * - `unknown`: none of the above, or no extents.
  */
-export const CRS_DETECTION_KINDS = ['projected_utm', 'geographic', 'local', 'unknown'] as const;
+export const CRS_DETECTION_KINDS = [
+  'projected_utm',
+  'egypt_red_belt',
+  'geographic',
+  'local',
+  'unknown',
+] as const;
 export const CrsDetectionKindSchema = z.enum(CRS_DETECTION_KINDS);
 export type CrsDetectionKind = z.infer<typeof CrsDetectionKindSchema>;
 
@@ -37,6 +47,8 @@ export const CRS_DETECTION_REASONS = [
   'MATCHES_PROJECT_CRS',
   /** UTM-like extents, but the project CRS is not UTM or the drawing falls outside its zone. */
   'UTM_ZONE_UNKNOWN',
+  /** Red Belt extents that land inside the project's UTM zone once converted. */
+  'EGYPT_RED_BELT_RANGE',
   'LONLAT_RANGE',
   'SMALL_LOCAL_COORDINATES',
   'NO_EXTENTS',
@@ -62,5 +74,7 @@ export const CrsDetectionSchema = z.object({
    * on UTM 36N). The mapping screen shows a warning; the PM's chosen drawing unit decides.
    */
   unitsConflict: z.boolean(),
+  /** CRS the drawing is in, to convert from (ADR-035); null when unknown (and before 0012). */
+  suggestedSourceCrs: PlacementSourceCrsSchema.nullable().default(null),
 });
 export type CrsDetection = z.infer<typeof CrsDetectionSchema>;

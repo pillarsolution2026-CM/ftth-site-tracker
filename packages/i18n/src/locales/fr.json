@@ -642,6 +642,7 @@
       "notDetected": "Aucun résultat de détection pour ce fichier",
       "kind": {
         "projected_utm": "Projeté (UTM)",
+        "egypt_red_belt": "Ceinture rouge (Égypte 1907)",
         "geographic": "Géographique (degrés)",
         "local": "Coordonnées locales",
         "unknown": "Inconnu"
@@ -649,6 +650,7 @@
       "reason": {
         "MATCHES_PROJECT_CRS": "L'emprise est dans la zone UTM du projet",
         "UTM_ZONE_UNKNOWN": "L'emprise ressemble à de l'UTM mais la zone n'est pas confirmée",
+        "EGYPT_RED_BELT_RANGE": "Les coordonnées sont en Ceinture rouge ; converties vers l'UTM du projet avec les paramètres généraux",
         "LONLAT_RANGE": "Les valeurs ressemblent à des longitudes et latitudes ; non pris en charge pour les révisions",
         "SMALL_LOCAL_COORDINATES": "Petites coordonnées locales ; un géoréférencement est nécessaire",
         "NO_EXTENTS": "Le dessin n'a pas d'emprise",

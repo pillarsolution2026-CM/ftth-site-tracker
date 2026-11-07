@@ -317,6 +317,8 @@ export function buildMappingInput(
     crsEpsg: epsg.value,
     drawingUnit: state.unit,
     version,
+    // Placement is edited elsewhere (ADR-035): a rules save keeps the saved one.
+    placement: view.mapping?.placement ?? null,
   });
   return parsed.success ? parsed.data : null;
 }

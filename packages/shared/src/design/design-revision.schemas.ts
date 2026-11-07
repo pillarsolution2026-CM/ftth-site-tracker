@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DrawingUnitSchema } from '../cad/drawing-units.js';
 import { MappingRuleSchema } from '../cad/cad-mapping.schemas.js';
+import { PlacementSchema } from '../cad/placement.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { BooleanQuerySchema, PageQuerySchema, pageSchema } from '../common/pagination.js';
 import {
@@ -143,6 +144,8 @@ export type DesignRevisionSummary = z.infer<typeof DesignRevisionSummarySchema>;
 export const DesignRevisionDetailSchema = DesignRevisionSummarySchema.extend({
   /** Frozen copy of the mapping rules used for the build. */
   rules: z.array(MappingRuleSchema),
+  /** Frozen placement used for the build (ADR-035); null = as drawn. */
+  placement: PlacementSchema.nullable().default(null),
   errorMessage: z.string().nullable(),
   log: z.string().nullable(),
 });

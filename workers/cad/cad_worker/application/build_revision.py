@@ -50,6 +50,12 @@ from cad_worker.domain.design_build import (
     parse_rules,
 )
 from cad_worker.domain.drawing_checks import check_drawing, problems_json
+from cad_worker.domain.placement import (
+    PlacementInvalidError,
+    Placer,
+    make_placer,
+    parse_placement,
+)
 from cad_worker.domain.revision_match import BaseFeature, diff_counts, match_revision
 from cad_worker.domain.text_links import (
     TextLinkDraft,
@@ -124,12 +130,17 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
         inputs = tx.inputs
         try:
             rules = parse_rules(inputs.rules)
-        except MappingInvalidError as exc:
+            place = make_placer(
+                parse_placement(inputs.placement),
+                inputs.crs_epsg,
+                float(inputs.metres_per_unit),  # geometry only; the exact factor stays stored
+            )
+        except (MappingInvalidError, PlacementInvalidError) as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         # Route layers for routes; point layers for their closed shapes (ADR-033).
         drawing = tx.load_drawing(rules.layers_with(*FEATURE_TYPES))
         base = tx.load_base()
-        design = compose_design(drawing, rules, inputs.metres_per_unit, base, deps.new_id)
+        design = compose_design(drawing, rules, place, base, deps.new_id)
         route_length = tx.write(design.rows)
         built_s = time.monotonic() - started
         key, tiles_log = _tiles(job, tx, deps, design.background)
@@ -149,12 +160,12 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
 def compose_design(
     drawing: DrawingData,
     rules: MappingRules,
-    metres_per_unit: Decimal,
+    place: Placer,
     base: Sequence[BaseFeature],
     new_id: Callable[[], UUID],
 ) -> DesignBuild:
     """Rules -> features -> text links -> box codes -> match against the base. Pure."""
-    built = build_features(drawing, rules, metres_per_unit)
+    built = build_features(drawing, rules, place)
     links = link_texts(built.link_texts, built.features)
     codes = box_codes(links, built.features)
     linked = linked_texts_by_kind(links)
@@ -179,8 +190,7 @@ def compose_design(
         ),
     )
     by_type = Counter(f.feature_type for f in features)
-    factor = float(metres_per_unit)
-    found, names = check_drawing(features, drawing.texts, rules, factor)
+    found, names = check_drawing(features, drawing.texts, rules, place)
     return DesignBuild(
         rows=rows,
         background=built.background,
@@ -189,7 +199,7 @@ def compose_design(
         diff_counts=diff_counts(match.entries),
         zero_length_routes=built.zero_length_routes,
         groups=feature_groups(features),
-        problems=problems_json(found, features, names, factor),
+        problems=problems_json(found, features, names, place),
     )
 
 
