@@ -15,6 +15,12 @@ import {
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
 import { initialEpsgText, parseEpsg } from './epsg';
+import {
+  initialPlacementState,
+  placementSignature,
+  toPlacement,
+  type PlacementFormState,
+} from './placement-form';
 
 export const LAYER_TARGETS: readonly MappingTarget[] = [
   ...FEATURE_TYPES,
@@ -44,13 +50,18 @@ export const EMPTY_ATTRS: RuleAttrsForm = { kind: '', role: '', status: 'new' };
 export interface MappingFormState {
   /** Text of the EPSG input. */
   epsg: string;
-  /** '' = not chosen yet: the drawing unit has no default (ADR-018). */
-  unit: DrawingUnit | '';
+  /**
+   * Always metres for new mappings (ADR-035: the unit picker left the screen; `$INSUNITS` is shown
+   * as information only). A mapping saved earlier keeps its unit.
+   */
+  unit: DrawingUnit;
   layers: Record<string, MappingTarget>;
   blocks: Record<string, BlockChoice>;
   texts: Record<string, TextChoice>;
   /** By `attrsKey(…)`; absent = EMPTY_ATTRS. */
   attrs: Record<string, RuleAttrsForm>;
+  /** Where the drawing sits on the earth (ADR-035). */
+  placement: PlacementFormState;
 }
 
 export const attrsKey = {
@@ -145,8 +156,8 @@ export function textRuleRows(view: CadMappingView): TextRuleRow[] {
 /**
  * Starting values of the form. Layers: the saved rule, else the name-based suggestion (nothing is
  * stored until the PM saves). Blocks and texts: once a mapping exists, no rule means "follow the
- * layer"/"no rule"; before the first save the suggestion is prefilled. The drawing unit is only
- * prefilled from a saved mapping, never from detection (ADR-018).
+ * layer"/"no rule"; before the first save the suggestion is prefilled. The drawing unit is metres
+ * unless a saved mapping says otherwise (ADR-035).
  */
 export function initialFormState(view: CadMappingView): MappingFormState {
   const layerSaved = savedLayerTargets(view);
@@ -197,11 +208,12 @@ export function initialFormState(view: CadMappingView): MappingFormState {
 
   return {
     epsg: initialEpsgText(view),
-    unit: view.mapping?.drawingUnit ?? '',
+    unit: view.mapping?.drawingUnit ?? 'm',
     layers,
     blocks,
     texts,
     attrs,
+    placement: initialPlacementState(view),
   };
 }
 
@@ -253,13 +265,14 @@ export function formSignature(state: MappingFormState): string {
       .filter(([, a]) => a.kind.trim() !== '' || a.role !== '' || a.status !== 'new')
       .map(([key, a]): [string, string] => [key, `${a.kind.trim()}|${a.role}|${a.status}`])
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    placementSignature(state.placement),
   ]);
 }
 
 /**
  * The PUT payload: one layer rule for every layer (so a saved mapping is complete), block rules for
- * blocks that do not follow their layer, text rules for chosen texts. Returns null while the EPSG
- * or the drawing unit is not valid, so a save can never go out without a chosen unit.
+ * blocks that do not follow their layer, text rules for chosen texts and the placement. Returns
+ * null while the EPSG is not valid.
  */
 export function buildMappingInput(
   view: CadMappingView,
@@ -267,7 +280,7 @@ export function buildMappingInput(
   version: number | null,
 ): CadMappingInput | null {
   const epsg = parseEpsg(state.epsg);
-  if (!epsg.ok || state.unit === '') return null;
+  if (!epsg.ok) return null;
 
   const rules: MappingRule[] = [];
   for (const layer of view.layers) {
@@ -317,6 +330,7 @@ export function buildMappingInput(
     crsEpsg: epsg.value,
     drawingUnit: state.unit,
     version,
+    placement: toPlacement(state.placement),
   });
   return parsed.success ? parsed.data : null;
 }

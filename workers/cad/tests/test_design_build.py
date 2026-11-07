@@ -17,6 +17,7 @@ from cad_worker.domain.design_build import (
     build_features,
     parse_rules,
 )
+from cad_worker.domain.placement import unit_placer
 
 METRE = Decimal("1")
 INCH = Decimal("0.0254")
@@ -93,7 +94,7 @@ def test_block_rule_wins_over_layer_rule() -> None:
         ),
         texts=(),
     )
-    built = build_features(drawing, RULES, METRE)
+    built = build_features(drawing, RULES, unit_placer(1.0))
     types = {f.source_handle: f.feature_type for f in built.features}
     assert types == {"A1": "joint", "A2": "box", "A5": "joint"}
     assert built.background.insert_handles == {"A4"}
@@ -108,7 +109,7 @@ def test_insert_attributes_are_decoded_and_unreadable_values_never_guessed() -> 
         SourceAttribute("ST", "ahvU", "ahvU", False),
     )
     drawing = DrawingData((), (SourceInsert("B", "sub", "sub", (0, 0), attrs),), ())
-    (feature,) = build_features(drawing, RULES, METRE).features
+    (feature,) = build_features(drawing, RULES, unit_placer(1.0)).features
     assert feature.attrs == {
         "attributes": [
             {"tag": "NAME", "value": "S1", "rawValue": "S1", "readable": True},
@@ -131,7 +132,7 @@ def test_text_rules_create_point_features_and_are_not_linked() -> None:
             text("T7", "N_DUC_CBL", "F 36 C"),  # feature layer: candidate
         ),
     )
-    built = build_features(drawing, RULES, METRE)
+    built = build_features(drawing, RULES, unit_placer(1.0))
     (hhi,) = built.features
     assert (hhi.feature_type, hhi.source_kind, hhi.source_handle) == ("hhi", "text", "T1")
     assert hhi.coords == ((10, 20),) and hhi.attrs == {"text": "new-hhi"}
@@ -152,7 +153,7 @@ def test_routes_one_per_curve_and_zero_length_skipped() -> None:
         inserts=(),
         texts=(),
     )
-    built = build_features(drawing, RULES, METRE)
+    built = build_features(drawing, RULES, unit_placer(1.0))
     assert [f.source_handle for f in built.features] == ["C1"]
     assert built.zero_length_routes == 2
     assert polyline_length(built.features[0].coords) == 5.0
@@ -165,8 +166,8 @@ def test_every_coordinate_is_scaled_by_the_revision_factor() -> None:
         inserts=(SourceInsert("B", "sub", "sub", (1000, 2000)),),
         texts=(text("T", "CAP F36", "1-1", (100, 100), height=2.5),),
     )
-    metres = build_features(drawing, RULES, METRE)
-    inches = build_features(drawing, RULES, INCH)
+    metres = build_features(drawing, RULES, unit_placer(1.0))
+    inches = build_features(drawing, RULES, unit_placer(float(INCH)))
     route_m = polyline_length(metres.features[0].coords)
     route_in = polyline_length(inches.features[0].coords)
     assert route_m == 500.0 and route_in == pytest.approx(500.0 * 0.0254)

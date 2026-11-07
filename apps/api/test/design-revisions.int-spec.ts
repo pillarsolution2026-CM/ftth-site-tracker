@@ -7,6 +7,7 @@ import {
   CadFileDetailSchema,
   CadMappingSchema,
   CadMappingViewSchema,
+  PlacementDrawingSchema,
   DesignFeaturePageSchema,
   DrawingProblemListSchema,
   DesignRevisionDetailSchema,
@@ -38,6 +39,7 @@ const DETECTION: CrsDetection = {
   insUnits: 1,
   declaredUnit: 'in',
   unitsConflict: true,
+  suggestedSourceCrs: 'project',
 };
 /** UTM 36N, around Cairo: a real place so ST_Transform to web mercator is well defined. */
 const E0 = 330000;
@@ -556,6 +558,21 @@ describe('CAD mapping', () => {
     expect((await http().get(url)).status).toBe(401);
   });
 
+  it('serves an empty placement drawing until the file has a built revision (ADR-035)', async () => {
+    const url = `${filesUrl(projectA)}/${fileId}/mapping/placement-drawing`;
+    const res = await as(supervisor)(http().get(url));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(PlacementDrawingSchema.parse(res.body)).toEqual({
+      revisionId: null,
+      items: [],
+      lines: [],
+      truncated: false,
+    });
+    expect((await as(contractor)(http().get(url))).status).toBe(403);
+    const other = `${filesUrl(projectB)}/${fileId}/mapping/placement-drawing`;
+    expect((await as(admin)(http().get(other))).status).toBe(404);
+  });
+
   it("treats another project's file as not found", async () => {
     const url = `${filesUrl(projectB)}/${fileId}/mapping`;
     expect((await as(admin)(http().get(url))).status).toBe(404);
@@ -774,6 +791,82 @@ describe('a built draft revision', () => {
       [revisionId],
     );
     expect(events.rows).toHaveLength(1);
+  });
+
+  it('serves the placement drawing in drawing units from the extracted entities (ADR-035)', async () => {
+    const q = (text: string, values: unknown[] = []) => ctx.pool.query(text, values);
+    const curve = (handle: string, layer: string, wkt: string, closed: boolean) =>
+      q(
+        `INSERT INTO cad_curves (project_id, cad_file_id, handle, entity_type, layer, geom, is_closed)
+         VALUES ($1, $2, $3, 'LWPOLYLINE', $4, ST_GeomFromText($5, 0), $6)`,
+        [projectA, fileId, handle, layer, wkt, closed],
+      );
+    await q(
+      `INSERT INTO cad_inserts (project_id, cad_file_id, handle, layer, block_name, position)
+       VALUES ($1, $2, 'B1', 'sub', 'sub', ST_GeomFromText('POINT Z (10 20 0)', 0)),
+              ($1, $2, 'B2', 'sub', 'sub', ST_GeomFromText('POINT Z (50 60 0)', 0))`,
+      [projectA, fileId],
+    );
+    // A symbol whose insertion point is far from what it draws: the drawn centre counts (ADR-032).
+    await q(
+      `UPDATE cad_inserts SET position = ST_GeomFromText('POINT Z (-2000000 3000000 0)', 0),
+                              centre = ST_GeomFromText('POINT Z (50 60 0)', 0)
+       WHERE cad_file_id = $1 AND handle = 'B2'`,
+      [fileId],
+    );
+    await q(
+      `INSERT INTO cad_texts (project_id, cad_file_id, handle, kind, layer, position, height, raw_text, text, readable)
+       VALUES ($1, $2, 'H1', 'text', 'RRR', ST_GeomFromText('POINT Z (30 40 0)', 0), 1, 'H', 'H', true),
+              -- The cabinet's name, written beside it on another layer (as in Rabaa).
+              ($1, $2, 'N1', 'text', 'CAB TEXT', ST_GeomFromText('POINT Z (3 1 0)', 0), 1, '1-7', '1-7', true),
+              -- Too far from every item (80 m = 262.5 ft): names nothing.
+              ($1, $2, 'N2', 'text', 'CAB TEXT', ST_GeomFromText('POINT Z (2000 2000 0)', 0), 1, 'X', 'X', true)`,
+      [projectA, fileId],
+    );
+    // 10 vertices on a straight line: simplified to its two ends.
+    const straight = Array.from({ length: 10 }, (_, i) => `${i * 10} 0 0`).join(', ');
+    await curve('A1', 'N_DUC_CBL', `LINESTRING Z (${straight})`, false);
+    // A cabinet drawn as two touching squares: one symbol at the centre of both (2, 1).
+    await curve('S1', 'CAB', 'LINESTRING Z (0 0 0, 2 0 0, 2 2 0, 0 2 0, 0 0 0)', true);
+    await curve('S2', 'CAB', 'LINESTRING Z (2 0 0, 4 0 0, 4 2 0, 2 2 0, 2 0 0)', true);
+    const cabinet = randomUUID();
+    await q(
+      `INSERT INTO features (id, project_id, feature_type, first_revision_id) VALUES ($1, $2, 'cabinet', $3)`,
+      [cabinet, projectA, revisionId],
+    );
+    await q(
+      `INSERT INTO design_features (revision_id, feature_id, project_id, feature_type, code, layer, source_kind, source_handle, geom, attrs)
+       VALUES ($1, $2, $3, 'cabinet', NULL, 'CAB', 'curve', 'S1', ${point(E0, N0)}, $4)`,
+      [revisionId, cabinet, projectA, JSON.stringify({ shapes: ['S1', 'S2'] })],
+    );
+    try {
+      const url = `${filesUrl(projectA)}/${fileId}/mapping/placement-drawing`;
+      const res = await as(supervisor)(http().get(url));
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      const drawing = PlacementDrawingSchema.parse(res.body);
+      expect(drawing.revisionId).toBe(revisionId);
+      // Each short text names its nearest item within 80 m, nearest first: the cabinet gets its
+      // name "1-7" and the texts at (1, 2) from the extraction; "garbled" is unreadable.
+      expect(drawing.items).toEqual([
+        { handle: 'B1', featureType: 'box', code: null, names: [], layer: 'sub', x: 10, y: 20 },
+        { handle: 'B2', featureType: 'box', code: null, names: [], layer: 'sub', x: 50, y: 60 },
+        {
+          ...{ handle: 'S1', featureType: 'cabinet', code: null, layer: 'CAB', x: 2, y: 1 },
+          names: ['1-7', '1-1', 'F 36 C', 'NEW-HHI'],
+        },
+        { handle: 'H1', featureType: 'hhi', code: null, names: ['H'], layer: 'RRR', x: 30, y: 40 },
+      ]);
+      expect(drawing.lines).toEqual([
+        [
+          [0, 0],
+          [90, 0],
+        ],
+      ]);
+      expect(drawing.truncated).toBe(false);
+    } finally {
+      await q(`DELETE FROM design_features WHERE feature_id = $1`, [cabinet]);
+      await q(`DELETE FROM features WHERE id = $1`, [cabinet]);
+    }
   });
 
   it('lists features by type, code and handle with metric anchors and exact lengths', async () => {

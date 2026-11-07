@@ -42,6 +42,7 @@ export function toRevisionDetailDto(revision: DesignRevision): DesignRevisionDet
   return {
     ...toRevisionSummaryDto(revision),
     rules: revision.rules,
+    placement: revision.placement,
     errorMessage: revision.errorMessage,
     log: revision.log,
   };
@@ -54,6 +55,7 @@ export function toMappingDto(mapping: CadMappingRecord): CadMapping {
     crsEpsg: mapping.crsEpsg,
     drawingUnit: mapping.drawingUnit,
     metresPerUnit: mapping.metresPerUnit,
+    placement: mapping.placement,
     version: mapping.version,
     updatedById: mapping.updatedById,
     updatedAt: mapping.updatedAt.toISOString(),

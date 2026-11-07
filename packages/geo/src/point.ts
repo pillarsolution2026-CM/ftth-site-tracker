@@ -17,6 +17,8 @@ export const GEOMETRY_ERROR_CODES = [
   'INVALID_BULGE',
   'UNSUPPORTED_CRS',
   'COORDINATE_OUT_OF_RANGE',
+  /** Control points that cannot fix a placement (all on one drawing spot, or no pivot). */
+  'DEGENERATE',
 ] as const;
 export type GeometryErrorCode = (typeof GEOMETRY_ERROR_CODES)[number];
 

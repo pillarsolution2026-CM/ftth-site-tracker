@@ -5,6 +5,7 @@ import {
   type DiffCounts,
   type DrawingUnit,
   type MappingRule,
+  type Placement,
   type TextLinkCounts,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
@@ -27,6 +28,8 @@ export interface DesignRevision {
   drawingUnit: DrawingUnit;
   /** Exact decimal string. */
   metresPerUnit: string;
+  /** Frozen copy of the mapping's placement (ADR-035); null = as drawn. */
+  placement: Placement | null;
   insUnits: number | null;
   unitsConflict: boolean;
   counts: DesignRevisionCounts | null;

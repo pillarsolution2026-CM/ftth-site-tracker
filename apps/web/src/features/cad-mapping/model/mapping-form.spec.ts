@@ -26,6 +26,7 @@ function saved(overrides: Partial<CadMapping> = {}): CadMapping {
     crsEpsg: 32636,
     drawingUnit: 'm',
     metresPerUnit: '1',
+    placement: null,
     version: 3,
     updatedById: null,
     updatedAt: '2026-10-28T10:00:00.000Z',
@@ -69,9 +70,9 @@ describe('initialEpsgText', () => {
 });
 
 describe('initialFormState', () => {
-  it('prefills suggestions on a first visit and never a drawing unit', () => {
+  it('prefills suggestions on a first visit; the drawing unit is metres (ADR-035)', () => {
     const state = initialFormState(mappingView());
-    expect(state.unit).toBe('');
+    expect(state.unit).toBe('m');
     expect(state.epsg).toBe('32636');
     expect(state.layers).toEqual({ N_DUC_CBL: 'route', BUILDINGS: 'background' });
     expect(state.blocks).toEqual({ 'HHI-BLOCK': 'hhi', TREE: 'follow' });
@@ -126,6 +127,7 @@ describe('buildMappingInput', () => {
       crsEpsg: 32636,
       drawingUnit: 'm',
       version: null,
+      placement: null,
     });
   });
 
@@ -133,6 +135,17 @@ describe('buildMappingInput', () => {
     const view = mappingView({ mapping: saved() });
     const input = buildMappingInput(view, initialFormState(view), 3);
     expect(input?.version).toBe(3);
+  });
+
+  it('keeps the saved placement when the rules are saved (ADR-035)', () => {
+    const placement = {
+      sourceCrs: 'egypt_red_belt' as const,
+      points: [],
+      fitScaleWithTwoPoints: false,
+      adjust: { dx: 5, dy: 0, rotationDeg: 0, scale: 1, pivot: null },
+    };
+    const view = mappingView({ mapping: saved({ placement }) });
+    expect(buildMappingInput(view, initialFormState(view), 3)?.placement).toEqual(placement);
   });
 
   it('omits blocks that follow their layer and texts without a rule', () => {
@@ -151,11 +164,44 @@ describe('buildMappingInput', () => {
     expect(input?.rules.map((rule) => rule.source)).toEqual(['layer', 'layer']);
   });
 
-  it('refuses to build a payload without a chosen unit or with a bad EPSG', () => {
+  it('refuses to build a payload with a bad EPSG', () => {
     const view = mappingView();
     const state = initialFormState(view);
-    expect(buildMappingInput(view, state, null)).toBeNull();
-    expect(buildMappingInput(view, { ...state, unit: 'm', epsg: '4326' }, null)).toBeNull();
+    expect(buildMappingInput(view, state, null)).not.toBeNull();
+    expect(buildMappingInput(view, { ...state, epsg: '4326' }, null)).toBeNull();
+  });
+
+  it('sends the edited placement, and null while the drawing is used as drawn (ADR-035)', () => {
+    const view = mappingView();
+    const state = initialFormState(view);
+    expect(buildMappingInput(view, state, null)?.placement).toBeNull();
+    const point = {
+      id: 'P1',
+      drawing: { x: 10, y: 20 },
+      handle: 'B1',
+      label: '1-7',
+      lat: 30,
+      lon: 31,
+      source: 'typed' as const,
+      excluded: false,
+    };
+    const placed = { ...state, placement: { ...state.placement, points: [point] } };
+    expect(buildMappingInput(view, placed, null)?.placement).toEqual({
+      sourceCrs: 'project',
+      points: [point],
+      fitScaleWithTwoPoints: false,
+      adjust: { dx: 0, dy: 0, rotationDeg: 0, scale: 1, pivot: null },
+    });
+    expect(formSignature(placed)).not.toBe(formSignature(state));
+  });
+
+  it('suggests Red Belt on a first visit only, never over a saved mapping', () => {
+    const redBelt = detection({ suggestedSourceCrs: 'egypt_red_belt' });
+    expect(initialFormState(mappingView({ crsDetection: redBelt })).placement.sourceCrs).toBe(
+      'egypt_red_belt',
+    );
+    const savedView = mappingView({ crsDetection: redBelt, mapping: saved() });
+    expect(initialFormState(savedView).placement.sourceCrs).toBe('project');
   });
 
   it('keeps the first of two texts that differ only by case (they would be duplicates)', () => {
@@ -173,7 +219,7 @@ describe('buildMappingInput', () => {
 describe('formSignature', () => {
   it('changes with any edit and not with key order', () => {
     const state = initialFormState(mappingView());
-    expect(formSignature({ ...state, unit: 'm' })).not.toBe(formSignature(state));
+    expect(formSignature({ ...state, unit: 'ft' })).not.toBe(formSignature(state));
     const reordered = {
       ...state,
       layers: { BUILDINGS: 'background', N_DUC_CBL: 'route' },

@@ -122,15 +122,15 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(page).toHaveURL(/\/cad-files\/[^/]+\/mapping$/);
   await expect(page.getByRole('heading', { name: 'CAD mapping', exact: true })).toBeVisible();
 
-  // The drawing unit has no default; the file contradicts its own coordinates (inches vs UTM metres).
-  const unit = page.getByLabel('Drawing unit', { exact: true });
-  await expect(unit).toHaveValue('');
-  await expect(page.getByRole('button', { name: 'Save mapping' })).toBeDisabled();
-  await expect(page.getByText(/The file declares/)).toBeVisible();
+  // No unit picker any more (ADR-035): always metres, INSUNITS shown for information; the drawing
+  // is placed in the panel below (no control points here: used as drawn).
+  await expect(page.getByLabel('Drawing unit', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Always metres/)).toBeVisible();
   await expect(page.getByLabel('EPSG code', { exact: true })).toHaveValue('32636');
+  await expect(page.getByRole('heading', { name: 'Place the drawing on the map' })).toBeVisible();
+  await expect(page.getByText(/No control points yet/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save mapping' })).toBeEnabled();
 
-  await unit.selectOption('m');
-  await expect(page.getByText(/differs from the unit declared by the file/)).toBeVisible();
   await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
   await expect(page.getByRole('button', { name: 'Build revision' })).toBeDisabled();
   await page.getByRole('button', { name: 'Save mapping' }).click();

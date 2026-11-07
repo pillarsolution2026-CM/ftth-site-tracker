@@ -23,6 +23,7 @@ from pmtiles.writer import Writer
 from cad_worker.application.ports import TileLimitError, TileStats
 from cad_worker.domain.design_build import BackgroundSelection
 from cad_worker.domain.geo import lonlat_to_tile, project_crs
+from cad_worker.domain.placement import EGYPT_RED_BELT_PROJ4, Placement, solve
 
 MIN_ZOOM = 12
 MAX_ZOOM = 18
@@ -42,20 +43,36 @@ SELECT f.feature_id::text AS id, f.feature_type AS type, f.code, f.layer, f.geom
   FROM design_features f
  WHERE f.revision_id = %(revision)s AND f.project_id = %(project)s
 """
-# Raw drawing rows scaled by the revision's drawing unit (ADR-018) and placed in its CRS.
-_BACKGROUND_SQL = """
+# Raw drawing rows placed like the features (ADR-018, ADR-035): scaled by the drawing unit,
+# converted from the source CRS when it is not the project's, then moved by the placement fit.
+_SCALED = "ST_Scale(ST_Force2D({g}), %(f)s, %(f)s)"
+_PLACED = "ST_SetSRID(ST_Affine({src}, %(a)s, %(nb)s, %(b)s, %(a)s, %(tx)s, %(ty)s), %(srid)s)"
+_FROM_SOURCE = {
+    "project": "{scaled}",
+    "egypt_red_belt": "ST_Transform(ST_SetSRID({scaled}, 0), %(proj)s, %(srid)s)",
+}
+
+
+def _background_sql(source_crs: str) -> str:
+    def placed(geom: str) -> str:
+        scaled = _SCALED.format(g=geom)
+        return _PLACED.format(src=_FROM_SOURCE[source_crs].format(scaled=scaled))
+
+    return f"""
 CREATE TEMP TABLE pm_background ON COMMIT DROP AS
 WITH src AS (
-  SELECT c.layer, ST_SetSRID(ST_Scale(ST_Force2D(c.geom), %(f)s, %(f)s), %(srid)s) AS native
+  SELECT c.layer, {placed("c.geom")} AS native
     FROM cad_curves c
    WHERE c.cad_file_id = %(file)s AND c.project_id = %(project)s AND c.layer = ANY(%(layers)s)
   UNION ALL
-  SELECT i.layer, ST_SetSRID(ST_Scale(ST_Force2D(i.position), %(f)s, %(f)s), %(srid)s)
+  SELECT i.layer, {placed("i.position")}
     FROM cad_inserts i
    WHERE i.cad_file_id = %(file)s AND i.project_id = %(project)s AND i.handle = ANY(%(handles)s)
 )
 SELECT layer, native, ST_Transform(native, 3857) AS geom FROM src
 """
+
+
 _EXTENT_SQL = """
 SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (
   SELECT ST_Extent(native) AS e FROM (
@@ -97,6 +114,7 @@ class TileSource:
     cad_file_id: UUID
     crs_epsg: int
     metres_per_unit: Decimal
+    placement: Placement
     background: BackgroundSelection
 
 
@@ -119,10 +137,18 @@ def _prepare(conn: psycopg.Connection[Any], s: TileSource) -> None:
     # Schema-qualified: an unqualified name could resolve to a permanent table (review L2).
     conn.execute("DROP TABLE IF EXISTS pg_temp.pm_network, pg_temp.pm_background")
     conn.execute(_NETWORK_SQL, {"revision": s.revision_id, "project": s.project_id})
+    f = float(s.metres_per_unit)  # geometry only; the exact factor stays on the revision
+    fit = solve(s.placement, s.crs_epsg, f).total
     conn.execute(
-        _BACKGROUND_SQL,
+        _background_sql(s.placement.source_crs),
         {
-            "f": float(s.metres_per_unit),  # geometry only; the exact factor stays on the revision
+            "f": f,
+            "a": fit.a,
+            "b": fit.b,
+            "nb": -fit.b,  # a bound value: "-%(b)s" with a negative b would read as a comment
+            "tx": fit.tx,
+            "ty": fit.ty,
+            "proj": EGYPT_RED_BELT_PROJ4,
             "srid": s.crs_epsg,
             "file": s.cad_file_id,
             "project": s.project_id,

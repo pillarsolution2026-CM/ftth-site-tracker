@@ -641,11 +641,12 @@
       "ignore": "Ignore"
     },
     "crs": {
-      "title": "Coordinate system and drawing unit",
+      "title": "Coordinate system",
       "detected": "Detected coordinate system",
       "notDetected": "No detection result for this file",
       "kind": {
         "projected_utm": "Projected (UTM)",
+        "egypt_red_belt": "Red Belt (Egypt 1907)",
         "geographic": "Geographic (degrees)",
         "local": "Local coordinates",
         "unknown": "Unknown"
@@ -653,6 +654,7 @@
       "reason": {
         "MATCHES_PROJECT_CRS": "The extents fall inside the project's UTM zone",
         "UTM_ZONE_UNKNOWN": "The extents look like UTM but the zone cannot be confirmed",
+        "EGYPT_RED_BELT_RANGE": "The coordinates are in the Red Belt; converted to the project's UTM with the general parameters",
         "LONLAT_RANGE": "The values look like longitude and latitude; not supported for revisions",
         "SMALL_LOCAL_COORDINATES": "Small local coordinates; georeferencing is needed",
         "NO_EXTENTS": "The drawing has no extents",
@@ -669,10 +671,8 @@
       "epsgRequired": "Enter an EPSG code",
       "epsgUnsupported": "Only WGS 84 / UTM codes are supported (32601-32660, 32701-32760)",
       "unitLabel": "Drawing unit",
-      "unitHint": "What one drawing unit means in the real world. There is no default: you must choose it.",
-      "unitPlaceholder": "Choose a unit",
-      "unitRequired": "Choose the drawing unit to enable saving",
-      "factor": "{factor} m per unit"
+      "factor": "{factor} m per unit",
+      "unitFixed": "Always metres (the file's INSUNITS is shown for information only)."
     },
     "unit": {
       "m": "Metre (m)",
@@ -749,6 +749,98 @@
     "kind": {
       "label": "Kind",
       "placeholder": "e.g. 4 way, 144"
+    },
+    "placement": {
+      "title": "Place the drawing on the map",
+      "intro": "Give the true Lat/Lon of a few drawing items. 1 point moves the drawing, 2 points also turn it, 3 or more give the best fit. The drawing file itself never changes.",
+      "sourceCrs": "Drawing coordinates",
+      "source": {
+        "project": "Already in the project's UTM zone",
+        "egypt_red_belt": "Red Belt (Egypt 1907), converted with the general parameters"
+      },
+      "suggestedRedBelt": "The coordinates look like the Red Belt: Red Belt is suggested.",
+      "points": "Control points",
+      "noPoints": "No control points yet: the drawing is used as drawn.",
+      "col": {
+        "item": "Item",
+        "drawing": "Drawing X / Y",
+        "latlon": "Lat / Lon",
+        "from": "From",
+        "error": "Error (m)",
+        "use": "Use"
+      },
+      "from": {
+        "typed": "Typed",
+        "kml": "KML / KMZ",
+        "gps": "Site GPS"
+      },
+      "outlier": "Far from the other points: check it or leave it out",
+      "remove": "Remove {id}",
+      "use": "Use point {id}",
+      "add": "Add a point",
+      "item": "Drawing item",
+      "itemPlaceholder": "Choose an item",
+      "itemManual": "Point typed by hand (drawing X / Y)",
+      "drawingX": "Drawing X",
+      "drawingY": "Drawing Y",
+      "lat": "Latitude",
+      "lon": "Longitude",
+      "addPoint": "Add point",
+      "latLonInvalid": "Enter a latitude between -90 and 90 and a longitude between -180 and 180",
+      "xyInvalid": "Enter the drawing X and Y",
+      "noRevision": "Build a revision once to pick items from the drawing; until then type the drawing X / Y by hand.",
+      "itemType": {
+        "box": "Box",
+        "hhi": "Handhole",
+        "joint": "Joint",
+        "mh": "Manhole",
+        "cabinet": "Cabinet",
+        "ring": "Ring"
+      },
+      "kml": {
+        "title": "Points from a KML / KMZ file",
+        "file": "KML or KMZ file",
+        "hint": "Only Point placemarks are read. A placemark whose name equals an item's code is matched for you; check every match.",
+        "unreadable": "The file cannot be read as KML or KMZ",
+        "noPoints": "The file has no Point placemarks",
+        "placemark": "Placemark",
+        "matchFor": "Drawing item for {name}",
+        "noMatch": "Not used",
+        "suggested": "Matched by name",
+        "addMatched": "Add {count} matched points",
+        "count": "{count} placemarks read"
+      },
+      "fitScale": "With two points, also fit the scale",
+      "summary": {
+        "used": "Points used",
+        "scale": "Scale",
+        "rotation": "Rotation",
+        "scaleWarning": "The scale changes by more than 0.1 %: check the points before saving."
+      },
+      "error": {
+        "degenerate": "The points sit on one drawing spot: they cannot place the drawing",
+        "conversion": "The drawing coordinates cannot be converted from the Red Belt"
+      },
+      "map": {
+        "title": "Preview",
+        "hint": "Check the drawing against the map. The tools adjust the placement by hand, on top of the points.",
+        "unavailable": "The map cannot be shown in this browser (WebGL is off). The points and errors above still apply.",
+        "truncated": "Only the first {count} route lines are shown.",
+        "tool": "Hand tool",
+        "tools": {
+          "none": "Pan the map",
+          "move": "Move",
+          "rotate": "Rotate",
+          "scale": "Scale"
+        },
+        "dragHint": "Drag on the map to adjust the drawing ({tool}).",
+        "adjust": "Hand adjustment",
+        "dx": "Shift east (m)",
+        "dy": "Shift north (m)",
+        "rotationDeg": "Rotation (°)",
+        "scale": "Scale",
+        "reset": "Remove hand adjustment"
+      }
     }
   },
   "design": {

@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-map-worker.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-map-worker.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint src e2e",
@@ -12,10 +14,13 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@ftth/geo": "workspace:*",
     "@ftth/i18n": "workspace:*",
     "@ftth/shared": "workspace:*",
     "@ftth/ui-tokens": "workspace:*",
     "@tanstack/react-query": "5.105.0",
+    "fflate": "0.8.3",
+    "maplibre-gl": "6.15.0",
     "next": "16.4.3",
     "react": "19.3.1",
     "react-dom": "19.3.1",

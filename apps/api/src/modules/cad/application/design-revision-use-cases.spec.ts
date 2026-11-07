@@ -3,6 +3,7 @@ import {
   CadBuildRevisionJobSchema,
   CAD_STALE_AFTER_MINUTES,
   type CadMappingInput,
+  PlacementSchema,
 } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../../common/app-error.js';
@@ -15,7 +16,11 @@ import {
   RecordingJobQueue,
   type FakeLink,
 } from '../testing/in-memory.js';
-import { SaveCadMappingUseCase } from './cad-mapping.use-cases.js';
+import {
+  GetPlacementDrawingUseCase,
+  PLACEMENT_DRAWING_LIMITS,
+  SaveCadMappingUseCase,
+} from './cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './create-design-revision.use-case.js';
 import { DiscardDesignRevisionUseCase } from './discard-design-revision.use-case.js';
 import {
@@ -34,7 +39,10 @@ import {
   ListDesignFeaturesUseCase,
   ListTextLinksUseCase,
 } from './design-revision-queries.use-cases.js';
-import type { DesignReadQueries } from '../domain/design-revision.repository.js';
+import type {
+  CadMappingViewQueries,
+  DesignReadQueries,
+} from '../domain/design-revision.repository.js';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const OTHER_PROJECT = '99999999-9999-4999-8999-999999999999';
@@ -52,6 +60,7 @@ const MAPPING: CadMappingInput = {
   crsEpsg: 32636,
   drawingUnit: 'in',
   version: null,
+  placement: null,
 };
 
 function processedFile(overrides: Partial<CadFile> = {}): CadFile {
@@ -81,6 +90,7 @@ function processedFile(overrides: Partial<CadFile> = {}): CadFile {
       insUnits: 1,
       declaredUnit: 'in',
       unitsConflict: true,
+      suggestedSourceCrs: 'project',
     },
     counts: null,
     warnings: [],
@@ -182,6 +192,31 @@ describe('SaveCadMappingUseCase', () => {
   });
 });
 
+describe('GetPlacementDrawingUseCase (ADR-035)', () => {
+  const drawing = { revisionId: null, items: [], lines: [], truncated: false };
+  const calls: unknown[][] = [];
+  const view: CadMappingViewQueries = {
+    blocks: async () => [],
+    texts: async () => [],
+    placementDrawing: async (...args) => {
+      calls.push(args);
+      return drawing;
+    },
+  };
+
+  it('reads the drawing of a file of the project, with the line limit and tolerance', async () => {
+    const useCase = new GetPlacementDrawingUseCase(uow.files, view);
+    expect(await useCase.execute(PROJECT, FILE)).toBe(drawing);
+    expect(calls.at(-1)).toEqual([PROJECT, FILE, PLACEMENT_DRAWING_LIMITS]);
+    expect(PLACEMENT_DRAWING_LIMITS.maxLines).toBe(5000);
+  });
+
+  it("answers NOT_FOUND for another project's file", async () => {
+    const useCase = new GetPlacementDrawingUseCase(uow.files, view);
+    expect(await reason(useCase.execute(OTHER_PROJECT, FILE))).toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
 describe('CreateDesignRevisionUseCase', () => {
   it('freezes the mapping, queues the revision, records the event and pushes a valid job', async () => {
     await save();
@@ -209,6 +244,27 @@ describe('CreateDesignRevisionUseCase', () => {
       cadFileId: FILE,
       attempt: 1,
     });
+  });
+
+  it('freezes the placement with the mapping (ADR-035)', async () => {
+    const placement = PlacementSchema.parse({
+      points: [
+        {
+          id: 'cab-1-7',
+          drawing: { x: 7284.2708, y: 4091.7164 },
+          lat: 30.984506906326853,
+          lon: 32.78324905782938,
+          source: 'kml',
+        },
+      ],
+    });
+    expect((await save({ placement })).placement).toEqual(placement);
+    const revision = await create();
+    expect(revision.placement).toEqual(placement);
+    // A later save does not reach the frozen copy.
+    await save({ placement: null, version: 1 });
+    expect(must(uow.revisions.rows.get(revision.id)).placement).toEqual(placement);
+    expect(must(uow.mappings.rows.get(FILE)).placement).toBeNull();
   });
 
   it('takes the latest published revision as the base', async () => {

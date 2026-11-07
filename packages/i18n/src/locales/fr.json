@@ -641,11 +641,12 @@
       "ignore": "Ignorer"
     },
     "crs": {
-      "title": "Système de coordonnées et unité du dessin",
+      "title": "Système de coordonnées",
       "detected": "Système de coordonnées détecté",
       "notDetected": "Aucun résultat de détection pour ce fichier",
       "kind": {
         "projected_utm": "Projeté (UTM)",
+        "egypt_red_belt": "Ceinture rouge (Égypte 1907)",
         "geographic": "Géographique (degrés)",
         "local": "Coordonnées locales",
         "unknown": "Inconnu"
@@ -653,6 +654,7 @@
       "reason": {
         "MATCHES_PROJECT_CRS": "L'emprise est dans la zone UTM du projet",
         "UTM_ZONE_UNKNOWN": "L'emprise ressemble à de l'UTM mais la zone n'est pas confirmée",
+        "EGYPT_RED_BELT_RANGE": "Les coordonnées sont en Ceinture rouge ; converties vers l'UTM du projet avec les paramètres généraux",
         "LONLAT_RANGE": "Les valeurs ressemblent à des longitudes et latitudes ; non pris en charge pour les révisions",
         "SMALL_LOCAL_COORDINATES": "Petites coordonnées locales ; un géoréférencement est nécessaire",
         "NO_EXTENTS": "Le dessin n'a pas d'emprise",
@@ -669,10 +671,8 @@
       "epsgRequired": "Saisissez un code EPSG",
       "epsgUnsupported": "Seuls les codes WGS 84 / UTM sont pris en charge (32601-32660, 32701-32760)",
       "unitLabel": "Unité du dessin",
-      "unitHint": "Ce que représente une unité du dessin dans la réalité. Il n'y a pas de valeur par défaut : vous devez la choisir.",
-      "unitPlaceholder": "Choisir une unité",
-      "unitRequired": "Choisissez l'unité du dessin pour activer l'enregistrement",
-      "factor": "{factor} m par unité"
+      "factor": "{factor} m par unité",
+      "unitFixed": "Toujours le mètre (l'INSUNITS du fichier est affiché pour information)."
     },
     "unit": {
       "m": "Mètre (m)",
@@ -749,6 +749,98 @@
     "kind": {
       "label": "Type",
       "placeholder": "ex. 4 way, 144"
+    },
+    "placement": {
+      "title": "Placer le dessin sur la carte",
+      "intro": "Indiquez la vraie Lat/Lon de quelques éléments du dessin. 1 point déplace le dessin, 2 points le tournent aussi, 3 ou plus donnent le meilleur ajustement. Le fichier du dessin ne change jamais.",
+      "sourceCrs": "Coordonnées du dessin",
+      "source": {
+        "project": "Déjà dans la zone UTM du projet",
+        "egypt_red_belt": "Ceinture rouge (Égypte 1907), convertie avec les paramètres généraux"
+      },
+      "suggestedRedBelt": "Les coordonnées ressemblent à la ceinture rouge : elle est proposée.",
+      "points": "Points de calage",
+      "noPoints": "Aucun point de calage : le dessin est utilisé tel quel.",
+      "col": {
+        "item": "Élément",
+        "drawing": "X / Y du dessin",
+        "latlon": "Lat / Lon",
+        "from": "Source",
+        "error": "Écart (m)",
+        "use": "Utiliser"
+      },
+      "from": {
+        "typed": "Saisi",
+        "kml": "KML / KMZ",
+        "gps": "GPS terrain"
+      },
+      "outlier": "Loin des autres points : vérifiez-le ou écartez-le",
+      "remove": "Supprimer {id}",
+      "use": "Utiliser le point {id}",
+      "add": "Ajouter un point",
+      "item": "Élément du dessin",
+      "itemPlaceholder": "Choisir un élément",
+      "itemManual": "Point saisi à la main (X / Y du dessin)",
+      "drawingX": "X du dessin",
+      "drawingY": "Y du dessin",
+      "lat": "Latitude",
+      "lon": "Longitude",
+      "addPoint": "Ajouter le point",
+      "latLonInvalid": "Saisissez une latitude entre -90 et 90 et une longitude entre -180 et 180",
+      "xyInvalid": "Saisissez le X et le Y du dessin",
+      "noRevision": "Construisez une révision une fois pour choisir des éléments du dessin ; en attendant, saisissez X / Y à la main.",
+      "itemType": {
+        "box": "Boîtier",
+        "hhi": "Chambre",
+        "joint": "Joint",
+        "mh": "Regard",
+        "cabinet": "Armoire",
+        "ring": "Anneau"
+      },
+      "kml": {
+        "title": "Points d'un fichier KML / KMZ",
+        "file": "Fichier KML ou KMZ",
+        "hint": "Seuls les repères de type Point sont lus. Un repère dont le nom égale le code d'un élément est associé pour vous ; vérifiez chaque association.",
+        "unreadable": "Le fichier ne peut pas être lu comme KML ou KMZ",
+        "noPoints": "Le fichier ne contient aucun repère de type Point",
+        "placemark": "Repère",
+        "matchFor": "Élément du dessin pour {name}",
+        "noMatch": "Non utilisé",
+        "suggested": "Associé par le nom",
+        "addMatched": "Ajouter {count} points associés",
+        "count": "{count} repères lus"
+      },
+      "fitScale": "Avec deux points, ajuster aussi l'échelle",
+      "summary": {
+        "used": "Points utilisés",
+        "scale": "Échelle",
+        "rotation": "Rotation",
+        "scaleWarning": "L'échelle change de plus de 0,1 % : vérifiez les points avant d'enregistrer."
+      },
+      "error": {
+        "degenerate": "Les points sont au même endroit du dessin : ils ne peuvent pas le placer",
+        "conversion": "Les coordonnées du dessin ne peuvent pas être converties depuis la ceinture rouge"
+      },
+      "map": {
+        "title": "Aperçu",
+        "hint": "Vérifiez le dessin sur la carte. Les outils ajustent le placement à la main, après les points.",
+        "unavailable": "La carte ne peut pas s'afficher dans ce navigateur (WebGL désactivé). Les points et écarts ci-dessus restent valables.",
+        "truncated": "Seules les {count} premières lignes de parcours sont affichées.",
+        "tool": "Outil manuel",
+        "tools": {
+          "none": "Déplacer la carte",
+          "move": "Déplacer",
+          "rotate": "Tourner",
+          "scale": "Mettre à l'échelle"
+        },
+        "dragHint": "Faites glisser sur la carte pour ajuster le dessin ({tool}).",
+        "adjust": "Ajustement manuel",
+        "dx": "Décalage est (m)",
+        "dy": "Décalage nord (m)",
+        "rotationDeg": "Rotation (°)",
+        "scale": "Échelle",
+        "reset": "Retirer l'ajustement manuel"
+      }
     }
   },
   "design": {

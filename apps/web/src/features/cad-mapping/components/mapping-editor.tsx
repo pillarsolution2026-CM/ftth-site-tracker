@@ -1,16 +1,27 @@
 'use client';
 
-import { MAPPING_TEXT_ROWS_LIMIT, type CadMappingInput, type CadMappingView } from '@ftth/shared';
+import { useMemo } from 'react';
+import {
+  MAPPING_TEXT_ROWS_LIMIT,
+  type CadMappingInput,
+  type CadMappingView,
+  type PlacementDrawing,
+} from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
 import { Button } from '@/shared/ui/button';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useMappingForm } from '../hooks/use-mapping-form';
+import { placementPreview } from '../model/placement-preview';
 import { CrsPanel } from './crs-panel';
+import { PlacementMap } from './placement-map';
+import { PlacementPanel } from './placement-panel';
 import { BlockRulesTable, LayerRulesTable, TextRulesTable } from './rules-tables';
 
 export interface MappingEditorProps {
   view: CadMappingView;
+  /** Items and route lines in drawing units for placing the drawing (ADR-035); null while loading. */
+  drawing: PlacementDrawing | null;
   /** `cad_files:write` */
   canWrite: boolean;
   /** `design:write` */
@@ -25,9 +36,10 @@ export interface MappingEditorProps {
   onReload: () => void;
 }
 
-/** The mapping form: CRS panel, rule tables, Save and Build revision. */
+/** The mapping form: CRS panel, placement, rule tables, Save and Build revision. */
 export function MappingEditor({
   view,
+  drawing,
   canWrite,
   canBuild,
   saving,
@@ -42,6 +54,18 @@ export function MappingEditor({
   const form = useMappingForm(view);
   const processed = view.fileStatus === 'processed';
   const editable = canWrite && processed;
+  const preview = useMemo(
+    () =>
+      form.solved.ok
+        ? placementPreview(
+            drawing,
+            form.state.placement.points,
+            form.solved.solution,
+            form.projectEpsg,
+          )
+        : null,
+    [drawing, form.state.placement.points, form.solved, form.projectEpsg],
+  );
 
   const save = async () => {
     const prepared = form.prepareSave();
@@ -68,11 +92,34 @@ export function MappingEditor({
         epsg={form.state.epsg}
         epsgError={form.epsgError}
         unit={form.state.unit}
-        warnings={form.warnings}
         disabled={!editable}
         onEpsgChange={form.setEpsg}
-        onUnitChange={form.setUnit}
       />
+      {processed ? (
+        <PlacementPanel
+          drawing={drawing}
+          state={form.state.placement}
+          solved={form.solved}
+          suggestedRedBelt={view.crsDetection?.suggestedSourceCrs === 'egypt_red_belt'}
+          disabled={!editable}
+          onSourceCrsChange={form.setSourceCrs}
+          onAddPoints={form.addPoints}
+          onUpdatePoint={form.updatePoint}
+          onRemovePoint={form.removePoint}
+          onFitScaleChange={form.setFitScaleWithTwoPoints}
+        />
+      ) : null}
+      {processed && preview ? (
+        <PlacementMap
+          preview={preview}
+          projectEpsg={form.projectEpsg}
+          adjust={form.state.placement.adjust}
+          truncatedAt={drawing?.truncated ? drawing.lines.length : null}
+          disabled={!editable}
+          onAdjust={form.setAdjust}
+          onReset={form.resetAdjust}
+        />
+      ) : null}
       <LayerRulesTable
         view={view}
         state={form.state}
@@ -127,9 +174,6 @@ export function MappingEditor({
             >
               {building ? t('mapping.building') : t('mapping.build')}
             </Button>
-          ) : null}
-          {canWrite && !form.unitChosen ? (
-            <span className="text-sm">{t('mapping.crs.unitRequired')}</span>
           ) : null}
           {canWrite && form.missingRoles.length > 0 ? (
             <span className="text-sm" role="status">

@@ -40,6 +40,7 @@ function toRevision({ row, cadFileName }: Joined): DesignRevision {
     crsEpsg: row.crsEpsg,
     drawingUnit: row.drawingUnit,
     metresPerUnit: toDecimalText(row.metresPerUnit),
+    placement: row.placement ?? null,
     insUnits: row.insUnits,
     unitsConflict: row.unitsConflict,
     // JSON written by the worker; a shape this contract does not know is shown as "not available".
@@ -164,6 +165,7 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
         crsEpsg: revision.crsEpsg,
         drawingUnit: revision.drawingUnit,
         metresPerUnit: revision.metresPerUnit,
+        placement: revision.placement,
         insUnits: revision.insUnits,
         unitsConflict: revision.unitsConflict,
         createdBy: revision.createdById,
