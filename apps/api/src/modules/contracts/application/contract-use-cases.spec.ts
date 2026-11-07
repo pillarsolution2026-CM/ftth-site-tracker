@@ -30,6 +30,7 @@ const MAPPING: ContractImportCommitPayload['mapping'] = {
   quantity: 4,
   unitPrice: 5,
   amount: 6,
+  scope: null,
 };
 
 let uow: InMemoryContractUnitOfWork;

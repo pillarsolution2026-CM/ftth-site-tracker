@@ -4,10 +4,12 @@ import type {
   ContractorPatch,
   ContractorRecord,
   ContractorSummary,
+  NewImportFile,
   NewLine,
   NewPrice,
   NewRegistration,
   Registration,
+  ScopeHolding,
   WorkOrderLine,
 } from './contractor.js';
 
@@ -32,14 +34,16 @@ export interface RegistrationRepository {
   workOrderOf(projectId: string, options?: { lock?: boolean }): Promise<string | null>;
   /** Every line of the work order, in line order. */
   workOrderLines(workOrderId: string): Promise<WorkOrderLine[]>;
-  /** Σ contractor quantity per work-order line id, over every contractor of the work order. */
-  reservedByLine(workOrderId: string): Promise<Map<string, Decimal>>;
+  /** Per work-order line and scope: Σ quantity and highest price, over every contractor. */
+  holdings(workOrderId: string): Promise<ScopeHolding[]>;
   /** Registrations with lines and full price history, oldest registration first. */
   list(projectId: string): Promise<Registration[]>;
   find(projectId: string, registrationId: string): Promise<Registration | null>;
   isRegistered(workOrderId: string, contractorId: string): Promise<boolean>;
   /** Registration, lines and each line's first price. CONFLICT on a race with the DB rules. */
   insert(registration: NewRegistration): Promise<void>;
+  /** Records an uploaded sheet of the registration (the stored object exists already). */
+  insertFile(file: NewImportFile): Promise<void>;
   /** Removes the registration with its lines and prices. */
   delete(projectId: string, registrationId: string): Promise<void>;
   /** The line with its first price. */

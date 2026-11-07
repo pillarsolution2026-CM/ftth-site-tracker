@@ -1,9 +1,7 @@
 import {
   EVENT_ENTITIES,
   EVENT_TYPES,
-  type AddContractorLineRequest,
   type AddContractorPriceRequest,
-  type RegisterContractorRequest,
   type UpdateContractorLineRequest,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
@@ -11,12 +9,11 @@ import type { IdGenerator } from '../../../common/clock.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
 import type { GetProjectUseCase } from '../../projects/application/get-project.use-case.js';
 import {
-  assertAssignable,
   assertPriceDateAfterLatest,
   assertPriceWithinContract,
   assertQuantityFits,
-  reservedOf,
-  type NewLine,
+  holdingOf,
+  otherScopesPrice,
   type Registration,
 } from '../domain/contractor.js';
 import type { ContractorTx, ContractorUnitOfWork } from '../domain/contractor.repository.js';
@@ -30,7 +27,7 @@ interface Scope {
   actorId: string;
 }
 
-async function lockedWorkOrder(tx: ContractorTx, projectId: string): Promise<string> {
+export async function lockedWorkOrder(tx: ContractorTx, projectId: string): Promise<string> {
   const workOrderId = await tx.registrations.workOrderOf(projectId, { lock: true });
   if (workOrderId === null) {
     throw new AppError('CONFLICT', 'The project has no work order yet', {
@@ -63,86 +60,6 @@ function findLine(registration: Registration, lineId: string) {
   return line;
 }
 
-export class RegisterContractorUseCase {
-  constructor(
-    private readonly projects: Projects,
-    private readonly uow: ContractorUnitOfWork,
-    private readonly ids: IdGenerator,
-  ) {}
-
-  async execute(
-    input: Scope & { request: RegisterContractorRequest },
-  ): Promise<ProjectContractorsView> {
-    const { projectId, actorId, request } = input;
-    const project = await this.projects.execute(projectId);
-    return this.uow.run(async (tx) => {
-      const workOrderId = await lockedWorkOrder(tx, projectId);
-      const contractor = await tx.contractors.findById(request.contractorId);
-      if (!contractor) throw new AppError('NOT_FOUND', 'Contractor not found');
-      if (await tx.registrations.isRegistered(workOrderId, request.contractorId)) {
-        throw new AppError('CONFLICT', 'The contractor is already registered on this work order', {
-          reason: 'CONTRACTOR_ALREADY_REGISTERED',
-        });
-      }
-
-      const items = new Map(
-        (await tx.registrations.workOrderLines(workOrderId)).map((item) => [item.id, item]),
-      );
-      const reserved = await tx.registrations.reservedByLine(workOrderId);
-      const lines: NewLine[] = request.lines.map((line) => {
-        const item = assertAssignable(items, line.workOrderItemId);
-        const quantity = Decimal.parse(line.quantity);
-        const unitPrice = Decimal.parse(line.unitPrice);
-        assertQuantityFits(item, reservedOf(reserved, item.id), quantity);
-        assertPriceWithinContract(item, unitPrice);
-        return {
-          id: this.ids.next(),
-          workOrderItemId: item.id,
-          quantity,
-          firstPrice: {
-            id: this.ids.next(),
-            effectiveFrom: request.registeredOn,
-            unitPrice,
-            createdById: actorId,
-          },
-        };
-      });
-
-      const registrationId = this.ids.next();
-      await tx.registrations.insert({
-        id: registrationId,
-        projectId,
-        workOrderId,
-        contractorId: request.contractorId,
-        registeredOn: request.registeredOn,
-        createdById: actorId,
-        lines,
-      });
-      await tx.events.append({
-        projectId,
-        entity: EVENT_ENTITIES.contractorRegistration,
-        entityId: registrationId,
-        type: EVENT_TYPES.contractorRegistered,
-        actorId,
-        payload: {
-          contractorId: request.contractorId,
-          contractorName: contractor.name,
-          workOrderId,
-          registeredOn: request.registeredOn,
-          lines: lines.map((line) => ({
-            id: line.id,
-            workOrderItemId: line.workOrderItemId,
-            code: items.get(line.workOrderItemId)?.code,
-            quantity: line.quantity.toString(),
-            unitPrice: line.firstPrice.unitPrice.toString(),
-          })),
-        },
-      });
-      return viewOf(tx.registrations, projectId, project.currency);
-    });
-  }
-}
-
 export class RemoveRegistrationUseCase {
   constructor(
     private readonly projects: Projects,
@@ -169,72 +86,6 @@ export class RemoveRegistrationUseCase {
   }
 }
 
-export class AddContractorLineUseCase {
-  constructor(
-    private readonly projects: Projects,
-    private readonly uow: ContractorUnitOfWork,
-    private readonly ids: IdGenerator,
-  ) {}
-
-  async execute(
-    input: Scope & { registrationId: string; request: AddContractorLineRequest },
-  ): Promise<ProjectContractorsView> {
-    const { projectId, actorId, registrationId, request } = input;
-    const project = await this.projects.execute(projectId);
-    return this.uow.run(async (tx) => {
-      const registration = await lockedRegistration(tx, projectId, registrationId);
-      const items = new Map(
-        (await tx.registrations.workOrderLines(registration.workOrderId)).map((item) => [
-          item.id,
-          item,
-        ]),
-      );
-      const item = assertAssignable(items, request.workOrderItemId);
-      if (registration.lines.some((line) => line.item.id === item.id)) {
-        throw new AppError('CONFLICT', 'The contractor already has this line', {
-          reason: 'LINE_REPEATED',
-          workOrderItemId: item.id,
-          code: item.code,
-        });
-      }
-      const quantity = Decimal.parse(request.quantity);
-      const unitPrice = Decimal.parse(request.unitPrice);
-      const reserved = await tx.registrations.reservedByLine(registration.workOrderId);
-      assertQuantityFits(item, reservedOf(reserved, item.id), quantity);
-      assertPriceWithinContract(item, unitPrice);
-
-      const line: NewLine = {
-        id: this.ids.next(),
-        workOrderItemId: item.id,
-        quantity,
-        firstPrice: {
-          id: this.ids.next(),
-          effectiveFrom: registration.registeredOn,
-          unitPrice,
-          createdById: actorId,
-        },
-      };
-      await tx.registrations.insertLine(projectId, registrationId, line);
-      await tx.events.append({
-        projectId,
-        entity: EVENT_ENTITIES.contractorLine,
-        entityId: line.id,
-        type: EVENT_TYPES.contractorLineAdded,
-        actorId,
-        payload: {
-          registrationId,
-          workOrderItemId: item.id,
-          code: item.code,
-          quantity: quantity.toString(),
-          unitPrice: unitPrice.toString(),
-          effectiveFrom: registration.registeredOn,
-        },
-      });
-      return viewOf(tx.registrations, projectId, project.currency);
-    });
-  }
-}
-
 export class UpdateContractorLineUseCase {
   constructor(
     private readonly projects: Projects,
@@ -254,10 +105,10 @@ export class UpdateContractorLineUseCase {
       const registration = await lockedRegistration(tx, projectId, registrationId);
       const line = findLine(registration, lineId);
       const quantity = Decimal.parse(request.quantity);
-      const reserved = await tx.registrations.reservedByLine(registration.workOrderId);
+      const holdings = await tx.registrations.holdings(registration.workOrderId);
       // The line itself is not "other" reservation: take its current quantity out.
-      const others = reservedOf(reserved, line.item.id).sub(line.quantity);
-      assertQuantityFits(line.item, others, quantity);
+      const held = holdingOf(holdings, line.item.id, line.scopeKey)?.quantity ?? line.quantity;
+      assertQuantityFits(line.item, line.scope, held.sub(line.quantity), quantity);
       await tx.registrations.updateLineQuantity(projectId, lineId, quantity);
       await tx.events.append({
         projectId,
@@ -269,6 +120,7 @@ export class UpdateContractorLineUseCase {
           registrationId,
           workOrderItemId: line.item.id,
           code: line.item.code,
+          scope: line.scope,
           before: { quantity: line.quantity.toString() },
           after: { quantity: quantity.toString() },
         },
@@ -333,7 +185,14 @@ export class AddContractorPriceUseCase {
       const registration = await lockedRegistration(tx, projectId, registrationId);
       const line = findLine(registration, lineId);
       const unitPrice = Decimal.parse(request.unitPrice);
-      assertPriceWithinContract(line.item, unitPrice);
+      const holdings = await tx.registrations.holdings(registration.workOrderId);
+      assertPriceWithinContract(
+        line.item,
+        line.scope,
+        otherScopesPrice(holdings, line.item.id, line.scopeKey),
+        holdingOf(holdings, line.item.id, line.scopeKey)?.highestPrice ?? Decimal.zero,
+        unitPrice,
+      );
       assertPriceDateAfterLatest(line.prices, request.effectiveFrom);
       const previous = line.prices[line.prices.length - 1];
       const price = {
@@ -353,6 +212,7 @@ export class AddContractorPriceUseCase {
           registrationId,
           workOrderItemId: line.item.id,
           code: line.item.code,
+          scope: line.scope,
           effectiveFrom: price.effectiveFrom,
           unitPrice: unitPrice.toString(),
           previous: previous

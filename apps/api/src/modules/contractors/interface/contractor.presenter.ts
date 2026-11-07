@@ -1,6 +1,7 @@
 import type {
   Contractor,
   ContractorLine as LineDto,
+  ContractorImportFile as FileDto,
   ContractorLineAvailability,
   ContractorPrice as PriceDto,
   ContractorRegistration,
@@ -8,6 +9,7 @@ import type {
 } from '@ftth/shared';
 import type { ProjectContractorsView } from '../application/contractor-queries.js';
 import type {
+  ContractorImportFile,
   ContractorLine,
   ContractorPrice,
   ContractorSummary,
@@ -35,6 +37,15 @@ const toPriceDto = (price: ContractorPrice): PriceDto => ({
   createdAt: price.createdAt.toISOString(),
 });
 
+const toFileDto = (file: ContractorImportFile): FileDto => ({
+  id: file.id,
+  fileName: file.fileName,
+  sizeBytes: file.sizeBytes,
+  sha256: file.sha256,
+  uploadedById: file.uploadedById,
+  createdAt: file.createdAt.toISOString(),
+});
+
 const toLineDto = (line: ContractorLine): LineDto => ({
   id: line.id,
   workOrderItemId: line.item.id,
@@ -43,9 +54,11 @@ const toLineDto = (line: ContractorLine): LineDto => ({
   description: line.item.description,
   unit: line.item.unit,
   workType: line.item.workType,
+  scope: line.scope,
   contractPrice: line.item.unitPrice.toString(),
   quantity: line.quantity.toString(),
   prices: line.prices.map(toPriceDto),
+  sourceRow: line.sourceRow,
 });
 
 const toRegistrationDto = (registration: Registration): ContractorRegistration => ({
@@ -55,6 +68,7 @@ const toRegistrationDto = (registration: Registration): ContractorRegistration =
   contractor: registration.contractor,
   registeredOn: registration.registeredOn,
   lines: registration.lines.map(toLineDto),
+  files: registration.files.map(toFileDto),
   createdById: registration.createdById,
   createdAt: registration.createdAt.toISOString(),
 });
@@ -67,7 +81,7 @@ export const toProjectContractorsDto = (
   currency: view.currency,
   registrations: view.registrations.map(toRegistrationDto),
   availability: view.availability.map(
-    ({ item, reserved, available }): ContractorLineAvailability => ({
+    ({ item, mode, scopes, scopesPriceTotal, priceRoom }): ContractorLineAvailability => ({
       workOrderItemId: item.id,
       lineNo: item.lineNo,
       code: item.code,
@@ -76,8 +90,15 @@ export const toProjectContractorsDto = (
       workType: item.workType,
       contractPrice: item.unitPrice.toString(),
       workOrderQuantity: item.quantity.toString(),
-      reservedQuantity: reserved.toString(),
-      availableQuantity: available.toString(),
+      mode,
+      scopes: scopes.map((scope) => ({
+        scope: scope.scope,
+        reservedQuantity: scope.reserved.toString(),
+        availableQuantity: scope.available.toString(),
+        highestPrice: scope.highestPrice.toString(),
+      })),
+      scopesPriceTotal: scopesPriceTotal.toString(),
+      priceRoom: priceRoom.toString(),
       assignable: item.contractItemId !== null,
     }),
   ),

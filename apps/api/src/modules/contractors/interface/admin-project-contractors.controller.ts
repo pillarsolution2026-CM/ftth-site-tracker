@@ -12,15 +12,11 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import {
-  AddContractorLineRequestSchema,
   AddContractorPriceRequestSchema,
   ProjectContractorsResponseSchema,
-  RegisterContractorRequestSchema,
   UpdateContractorLineRequestSchema,
-  type AddContractorLineRequest,
   type AddContractorPriceRequest,
   type ProjectContractorsResponse,
-  type RegisterContractorRequest,
   type UpdateContractorLineRequest,
 } from '@ftth/shared';
 import { actorIdOf } from '../../../common/http/request-actor.js';
@@ -32,9 +28,7 @@ import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { PlatformAdminGuard } from '../../identity/interface/platform-admin.guard.js';
 import { GetProjectContractorsUseCase } from '../application/contractor-queries.js';
 import {
-  AddContractorLineUseCase,
   AddContractorPriceUseCase,
-  RegisterContractorUseCase,
   RemoveContractorLineUseCase,
   RemoveRegistrationUseCase,
   UpdateContractorLineUseCase,
@@ -49,10 +43,8 @@ import { toProjectContractorsDto } from './contractor.presenter.js';
 export class AdminProjectContractorsController {
   constructor(
     @Inject(GetProjectContractorsUseCase) private readonly get: GetProjectContractorsUseCase,
-    @Inject(RegisterContractorUseCase) private readonly register: RegisterContractorUseCase,
     @Inject(RemoveRegistrationUseCase)
     private readonly removeRegistration: RemoveRegistrationUseCase,
-    @Inject(AddContractorLineUseCase) private readonly addLine: AddContractorLineUseCase,
     @Inject(UpdateContractorLineUseCase) private readonly updateLine: UpdateContractorLineUseCase,
     @Inject(RemoveContractorLineUseCase) private readonly removeLine: RemoveContractorLineUseCase,
     @Inject(AddContractorPriceUseCase) private readonly addPrice: AddContractorPriceUseCase,
@@ -64,18 +56,6 @@ export class AdminProjectContractorsController {
     @Param('projectId', UuidParamPipe) projectId: string,
   ): Promise<ProjectContractorsResponse> {
     return toProjectContractorsDto(await this.get.execute(projectId));
-  }
-
-  @Post()
-  @ApiCreatedResponse({ schema: openApiSchema(ProjectContractorsResponseSchema) })
-  async registerOne(
-    @Param('projectId', UuidParamPipe) projectId: string,
-    @Body(new ZodValidationPipe(RegisterContractorRequestSchema)) body: RegisterContractorRequest,
-    @Req() request: AuthenticatedRequest,
-  ): Promise<ProjectContractorsResponse> {
-    return toProjectContractorsDto(
-      await this.register.execute({ projectId, actorId: actorIdOf(request), request: body }),
-    );
   }
 
   @Delete(':registrationId')
@@ -90,24 +70,6 @@ export class AdminProjectContractorsController {
         projectId,
         registrationId,
         actorId: actorIdOf(request),
-      }),
-    );
-  }
-
-  @Post(':registrationId/lines')
-  @ApiCreatedResponse({ schema: openApiSchema(ProjectContractorsResponseSchema) })
-  async addOneLine(
-    @Param('projectId', UuidParamPipe) projectId: string,
-    @Param('registrationId', UuidParamPipe) registrationId: string,
-    @Body(new ZodValidationPipe(AddContractorLineRequestSchema)) body: AddContractorLineRequest,
-    @Req() request: AuthenticatedRequest,
-  ): Promise<ProjectContractorsResponse> {
-    return toProjectContractorsDto(
-      await this.addLine.execute({
-        projectId,
-        registrationId,
-        actorId: actorIdOf(request),
-        request: body,
       }),
     );
   }

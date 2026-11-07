@@ -12,6 +12,8 @@ export const lineSnapshot = (line: ContractorLine): Record<string, unknown> => (
   workOrderItemId: line.item.id,
   lineNo: line.item.lineNo,
   code: line.item.code,
+  scope: line.scope,
+  sourceRow: line.sourceRow,
   quantity: line.quantity.toString(),
   prices: line.prices.map(priceSnapshot),
 });
@@ -24,4 +26,10 @@ export const registrationSnapshot = (registration: Registration): Record<string,
   contractorName: registration.contractor.name,
   registeredOn: registration.registeredOn,
   lines: registration.lines.map(lineSnapshot),
+  files: registration.files.map((file) => ({
+    id: file.id,
+    fileName: file.fileName,
+    sha256: file.sha256,
+    sizeBytes: file.sizeBytes,
+  })),
 });

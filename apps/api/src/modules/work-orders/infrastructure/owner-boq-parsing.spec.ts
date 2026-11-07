@@ -27,6 +27,7 @@ describe('owner BOQ layout', () => {
       quantity: 4,
       unitPrice: 5,
       amount: 6,
+      scope: null,
     });
     expect(parsed.fileIssues).toEqual([]);
     expect(parsed.summary).toMatchObject({

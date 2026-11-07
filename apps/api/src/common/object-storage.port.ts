@@ -58,6 +58,9 @@ export const storageKeys = {
   /** Contracts sit above projects (ADR-027), so their files are not under a project prefix. */
   contractAttachment: (contractId: string, attachmentId: string, ext: 'pdf' | 'xlsx') =>
     `contracts/${contractId}/attachments/${attachmentId}.${ext}`,
+  /** Sheet a contractor's lines were uploaded from (ADR-036); kept for the registration's life. */
+  contractorImportFile: (projectId: string, registrationId: string, fileId: string) =>
+    `projects/${projectId}/contractors/${registrationId}/imports/${fileId}.xlsx`,
   workOrderAttachment: (
     projectId: string,
     workOrderId: string,

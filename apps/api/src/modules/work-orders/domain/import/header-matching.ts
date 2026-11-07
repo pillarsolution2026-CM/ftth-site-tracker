@@ -60,6 +60,7 @@ export const EMPTY_MAPPING: ColumnMapping = {
   unitPrice: null,
   workType: null,
   amount: null,
+  scope: null,
 };
 
 export interface HeaderMatch {
