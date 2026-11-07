@@ -16,6 +16,11 @@ export class DeleteWorkOrderUseCase {
     const storageKeys = await this.uow.run(async (tx) => {
       const order = await tx.orders.findById(projectId, workOrderId, { lock: true });
       if (!order) throw new AppError('NOT_FOUND', 'Work order not found');
+      if ((await tx.contractors.registrationCount(workOrderId)) > 0) {
+        throw new AppError('CONFLICT', 'Contractors are registered on this work order', {
+          reason: 'WORK_ORDER_HAS_CONTRACTORS',
+        });
+      }
       const attachments = await tx.attachments.listByWorkOrder(projectId, workOrderId);
 
       await tx.events.append({

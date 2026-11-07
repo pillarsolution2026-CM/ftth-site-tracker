@@ -82,6 +82,17 @@ export class UpdateWorkOrderItemUseCase {
         Decimal.parse(request.quantity),
         this.clock.now(),
       );
+      // Never below what subcontractors hold (ADR-036); the order lock above serialises this.
+      const held = await tx.contractors.heldQuantity(input.itemId);
+      if (after.quantity.compare(held) < 0) {
+        throw new AppError('CONFLICT', 'The quantity is below the contractors quantity', {
+          reason: 'QUANTITY_BELOW_CONTRACTORS',
+          workOrderItemId: after.id,
+          code: after.code,
+          contractorsQuantity: held.toString(),
+          requestedQuantity: after.quantity.toString(),
+        });
+      }
       const contract = await tx.contracts.loadApproved(input.projectId, { lock: true });
       const contractItem = findContractItem(contract, after.contractItemId ?? '');
       const reservations = await tx.contracts.reservations(contract.id);
@@ -113,6 +124,13 @@ export class RemoveWorkOrderItemUseCase {
     return this.uow.run(async (tx) => {
       const order = await lockOrder(tx, input);
       const item = order.findItem(input.itemId);
+      if ((await tx.contractors.lineCount(item.id)) > 0) {
+        throw new AppError('CONFLICT', 'The line is given to a contractor', {
+          reason: 'LINE_HAS_CONTRACTORS',
+          workOrderItemId: item.id,
+          code: item.code,
+        });
+      }
       await tx.orders.deleteItem(input.projectId, input.workOrderId, item.id);
       await tx.events.append({
         projectId: input.projectId,
