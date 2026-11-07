@@ -246,7 +246,8 @@
     "workOrders": "Ordres de travail",
     "cadFiles": "Fichiers CAO",
     "designRevisions": "Révisions de conception",
-    "contract": "Contrat"
+    "contract": "Contrat",
+    "contractors": "Sous-traitants"
   },
   "project": {
     "switcher": "Projet",
@@ -292,7 +293,10 @@
       "NOT_IN_CONTRACT": "L'article n'est pas dans le contrat.",
       "CONTRACT_ITEM_REPEATED": "L'article est déjà une ligne de l'ordre de travail.",
       "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le reste du contrat pour l'article {code} : demandé {requestedQuantity}, disponible {availableQuantity} (contrat {contractQuantity}, réservé {reservedQuantity}).",
-      "LEGACY_ITEM": "Ligne ancienne sans article de contrat : elle ne peut pas être modifiée."
+      "LEGACY_ITEM": "Ligne ancienne sans article de contrat : elle ne peut pas être modifiée.",
+      "QUANTITY_BELOW_CONTRACTORS": "La quantité du poste {code} ne peut pas descendre sous celle des sous-traitants : demandé {requestedQuantity}, détenu par les sous-traitants {contractorsQuantity}.",
+      "LINE_HAS_CONTRACTORS": "Cette ligne est confiée à un sous-traitant et ne peut pas être supprimée.",
+      "WORK_ORDER_HAS_CONTRACTORS": "Des sous-traitants sont enregistrés sur cet ordre de travail. Retirez-les d’abord."
     }
   },
   "items": {
@@ -1246,5 +1250,99 @@
     "title": "Contrat",
     "noContract": "Ce projet n'a pas de contrat",
     "readOnly": "Lecture seule"
+  },
+  "contractors": {
+    "title": "Sous-traitants",
+    "listTitle": "Tous les sous-traitants",
+    "none": "Aucun sous-traitant pour le moment. Ajoutez le premier.",
+    "new": "Nouveau sous-traitant",
+    "edit": "Modifier le sous-traitant",
+    "create": "Créer le sous-traitant",
+    "created": "Sous-traitant créé",
+    "saved": "Modifications enregistrées",
+    "cancelEdit": "Annuler la modification",
+    "optional": "facultatif",
+    "fields": {
+      "name": "Nom",
+      "contactName": "Personne à contacter",
+      "contactPhone": "Téléphone",
+      "commercialRegister": "Registre de commerce",
+      "taxCard": "Carte fiscale",
+      "workOrderCount": "Ordres de travail"
+    },
+    "validation": {
+      "phone": "Saisissez un numéro : chiffres, espaces et + - ( )",
+      "contractor": "Choisissez un sous-traitant",
+      "date": "Saisissez la date d’enregistrement",
+      "noLines": "Choisissez au moins une ligne",
+      "quantity": "Saisissez une quantité supérieure à 0 avec 4 décimales au plus",
+      "quantityMax": "La quantité dépasse le disponible : {available}",
+      "price": "Saisissez un prix avec 6 décimales au plus",
+      "priceMax": "Le prix dépasse le prix du contrat : {contractPrice}",
+      "priceDate": "La date doit suivre la dernière date de prix : {latest}"
+    },
+    "reasons": {
+      "CONTRACTOR_NAME_TAKEN": "Ce nom est déjà utilisé par un autre sous-traitant.",
+      "NO_WORK_ORDER": "Ce projet n’a pas encore d’ordre de travail.",
+      "CONTRACTOR_ALREADY_REGISTERED": "Ce sous-traitant est déjà enregistré sur l’ordre de travail.",
+      "LINE_NOT_IN_WORK_ORDER": "La ligne n’appartient pas à cet ordre de travail.",
+      "LEGACY_ITEM": "Ligne ancienne (avant le lien avec le contrat) : elle ne peut pas être confiée à un sous-traitant.",
+      "LINE_REPEATED": "Le sous-traitant a déjà cette ligne.",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "La quantité dépasse le disponible de l’ordre de travail pour le poste {code} : demandé {requestedQuantity}, disponible {availableQuantity} (ordre de travail {workOrderQuantity}, réservé {reservedQuantity}).",
+      "PRICE_EXCEEDS_CONTRACT": "Le prix dépasse le prix du contrat pour le poste {code} : demandé {requestedPrice}, prix du contrat {contractPrice}.",
+      "PRICE_DATE_NOT_AFTER_LATEST": "La date doit suivre la dernière date de prix : {latestEffectiveFrom}."
+    },
+    "section": {
+      "title": "Sous-traitants",
+      "readOnly": "Lecture seule",
+      "noWorkOrder": "Ce projet n’a pas encore d’ordre de travail. Créez-le d’abord, puis enregistrez les sous-traitants dessus.",
+      "goToWorkOrders": "Aller aux ordres de travail",
+      "none": "Aucun sous-traitant n’est enregistré sur cet ordre de travail.",
+      "register": "Enregistrer un sous-traitant",
+      "registeredOn": "Enregistré le",
+      "total": "Total de ce sous-traitant",
+      "totalHint": "Quantité × dernier prix, additionné sur ses lignes",
+      "removeRegistration": "Retirer l’enregistrement",
+      "confirmRemoveRegistration": "Retirer {name} de l’ordre de travail, avec toutes ses lignes et ses prix ?",
+      "lines": "Lignes de {name}",
+      "noLines": "Aucune ligne"
+    },
+    "line": {
+      "code": "Code",
+      "description": "Description",
+      "unit": "Unité",
+      "contractPrice": "Prix du contrat",
+      "quantity": "Quantité",
+      "currentPrice": "Prix actuel",
+      "since": "depuis",
+      "history": "Historique des prix",
+      "actions": "Actions",
+      "editQuantity": "Modifier la quantité",
+      "addPrice": "Ajouter un prix daté",
+      "remove": "Supprimer la ligne",
+      "confirmRemove": "Supprimer la ligne {code} de ce sous-traitant, avec ses prix ?",
+      "newQuantity": "Nouvelle quantité ({code})",
+      "effectiveFrom": "Prix à partir du ({code})",
+      "newPrice": "Nouveau prix ({code})"
+    },
+    "register": {
+      "title": "Enregistrer un sous-traitant",
+      "contractor": "Sous-traitant",
+      "chooseContractor": "— Choisir un sous-traitant —",
+      "alreadyRegistered": "déjà enregistré",
+      "createContractor": "Ajouter un nouveau sous-traitant",
+      "date": "Date d’enregistrement",
+      "linesTitle": "Lignes confiées au sous-traitant",
+      "linesHint": "Choisissez les lignes de l’ordre de travail, puis saisissez une quantité et un prix pour chacune.",
+      "giveLine": "Confier la ligne {code}",
+      "available": "Disponible",
+      "workOrderPrice": "Prix du contrat",
+      "quantity": "Quantité ({code})",
+      "price": "Prix ({code})",
+      "priceHeader": "Prix du sous-traitant",
+      "notAssignable": "Ligne ancienne : ne peut pas être confiée à un sous-traitant",
+      "nothingLeft": "Plus rien à confier",
+      "submit": "Enregistrer"
+    }
   }
 }

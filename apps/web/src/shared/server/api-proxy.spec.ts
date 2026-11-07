@@ -121,6 +121,7 @@ describe('upstreamPath (allow-list)', () => {
 
   it('allows the read-only contract of the project', () => {
     expect(upstreamPath([PROJECT, 'contract'])).toBe(`/projects/${PROJECT}/contract`);
+    expect(upstreamPath([PROJECT, 'contractors'])).toBe(`/projects/${PROJECT}/contractors`);
   });
 
   it('allows As-Built review and the DXF export file', () => {

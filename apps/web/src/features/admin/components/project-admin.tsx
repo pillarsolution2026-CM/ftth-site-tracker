@@ -11,6 +11,7 @@ import { Notice } from '@/shared/ui/notice';
 import { PageHeader, Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useContract } from '@/features/contracts/api/queries';
+import { ProjectContractorsSection } from '@/features/contractors/components/project-contractors-section';
 import { useProjectAdmin, type ProjectAdminModel } from '../hooks/use-project-admin';
 import { needsZone } from '../model/admin-forms';
 import { ProjectFields } from './project-fields';
@@ -290,6 +291,7 @@ export function ProjectAdminView({ model }: { model: ProjectAdminModel }) {
       </PageHeader>
       <ContractCard project={model.project} />
       <EditProjectCard edit={model.edit} />
+      <ProjectContractorsSection projectId={model.project.id} />
       <ZonesCard zones={model.zones} />
       <AssignmentsCard assignments={model.assignments} zones={model.zones} />
     </div>

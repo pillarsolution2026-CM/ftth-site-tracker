@@ -12,6 +12,7 @@ const QUANTITY_PARAMS = [
   'reservedQuantity',
   'requestedQuantity',
   'availableQuantity',
+  'contractorsQuantity',
 ];
 
 /** A failed work-order write: the ADR-028 409 reason in words, else the generic error text. */

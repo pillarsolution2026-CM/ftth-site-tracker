@@ -21,6 +21,7 @@ import {
   ZoneSchema,
 } from '@ftth/shared';
 import { contractTerms, countProject, handleContracts } from './mock-contracts.ts';
+import { handleContractors, handleProjectContractors } from './mock-contractors.ts';
 import type { Helpers } from './mock-design.ts';
 
 export const ADMIN_EMAIL = 'admin@example.com';
@@ -112,8 +113,9 @@ export async function handleAdmin(
   res: ServerResponse,
   segments: string[],
   state: State,
-  { send, sendError, readJson }: Helpers,
+  helpers: Helpers,
 ): Promise<void> {
+  const { send, sendError, readJson } = helpers;
   const method = req.method ?? 'GET';
   const [, resource, id, sub, subId] = segments;
   const invalid = () => sendError(res, 400, 'VALIDATION_FAILED');
@@ -152,6 +154,7 @@ export async function handleAdmin(
   if (resource === 'contracts') {
     return handleContracts(req, res, new URL(req.url ?? '/', 'http://mock'), segments);
   }
+  if (resource === 'contractors') return handleContractors(req, res, segments, helpers);
   if (resource !== 'projects') return sendError(res, 404, 'NOT_FOUND');
   if (!id && method === 'GET')
     return send(res, 200, ProjectListResponseSchema.parse({ items: state.projects }));
@@ -174,6 +177,9 @@ export async function handleAdmin(
     if (!body.success) return invalid();
     Object.assign(project, body.data);
     return send(res, 200, ProjectSchema.parse(project));
+  }
+  if (sub === 'contractors') {
+    return handleProjectContractors(req, res, project.id, segments.slice(4), helpers);
   }
   if (sub === 'zones') {
     const zones = () =>
