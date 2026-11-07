@@ -246,7 +246,8 @@
     "workOrders": "Work orders",
     "cadFiles": "CAD files",
     "designRevisions": "Design revisions",
-    "contract": "Contract"
+    "contract": "Contract",
+    "contractors": "Subcontractors"
   },
   "project": {
     "switcher": "Project",
@@ -292,7 +293,10 @@
       "NOT_IN_CONTRACT": "The item is not in the contract.",
       "CONTRACT_ITEM_REPEATED": "The item is already a line of the work order.",
       "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is left in the contract for item {code}: requested {requestedQuantity}, available {availableQuantity} (contract {contractQuantity}, reserved {reservedQuantity}).",
-      "LEGACY_ITEM": "This is a legacy line without a contract item and cannot be edited."
+      "LEGACY_ITEM": "This is a legacy line without a contract item and cannot be edited.",
+      "QUANTITY_BELOW_CONTRACTORS": "The quantity of item {code} cannot go below what subcontractors hold: requested {requestedQuantity}, held by subcontractors {contractorsQuantity}.",
+      "LINE_HAS_CONTRACTORS": "This line is given to a subcontractor and cannot be removed.",
+      "WORK_ORDER_HAS_CONTRACTORS": "Subcontractors are registered on this work order. Remove them first."
     }
   },
   "items": {
@@ -1246,5 +1250,99 @@
     "title": "Contract",
     "noContract": "This project has no contract",
     "readOnly": "Read-only view"
+  },
+  "contractors": {
+    "title": "Subcontractors",
+    "listTitle": "All subcontractors",
+    "none": "No subcontractors yet. Add the first one.",
+    "new": "New subcontractor",
+    "edit": "Edit subcontractor",
+    "create": "Create subcontractor",
+    "created": "Subcontractor created",
+    "saved": "Changes saved",
+    "cancelEdit": "Cancel editing",
+    "optional": "optional",
+    "fields": {
+      "name": "Name",
+      "contactName": "Contact person",
+      "contactPhone": "Phone",
+      "commercialRegister": "Commercial register",
+      "taxCard": "Tax card",
+      "workOrderCount": "Work orders"
+    },
+    "validation": {
+      "phone": "Enter a phone number: digits, spaces and + - ( )",
+      "contractor": "Choose a subcontractor",
+      "date": "Enter the registration date",
+      "noLines": "Choose at least one line",
+      "quantity": "Enter a quantity above 0 with at most 4 decimal places",
+      "quantityMax": "The quantity is above what is available: {available}",
+      "price": "Enter a price with at most 6 decimal places",
+      "priceMax": "The price is above the contract price: {contractPrice}",
+      "priceDate": "The date must be after the latest price date: {latest}"
+    },
+    "reasons": {
+      "CONTRACTOR_NAME_TAKEN": "This name is already used by another subcontractor.",
+      "NO_WORK_ORDER": "This project has no work order yet.",
+      "CONTRACTOR_ALREADY_REGISTERED": "This subcontractor is already registered on the work order.",
+      "LINE_NOT_IN_WORK_ORDER": "The line is not a line of this work order.",
+      "LEGACY_ITEM": "This is a legacy line (before the contract link) and cannot be given to a subcontractor.",
+      "LINE_REPEATED": "The subcontractor already has this line.",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "The quantity is above what is available in the work order for item {code}: requested {requestedQuantity}, available {availableQuantity} (work order {workOrderQuantity}, reserved {reservedQuantity}).",
+      "PRICE_EXCEEDS_CONTRACT": "The price is above the contract price for item {code}: requested {requestedPrice}, contract price {contractPrice}.",
+      "PRICE_DATE_NOT_AFTER_LATEST": "The date must be after the latest price date: {latestEffectiveFrom}."
+    },
+    "section": {
+      "title": "Subcontractors",
+      "readOnly": "Read-only view",
+      "noWorkOrder": "This project has no work order yet. Create the work order first, then register subcontractors on it.",
+      "goToWorkOrders": "Go to work orders",
+      "none": "No subcontractor is registered on this work order yet.",
+      "register": "Register a subcontractor",
+      "registeredOn": "Registered on",
+      "total": "Total for this subcontractor",
+      "totalHint": "Quantity × latest price, summed over its lines",
+      "removeRegistration": "Remove registration",
+      "confirmRemoveRegistration": "Remove {name} from the work order, with all its lines and prices?",
+      "lines": "Lines of {name}",
+      "noLines": "No lines"
+    },
+    "line": {
+      "code": "Code",
+      "description": "Description",
+      "unit": "Unit",
+      "contractPrice": "Contract price",
+      "quantity": "Quantity",
+      "currentPrice": "Current price",
+      "since": "from",
+      "history": "Price history",
+      "actions": "Actions",
+      "editQuantity": "Edit quantity",
+      "addPrice": "Add a dated price",
+      "remove": "Remove line",
+      "confirmRemove": "Remove line {code} from this subcontractor, with its prices?",
+      "newQuantity": "New quantity ({code})",
+      "effectiveFrom": "Price from ({code})",
+      "newPrice": "New price ({code})"
+    },
+    "register": {
+      "title": "Register a subcontractor",
+      "contractor": "Subcontractor",
+      "chooseContractor": "— Choose a subcontractor —",
+      "alreadyRegistered": "already registered",
+      "createContractor": "Add a new subcontractor",
+      "date": "Registration date",
+      "linesTitle": "Lines given to the subcontractor",
+      "linesHint": "Pick the work-order lines, then enter a quantity and a price for each.",
+      "giveLine": "Give line {code}",
+      "available": "Available",
+      "workOrderPrice": "Contract price",
+      "quantity": "Quantity ({code})",
+      "price": "Price ({code})",
+      "priceHeader": "Subcontractor price",
+      "notAssignable": "Legacy line: cannot be given to a subcontractor",
+      "nothingLeft": "Nothing left to give",
+      "submit": "Register"
+    }
   }
 }

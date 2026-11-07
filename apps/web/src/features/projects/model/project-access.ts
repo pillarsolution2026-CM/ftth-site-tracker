@@ -31,7 +31,7 @@ export function can(access: ProjectAccess, permission: Permission): boolean {
 }
 
 export interface NavItem {
-  id: 'workOrders' | 'cadFiles' | 'designRevisions' | 'contract' | 'asbuilt';
+  id: 'workOrders' | 'cadFiles' | 'designRevisions' | 'contract' | 'contractors' | 'asbuilt';
   labelKey: MessageKey;
   /** Path below `/{locale}/projects/{projectId}`. */
   segment: string;
@@ -55,6 +55,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   // The PM (and the platform admin) read the contract and BOQ of the project (ADR-027).
   { id: 'contract', labelKey: 'nav.contract', segment: 'contract', permission: 'contract:read' },
+  // Subcontractors, their lines and prices (ADR-036): admin and pm.
+  {
+    id: 'contractors',
+    labelKey: 'nav.contractors',
+    segment: 'contractors',
+    permission: 'contractors:read',
+  },
   // Phase 4: review of the As-Built edits recorded on the phones (and the DXF export).
   {
     id: 'asbuilt',

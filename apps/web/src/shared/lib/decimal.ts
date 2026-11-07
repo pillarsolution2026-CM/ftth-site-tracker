@@ -90,6 +90,23 @@ export function compareDecimals(a: string, b: string): -1 | 0 | 1 {
   return difference.startsWith('-') ? -1 : 1;
 }
 
+/** Exact `a × b` on decimal strings (BigInt; the scale is the sum of both scales). */
+export function multiplyDecimals(a: string, b: string): string {
+  const left = DECIMAL.exec(a);
+  const right = DECIMAL.exec(b);
+  if (!left || !right) return '0';
+  const leftFraction = left[3] ?? '';
+  const rightFraction = right[3] ?? '';
+  const scale = leftFraction.length + rightFraction.length;
+  const product =
+    BigInt((left[2] ?? '0') + leftFraction) * BigInt((right[2] ?? '0') + rightFraction);
+  const negative = (left[1] === '-') !== (right[1] === '-') && product !== 0n;
+  const digits = product.toString().padStart(scale + 1, '0');
+  const integer = digits.slice(0, digits.length - scale);
+  const fraction = digits.slice(digits.length - scale).replace(/0+$/, '');
+  return `${negative ? '-' : ''}${integer}${fraction ? `.${fraction}` : ''}`;
+}
+
 const ARABIC_INDIC = '٠١٢٣٤٥٦٧٨٩';
 const EXTENDED_ARABIC_INDIC = '۰۱۲۳۴۵۶۷۸۹';
 

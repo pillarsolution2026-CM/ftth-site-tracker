@@ -246,7 +246,8 @@
     "workOrders": "أوامر التكليف",
     "cadFiles": "ملفات الكاد",
     "designRevisions": "مراجعات التصميم",
-    "contract": "العقد"
+    "contract": "العقد",
+    "contractors": "المقاولين الباطن"
   },
   "project": {
     "switcher": "المشروع",
@@ -292,7 +293,10 @@
       "NOT_IN_CONTRACT": "البند غير موجود في العقد.",
       "CONTRACT_ITEM_REPEATED": "البند موجود بالفعل في أمر التكليف.",
       "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد للبند {code}: المطلوب {requestedQuantity}، المتاح {availableQuantity} (العقد {contractQuantity}، المحجوز {reservedQuantity}).",
-      "LEGACY_ITEM": "هذا بند قديم بلا بند عقد ولا يمكن تعديله."
+      "LEGACY_ITEM": "هذا بند قديم بلا بند عقد ولا يمكن تعديله.",
+      "QUANTITY_BELOW_CONTRACTORS": "لا يمكن خفض كمية البند {code} عن كميات المقاولين الباطن: المطلوب {requestedQuantity}، المسندة للمقاولين {contractorsQuantity}.",
+      "LINE_HAS_CONTRACTORS": "هذا البند مسند لمقاول باطن ولا يمكن حذفه.",
+      "WORK_ORDER_HAS_CONTRACTORS": "يوجد مقاولون باطن مسجَّلون على أمر التكليف. احذفهم أولًا."
     }
   },
   "items": {
@@ -1246,5 +1250,99 @@
     "title": "العقد",
     "noContract": "هذا المشروع بلا عقد",
     "readOnly": "عرض للقراءة فقط"
+  },
+  "contractors": {
+    "title": "المقاولين الباطن",
+    "listTitle": "كل المقاولين الباطن",
+    "none": "لا يوجد مقاولون باطن بعد. أضف أول مقاول.",
+    "new": "مقاول باطن جديد",
+    "edit": "تعديل المقاول",
+    "create": "إنشاء المقاول",
+    "created": "تم إنشاء المقاول",
+    "saved": "تم حفظ التعديلات",
+    "cancelEdit": "إلغاء التعديل",
+    "optional": "اختياري",
+    "fields": {
+      "name": "الاسم",
+      "contactName": "الشخص المسؤول",
+      "contactPhone": "الهاتف",
+      "commercialRegister": "السجل التجاري",
+      "taxCard": "البطاقة الضريبية",
+      "workOrderCount": "أوامر التكليف"
+    },
+    "validation": {
+      "phone": "أدخل رقم هاتف: أرقام ومسافات و + - ( )",
+      "contractor": "اختر المقاول",
+      "date": "أدخل تاريخ التسجيل",
+      "noLines": "اختر بندًا واحدًا على الأقل",
+      "quantity": "أدخل كمية أكبر من 0 بحد أقصى 4 خانات عشرية",
+      "quantityMax": "الكمية أكبر من المتاح: {available}",
+      "price": "أدخل سعرًا بحد أقصى 6 خانات عشرية",
+      "priceMax": "السعر أكبر من سعر العقد: {contractPrice}",
+      "priceDate": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latest}"
+    },
+    "reasons": {
+      "CONTRACTOR_NAME_TAKEN": "هذا الاسم مستخدم لمقاول آخر.",
+      "NO_WORK_ORDER": "لا يوجد أمر تكليف لهذا المشروع بعد.",
+      "CONTRACTOR_ALREADY_REGISTERED": "المقاول مسجَّل بالفعل على أمر التكليف.",
+      "LINE_NOT_IN_WORK_ORDER": "البند ليس من بنود أمر التكليف.",
+      "LEGACY_ITEM": "هذا بند قديم (قبل ربط العقد) ولا يمكن إسناده لمقاول.",
+      "LINE_REPEATED": "المقاول لديه هذا البند بالفعل.",
+      "QUANTITY_EXCEEDS_WORK_ORDER": "الكمية أكبر من المتاح في أمر التكليف للبند {code}: المطلوب {requestedQuantity}، المتاح {availableQuantity} (أمر التكليف {workOrderQuantity}، المحجوز {reservedQuantity}).",
+      "PRICE_EXCEEDS_CONTRACT": "السعر أكبر من سعر العقد للبند {code}: المطلوب {requestedPrice}، سعر العقد {contractPrice}.",
+      "PRICE_DATE_NOT_AFTER_LATEST": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latestEffectiveFrom}."
+    },
+    "section": {
+      "title": "المقاولين الباطن",
+      "readOnly": "عرض للقراءة فقط",
+      "noWorkOrder": "لا يوجد أمر تكليف لهذا المشروع بعد. أنشئ أمر التكليف أولًا ثم سجّل المقاولين عليه.",
+      "goToWorkOrders": "الذهاب إلى أوامر التكليف",
+      "none": "لا يوجد مقاول مسجَّل على أمر التكليف بعد.",
+      "register": "تسجيل مقاول",
+      "registeredOn": "تاريخ التسجيل",
+      "total": "إجمالي هذا المقاول",
+      "totalHint": "الكمية × آخر سعر، مجمّعة على بنوده",
+      "removeRegistration": "حذف التسجيل",
+      "confirmRemoveRegistration": "حذف {name} من أمر التكليف مع كل بنوده وأسعاره؟",
+      "lines": "بنود {name}",
+      "noLines": "لا توجد بنود"
+    },
+    "line": {
+      "code": "الكود",
+      "description": "الوصف",
+      "unit": "الوحدة",
+      "contractPrice": "سعر العقد",
+      "quantity": "الكمية",
+      "currentPrice": "السعر الحالي",
+      "since": "من",
+      "history": "سجل الأسعار",
+      "actions": "إجراءات",
+      "editQuantity": "تعديل الكمية",
+      "addPrice": "إضافة سعر بتاريخ",
+      "remove": "حذف البند",
+      "confirmRemove": "حذف البند {code} من هذا المقاول مع أسعاره؟",
+      "newQuantity": "الكمية الجديدة ({code})",
+      "effectiveFrom": "السعر من تاريخ ({code})",
+      "newPrice": "السعر الجديد ({code})"
+    },
+    "register": {
+      "title": "تسجيل مقاول",
+      "contractor": "المقاول",
+      "chooseContractor": "— اختر المقاول —",
+      "alreadyRegistered": "مسجَّل بالفعل",
+      "createContractor": "إضافة مقاول جديد",
+      "date": "تاريخ التسجيل",
+      "linesTitle": "البنود المسندة للمقاول",
+      "linesHint": "اختر بنود أمر التكليف ثم أدخل الكمية والسعر لكل بند.",
+      "giveLine": "إسناد البند {code}",
+      "available": "المتاح",
+      "workOrderPrice": "سعر العقد",
+      "quantity": "الكمية ({code})",
+      "price": "السعر ({code})",
+      "priceHeader": "سعر المقاول",
+      "notAssignable": "بند قديم: لا يمكن إسناده لمقاول",
+      "nothingLeft": "لا يوجد متاح للإسناد",
+      "submit": "تسجيل"
+    }
   }
 }
