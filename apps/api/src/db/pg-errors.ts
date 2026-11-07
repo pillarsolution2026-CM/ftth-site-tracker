@@ -28,6 +28,15 @@ export function foreignKeyViolation(error: unknown): string | null {
   return pgError?.code === '23503' ? (pgError.constraint ?? '') : null;
 }
 
+/**
+ * Name of the constraint behind a foreign-key violation (23503) or a restrict_violation (23001),
+ * which is what ON DELETE RESTRICT may raise; null for any other error.
+ */
+export function restrictingConstraint(error: unknown): string | null {
+  const pgError = pgErrorOf(error);
+  return pgError?.code === '23503' || pgError?.code === '23001' ? (pgError.constraint ?? '') : null;
+}
+
 /** True for SQLSTATE 23001 (restrict_violation), raised by the DB triggers that lock approved data. */
 export function restrictViolation(error: unknown): boolean {
   return pgErrorOf(error)?.code === '23001';

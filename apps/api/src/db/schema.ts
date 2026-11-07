@@ -725,6 +725,113 @@ export const contractAttachments = pgTable(
   (table) => [index('contract_attachments_contract_idx').on(table.contractId, table.createdAt)],
 );
 
+// ---------------------------------------------------------------------------------------------
+// Phase 2 subcontractors (migration 0013, ADR-036). The triggers of the migration enforce the
+// quantity cap, the price ceiling, the price dates and the append-only price history.
+// ---------------------------------------------------------------------------------------------
+
+export const contractors = pgTable(
+  'contractors',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    name: text('name').notNull(),
+    contactName: text('contact_name').notNull(),
+    contactPhone: text('contact_phone').notNull(),
+    commercialRegister: text('commercial_register'),
+    taxCard: text('tax_card'),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // contractors_name_key is a unique index on lower(btrim(name)); created by the migration.
+  () => [],
+);
+
+export const contractorRegistrations = pgTable(
+  'contractor_registrations',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id').notNull(),
+    workOrderId: uuid('work_order_id').notNull(),
+    contractorId: uuid('contractor_id')
+      .notNull()
+      .references(() => contractors.id, { onDelete: 'restrict' }),
+    registeredOn: date('registered_on', { mode: 'string' }).notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'contractor_registrations_order_fkey',
+      columns: [table.projectId, table.workOrderId],
+      foreignColumns: [workOrders.projectId, workOrders.id],
+    }).onDelete('restrict'),
+    unique('contractor_registrations_order_contractor_key').on(
+      table.workOrderId,
+      table.contractorId,
+    ),
+    unique('contractor_registrations_project_id_id_key').on(table.projectId, table.id),
+    index('contractor_registrations_project_idx').on(table.projectId),
+    index('contractor_registrations_contractor_idx').on(table.contractorId),
+  ],
+);
+
+export const contractorLines = pgTable(
+  'contractor_lines',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    projectId: uuid('project_id').notNull(),
+    registrationId: uuid('registration_id').notNull(),
+    workOrderItemId: uuid('work_order_item_id').notNull(),
+    quantity: numeric('quantity', { precision: 18, scale: 4 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'contractor_lines_registration_fkey',
+      columns: [table.projectId, table.registrationId],
+      foreignColumns: [contractorRegistrations.projectId, contractorRegistrations.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'contractor_lines_item_fkey',
+      columns: [table.projectId, table.workOrderItemId],
+      foreignColumns: [workOrderItems.projectId, workOrderItems.id],
+    }).onDelete('restrict'),
+    unique('contractor_lines_registration_item_key').on(
+      table.registrationId,
+      table.workOrderItemId,
+    ),
+    index('contractor_lines_item_idx').on(table.workOrderItemId),
+  ],
+);
+
+export const contractorLinePrices = pgTable(
+  'contractor_line_prices',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    contractorLineId: uuid('contractor_line_id')
+      .notNull()
+      .references(() => contractorLines.id, { onDelete: 'cascade' }),
+    effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+    unitPrice: numeric('unit_price', { precision: 20, scale: 6 }).notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('contractor_line_prices_line_date_key').on(table.contractorLineId, table.effectiveFrom),
+  ],
+);
+
 export const schema = {
   users,
   refreshTokens,
@@ -738,6 +845,10 @@ export const schema = {
   contracts,
   contractItems,
   contractAttachments,
+  contractors,
+  contractorRegistrations,
+  contractorLines,
+  contractorLinePrices,
   cadFiles,
   cadLayers,
   cadInserts,

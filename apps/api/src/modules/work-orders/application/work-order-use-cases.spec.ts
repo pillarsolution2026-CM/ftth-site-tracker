@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { systemClock, type IdGenerator } from '../../../common/clock.js';
 import { InMemoryObjectStorage } from '../../../common/testing/in-memory-object-storage.js';
 import type { ApprovedContract } from '../domain/contract-lines.js';
+import { Decimal } from '../domain/decimal.js';
 import { WorkOrder } from '../domain/work-order.js';
 import { ExcelJsWorkbookReader } from '../infrastructure/exceljs-workbook-reader.js';
 import { approvedContractFromSheet, itemIdOfRow } from '../testing/approved-contract.js';
@@ -373,6 +374,64 @@ describe('work order use cases', () => {
         request: { quantity: '1' },
       }),
     ).rejects.toMatchObject({ details: { reason: 'LEGACY_ITEM' } });
+  });
+
+  it('protects what subcontractors hold: quantity floor, line removal, work order deletion (ADR-036)', async () => {
+    const { order } = await createIn(PROJECT, {
+      lines: [{ contractItemId: CHAMBER, quantity: '10' }],
+    });
+    const line = order.items[0];
+    const itemId = line?.id ?? '';
+    uow.contractors.held.set(itemId, Decimal.parse('6'));
+    uow.contractors.registrations.set(order.header.id, 1);
+    const change = (quantity: string) =>
+      update.execute({
+        projectId: PROJECT,
+        workOrderId: order.header.id,
+        actorId: ACTOR,
+        itemId,
+        request: { quantity },
+      });
+    await expect(change('5.9999')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: {
+        reason: 'QUANTITY_BELOW_CONTRACTORS',
+        workOrderItemId: itemId,
+        code: '1-2-1',
+        contractorsQuantity: '6',
+        requestedQuantity: '5.9999',
+      },
+    });
+    // Exactly what they hold is fine.
+    expect((await change('6')).quantity.toString()).toBe('6');
+
+    await expect(
+      new RemoveWorkOrderItemUseCase(uow).execute({
+        projectId: PROJECT,
+        workOrderId: order.header.id,
+        actorId: ACTOR,
+        itemId,
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'LINE_HAS_CONTRACTORS' } });
+
+    await expect(
+      new DeleteWorkOrderUseCase(uow, storage).execute({
+        projectId: PROJECT,
+        workOrderId: order.header.id,
+        actorId: ACTOR,
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'WORK_ORDER_HAS_CONTRACTORS' } });
+    expect(uow.orders.orders.size).toBe(1);
+
+    // Once the contractors are gone the line and the work order go too.
+    uow.contractors.held.clear();
+    uow.contractors.registrations.clear();
+    await new DeleteWorkOrderUseCase(uow, storage).execute({
+      projectId: PROJECT,
+      workOrderId: order.header.id,
+      actorId: ACTOR,
+    });
+    expect(uow.orders.orders.size).toBe(0);
   });
 
   it('keeps the event snapshot when a work order is deleted and removes its stored files', async () => {

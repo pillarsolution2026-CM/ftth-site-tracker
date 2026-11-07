@@ -1,7 +1,11 @@
 import { and, asc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import type { DbHandle } from '../../../db/db.module.js';
-import { triggerViolationMessage, uniqueViolation } from '../../../db/pg-errors.js';
+import {
+  restrictingConstraint,
+  triggerViolationMessage,
+  uniqueViolation,
+} from '../../../db/pg-errors.js';
 import { workOrderAttachments, workOrderItems, workOrders } from '../../../db/schema.js';
 import { Decimal } from '../domain/decimal.js';
 import {
@@ -86,8 +90,19 @@ function triggerReason(message: string): string | null {
  * Safety net: maps the constraints and the trigger of migration 0008 to client-visible conflicts
  * when the application checks were bypassed or raced.
  */
-function translateConflict(error: unknown): never {
+function translateConflict(error: unknown, item?: WorkOrderItem): never {
   const triggerMessage = triggerViolationMessage(error);
+  if (triggerMessage !== null && item && triggerMessage.includes('below the contractors')) {
+    // Migration 0013: "(contractors 10.0000, requested 5.0000)".
+    const numbers = /contractors ([\d.]+), requested ([\d.]+)/.exec(triggerMessage);
+    throw new AppError('CONFLICT', 'The quantity is below the contractors quantity', {
+      reason: 'QUANTITY_BELOW_CONTRACTORS',
+      workOrderItemId: item.id,
+      code: item.code,
+      contractorsQuantity: numbers?.[1] ? Decimal.parse(numbers[1]).toString() : null,
+      requestedQuantity: item.quantity.toString(),
+    });
+  }
   if (triggerMessage !== null) {
     const reason = triggerReason(triggerMessage);
     if (reason) throw new AppError('CONFLICT', 'The line breaks a contract rule', { reason });
@@ -234,9 +249,22 @@ export class DrizzleWorkOrderRepository implements WorkOrderRepository {
   }
 
   async delete(projectId: string, workOrderId: string): Promise<void> {
-    await this.db
-      .delete(workOrders)
-      .where(and(eq(workOrders.projectId, projectId), eq(workOrders.id, workOrderId)));
+    try {
+      await this.db
+        .delete(workOrders)
+        .where(and(eq(workOrders.projectId, projectId), eq(workOrders.id, workOrderId)));
+    } catch (error) {
+      const constraint = restrictingConstraint(error);
+      if (
+        constraint === 'contractor_registrations_order_fkey' ||
+        constraint === 'contractor_lines_item_fkey'
+      ) {
+        throw new AppError('CONFLICT', 'Contractors are registered on this work order', {
+          reason: 'WORK_ORDER_HAS_CONTRACTORS',
+        });
+      }
+      throw error;
+    }
   }
 
   async insertItem(projectId: string, workOrderId: string, item: WorkOrderItem): Promise<void> {
@@ -264,23 +292,34 @@ export class DrizzleWorkOrderRepository implements WorkOrderRepository {
         )
         .returning({ id: workOrderItems.id });
     } catch (error) {
-      translateConflict(error);
+      translateConflict(error, item);
     }
     if (updated.length === 0) throw new AppError('NOT_FOUND', 'Work order item not found');
     await this.bumpVersion(projectId, workOrderId);
   }
 
   async deleteItem(projectId: string, workOrderId: string, itemId: string): Promise<void> {
-    const deleted = await this.db
-      .delete(workOrderItems)
-      .where(
-        and(
-          eq(workOrderItems.projectId, projectId),
-          eq(workOrderItems.workOrderId, workOrderId),
-          eq(workOrderItems.id, itemId),
-        ),
-      )
-      .returning({ id: workOrderItems.id });
+    let deleted: { id: string }[];
+    try {
+      deleted = await this.db
+        .delete(workOrderItems)
+        .where(
+          and(
+            eq(workOrderItems.projectId, projectId),
+            eq(workOrderItems.workOrderId, workOrderId),
+            eq(workOrderItems.id, itemId),
+          ),
+        )
+        .returning({ id: workOrderItems.id });
+    } catch (error) {
+      if (restrictingConstraint(error) === 'contractor_lines_item_fkey') {
+        throw new AppError('CONFLICT', 'The line is given to a contractor', {
+          reason: 'LINE_HAS_CONTRACTORS',
+          workOrderItemId: itemId,
+        });
+      }
+      throw error;
+    }
     if (deleted.length === 0) throw new AppError('NOT_FOUND', 'Work order item not found');
     await this.bumpVersion(projectId, workOrderId);
   }

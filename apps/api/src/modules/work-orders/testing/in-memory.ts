@@ -9,6 +9,7 @@ import {
 } from '../domain/work-order.js';
 import type {
   ContractCatalog,
+  ContractorHoldings,
   WorkOrderAttachment,
   WorkOrderAttachmentRepository,
   WorkOrderRepository,
@@ -17,8 +18,7 @@ import type {
   WorkOrderUnitOfWork,
 } from '../domain/work-order.repository.js';
 import { reservedOf, type ApprovedContract, type Reservations } from '../domain/contract-lines.js';
-import type { Decimal } from '../domain/decimal.js';
-import { sumDecimals } from '../domain/decimal.js';
+import { Decimal, sumDecimals } from '../domain/decimal.js';
 import { itemAmount } from '../domain/work-order.js';
 
 export class InMemoryEvents implements EventLog {
@@ -152,6 +152,22 @@ export class InMemoryContractCatalog implements ContractCatalog {
   }
 }
 
+/** Contractor quantities per work-order line and registrations per work order, set by the test. */
+export class InMemoryContractorHoldings implements ContractorHoldings {
+  readonly held = new Map<string, Decimal>();
+  readonly registrations = new Map<string, number>();
+
+  async heldQuantity(workOrderItemId: string): Promise<Decimal> {
+    return this.held.get(workOrderItemId) ?? Decimal.zero;
+  }
+  async lineCount(workOrderItemId: string): Promise<number> {
+    return this.held.has(workOrderItemId) ? 1 : 0;
+  }
+  async registrationCount(workOrderId: string): Promise<number> {
+    return this.registrations.get(workOrderId) ?? 0;
+  }
+}
+
 export class InMemoryAttachments implements WorkOrderAttachmentRepository {
   readonly rows: WorkOrderAttachment[] = [];
   async listByWorkOrder(projectId: string, workOrderId: string): Promise<WorkOrderAttachment[]> {
@@ -180,6 +196,7 @@ export class InMemoryWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
   readonly orders = new InMemoryWorkOrders();
   readonly attachments = new InMemoryAttachments();
   readonly contracts: InMemoryContractCatalog;
+  readonly contractors = new InMemoryContractorHoldings();
   readonly events = new InMemoryEvents();
   failOnCommit: Error | null = null;
 
@@ -192,6 +209,7 @@ export class InMemoryWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
       orders: this.orders,
       attachments: this.attachments,
       contracts: this.contracts,
+      contractors: this.contractors,
       events: this.events,
     });
     if (this.failOnCommit) throw this.failOnCommit;
