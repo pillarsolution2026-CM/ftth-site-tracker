@@ -4,9 +4,11 @@ import {
   CadMappingInputSchema,
   CadMappingSchema,
   CadMappingViewSchema,
+  PlacementDrawingSchema,
   type CadMapping,
   type CadMappingInput,
   type CadMappingView,
+  type PlacementDrawing,
 } from '@ftth/shared';
 import { ProjectIdParam } from '../../../common/http/params.js';
 import { actorIdOf } from '../../../common/http/request-actor.js';
@@ -19,6 +21,7 @@ import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
 import {
   GetCadMappingUseCase,
+  GetPlacementDrawingUseCase,
   SaveCadMappingUseCase,
 } from '../application/cad-mapping.use-cases.js';
 import { toMappingDto, toMappingViewDto } from './design-revision.presenter.js';
@@ -31,7 +34,20 @@ export class CadMappingController {
   constructor(
     @Inject(GetCadMappingUseCase) private readonly getMapping: GetCadMappingUseCase,
     @Inject(SaveCadMappingUseCase) private readonly saveMapping: SaveCadMappingUseCase,
+    @Inject(GetPlacementDrawingUseCase)
+    private readonly placementDrawing: GetPlacementDrawingUseCase,
   ) {}
+
+  /** Point items and route lines in drawing units for the placement screen (ADR-035). */
+  @Get('placement-drawing')
+  @RequirePermission('cad_files:read')
+  @ApiOkResponse({ schema: openApiSchema(PlacementDrawingSchema) })
+  drawing(
+    @ProjectIdParam() projectId: string,
+    @Param('cadFileId', UuidParamPipe) cadFileId: string,
+  ): Promise<PlacementDrawing> {
+    return this.placementDrawing.execute(projectId, cadFileId);
+  }
 
   @Get()
   @RequirePermission('cad_files:read')

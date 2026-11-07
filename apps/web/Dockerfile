@@ -12,6 +12,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/i18n/package.json packages/i18n/
 COPY packages/ui-tokens/package.json packages/ui-tokens/
+COPY packages/geo/package.json packages/geo/
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @ftth/web...
 
@@ -20,7 +21,7 @@ FROM deps AS build
 COPY tsconfig.base.json ./
 COPY packages packages
 COPY apps/web apps/web
-RUN pnpm --filter "@ftth/shared" --filter "@ftth/i18n" --filter "@ftth/ui-tokens" build \
+RUN pnpm --filter "@ftth/shared" --filter "@ftth/i18n" --filter "@ftth/ui-tokens" --filter "@ftth/geo" build \
  && pnpm --filter @ftth/web build
 
 # Minimal runtime image: the standalone output already contains the traced node_modules.

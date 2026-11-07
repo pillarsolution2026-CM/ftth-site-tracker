@@ -1,3 +1,5 @@
 .next/
 next-env.d.ts
 *.tsbuildinfo
+# Copied from maplibre-gl at dev / build (scripts/copy-map-worker.mjs)
+public/maplibre-gl-worker.mjs

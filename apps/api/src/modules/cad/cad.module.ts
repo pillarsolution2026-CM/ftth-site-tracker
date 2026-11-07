@@ -19,6 +19,7 @@ import {
 } from './application/cad-queries.use-cases.js';
 import {
   GetCadMappingUseCase,
+  GetPlacementDrawingUseCase,
   SaveCadMappingUseCase,
 } from './application/cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './application/create-design-revision.use-case.js';
@@ -207,6 +208,12 @@ const providers: Provider[] = [
       view: CadMappingViewQueries,
       projects: ProjectEpsgLookup,
     ) => new GetCadMappingUseCase(files, mappings, extraction, view, projects),
+  },
+  {
+    provide: GetPlacementDrawingUseCase,
+    inject: [CAD_FILE_REPOSITORY, CAD_MAPPING_VIEW_QUERIES],
+    useFactory: (files: CadFileRepository, view: CadMappingViewQueries) =>
+      new GetPlacementDrawingUseCase(files, view),
   },
   {
     provide: SaveCadMappingUseCase,
