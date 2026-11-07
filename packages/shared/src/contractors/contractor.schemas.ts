@@ -137,6 +137,8 @@ export type AddContractorPriceRequest = z.infer<typeof AddContractorPriceRequest
  * - PRICE_EXCEEDS_CONTRACT: details also carry `workOrderItemId`, `code`, `contractPrice`,
  *   `requestedPrice`.
  * - PRICE_DATE_NOT_AFTER_LATEST: details also carry `latestEffectiveFrom`.
+ * - LAST_LINE: the only line of a registration cannot be removed (owner: the item list is
+ *   required); remove the registration instead.
  */
 export const CONTRACTOR_CONFLICT_REASONS = [
   'CONTRACTOR_NAME_TAKEN',
@@ -148,6 +150,7 @@ export const CONTRACTOR_CONFLICT_REASONS = [
   'QUANTITY_EXCEEDS_WORK_ORDER',
   'PRICE_EXCEEDS_CONTRACT',
   'PRICE_DATE_NOT_AFTER_LATEST',
+  'LAST_LINE',
 ] as const;
 export type ContractorConflictReason = (typeof CONTRACTOR_CONFLICT_REASONS)[number];
 

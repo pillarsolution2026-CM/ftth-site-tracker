@@ -292,6 +292,13 @@ export class RemoveContractorLineUseCase {
     return this.uow.run(async (tx) => {
       const registration = await lockedRegistration(tx, projectId, registrationId);
       const line = findLine(registration, lineId);
+      // The item list is required (owner, 2026-11-07): the last line goes only with its registration.
+      if (registration.lines.length <= 1) {
+        throw new AppError('CONFLICT', 'The last line of a contractor cannot be removed', {
+          reason: 'LAST_LINE',
+          registrationId,
+        });
+      }
       await tx.events.append({
         projectId,
         entity: EVENT_ENTITIES.contractorLine,

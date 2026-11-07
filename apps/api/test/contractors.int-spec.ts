@@ -566,6 +566,13 @@ describe('contractors on a project', () => {
     expect(lineEvent.rows[0]?.payload).toMatchObject({ quantity: '10' });
     expect(lineEvent.rows[0]?.payload.prices).toHaveLength(2);
 
+    // The item list is required: the last line goes only with the registration.
+    const last = await asAdmin(
+      http().delete(adminUrl(w.projectId, `/${registrationId}/lines/${lineIds.B}`)),
+    );
+    expect(last.status).toBe(409);
+    expect(last.body.details).toMatchObject({ reason: 'LAST_LINE' });
+
     const removed = await asAdmin(http().delete(adminUrl(w.projectId, `/${registrationId}`)));
     expect(removed.status, JSON.stringify(removed.body)).toBe(200);
     expect(ProjectContractorsResponseSchema.parse(removed.body).registrations).toHaveLength(0);

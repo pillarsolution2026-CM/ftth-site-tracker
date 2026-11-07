@@ -512,7 +512,25 @@ describe('lines and prices', () => {
     });
   });
 
+  it('refuses to remove the last line of a registration (owner: the item list is required)', async () => {
+    const details = await conflict(
+      removeLine.execute({
+        projectId: PROJECT,
+        actorId: ACTOR,
+        registrationId,
+        lineId: trenchLineId,
+      }),
+    );
+    expect(details).toMatchObject({ reason: 'LAST_LINE', registrationId });
+  });
+
   it('removes a line and writes its snapshot with the price history', async () => {
+    await addLine.execute({
+      projectId: PROJECT,
+      actorId: ACTOR,
+      registrationId,
+      request: { workOrderItemId: CHAMBER, quantity: '10', unitPrice: '7000' },
+    });
     await addPrice.execute({
       projectId: PROJECT,
       actorId: ACTOR,
@@ -527,8 +545,8 @@ describe('lines and prices', () => {
       registrationId,
       lineId: trenchLineId,
     });
-    expect(view.registrations[0]!.lines).toHaveLength(0);
-    expect(view.availability[0]!.reserved.toString()).toBe('0');
+    expect(view.registrations[0]!.lines.map((line) => line.item.id)).toEqual([CHAMBER]);
+    expect(view.availability.find((row) => row.item.id === TRENCH)!.reserved.toString()).toBe('0');
     expect(uow.events.events[0]).toMatchObject({
       type: 'contractor_line.removed',
       payload: {
