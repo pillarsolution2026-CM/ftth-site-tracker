@@ -171,13 +171,14 @@ def _build_sector_1(
     result: dict[str, Any],
     mapping: dict[str, Any],
     storage: Path,
+    corrections: list[dict[str, Any]] | None = None,
 ) -> tuple[uuid.UUID, str, float]:
     revision_id, job_id = uuid.uuid4(), uuid.uuid4()
     db.execute(
         "INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, rules, "
-        "mapping_version, crs_epsg, drawing_unit, metres_per_unit, placement, ins_units, "
-        "units_conflict) SELECT %s, f.project_id, f.id, 'queued', %s, %s, 1, %s, %s, %s, %s, "
-        "f.ins_units, "
+        "mapping_version, crs_epsg, drawing_unit, metres_per_unit, placement, corrections, "
+        "ins_units, units_conflict) "
+        "SELECT %s, f.project_id, f.id, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, f.ins_units, "
         "COALESCE((f.crs_detection->>'unitsConflict')::boolean, false) FROM cad_files f "
         "WHERE f.id = %s",
         (
@@ -188,6 +189,7 @@ def _build_sector_1(
             mapping["drawingUnit"],
             Decimal(mapping["metresPerUnit"]),
             json.dumps(mapping["placement"]) if mapping.get("placement") else None,
+            json.dumps(corrections or []),
             result["cad_file_id"],
         ),
     )
@@ -330,3 +332,94 @@ def test_rabaa_design_revision(
                 for i in items
             ), (code, x, y)
     assert seconds < MAX_BUILD_SECONDS
+
+
+RABAA_ORIGINAL_MAPPING = GOLDEN_DIR / f"rabaa_original{MAPPING_SUFFIX}"
+MERGEABLE = ("LINE", "LWPOLYLINE", "POLYLINE")
+
+
+def _build_problems(
+    db: psycopg.Connection[Any],
+    database_url: str,
+    result: dict[str, Any],
+    mapping: dict[str, Any],
+    storage: Path,
+    corrections: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build a draft (the previous draft discarded) and return its problems by code."""
+    db.execute(
+        "UPDATE design_revisions SET status = 'discarded' WHERE project_id = %s "
+        "AND status = 'draft'",
+        (result["project_id"],),
+    )
+    revision_id, outcome, _ = _build_sector_1(
+        db, database_url, result, mapping, storage, corrections
+    )
+    row = db.execute(
+        "SELECT error_code, error_message, warnings FROM design_revisions WHERE id = %s",
+        (revision_id,),
+    ).fetchone()
+    assert row is not None
+    assert outcome == "built", row[:2]
+    return {w["code"]: w for w in row[2] if "items" in w}
+
+
+def _correction(n: int, body: dict[str, Any]) -> dict[str, Any]:
+    return {"id": str(uuid.UUID(int=n + 1)), "correction": body}
+
+
+@pytest.mark.skipif(not _node_ready(), reason="node or converter/node_modules (npm ci) missing")
+def test_rabaa_original_corrections_clear_their_problems(
+    processed_drawings: dict[str, dict[str, Any]],
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    """ADR-038 on the original Rabaa: a correction set built from its problems (labels typed,
+    items and labels moved to the suggested layer, one split route merged) clears them."""
+    mapping = _load(RABAA_ORIGINAL_MAPPING)
+    result = processed_drawings.get(mapping["file"])
+    if result is None:
+        pytest.skip(f"real drawing {mapping['file']} not found in {fixtures_dir()}")
+    kinds = {r["layer"]: r.get("kind") for r in mapping["rules"] if r["source"] == "layer"}
+    with psycopg.connect(database_url, autocommit=True) as db:
+        before = _build_problems(db, database_url, result, mapping, tmp_path / "a")
+        file_id = result["cad_file_id"]
+        bodies: list[dict[str, Any]] = []
+        for item in before["LABEL_TYPE_MISMATCH"]["items"]:
+            # The item is the symbol; its label is the nearest text with the label's content.
+            found = db.execute(
+                "SELECT handle FROM cad_texts WHERE cad_file_id = %s AND text = %s "
+                "ORDER BY position <-> ST_MakePoint(%s, %s) LIMIT 1",
+                (file_id, item["text"], item["drawingX"], item["drawingY"]),
+            ).fetchone()
+            assert found is not None
+            text = f"Joint {kinds[item['layer']]}"
+            bodies.append({"kind": "set_text", "handle": found[0], "text": text})
+        for item in before["WRONG_LAYER"]["items"]:
+            bodies.append(
+                {"kind": "move_layer", "handle": item["handle"], "toLayer": item["suggestedLayer"]}
+            )
+        for item in before["LABEL_LENGTH_MISSING"]["items"]:
+            bodies.append(
+                {"kind": "set_text", "handle": item["handle"], "text": f"100m/{item['text']}"}
+            )
+        merged = 0
+        for item in before["ROUTE_SPLIT"]["items"]:
+            pair = item["handle"].split("/")
+            types = db.execute(
+                "SELECT count(*) FROM cad_curves WHERE cad_file_id = %s AND handle = ANY(%s) "
+                "AND NOT is_closed AND entity_type = ANY(%s)",
+                (file_id, pair, list(MERGEABLE)),
+            ).fetchone()
+            if types is not None and types[0] == 2:
+                bodies.append({"kind": "merge_routes", "handles": pair})
+                merged = 1
+                break
+        corrections = [_correction(n, body) for n, body in enumerate(bodies)]
+        after = _build_problems(db, database_url, result, mapping, tmp_path / "b", corrections)
+    count = {code: p["count"] for code, p in after.items()}
+    print(f"GOLDEN CORRECTIONS {mapping['file']}: {len(corrections)} corrections, problems={count}")
+    assert "LABEL_TYPE_MISMATCH" not in after
+    assert "WRONG_LAYER" not in after
+    assert "LABEL_LENGTH_MISSING" not in after
+    assert count.get("ROUTE_SPLIT", 0) == before["ROUTE_SPLIT"]["count"] - merged

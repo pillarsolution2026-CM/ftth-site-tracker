@@ -206,6 +206,8 @@ class RevisionInputs:
     drawing_unit: str
     metres_per_unit: Decimal
     placement: object = None  # frozen PlacementSchema JSON; None = as drawn (ADR-035)
+    # Frozen FrozenDrawingCorrectionSchema[] JSON, in the order to apply (ADR-038); None = none.
+    corrections: object = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,9 +282,12 @@ class RevisionBuild(Protocol):
 
     inputs: RevisionInputs
 
-    def load_drawing(self, curve_layers: frozenset[str]) -> DrawingData:
+    def load_drawing(
+        self, curve_layers: frozenset[str], curve_handles: frozenset[str] = frozenset()
+    ) -> DrawingData:
         """Rows of the revision's CAD file (drawing units). Raises
-        BuildFailure(CAD_FILE_NOT_PROCESSED). Only curves on `curve_layers` are read."""
+        BuildFailure(CAD_FILE_NOT_PROCESSED). Only curves on `curve_layers` or with one of
+        `curve_handles` (named by drawing corrections) are read."""
         ...
 
     def load_base(self) -> tuple[BaseFeature, ...]:

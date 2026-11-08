@@ -8,6 +8,10 @@ protocol:
 - `cad.build_revision` (Phase 1b, ADR-017..021): mapping rules -> design features, text links,
   diff against the base revision and a PMTiles archive; the revision ends `draft` (or `failed`).
   Every coordinate is scaled by the revision's `metres_per_unit` (ADR-018: no unit is assumed).
+  The revision's frozen drawing corrections (ADR-038, `domain/corrections.py`) are applied to the
+  rows first, so features, text links and problems see the corrected drawing; an invalid or
+  inapplicable correction fails the revision `MAPPING_INVALID`. The background tile layer is
+  rendered from the raw rows and does not show corrections.
 - `cad.export_asbuilt` (Phase 4, ADR-030): As-Built DXF (R2018, metres) of the export's published
   revision plus the approved As-Built state: design entities on their original layers, approved
   edits on `ASBUILT_EDITS`, added features on `ASBUILT_ADDED`, status texts; written to

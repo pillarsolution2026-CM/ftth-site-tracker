@@ -9,6 +9,7 @@ Mirror of `MappingRuleSchema` (`packages/shared/src/cad/cad-mapping.schemas.ts`)
 - `block` (any layer) -> point type | `background` | `ignore`; wins over the layer rule;
 - `text` (exact text, trimmed, case-insensitive, on one layer) -> point type: one feature at the
   text's insertion point; such texts are not linked.
+Items added by a drawing correction (block `FIX_BLOCK`, ADR-038) follow their layer's rule only.
 Layers without a rule are ignored. A rule to a feature type may carry `kind`, `status` and (cabinet
 only, required) `role`; the feature keeps them in `attrs` (ADR-033/034).
 
@@ -44,6 +45,9 @@ MAX_RULES = 2000
 # Closed shapes on one point layer closer than this (metres) are one symbol (ADR-033). Technical
 # tuning, not a business rule.
 SHAPE_TOUCH_M = 0.05
+# Block name of an item added by a drawing correction (ADR-038): no block rule applies to it, its
+# layer's rule decides what it is.
+FIX_BLOCK = "__fix__"
 
 
 class MappingInvalidError(ValueError):
@@ -83,13 +87,15 @@ class MappingRules:
 
     def insert_target(self, layer: str, block_name: str) -> Target | None:
         """The block rule wins over the layer rule; None = no rule (ignored)."""
-        if block_name in self.blocks:
+        if block_name in self.blocks and block_name != FIX_BLOCK:
             return self.blocks[block_name]
         return self.layers.get(layer)
 
     def insert_rule(self, layer: str, block_name: str) -> tuple[str, ...]:
         """Key of the rule that decides an INSERT (block rule first)."""
-        return ("block", block_name) if block_name in self.blocks else ("layer", layer)
+        if block_name in self.blocks and block_name != FIX_BLOCK:
+            return ("block", block_name)
+        return ("layer", layer)
 
     def text_rule(self, layer: str, text: str) -> FeatureType | None:
         return self.texts.get((layer, text_rule_key(text)))
