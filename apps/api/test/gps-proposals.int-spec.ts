@@ -639,10 +639,10 @@ describe('GPS proposals for the PM', () => {
     pub = await publishDrawing();
   });
 
-  it('lists proposals newest first with their filters, for readers of CAD files', async () => {
+  it('lists proposals newest first with their filters, for PMs only', async () => {
     const first = await propose1();
     const second = await propose1(pub.cabinet);
-    const res = await as(fx.tokens.supervisorA)(http().get(`${base()}?cadFileId=${pub.fileId}`));
+    const res = await as(fx.tokens.pm)(http().get(`${base()}?cadFileId=${pub.fileId}`));
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const items = GpsProposalListResponseSchema.parse(res.body).items;
     expect(items.map((p) => p.id)).toEqual([second, first]);
@@ -666,7 +666,11 @@ describe('GPS proposals for the PM', () => {
     );
     expect(GpsProposalListResponseSchema.parse(none.body).items).toEqual([]);
     expect((await as(fx.tokens.pm)(http().get(`${base()}?status=nope`))).status).toBe(400);
-    expect((await as(fx.tokens.contractor)(http().get(base()))).status).toBe(403);
+    // Other supervisors' fixes, notes and photos from every zone: not for supervisors or QC.
+    for (const token of [fx.tokens.supervisorA, fx.tokens.qc, fx.tokens.contractor]) {
+      expect((await as(token)(http().get(base()))).status).toBe(403);
+      expect((await as(token)(http().get(`${base()}/${first}/photo`))).status).toBe(403);
+    }
     expect((await http().get(base())).status).toBe(401);
   });
 
