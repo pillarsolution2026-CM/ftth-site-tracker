@@ -15,6 +15,7 @@ import { Button } from '../../../shared/ui/Button';
 import { useTheme } from '../../../shared/ui/theme';
 import { SyncStatusBar } from '../../sync/components/SyncStatusBar';
 import { useField } from '../../sync/hooks/FieldProvider';
+import { canProposePoint } from '../../placement/model/gps-proposal';
 import { AsBuiltMode } from '../../asbuilt/components/AsBuiltMode';
 import type { AsBuiltDeps } from '../../asbuilt/hooks/useAsBuiltEditor';
 import { useViewportGestures } from '../hooks/useViewportGestures';
@@ -30,12 +31,14 @@ import { CadCanvas } from './CadCanvas';
 interface CadScreenProps {
   onUpdate: (featureId: string) => void;
   onOpenPending: () => void;
+  /** «ابعت نقطتي» (ADR-037); offered for cabinets, handholes, manholes, joints and boxes. */
+  onProposePoint?: (featureId: string) => void;
   /** Device services of the As-Built tools; without them the mode is not offered. */
   asBuilt?: AsBuiltDeps;
 }
 
 /** Main screen of the supervisor app (plan): the drawing, crosshair, E/N, layers, day/night. */
-export function CadScreen({ onUpdate, onOpenPending, asBuilt }: CadScreenProps) {
+export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: CadScreenProps) {
   const { t } = useI18n();
   const theme = useTheme();
   const { bundle, bundleStatus, download, entries } = useField();
@@ -222,6 +225,14 @@ export function CadScreen({ onUpdate, onOpenPending, asBuilt }: CadScreenProps) 
               disabled={!picked}
               testID="update-button"
             />
+            {picked && onProposePoint && canProposePoint(picked.type) ? (
+              <Button
+                variant="secondary"
+                label={t('field.cad.sendPoint')}
+                onPress={() => onProposePoint(picked.id)}
+                testID="propose-point-button"
+              />
+            ) : null}
           </View>
         </>
       )}
