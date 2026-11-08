@@ -25,8 +25,8 @@ import {
   DiffListQuerySchema,
   DiffPageSchema,
   DrawingProblemListSchema,
-  IgnoreDrawingProblemRequestSchema,
   PublishDesignRevisionRequestSchema,
+  PublishReadinessSchema,
   ReviewTextLinkRequestSchema,
   TextLinkListQuerySchema,
   TextLinkPageSchema,
@@ -41,8 +41,8 @@ import {
   type DiffListQuery,
   type DiffPage,
   type DrawingProblemList,
-  type IgnoreDrawingProblemRequest,
   type PublishDesignRevisionRequest,
+  type PublishReadiness,
   type ReviewTextLinkRequest,
   type TextLink,
   type TextLinkListQuery,
@@ -68,11 +68,11 @@ import {
   ListTextLinksUseCase,
 } from '../application/design-revision-queries.use-cases.js';
 import { DiscardDesignRevisionUseCase } from '../application/discard-design-revision.use-case.js';
+import { ListDrawingProblemsUseCase } from '../application/drawing-problems.use-cases.js';
 import {
-  IgnoreDrawingProblemUseCase,
-  ListDrawingProblemsUseCase,
-} from '../application/drawing-problems.use-cases.js';
-import { PublishDesignRevisionUseCase } from '../application/publish-design-revision.use-case.js';
+  GetPublishReadinessUseCase,
+  PublishDesignRevisionUseCase,
+} from '../application/publish-design-revision.use-case.js';
 import { ReviewTextLinkUseCase } from '../application/review-text-link.use-case.js';
 import { CreateTileUrlUseCase, GetRevisionTilesUseCase } from '../application/tiles.use-cases.js';
 import { toRevisionDetailDto, toRevisionSummaryDto } from './design-revision.presenter.js';
@@ -93,9 +93,8 @@ export class DesignRevisionsController {
     @Inject(ReviewTextLinkUseCase) private readonly review: ReviewTextLinkUseCase,
     @Inject(ListRevisionDiffUseCase) private readonly diff: ListRevisionDiffUseCase,
     @Inject(ListDrawingProblemsUseCase) private readonly problems: ListDrawingProblemsUseCase,
-    @Inject(IgnoreDrawingProblemUseCase)
-    private readonly ignoreProblem: IgnoreDrawingProblemUseCase,
     @Inject(PublishDesignRevisionUseCase) private readonly publish: PublishDesignRevisionUseCase,
+    @Inject(GetPublishReadinessUseCase) private readonly readiness: GetPublishReadinessUseCase,
     @Inject(DiscardDesignRevisionUseCase) private readonly discard: DiscardDesignRevisionUseCase,
     @Inject(GetRevisionTilesUseCase) private readonly tiles: GetRevisionTilesUseCase,
     @Inject(CreateTileUrlUseCase) private readonly tileUrl: CreateTileUrlUseCase,
@@ -187,26 +186,6 @@ export class DesignRevisionsController {
     return this.problems.execute(projectId, revisionId);
   }
 
-  /** ADR-034: the user ignores one place on their own responsibility (draft revisions only). */
-  @Post(':revisionId/problems/ignore')
-  @HttpCode(200)
-  @RequirePermission('design:write')
-  @ApiOkResponse({ schema: openApiSchema(DrawingProblemListSchema) })
-  ignoreOneProblem(
-    @ProjectIdParam() projectId: string,
-    @Param('revisionId', UuidParamPipe) revisionId: string,
-    @Body(new ZodValidationPipe(IgnoreDrawingProblemRequestSchema))
-    body: IgnoreDrawingProblemRequest,
-    @Req() request: AuthenticatedRequest,
-  ): Promise<DrawingProblemList> {
-    return this.ignoreProblem.execute({
-      projectId,
-      revisionId,
-      actorId: actorIdOf(request),
-      request: body,
-    });
-  }
-
   @Get(':revisionId/diff')
   @RequirePermission('design:read')
   @ApiOkResponse({ schema: openApiSchema(DiffPageSchema) })
@@ -216,6 +195,17 @@ export class DesignRevisionsController {
     @Query(new ZodValidationPipe(DiffListQuerySchema)) query: DiffListQuery,
   ): Promise<DiffPage> {
     return this.diff.execute(projectId, revisionId, query);
+  }
+
+  /** ADR-038: the checklist shown before publishing. */
+  @Get(':revisionId/publish-readiness')
+  @RequirePermission('design:read')
+  @ApiOkResponse({ schema: openApiSchema(PublishReadinessSchema) })
+  publishReadiness(
+    @ProjectIdParam() projectId: string,
+    @Param('revisionId', UuidParamPipe) revisionId: string,
+  ): Promise<PublishReadiness> {
+    return this.readiness.execute(projectId, revisionId);
   }
 
   @Post(':revisionId/publish')

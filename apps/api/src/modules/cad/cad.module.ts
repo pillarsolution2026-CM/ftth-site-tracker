@@ -32,13 +32,13 @@ import {
 } from './application/design-revision-queries.use-cases.js';
 import { DiscardDesignRevisionUseCase } from './application/discard-design-revision.use-case.js';
 import type { JobQueue, ProjectEpsgLookup, TileConfig } from './application/ports.js';
-import { PublishDesignRevisionUseCase } from './application/publish-design-revision.use-case.js';
+import {
+  GetPublishReadinessUseCase,
+  PublishDesignRevisionUseCase,
+} from './application/publish-design-revision.use-case.js';
 import { ReprocessCadFileUseCase } from './application/reprocess-cad-file.use-case.js';
 import { ReviewTextLinkUseCase } from './application/review-text-link.use-case.js';
-import {
-  IgnoreDrawingProblemUseCase,
-  ListDrawingProblemsUseCase,
-} from './application/drawing-problems.use-cases.js';
+import { ListDrawingProblemsUseCase } from './application/drawing-problems.use-cases.js';
 import {
   CreateTileUrlUseCase,
   GetRevisionTilesUseCase,
@@ -303,9 +303,9 @@ const providers: Provider[] = [
       new ListDrawingProblemsUseCase(revisions, problems),
   },
   {
-    provide: IgnoreDrawingProblemUseCase,
+    provide: GetPublishReadinessUseCase,
     inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new IgnoreDrawingProblemUseCase(uow, systemClock),
+    useFactory: (uow: CadUnitOfWork) => new GetPublishReadinessUseCase(uow),
   },
   {
     provide: PublishDesignRevisionUseCase,
