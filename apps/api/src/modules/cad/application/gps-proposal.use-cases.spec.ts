@@ -1,6 +1,7 @@
 import { MAX_CONTROL_POINTS, type ControlPoint } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../../common/app-error.js';
+import type { CadFile } from '../domain/cad-file.js';
 import type { CadMappingRecord } from '../domain/cad-mapping.js';
 import type { GpsProposalRecord } from '../domain/gps-proposal.js';
 import { FakeClock, InMemoryCadUnitOfWork } from '../testing/in-memory.js';
@@ -69,6 +70,8 @@ beforeEach(() => {
   uow = new InMemoryCadUnitOfWork();
   clock = new FakeClock(new Date('2026-11-08T12:00:00Z'));
   uow.mappings.rows.set(FILE, mappingRecord());
+  // Only the fields the accept use case reads; the rest of a file row is irrelevant here.
+  uow.files.rows.set(FILE, { id: FILE, projectId: PROJECT, status: 'processed' } as CadFile);
   uow.proposals.centres.set(id(5), { x: 100, y: 200 });
 });
 
@@ -170,6 +173,15 @@ describe('AcceptGpsProposalUseCase', () => {
     await accept(p.id, 1);
     expect(await reasonOf(accept(p.id, 2))).toMatchObject({ reason: 'ALREADY_DECIDED' });
     expect(uow.mappings.rows.get(FILE)?.version).toBe(2);
+  });
+
+  it('refuses while the file is being re-extracted, leaving mapping and proposal alone', async () => {
+    const p = proposal(1);
+    seed(p);
+    uow.files.rows.set(FILE, { id: FILE, projectId: PROJECT, status: 'processing' } as CadFile);
+    expect(await reasonOf(accept(p.id, 1))).toMatchObject({ reason: 'NOT_PROCESSED' });
+    expect(uow.mappings.rows.get(FILE)?.version).toBe(1);
+    expect(uow.proposals.rows.get(p.id)?.status).toBe('pending');
   });
 
   it('refuses more than the allowed number of control points', async () => {

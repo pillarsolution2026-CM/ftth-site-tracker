@@ -45,6 +45,9 @@ class Rejection extends Error {
  * Applies a device's outbox batch (ADR-024). Each operation runs in its own transaction, so one
  * refused operation never blocks the rest, and every result is final for that `clientOpId`.
  */
+const PROPOSAL_HANDLE_MAX = 64;
+const PROPOSAL_CODE_MAX = 200;
+
 export class PushSyncUseCase {
   constructor(
     private readonly uow: ExecutionUnitOfWork,
@@ -288,6 +291,9 @@ export class PushSyncUseCase {
     if (!isGpsProposalFeatureType(target.featureType)) {
       throw new Rejection('FEATURE_TYPE_NOT_ALLOWED');
     }
+    // Handles longer than the column cannot come from a real DXF; refuse instead of a database
+    // error that would make the device resend forever (security review L2).
+    if (target.handle.length > PROPOSAL_HANDLE_MAX) throw new Rejection('FEATURE_NOT_FOUND');
     if (payload.fix.accuracyM > GPS_PROPOSAL_MAX_ACCURACY_M) {
       throw new Rejection('GPS_ACCURACY_TOO_LOW');
     }
@@ -321,7 +327,7 @@ export class PushSyncUseCase {
       cadFileId: target.cadFileId,
       handle: target.handle,
       featureType: target.featureType,
-      code: target.code,
+      code: target.code === null ? null : target.code.slice(0, PROPOSAL_CODE_MAX),
       fix: { ...payload.fix, at: new Date(payload.fix.at) },
       receivedAt,
       proposedBy: input.userId,

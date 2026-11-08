@@ -30,7 +30,12 @@ export class InMemorySyncStore implements SyncStore, PhotoSource {
       rejection: null,
     });
     // As-Built edits carry no photos (ADR-030).
-    const photos = op.kind === 'execution_update.record' ? op.payload.photos : [];
+    const photos =
+      op.kind === 'execution_update.record'
+        ? op.payload.photos
+        : op.kind === 'placement_point.propose' && op.payload.photo
+          ? [op.payload.photo]
+          : [];
     for (const photo of photos) {
       const bytes = photoBytes.get(photo.photoId);
       if (!bytes) throw new Error(`missing bytes for photo ${photo.photoId}`);

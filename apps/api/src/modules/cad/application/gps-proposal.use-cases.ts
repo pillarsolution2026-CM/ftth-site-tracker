@@ -80,6 +80,15 @@ export class AcceptGpsProposalUseCase {
       const proposal = await requireProposal(tx.proposals, projectId, proposalId, true);
       if (proposal.status !== 'pending') throw alreadyDecided(proposal);
 
+      // Same lock order and file check as saving the mapping: file, then mapping (security
+      // review L1); a file being re-extracted has rows about to be replaced.
+      const file = await tx.files.find(projectId, proposal.cadFileId, { lock: true });
+      if (file?.status !== 'processed') {
+        throw new AppError('CONFLICT', 'The CAD file is not processed yet', {
+          reason: 'NOT_PROCESSED',
+          status: file?.status ?? null,
+        });
+      }
       const mapping = await tx.mappings.find(projectId, proposal.cadFileId, { lock: true });
       if (!mapping) {
         throw new AppError('CONFLICT', 'The file has no saved mapping', {

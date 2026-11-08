@@ -56,8 +56,10 @@ export class GpsProposalsController {
     @Inject(RejectGpsProposalUseCase) private readonly reject: RejectGpsProposalUseCase,
   ) {}
 
+  // Proposals carry other supervisors' fixes, notes and site photos from every zone: only the
+  // people who decide them (PMs, `cad_files:write`) read them (security review M1).
   @Get()
-  @RequirePermission('cad_files:read')
+  @RequirePermission('cad_files:write')
   @ApiOkResponse({ schema: openApiSchema(GpsProposalListResponseSchema) })
   async listProposals(
     @ProjectIdParam() projectId: string,
@@ -68,7 +70,7 @@ export class GpsProposalsController {
   }
 
   @Get(':id/photo')
-  @RequirePermission('cad_files:read')
+  @RequirePermission('cad_files:write')
   async getPhoto(
     @ProjectIdParam() projectId: string,
     @Param('id', UuidParamPipe) id: string,

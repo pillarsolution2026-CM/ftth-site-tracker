@@ -74,6 +74,9 @@ const SELECT = sql`
   LEFT JOIN users du ON du.id = g.decided_by
   LEFT JOIN execution_photos ph ON ph.project_id = g.project_id AND ph.proposal_id = g.id`;
 
+/** Newest proposals returned by one list call (security review M2); technical cap, not a rule. */
+export const GPS_PROPOSAL_LIST_LIMIT = 200;
+
 export class DrizzleGpsProposalRepository implements GpsProposalRepository {
   constructor(private readonly db: DbHandle) {}
 
@@ -84,7 +87,8 @@ export class DrizzleGpsProposalRepository implements GpsProposalRepository {
     const rows = await rowsOf<Row>(
       this.db,
       sql`${SELECT} WHERE ${sql.join(filters, sql` AND `)}
-          ORDER BY g.received_at DESC, g.id DESC`,
+          ORDER BY g.received_at DESC, g.id DESC
+          LIMIT ${GPS_PROPOSAL_LIST_LIMIT}`,
     );
     return rows.map(toRecord);
   }
