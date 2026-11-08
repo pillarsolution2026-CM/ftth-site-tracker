@@ -17,3 +17,26 @@ export async function currentGpsFix(timeoutMs = 15_000): Promise<GpsFix | null> 
     at: new Date(position.timestamp).toISOString(),
   };
 }
+
+/** Result of starting a location watch: `ok: false` when the permission is refused. */
+export type GpsWatch = { ok: true; stop(): void } | { ok: false };
+
+/**
+ * Follows the GPS: calls `onFix` with every new reading (accuracy included). The caller stops it
+ * when the screen closes.
+ */
+export async function watchGpsFix(onFix: (fix: GpsFix) => void): Promise<GpsWatch> {
+  const permission = await Location.requestForegroundPermissionsAsync();
+  if (permission.status !== 'granted') return { ok: false };
+  const subscription = await Location.watchPositionAsync(
+    { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 0 },
+    (position) =>
+      onFix({
+        lon: position.coords.longitude,
+        lat: position.coords.latitude,
+        accuracyM: position.coords.accuracy ?? null,
+        at: new Date(position.timestamp).toISOString(),
+      }),
+  );
+  return { ok: true, stop: () => subscription.remove() };
+}
