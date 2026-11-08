@@ -154,15 +154,17 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await links.getByRole('button', { name: 'Confirm: F 36 C' }).click();
   await expect(links.getByRole('row')).toHaveCount(3);
 
-  // Publish is refused while links are still in review: acknowledge the counts, then publish.
-  await page.getByRole('button', { name: 'Publish', exact: true }).click();
-  const dialog = page.getByRole('alertdialog');
-  await expect(dialog).toContainText('2');
-  await expect(dialog).toContainText('text links still need review');
-  const publishAnyway = dialog.getByRole('button', { name: 'Publish anyway' });
-  await expect(publishAnyway).toBeDisabled();
-  await dialog.getByLabel(/I understand/).check();
-  await publishAnyway.click();
+  // The checklist shows the checks; open links need the acknowledgement before Publish unlocks.
+  const checklist = page.getByRole('region', { name: 'Before publishing' });
+  await expect(checklist).toContainText('Coordinates: source CRS chosen');
+  await expect(checklist).toContainText('No drawing errors');
+  await expect(checklist).toContainText('Open items reviewed');
+  await expect(checklist.getByText('❌')).toHaveCount(1);
+  const publish = checklist.getByRole('button', { name: 'Publish', exact: true });
+  await expect(publish).toBeDisabled();
+  await checklist.getByLabel(/I understand/).check();
+  await expect(publish).toBeEnabled();
+  await publish.click();
 
   await expect(page.getByRole('heading', { name: /Design revision\s+#1/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);

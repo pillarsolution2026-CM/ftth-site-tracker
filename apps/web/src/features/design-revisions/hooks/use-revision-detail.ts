@@ -1,17 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import type { PublishBlockedDetails } from '@ftth/shared';
 import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
 import { useProject } from '@/features/projects/hooks/project-access-context';
-import { useDesignRevision, useDiscardRevision, usePublishRevision } from '../api/queries';
+import {
+  useDesignRevision,
+  useDiscardRevision,
+  usePublishReadiness,
+  usePublishRevision,
+  useRefetchPublishReadiness,
+} from '../api/queries';
 import { isBuilt } from '../model/revision-status';
-import { publishBlockedOf, revisionErrorKey } from '../model/revision-errors';
+import {
+  publishBlockedMessage,
+  publishBlockedOf,
+  revisionErrorKey,
+  type ErrorMessage,
+} from '../model/revision-errors';
 
 /**
- * Detail screen state: the revision (polled while queued/building), and the publish/discard flows.
- * Publishing first tries without acknowledgement; a 409 OPEN_ITEMS opens the acknowledgement
- * dialog with the counts, and only then is `acknowledgeOpenItems: true` sent.
+ * Detail screen state: the revision (polled while queued/building), the publish checklist
+ * (ADR-038) and the publish/discard flows. Publish is only offered when the server says
+ * `canPublish`; open items need the acknowledgement checkbox. A refused publish shows the reason
+ * and refetches the checklist.
  */
 export function useRevisionDetail(projectId: string, revisionId: string) {
   const { can } = useProject();
@@ -20,21 +31,34 @@ export function useRevisionDetail(projectId: string, revisionId: string) {
   const query = useDesignRevision(projectId, revisionId, canRead);
   const publish = usePublishRevision(projectId, revisionId);
   const discard = useDiscardRevision(projectId, revisionId);
+  const refetchReadiness = useRefetchPublishReadiness(projectId, revisionId);
 
-  const [blocked, setBlocked] = useState<PublishBlockedDetails | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   const revision = query.data ?? null;
   const status = revision?.status ?? null;
+  const isDraft = status === 'draft';
+  const readiness = usePublishReadiness(projectId, revisionId, canRead && canWrite && isDraft);
 
-  const actionError = blocked ? null : (publish.error ?? discard.error);
+  const publishError = publish.error;
+  const blocked = publishError ? publishBlockedOf(publishError) : null;
+  const actionError = publishError ?? discard.error;
+  const actionMessage: ErrorMessage | null = blocked
+    ? publishBlockedMessage(blocked)
+    : actionError
+      ? {
+          key: revisionErrorKey(errorCodeOf(actionError), errorReasonOf(actionError)),
+          params: {},
+        }
+      : null;
 
-  const closePublishDialog = () => {
-    setBlocked(null);
-    setAcknowledged(false);
-    publish.reset();
-  };
+  const checks = readiness.data;
+  const publishAllowed =
+    checks !== undefined &&
+    checks.canPublish &&
+    (!checks.needsAcknowledgement || acknowledged) &&
+    !publish.isPending;
 
   return {
     canRead,
@@ -42,36 +66,27 @@ export function useRevisionDetail(projectId: string, revisionId: string) {
     revision,
     loadErrorCode: query.error ? errorCodeOf(query.error) : null,
     built: status !== null && isBuilt(status),
-    canReview: canWrite && status === 'draft',
-    canPublish: canWrite && status === 'draft',
+    canReview: canWrite && isDraft,
+    canPublish: canWrite && isDraft,
     canDiscard:
-      canWrite &&
-      (status === 'draft' || status === 'failed' || status === 'queued' || status === 'building'),
+      canWrite && (isDraft || status === 'failed' || status === 'queued' || status === 'building'),
     publishing: publish.isPending,
     discarding: discard.isPending,
-    actionErrorKey: actionError
-      ? revisionErrorKey(errorCodeOf(actionError), errorReasonOf(actionError))
-      : null,
-    blocked,
+    actionMessage,
+    readiness: checks ?? null,
+    readinessLoading: readiness.isLoading,
+    readinessFailed: readiness.isError,
     acknowledged,
     setAcknowledged,
-    startPublish: () => {
+    publishAllowed,
+    publish: () => {
+      if (!publishAllowed || !checks) return;
       discard.reset();
       publish.mutate(
-        { acknowledgeOpenItems: false },
-        {
-          onError: (error) => {
-            const details = publishBlockedOf(error);
-            if (details) setBlocked(details);
-          },
-        },
+        { acknowledgeOpenItems: checks.needsAcknowledgement && acknowledged },
+        { onError: () => void refetchReadiness() },
       );
     },
-    confirmPublish: () => {
-      if (!acknowledged) return;
-      publish.mutate({ acknowledgeOpenItems: true }, { onSuccess: closePublishDialog });
-    },
-    cancelPublish: closePublishDialog,
     confirmingDiscard,
     askDiscard: () => {
       publish.reset();

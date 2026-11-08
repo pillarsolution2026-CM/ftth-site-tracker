@@ -18,8 +18,11 @@ import {
   DesignRevisionListResponseSchema,
   DesignRevisionSummarySchema,
   DiffPageSchema,
+  DrawingProblemListSchema,
   METRES_PER_UNIT,
+  PublishBlockedDetailsSchema,
   PublishDesignRevisionRequestSchema,
+  PublishReadinessSchema,
   ReviewTextLinkRequestSchema,
   TEXT_LINK_TARGETS,
   TextLinkPageSchema,
@@ -510,17 +513,45 @@ export async function handleDesignRevisions(
     return h.send(res, 200, DiffPageSchema.parse(h.page(items, url)));
   }
 
+  if (sub === 'problems' && method === 'GET') {
+    return h.send(res, 200, DrawingProblemListSchema.parse({ items: [], total: 0 }));
+  }
+
+  if (sub === 'publish-readiness' && method === 'GET') {
+    // The mock revision counts as placed (CRS chosen, one control point) with no drawing errors.
+    const open = rev.links.filter((link) => link.status === 'review').length;
+    return h.send(
+      res,
+      200,
+      PublishReadinessSchema.parse({
+        checks: [
+          { key: 'crs_known', ok: true, count: null },
+          { key: 'control_point', ok: true, count: 1 },
+          { key: 'no_problems', ok: true, count: 0 },
+          { key: 'open_items', ok: open === 0, count: open },
+        ],
+        canPublish: status === 'draft',
+        needsAcknowledgement: open > 0,
+      }),
+    );
+  }
+
   if (sub === 'publish' && method === 'POST') {
     const body = PublishDesignRevisionRequestSchema.safeParse(await h.readJson(req));
     if (!body.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
     if (status !== 'draft') return h.sendError(res, 409, 'CONFLICT', { reason: 'NOT_DRAFT' });
     const textLinksToReview = rev.links.filter((link) => link.status === 'review').length;
     if (textLinksToReview > 0 && !body.data.acknowledgeOpenItems) {
-      return h.sendError(res, 409, 'CONFLICT', {
-        reason: 'OPEN_ITEMS',
-        textLinksToReview,
-        diffConflicts: 0,
-      });
+      return h.sendError(
+        res,
+        409,
+        'CONFLICT',
+        PublishBlockedDetailsSchema.parse({
+          reason: 'OPEN_ITEMS',
+          textLinksToReview,
+          diffConflicts: 0,
+        }),
+      );
     }
     rev.publishedRevNo =
       [...revisions.values()].filter((r) => r.publishedRevNo !== null).length + 1;

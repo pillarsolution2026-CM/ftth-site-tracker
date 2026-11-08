@@ -975,10 +975,27 @@
       "cancel": "Cancel"
     },
     "publish": {
-      "title": "Open items",
-      "text": "{links} text links still need review and {conflicts} changes are conflicts. Publishing locks the revision as it is.",
+      "title": "Before publishing",
+      "loading": "Checking readiness…",
+      "loadFailed": "Could not check readiness. Try again.",
+      "done": "Done",
+      "notDone": "Not done",
+      "checks": {
+        "crs_known": "Coordinates: source CRS chosen",
+        "control_point": "At least one control point in use ({count})",
+        "no_problems": "No drawing errors ({count} left)",
+        "open_items": "Open items reviewed ({count})"
+      },
+      "fixCoordinates": "Open the coordinates screen",
+      "lockedHint": "Publishing is locked until the first three checks are done.",
+      "openItemsText": "Open items remain. Publishing locks the revision as it is.",
       "acknowledge": "I understand and want to publish with open items",
-      "confirm": "Publish anyway"
+      "blocked": {
+        "CRS_UNKNOWN": "The source coordinate system of the drawing was never chosen. Choose it on the coordinates screen first.",
+        "PLACEMENT_MISSING": "The placement has no control point in use. Add or include a control point first.",
+        "PROBLEMS_OPEN": "{count} drawing errors are left. Fix them all before publishing.",
+        "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first."
+      }
     },
     "error": {
       "NOT_DRAFT": "Only a draft revision can be published",
@@ -1041,26 +1058,24 @@
       "none": "No changes to show"
     },
     "problems": {
-      "title": "Drawing problems",
-      "hint": "Fix the drawing and upload it again, or ignore a place on your own responsibility. Coordinates are in the drawing, to find them in AutoCAD.",
-      "none": "No drawing problems found.",
-      "ignoredCount": "{count} of {total} ignored",
-      "place": "Place (drawing)",
+      "title": "Drawing errors",
+      "heading": "Drawing errors: {total}",
+      "hint": "Every error blocks publishing. Fixing tools on this page come in the next change; until then, fix the drawing and upload it again. Coordinates are listed to find each place in AutoCAD.",
+      "none": "No drawing errors found.",
+      "place": "Place",
+      "drawingXY": "Drawing X/Y",
+      "projectEN": "Project E/N",
+      "handle": "Handle",
       "layer": "Layer",
       "near": "Near",
-      "status": "Status",
       "showFirst": "Show the first {count}",
       "showAll": "Show all {count}",
       "moreThanListed": "Only the first {listed} places are listed.",
       "label": "Label",
       "moveTo": "Belongs on layer",
-      "ignoredAt": "Ignored on the user's responsibility, {at}",
-      "confirmTitle": "Ignore this place",
-      "confirmText": "Ignoring leaves the drawing as it is. You take responsibility for this place, and it is recorded with your name and the time.",
-      "confirmIgnore": "I take responsibility: ignore",
-      "ignoreFailed": "Could not ignore this place. Try again.",
-      "ignore": "Ignore",
-      "open": "Open",
+      "whatLabel": "What it is",
+      "fixLabel": "Required to fix",
+      "severityHint": "Severity: {severity}",
       "severity": {
         "error": "Error",
         "warning": "Warning",
@@ -1074,13 +1089,29 @@
         "LABEL_TYPE_MISMATCH": "Symbol and label disagree",
         "LABEL_LENGTH_MISSING": "Cable label without a length"
       },
-      "explain": {
-        "ROUTE_SPLIT": "Some lines of the route are broken and not continuous. They must be connected so the route is clear.",
-        "RING_LABEL_MISMATCH": "A ring has no ring label, or a ring label has no ring.",
-        "WRONG_LAYER": "The item or its label is drawn on another layer. Unify the layers so the drawing reads simply.",
-        "LABEL_MISSING": "The other symbols of this type have labels; this one has none.",
-        "LABEL_TYPE_MISMATCH": "The symbol says one type and its label another (for example joint 36 labelled 144).",
-        "LABEL_LENGTH_MISSING": "The cable or duct type is written without its length. For information only."
+      "ROUTE_SPLIT": {
+        "description": "A cable is drawn as separate pieces that meet end to end away from any item, so the system cannot read it as one route.",
+        "fix": "Join the pieces into one cable."
+      },
+      "RING_LABEL_MISMATCH": {
+        "description": "Ring shapes and ring labels do not match one to one: a ring has no label, or a label has no ring.",
+        "fix": "Make the rings and their labels match one to one."
+      },
+      "WRONG_LAYER": {
+        "description": "An item or its label is drawn on the layer of another type.",
+        "fix": "Move it to the suggested layer."
+      },
+      "LABEL_MISSING": {
+        "description": "A symbol has no label, while other symbols of its type do.",
+        "fix": "Add the label of its type."
+      },
+      "LABEL_TYPE_MISMATCH": {
+        "description": "The label names another type than the item it belongs to (for example a joint 36 labelled 144).",
+        "fix": "Correct the label or the item."
+      },
+      "LABEL_LENGTH_MISSING": {
+        "description": "A cable label gives its type but no length.",
+        "fix": "Write the length in the label."
       }
     }
   },
