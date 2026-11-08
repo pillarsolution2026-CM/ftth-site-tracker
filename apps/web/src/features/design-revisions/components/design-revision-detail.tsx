@@ -12,6 +12,7 @@ import { useDiffView } from '../hooks/use-diff-view';
 import { useRevisionDetail } from '../hooks/use-revision-detail';
 import { useTextReview } from '../hooks/use-text-review';
 import { isBuilding } from '../model/revision-status';
+import { CorrectionsSection } from './corrections-panel';
 import { DiffSection } from './diff-section';
 import { ProblemsSection } from './problems-section';
 import { PublishChecklist } from './publish-checklist';
@@ -117,7 +118,20 @@ export function DesignRevisionDetailScreen({
             <ProblemsSection
               projectId={projectId}
               revisionId={revisionId}
+              cadFileId={revision.cadFileId}
               enabled={state.canRead && state.built}
+              canFix={state.canReview}
+            />
+          </Card>
+          <Card>
+            <CorrectionsSection
+              projectId={projectId}
+              revisionId={revisionId}
+              cadFileId={revision.cadFileId}
+              builtAt={revision.builtAt}
+              listPath={listPath}
+              enabled={state.canRead && state.built}
+              canEdit={state.canReview}
             />
           </Card>
           <Card>

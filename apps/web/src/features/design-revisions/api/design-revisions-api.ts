@@ -4,11 +4,17 @@ import {
   DesignRevisionListResponseSchema,
   DesignRevisionSummarySchema,
   DiffPageSchema,
+  DrawingCorrectionListSchema,
+  DrawingCorrectionSchema,
   DrawingProblemListSchema,
   PublishReadinessSchema,
   TextLinkPageSchema,
   TextLinkSchema,
   type CreateDesignRevisionRequest,
+  type CreateDrawingCorrectionRequest,
+  type DrawingCorrection,
+  type DrawingCorrectionList,
+  type RebuildDesignRevisionRequest,
   type DesignFeatureListQuery,
   type DesignFeaturePage,
   type DesignRevisionDetail,
@@ -104,6 +110,51 @@ export function listDiff(
 
 export function listDrawingProblems(projectId: string, id: string): Promise<DrawingProblemList> {
   return bffJson(`${one(projectId, id)}/problems`, DrawingProblemListSchema);
+}
+
+const correctionsPath = (projectId: string, cadFileId: string) =>
+  projectApiPath(projectId, `/cad-files/${encodeURIComponent(cadFileId)}/corrections`);
+
+export function listCorrections(
+  projectId: string,
+  cadFileId: string,
+): Promise<DrawingCorrectionList> {
+  return bffJson(correctionsPath(projectId, cadFileId), DrawingCorrectionListSchema);
+}
+
+export function createCorrection(
+  projectId: string,
+  cadFileId: string,
+  body: CreateDrawingCorrectionRequest,
+): Promise<DrawingCorrection> {
+  return bffJson(correctionsPath(projectId, cadFileId), DrawingCorrectionSchema, {
+    method: 'POST',
+    body,
+  });
+}
+
+export function withdrawCorrection(
+  projectId: string,
+  cadFileId: string,
+  id: string,
+): Promise<DrawingCorrection> {
+  return bffJson(
+    `${correctionsPath(projectId, cadFileId)}/${encodeURIComponent(id)}/withdraw`,
+    DrawingCorrectionSchema,
+    { method: 'POST' },
+  );
+}
+
+/** Discards the draft and builds a new revision of the same file (202; the new one is returned). */
+export function rebuildDesignRevision(
+  projectId: string,
+  id: string,
+  body: RebuildDesignRevisionRequest,
+): Promise<DesignRevisionSummary> {
+  return bffJson(`${one(projectId, id)}/rebuild`, DesignRevisionSummarySchema, {
+    method: 'POST',
+    body,
+  });
 }
 
 export function getPublishReadiness(projectId: string, id: string): Promise<PublishReadiness> {
