@@ -23,11 +23,11 @@ import {
 } from './cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './create-design-revision.use-case.js';
 import { DiscardDesignRevisionUseCase } from './discard-design-revision.use-case.js';
+import { ListDrawingProblemsUseCase } from './drawing-problems.use-cases.js';
 import {
-  IgnoreDrawingProblemUseCase,
-  ListDrawingProblemsUseCase,
-} from './drawing-problems.use-cases.js';
-import { PublishDesignRevisionUseCase } from './publish-design-revision.use-case.js';
+  GetPublishReadinessUseCase,
+  PublishDesignRevisionUseCase,
+} from './publish-design-revision.use-case.js';
 import { ReprocessCadFileUseCase } from './reprocess-cad-file.use-case.js';
 import { ReviewTextLinkUseCase } from './review-text-link.use-case.js';
 import {
@@ -49,6 +49,10 @@ const OTHER_PROJECT = '99999999-9999-4999-8999-999999999999';
 const ACTOR = '22222222-2222-4222-8222-222222222222';
 const FILE = '33333333-3333-4333-8333-333333333333';
 const SECRET = 'unit-test-tile-secret-unit-test-tile-secret';
+
+const USED_POINT = PlacementSchema.parse({
+  points: [{ id: 'p1', drawing: { x: 1, y: 1 }, lat: 30.9, lon: 32.7, source: 'typed' }],
+});
 
 let uow: InMemoryCadUnitOfWork;
 let queue: RecordingJobQueue;
@@ -384,7 +388,7 @@ describe('review, publish and discard', () => {
     await save();
     const revision = await create();
     revisionId = revision.id;
-    uow.revisions.rows.set(revisionId, { ...revision, status: 'draft' });
+    uow.revisions.rows.set(revisionId, { ...revision, status: 'draft', placement: USED_POINT });
     uow.links.features.set(BOX_A, {
       id: BOX_A,
       projectId: PROJECT,
@@ -507,7 +511,7 @@ describe('review, publish and discard', () => {
     });
 
     const next = await create();
-    uow.revisions.rows.set(next.id, { ...next, status: 'draft' });
+    uow.revisions.rows.set(next.id, { ...next, status: 'draft', placement: USED_POINT });
     const second = await new PublishDesignRevisionUseCase(uow, clock).execute({
       projectId: PROJECT,
       revisionId: next.id,
@@ -702,33 +706,27 @@ describe('tile use cases', () => {
   });
 });
 
-describe('drawing problems (ADR-034)', () => {
+describe('drawing problems (ADR-038)', () => {
   let revisionId: string;
+  const place = (handle: string) => ({
+    x: 7113,
+    y: 4573,
+    drawingX: 7113,
+    drawingY: 4573,
+    layer: 'Sap',
+    handle,
+    suggestedLayer: 'CABINET SITE SUB CABINET',
+    text: null,
+    near: null,
+  });
   const problem = {
     code: 'WRONG_LAYER',
     severity: 'warning',
-    count: 1,
-    items: [
-      {
-        x: 7113,
-        y: 4573,
-        drawingX: 7113,
-        drawingY: 4573,
-        layer: 'Sap',
-        handle: 'A1',
-        suggestedLayer: 'CABINET SITE SUB CABINET',
-        text: null,
-        near: null,
-      },
-    ],
+    count: 3,
+    items: [place('A1'), place('A2')],
   };
-  const ignore = (handle = 'A1') =>
-    new IgnoreDrawingProblemUseCase(uow, clock).execute({
-      projectId: PROJECT,
-      revisionId,
-      actorId: ACTOR,
-      request: { code: 'WRONG_LAYER', handle, acceptResponsibility: true },
-    });
+  const list = (project = PROJECT) =>
+    new ListDrawingProblemsUseCase(uow.revisions, uow.problems).execute(project, revisionId);
 
   beforeEach(async () => {
     await save();
@@ -736,50 +734,134 @@ describe('drawing problems (ADR-034)', () => {
     revisionId = revision.id;
     uow.revisions.rows.set(revisionId, { ...revision, status: 'draft' });
     // Older count-only warnings sit next to the problems and are skipped.
-    uow.problems.stored.set(revisionId, [{ code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 }, problem]);
+    uow.problems.stored.set(revisionId, [
+      { code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 },
+      problem,
+      { ...problem, code: 'LABEL_MISSING', count: 2, items: [place('B1')] },
+    ]);
   });
 
-  it('lists the problems with no place ignored yet', async () => {
-    const list = await new ListDrawingProblemsUseCase(uow.revisions, uow.problems).execute(
-      PROJECT,
+  it('lists the problems with a total of every place (count, not the capped items)', async () => {
+    const result = await list();
+    expect(result.items.map((p) => p.code)).toEqual(['WRONG_LAYER', 'LABEL_MISSING']);
+    expect(result.total).toBe(5);
+    expect(result.items[0]?.items[0]).not.toHaveProperty('ignored');
+  });
+
+  it('answers a zero total for a revision without problems and 404 for another project', async () => {
+    uow.problems.stored.set(revisionId, []);
+    expect(await list()).toEqual({ items: [], total: 0 });
+    expect((await reason(list(OTHER_PROJECT))).code).toBe('NOT_FOUND');
+  });
+});
+
+describe('publish readiness and gate (ADR-038)', () => {
+  let revisionId: string;
+  const placement = (excluded: boolean[]) =>
+    PlacementSchema.parse({
+      points: excluded.map((ex, i) => ({
+        id: `p${i}`,
+        drawing: { x: i, y: i },
+        lat: 30.9,
+        lon: 32.7,
+        source: 'typed',
+        excluded: ex,
+      })),
+    });
+  const problem = (count: number) => ({
+    code: 'LABEL_MISSING',
+    severity: 'warning',
+    count,
+    items: [],
+  });
+  const setRevision = (patch: Record<string, unknown>) =>
+    uow.revisions.rows.set(revisionId, { ...must(uow.revisions.rows.get(revisionId)), ...patch });
+  const readiness = () => new GetPublishReadinessUseCase(uow).execute(PROJECT, revisionId);
+  const publish = (acknowledgeOpenItems = true) =>
+    new PublishDesignRevisionUseCase(uow, clock).execute({
+      projectId: PROJECT,
       revisionId,
-    );
-    expect(list.items).toHaveLength(1);
-    expect(list.items[0]).toMatchObject({ code: 'WRONG_LAYER', ignoredCount: 0 });
-    expect(list.items[0]?.items[0]?.ignored).toBeNull();
-  });
-
-  it('records who ignored a place and when, once, with one event', async () => {
-    const first = await ignore();
-    expect(first.items[0]?.ignoredCount).toBe(1);
-    expect(first.items[0]?.items[0]?.ignored).toEqual({
-      byId: ACTOR,
-      at: '2026-10-28T10:00:00.000Z',
+      actorId: ACTOR,
+      request: { acknowledgeOpenItems },
     });
-    await ignore();
-    expect(uow.problems.records).toHaveLength(1);
-    const events = uow.events.events.filter((e) => e.type === 'design_revision.problem_ignored');
-    expect(events).toHaveLength(1);
-    expect(events[0]?.payload).toMatchObject({ code: 'WRONG_LAYER', handle: 'A1', layer: 'Sap' });
+
+  beforeEach(async () => {
+    await save();
+    const revision = await create();
+    revisionId = revision.id;
+    uow.revisions.rows.set(revisionId, { ...revision, status: 'draft', placement: null });
   });
 
-  it('refuses a place the worker did not list, another project and a published revision', async () => {
-    expect((await reason(ignore('ZZ'))).code).toBe('NOT_FOUND');
-    expect(
-      (
-        await reason(
-          new ListDrawingProblemsUseCase(uow.revisions, uow.problems).execute(
-            OTHER_PROJECT,
-            revisionId,
-          ),
-        )
-      ).code,
-    ).toBe('NOT_FOUND');
-    const row = must(uow.revisions.rows.get(revisionId));
-    uow.revisions.rows.set(revisionId, { ...row, status: 'published', revNo: 1 });
-    expect(await reason(ignore())).toMatchObject({
+  it('refuses CRS_UNKNOWN for a revision without a placement, before anything else', async () => {
+    uow.problems.stored.set(revisionId, [problem(2)]);
+    uow.links.diffConflicts = 1;
+    expect(await reason(publish())).toMatchObject({
       code: 'CONFLICT',
-      details: { reason: 'REVISION_LOCKED' },
+      status: 409,
+      details: { reason: 'CRS_UNKNOWN' },
     });
+  });
+
+  it('refuses PLACEMENT_MISSING when no point is in use (none, or all excluded)', async () => {
+    for (const excluded of [[], [true, true]]) {
+      setRevision({ placement: placement(excluded) });
+      expect(await reason(publish())).toMatchObject({ details: { reason: 'PLACEMENT_MISSING' } });
+    }
+  });
+
+  it('refuses PROBLEMS_OPEN with the sum of counts, before open items', async () => {
+    setRevision({ placement: placement([false]) });
+    uow.problems.stored.set(revisionId, [problem(2), problem(3)]);
+    uow.links.diffConflicts = 4;
+    expect(await reason(publish(false))).toMatchObject({
+      details: { reason: 'PROBLEMS_OPEN', problemCount: 5 },
+    });
+  });
+
+  it('then asks for acknowledgement of open items, then publishes (excluded points ignored)', async () => {
+    setRevision({ placement: placement([true, false]) });
+    uow.links.diffConflicts = 2;
+    expect(await reason(publish(false))).toMatchObject({
+      details: { reason: 'OPEN_ITEMS', textLinksToReview: 0, diffConflicts: 2 },
+    });
+    expect(await publish(true)).toMatchObject({ status: 'published', revNo: 1 });
+  });
+
+  it('reports the checklist in order', async () => {
+    expect(await readiness()).toEqual({
+      checks: [
+        { key: 'crs_known', ok: false, count: null },
+        { key: 'control_point', ok: false, count: 0 },
+        { key: 'no_problems', ok: true, count: 0 },
+        { key: 'open_items', ok: true, count: 0 },
+      ],
+      canPublish: false,
+      needsAcknowledgement: false,
+    });
+    setRevision({ placement: placement([true, false, false]) });
+    uow.problems.stored.set(revisionId, [problem(4)]);
+    uow.links.diffConflicts = 3;
+    const result = await readiness();
+    expect(result.checks).toEqual([
+      { key: 'crs_known', ok: true, count: null },
+      { key: 'control_point', ok: true, count: 2 },
+      { key: 'no_problems', ok: false, count: 4 },
+      { key: 'open_items', ok: false, count: 3 },
+    ]);
+    expect(result).toMatchObject({ canPublish: false, needsAcknowledgement: true });
+  });
+
+  it('can publish when the first three are ok, even with open items; never when not a draft', async () => {
+    setRevision({ placement: placement([false]) });
+    uow.links.diffConflicts = 1;
+    expect(await readiness()).toMatchObject({ canPublish: true, needsAcknowledgement: true });
+    setRevision({ status: 'published', revNo: 1 });
+    expect(await readiness()).toMatchObject({ canPublish: false });
+  });
+
+  it('answers 404 for another project', async () => {
+    expect(
+      (await reason(new GetPublishReadinessUseCase(uow).execute(OTHER_PROJECT, revisionId))).code,
+    ).toBe('NOT_FOUND');
   });
 });

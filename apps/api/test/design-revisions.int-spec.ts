@@ -10,6 +10,7 @@ import {
   PlacementDrawingSchema,
   DesignFeaturePageSchema,
   DrawingProblemListSchema,
+  PublishReadinessSchema,
   DesignRevisionDetailSchema,
   DesignRevisionListResponseSchema,
   DesignRevisionSummarySchema,
@@ -196,6 +197,12 @@ interface SimulatedBuild {
 }
 
 /** What the worker leaves behind: features, text links, a diff, counts; then `draft`. */
+const setWarnings = (revisionId: string, warnings: unknown[]) =>
+  ctx.pool.query('UPDATE design_revisions SET warnings = $2 WHERE id = $1', [
+    revisionId,
+    JSON.stringify(warnings),
+  ]);
+
 async function simulateBuild(revisionId: string, withData = true): Promise<SimulatedBuild> {
   const q = (text: string, values: unknown[] = []) => ctx.pool.query(text, values);
   const ids: SimulatedBuild = {
@@ -757,46 +764,26 @@ describe('a built draft revision', () => {
     expect(detail.diffCounts).toMatchObject({ conflict: 1, added: 1 });
   });
 
-  it('lists drawing problems and lets a PM ignore a place on their own responsibility', async () => {
-    const problem = {
-      code: 'LABEL_MISSING',
-      severity: 'warning',
-      count: 1,
-      items: [
-        {
-          ...{ x: 325100, y: 3340000, drawingX: 325100, drawingY: 3340000 },
-          ...{ layer: 'sub', handle: 'B2', suggestedLayer: null, text: null, near: null },
-        },
-      ],
-    };
-    await ctx.pool.query(`UPDATE design_revisions SET warnings = $2 WHERE id = $1`, [
-      revisionId,
-      JSON.stringify([{ code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 }, problem]),
-    ]);
+  it('lists drawing problems with a total and no longer has an ignore route (ADR-038)', async () => {
+    const place = (handle: string) => ({
+      ...{ x: 325100, y: 3340000, drawingX: 325100, drawingY: 3340000 },
+      ...{ layer: 'sub', handle, suggestedLayer: null, text: null, near: null },
+    });
+    const problem = { code: 'LABEL_MISSING', severity: 'warning', count: 3, items: [place('B2')] };
+    await setWarnings(revisionId, [{ code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 }, problem]);
     const listed = await as(supervisor)(http().get(url('/problems')));
     expect(listed.status, JSON.stringify(listed.body)).toBe(200);
     const list = DrawingProblemListSchema.parse(listed.body);
-    expect(list.items.map((p) => [p.code, p.ignoredCount])).toEqual([['LABEL_MISSING', 0]]);
+    expect(list.items.map((p) => [p.code, p.count])).toEqual([['LABEL_MISSING', 3]]);
+    expect(list.total).toBe(3);
 
     const body = { code: 'LABEL_MISSING', handle: 'B2', acceptResponsibility: true };
-    expect((await as(supervisor)(http().post(url('/problems/ignore')).send(body))).status).toBe(
-      403,
-    );
-    const noConsent = { ...body, acceptResponsibility: false };
-    expect((await as(pm)(http().post(url('/problems/ignore')).send(noConsent))).status).toBe(400);
-    const unknown = { ...body, handle: 'ZZ' };
-    expect((await as(pm)(http().post(url('/problems/ignore')).send(unknown))).status).toBe(404);
-
-    const ignored = await as(pm)(http().post(url('/problems/ignore')).send(body));
-    expect(ignored.status, JSON.stringify(ignored.body)).toBe(200);
-    const after = DrawingProblemListSchema.parse(ignored.body);
-    expect(after.items[0]?.ignoredCount).toBe(1);
-    expect(after.items[0]?.items[0]?.ignored?.at).toBeTruthy();
+    expect((await as(pm)(http().post(url('/problems/ignore')).send(body))).status).toBe(404);
     const events = await ctx.pool.query(
-      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'design_revision.problem_ignored'`,
+      `SELECT 1 FROM events WHERE entity_id = $1 AND type = 'design_revision.problem_ignored'`,
       [revisionId],
     );
-    expect(events.rows).toHaveLength(1);
+    expect(events.rows).toHaveLength(0);
   });
 
   it('serves the placement drawing in drawing units from the extracted entities (ADR-035)', async () => {
@@ -1243,15 +1230,73 @@ describe('a built draft revision', () => {
     }
   });
 
-  it('blocks publishing while items are open, until they are acknowledged', async () => {
+  it('refuses publishing for each reason in order, then until items are acknowledged', async () => {
+    const refused = async (details: Record<string, unknown>) => {
+      const res = await as(pm)(http().post(url('/publish'))).send({});
+      expect(res.status, JSON.stringify(res.body)).toBe(409);
+      expect(res.body).toMatchObject({ code: 'CONFLICT', details });
+    };
+    const readiness = async () =>
+      PublishReadinessSchema.parse(
+        (await as(supervisor)(http().get(url('/publish-readiness')))).body,
+      );
+    const place = (excluded: boolean) =>
+      JSON.stringify({
+        sourceCrs: 'project',
+        points: [
+          {
+            id: 'p1',
+            drawing: { x: 1, y: 1 },
+            lat: 30.9,
+            lon: 32.7,
+            source: 'typed',
+            excluded,
+          },
+        ],
+      });
+    const setPlacement = (value: string | null) =>
+      ctx.pool.query('UPDATE design_revisions SET placement = $2 WHERE id = $1', [
+        revisionId,
+        value,
+      ]);
     expect((await as(supervisor)(http().post(url('/publish'))).send({})).status).toBe(403);
+    const stranger = await as(pm)(
+      http().get(`${revisionsUrl(projectB)}/${revisionId}/publish-readiness`),
+    );
+    expect(stranger.status).toBe(404);
 
-    const blocked = await as(pm)(http().post(url('/publish'))).send({});
-    expect(blocked.status).toBe(409);
-    expect(blocked.body).toMatchObject({
-      code: 'CONFLICT',
-      details: { reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 },
+    // Warnings from the problems test above are still stored: 3 problem places.
+    await setPlacement(null);
+    await refused({ reason: 'CRS_UNKNOWN' });
+    expect(await readiness()).toEqual({
+      checks: [
+        { key: 'crs_known', ok: false, count: null },
+        { key: 'control_point', ok: false, count: 0 },
+        { key: 'no_problems', ok: false, count: 3 },
+        { key: 'open_items', ok: false, count: 2 },
+      ],
+      canPublish: false,
+      needsAcknowledgement: true,
     });
+
+    await setPlacement(place(true));
+    await refused({ reason: 'PLACEMENT_MISSING' });
+    expect((await readiness()).checks[1]).toEqual({ key: 'control_point', ok: false, count: 0 });
+
+    await setPlacement(place(false));
+    await refused({ reason: 'PROBLEMS_OPEN', problemCount: 3 });
+    expect(await readiness()).toMatchObject({ canPublish: false, needsAcknowledgement: true });
+
+    await setWarnings(revisionId, []);
+    const ready = await readiness();
+    expect(ready.checks).toEqual([
+      { key: 'crs_known', ok: true, count: null },
+      { key: 'control_point', ok: true, count: 1 },
+      { key: 'no_problems', ok: true, count: 0 },
+      { key: 'open_items', ok: false, count: 2 },
+    ]);
+    expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
+    await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });
     const still = await ctx.pool.query(
       'SELECT status, rev_no FROM design_revisions WHERE id = $1',
       [revisionId],
@@ -1269,10 +1314,8 @@ describe('a built draft revision', () => {
       publishedAt: expect.any(String),
     });
     expect(published.body.publishedById).toBeTruthy();
-    // The drawing-problems test above ignored one place of this same revision.
     expect(await eventTypes(ctx.pool, revisionId)).toEqual([
       'design_revision.queued',
-      'design_revision.problem_ignored',
       'design_revision.published',
     ]);
     const event = await ctx.pool.query(
@@ -1285,6 +1328,7 @@ describe('a built draft revision', () => {
       textLinksToReview: 1,
       diffConflicts: 1,
     });
+    expect((await readiness()).canPublish).toBe(false);
   });
 
   it('is locked once published: reviews, publishing and discarding answer 409', async () => {
@@ -1318,6 +1362,13 @@ describe('further revisions', () => {
     const second = DesignRevisionSummarySchema.parse(created.body);
     expect(second.baseRevisionId).toBe(revisionId);
     await simulateBuild(second.id, false);
+    await ctx.pool.query('UPDATE design_revisions SET placement = $2 WHERE id = $1', [
+      second.id,
+      JSON.stringify({
+        sourceCrs: 'project',
+        points: [{ id: 'p1', drawing: { x: 1, y: 1 }, lat: 30.9, lon: 32.7, source: 'typed' }],
+      }),
+    ]);
 
     const published = await as(pm)(
       http().post(`${revisionsUrl(projectA)}/${second.id}/publish`),
