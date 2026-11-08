@@ -4,14 +4,14 @@ import { useState } from 'react';
 import type { PlacementDrawing } from '@ftth/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { QC_ACCESS, renderScreen } from '@/test-utils/render';
-import { detection, mappingView } from '../model/mapping-fixtures';
+import { CAD_FILE_ID, detection, mappingView } from '../model/mapping-fixtures';
 import { MappingEditor, type MappingEditorProps } from './mapping-editor';
 
 // MapLibre needs WebGL, which jsdom has not; the map's maths are tested in the model specs.
 vi.mock('./placement-map', () => ({ PlacementMap: () => null }));
 
 const DRAWING: PlacementDrawing = {
-  revisionId: '55555555-5555-4555-8555-555555555555',
+  mappingVersion: 1,
   items: [
     {
       handle: 'C1',
@@ -144,10 +144,64 @@ describe('MappingEditor', () => {
     expect(screen.getByRole('button', { name: 'Add point' })).toBeDisabled();
   });
 
-  it('says without a built revision that the drawing X / Y is typed by hand', () => {
-    renderScreen(<MappingEditor {...props()} />);
-    expect(screen.getByText(/Build a revision once/)).toBeInTheDocument();
+  it('asks to save the rules first when no mapping is saved (ADR-037), never to build', () => {
+    const empty: PlacementDrawing = {
+      mappingVersion: null,
+      items: [],
+      lines: [],
+      truncated: false,
+    };
+    renderScreen(<MappingEditor {...props({ drawing: empty })} />);
+    expect(screen.getByText(/Save the rules first/)).toBeInTheDocument();
+    expect(screen.queryByText(/Build a revision once/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Drawing X')).toBeInTheDocument();
+  });
+
+  it('shows no empty-mapping message once the saved rules gave items', () => {
+    renderScreen(<MappingEditor {...props({ drawing: DRAWING })} />);
+    expect(screen.queryByText(/Save the rules first/)).not.toBeInTheDocument();
+  });
+
+  it('lists items without a code by handle and the texts around them', async () => {
+    const user = userEvent.setup();
+    renderScreen(<MappingEditor {...props({ drawing: DRAWING })} />);
+    await user.selectOptions(screen.getByLabelText('Drawing item'), 'C1');
+    expect(screen.getByRole('option', { name: /#C1 \(22U · 1-7\)/ })).toBeInTheDocument();
+  });
+
+  it('labels a supervisor GPS control point', () => {
+    const view = mappingView({
+      mapping: {
+        cadFileId: CAD_FILE_ID,
+        rules: [],
+        crsEpsg: 32636,
+        drawingUnit: 'm',
+        metresPerUnit: '1',
+        version: 3,
+        updatedById: null,
+        updatedAt: '2026-11-08T10:00:00.000Z',
+        placement: {
+          sourceCrs: 'project',
+          points: [
+            {
+              id: 'P1',
+              drawing: { x: 1, y: 2 },
+              handle: 'C1',
+              label: 'C1',
+              lat: 30.9,
+              lon: 32.7,
+              source: 'gps',
+              excluded: false,
+            },
+          ],
+          fitScaleWithTwoPoints: false,
+          adjust: { dx: 0, dy: 0, rotationDeg: 0, scale: 1, pivot: null },
+        },
+      },
+    });
+    renderScreen(<MappingEditor {...props({ view })} />);
+    const table = screen.getByRole('table', { name: 'Control points' });
+    expect(within(table).getByText('GPS point from supervisor')).toBeInTheDocument();
   });
 
   it('preselects Red Belt when the coordinates read as Red Belt', () => {

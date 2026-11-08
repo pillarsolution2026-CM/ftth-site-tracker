@@ -5,7 +5,10 @@ import { ErrorNotice } from '@/shared/ui/error-notice';
 import { PageHeader } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { usePlacementDrawing } from '../api/queries';
+import { gpsProposalPhotoUrl } from '../api/proposals-api';
+import { useGpsProposalsPanel } from '../hooks/use-gps-proposals';
 import { useMappingScreen } from '../hooks/use-mapping-screen';
+import { GpsProposalsPanel } from './gps-proposals-panel';
 import { MappingEditor } from './mapping-editor';
 
 export function MappingScreen({
@@ -25,6 +28,14 @@ export function MappingScreen({
     screen.canRead && screen.view?.fileStatus === 'processed',
   );
 
+  const proposals = useGpsProposalsPanel({
+    projectId,
+    cadFileId,
+    enabled: screen.canWrite && screen.view !== null,
+    mappingVersion: screen.view?.mapping?.version ?? null,
+    onReload: screen.reload,
+  });
+
   return (
     <div>
       <PageHeader>
@@ -43,20 +54,34 @@ export function MappingScreen({
       ) : !screen.view ? (
         <p role="status">{t('common.loading')}</p>
       ) : (
-        <MappingEditor
-          key={screen.reloadCount}
-          view={screen.view}
-          drawing={drawing.data ?? null}
-          canWrite={screen.canWrite}
-          canBuild={screen.canBuild}
-          saving={screen.saving}
-          building={screen.building}
-          errorKey={screen.errorKey}
-          offerReload={screen.offerReload}
-          onSave={screen.save}
-          onBuild={(version) => void screen.build(version)}
-          onReload={() => void screen.reload()}
-        />
+        <>
+          {screen.canWrite ? (
+            <div className="mb-6">
+              <GpsProposalsPanel
+                {...proposals}
+                photoUrl={(id) => gpsProposalPhotoUrl(projectId, id)}
+                onToggleHistory={proposals.toggleHistory}
+                onAccept={(id) => void proposals.accept(id)}
+                onReject={proposals.reject}
+                onReload={() => void proposals.reload()}
+              />
+            </div>
+          ) : null}
+          <MappingEditor
+            key={screen.reloadCount}
+            view={screen.view}
+            drawing={drawing.data ?? null}
+            canWrite={screen.canWrite}
+            canBuild={screen.canBuild}
+            saving={screen.saving}
+            building={screen.building}
+            errorKey={screen.errorKey}
+            offerReload={screen.offerReload}
+            onSave={screen.save}
+            onBuild={(version) => void screen.build(version)}
+            onReload={() => void screen.reload()}
+          />
+        </>
       )}
     </div>
   );

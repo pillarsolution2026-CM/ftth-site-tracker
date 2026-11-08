@@ -759,6 +759,54 @@
       "label": "Kind",
       "placeholder": "e.g. 4 way, 144"
     },
+    "proposals": {
+      "title": "Supervisor GPS points",
+      "intro": "A supervisor sends the position of an item from the site. Accepting adds a control point to the mapping (a new version) and does not build a revision; press \"Build revision\" when ready. Save your edits before accepting because the page reloads.",
+      "loading": "Loading proposals…",
+      "empty": "No GPS points are waiting for a decision.",
+      "historyEmpty": "No decisions yet.",
+      "pending": "Waiting for a decision",
+      "showHistory": "Show history",
+      "hideHistory": "Hide history",
+      "historyTitle": "History",
+      "item": "Item",
+      "by": "Supervisor",
+      "fixAt": "Fix time",
+      "accuracy": "Accuracy",
+      "accuracyValue": "±{value} m",
+      "latlon": "Lat / Lon",
+      "note": "Note",
+      "photo": "Point photo",
+      "photoOpen": "Enlarge photo of {item}",
+      "photoClose": "Close photo",
+      "photoUploading": "Photo is still uploading",
+      "accept": "Accept",
+      "acceptFor": "Accept point {item}",
+      "reject": "Reject",
+      "rejectFor": "Reject point {item}",
+      "noMapping": "Save the mapping first, then try again.",
+      "reasonLabel": "Reason for rejecting",
+      "reasonRequired": "Write the reason for rejecting",
+      "confirmReject": "Confirm rejection",
+      "cancel": "Cancel",
+      "decision": "Decision",
+      "decidedBy": "by {name}",
+      "reason": "Reason: {reason}",
+      "version": "Mapping version {version}",
+      "status": {
+        "pending": "Pending",
+        "accepted": "Accepted",
+        "rejected": "Rejected"
+      },
+      "accepted": "The point was added. Press \"Build revision\" when you are ready.",
+      "rejected": "The point was rejected.",
+      "error": {
+        "VERSION_MISMATCH": "The mapping changed since you opened it. Reload, then try again.",
+        "ALREADY_DECIDED": "This point was already decided. The list has been refreshed.",
+        "TOO_MANY_POINTS": "The mapping has reached the maximum number of control points. Remove one, then try again.",
+        "reload": "Reload"
+      }
+    },
     "placement": {
       "title": "Place the drawing on the map",
       "intro": "Give the true Lat/Lon of a few drawing items. 1 point moves the drawing, 2 points also turn it, 3 or more give the best fit. The drawing file itself never changes.",
@@ -781,7 +829,7 @@
       "from": {
         "typed": "Typed",
         "kml": "KML / KMZ",
-        "gps": "Site GPS"
+        "gps": "GPS point from supervisor"
       },
       "outlier": "Far from the other points: check it or leave it out",
       "remove": "Remove {id}",
@@ -797,7 +845,7 @@
       "addPoint": "Add point",
       "latLonInvalid": "Enter a latitude between -90 and 90 and a longitude between -180 and 180",
       "xyInvalid": "Enter the drawing X and Y",
-      "noRevision": "Build a revision once to pick items from the drawing; until then type the drawing X / Y by hand.",
+      "noMapping": "Save the rules first so the drawing items appear. Until then type the drawing X / Y by hand.",
       "itemType": {
         "box": "Box",
         "hhi": "Handhole",

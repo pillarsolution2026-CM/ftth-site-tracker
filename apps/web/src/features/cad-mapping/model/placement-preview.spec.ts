@@ -6,7 +6,7 @@ import { placementPreview } from './placement-preview';
 
 const EPSG = 32636;
 const drawing: PlacementDrawing = {
-  revisionId: null,
+  mappingVersion: 1,
   items: [
     {
       handle: 'C1',
