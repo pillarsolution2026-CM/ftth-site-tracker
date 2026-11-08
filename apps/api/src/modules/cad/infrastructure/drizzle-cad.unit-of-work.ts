@@ -3,6 +3,7 @@ import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
 import type { CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import { DrizzleCadFileRepository } from './drizzle-cad-file.repository.js';
 import { DrizzleCadMappingRepository } from './drizzle-cad-mapping.repository.js';
+import { DrizzleDrawingCorrectionRepository } from './drizzle-drawing-correction.repository.js';
 import { DrizzleDesignRevisionRepository } from './drizzle-design-revision.repository.js';
 import { DrizzleDrawingProblemRepository } from './drizzle-drawing-problem.repository.js';
 import { DrizzleGpsProposalRepository } from './drizzle-gps-proposal.repository.js';
@@ -21,6 +22,7 @@ export class DrizzleCadUnitOfWork implements CadUnitOfWork {
         links: new DrizzleTextLinkRepository(tx),
         problems: new DrizzleDrawingProblemRepository(tx),
         proposals: new DrizzleGpsProposalRepository(tx),
+        corrections: new DrizzleDrawingCorrectionRepository(tx),
         events: new DrizzleEventLog(tx),
       }),
     );

@@ -1,8 +1,25 @@
 import { EVENT_ENTITIES, EVENT_TYPES } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
-import type { CadUnitOfWork } from '../domain/cad-file.repository.js';
+import type { CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import { assertDiscardable, type DesignRevision } from '../domain/design-revision.js';
+
+/** Discards a revision (already read and locked by the caller) and records the event. */
+export async function discardRevisionInTx(
+  tx: CadTx,
+  input: { revision: DesignRevision; actorId: string; supersedingJobId: string },
+): Promise<void> {
+  const { revision, actorId, supersedingJobId } = input;
+  await tx.revisions.discard(revision.projectId, revision.id, supersedingJobId);
+  await tx.events.append({
+    projectId: revision.projectId,
+    entity: EVENT_ENTITIES.designRevision,
+    entityId: revision.id,
+    type: EVENT_TYPES.designRevisionDiscarded,
+    actorId,
+    payload: { previousStatus: revision.status, errorCode: revision.errorCode },
+  });
+}
 
 export class DiscardDesignRevisionUseCase {
   constructor(
@@ -22,15 +39,7 @@ export class DiscardDesignRevisionUseCase {
       if (!revision) throw new AppError('NOT_FOUND', 'Design revision not found');
       assertDiscardable(revision, this.clock.now());
 
-      await tx.revisions.discard(projectId, revisionId, this.ids.next());
-      await tx.events.append({
-        projectId,
-        entity: EVENT_ENTITIES.designRevision,
-        entityId: revisionId,
-        type: EVENT_TYPES.designRevisionDiscarded,
-        actorId,
-        payload: { previousStatus: revision.status, errorCode: revision.errorCode },
-      });
+      await discardRevisionInTx(tx, { revision, actorId, supersedingJobId: this.ids.next() });
       const discarded = await tx.revisions.find(projectId, revisionId);
       if (!discarded) throw new AppError('INTERNAL', 'The design revision disappeared');
       return discarded;

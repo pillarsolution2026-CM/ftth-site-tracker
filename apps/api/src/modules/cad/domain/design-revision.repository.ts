@@ -5,6 +5,7 @@ import type {
   DiffPage,
   DrawingUnit,
   FeatureType,
+  FrozenDrawingCorrection,
   MappingRule,
   Placement,
   PlacementDrawing,
@@ -46,6 +47,8 @@ export interface NewDesignRevision {
   drawingUnit: DrawingUnit;
   metresPerUnit: string;
   placement: Placement | null;
+  /** The file's corrections in force, in creation order (ADR-038). */
+  corrections: FrozenDrawingCorrection[];
   insUnits: number | null;
   unitsConflict: boolean;
   createdById: string;
