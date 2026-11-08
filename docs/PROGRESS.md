@@ -6,13 +6,14 @@ Updated at the end of every phase (see `docs/ROADMAP.md`). Each phase waits for 
 | --- | --- | --- |
 | −1 Planning docs (ROADMAP, ARCHITECTURE, DECISIONS, agents) | Done | — |
 | 0 Foundation | Done — merged (PR #1, #2) | 2026-10-28 (owner) |
-| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reported `639f6e4` on 2026-11-01. Tile server (Martin) added by ADR-031 | — |
+| Staging (Hetzner) | Running on the real server: `Deploy (SSH)` (ADR-022) runs after each image publish; `/health` reported `7ce1a6a` on 2026-11-08. Tile server (Martin) added by ADR-031, running since 2026-11-01 (Deploy log: catalog has `design_features`, unsigned tile 401, signed 204) | — |
 | Admin setup: projects, zone names, users, assignments | Done — merged (PR #18, ADR-026), added at the owner's request outside the roadmap tasks. Owner decisions open; not yet tried on staging; zones have names only until Phase 2 draws boundaries | — |
 | 1a Work orders + CAD upload & extraction | Done — merged | 2026-10-28 (owner) |
 | 1b Mapping, text linking, features, tiles | Done — merged (PR #10; follow-ups #35–#39: cabinets, rings, shape symbols, drawing problems, screens). Golden run on Rabaa (replaced Qalyub, ADR-034) and staging test passed | 2026-11-05 (owner) |
-| 2 Contract, BOQ & rules | In progress — step 1 (contract + BOQ, ADR-027) merged (PR #20) and on staging; step 2 (work-order lines from the contract, ADR-028) merged (PR #21) and on staging; subcontractors part 1 (ADR-036) merged (PR #44) and on staging; next: subcontractors parts 2–3, `type_rules`, zones, matching, web CAD viewer | — |
-| 3 Supervisor app (offline) | Done — merged (PR #17), awaiting approval. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b still awaits approval. Not run on a device; the airplane-mode acceptance was simulated | — |
-| 4 As-Built editing | Done — merged (PR #5, PR #22), awaiting approval. The rest started 2026-11-01 at the owner's request (ADR-029, ADR-030). Phases 1b and 3 merged but **not approved**, Phase 2 in progress. Not run on a device; DXF not opened in AutoCAD; takeoff half of the acceptance waits for Phase 5 | — |
+| Drawing placement (ADR-032, ADR-035) | Core and screens merged (PR #42, #43): Red Belt conversion, control points typed or from KML/KMZ, map preview (OpenStreetMap) with Move / Rotate / Scale. Supervisor GPS points and placement items without a build (ADR-037) built on `feat/placement-gps-proposals`, not yet on staging. Not done: satellite base maps; issue #27 still open | — |
+| 2 Contract, BOQ & rules | In progress — step 1 (contract + BOQ, ADR-027) merged (PR #20) and on staging; step 2 (work-order lines from the contract, ADR-028) merged (PR #21) and on staging; subcontractors part 1 (ADR-036) merged (PR #44), not tried on staging; next: subcontractors parts 2–3, `type_rules`, zones, matching, web CAD viewer | — |
+| 3 Supervisor app (offline) | Done — merged (PR #17), awaiting approval. Started 2026-10-30 at the owner's request **before Phase 2** (ADR-023); Phase 1b approved since (2026-11-05). Not run on a device; the airplane-mode acceptance was simulated | — |
+| 4 As-Built editing | Done — merged (PR #5, PR #22), awaiting approval. The rest started 2026-11-01 at the owner's request (ADR-029, ADR-030). Phase 3 merged but **not approved** (1b approved 2026-11-05), Phase 2 in progress. Not run on a device; DXF not opened in AutoCAD; takeoff half of the acceptance waits for Phase 5 | — |
 | 5 QC, quantities, changes & invoicing | Not started | — |
 | 6 Full testing | Not started | — |
 | 7 Cloud launch & pilot | Not started | — |
