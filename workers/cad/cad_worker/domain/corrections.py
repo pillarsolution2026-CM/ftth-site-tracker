@@ -28,9 +28,10 @@ corrections do not show on the background layer (only on features, text links an
 
 from __future__ import annotations
 
+import bisect
 import dataclasses
 import math
-import statistics
+import re
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -52,6 +53,10 @@ MAX_TEXT_LENGTH = 255
 MAX_HEIGHT = 1_000_000.0
 MAX_MERGE_PIECES = 50
 MAX_CORRECTIONS = 5000
+# |x| and |y| of an added text or item, drawing units (technical cap, as the contract).
+MAX_CORRECTION_COORD = 1_000_000_000
+# Control characters U+0000-U+001F are refused in handles, layers and texts (as the contract).
+_CONTROL = re.compile(r"[\x00-\x1f]")
 FIX_HANDLE_PREFIX = "FIX-"
 # Height of an added text without height on a layer with no readable text (drawing units).
 DEFAULT_TEXT_HEIGHT = 1.0
@@ -189,7 +194,11 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
 
 
 def _handle(cid: str, value: object) -> str:
-    if not isinstance(value, str) or not 1 <= len(value) <= MAX_HANDLE_LENGTH:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= MAX_HANDLE_LENGTH
+        or _CONTROL.search(value)
+    ):
         raise CorrectionInvalidError(f"correction {cid}: invalid handle {value!r}")
     return value
 
@@ -198,6 +207,8 @@ def _layer(cid: str, body: Mapping[str, object], key: str) -> str:
     value = body.get(key)
     if not isinstance(value, str) or not 1 <= len(value) <= MAX_LAYER_LENGTH:
         raise CorrectionInvalidError(f"correction {cid}: `{key}` must be a 1-255 character string")
+    if _CONTROL.search(value):
+        raise CorrectionInvalidError(f"correction {cid}: `{key}` has a control character")
     return value
 
 
@@ -206,6 +217,8 @@ def _text(cid: str, body: Mapping[str, object]) -> str:
     text = value.strip() if isinstance(value, str) else ""
     if not 1 <= len(text) <= MAX_TEXT_LENGTH:
         raise CorrectionInvalidError(f"correction {cid}: `text` must be 1-255 characters")
+    if _CONTROL.search(text):
+        raise CorrectionInvalidError(f"correction {cid}: `text` has a control character")
     return text
 
 
@@ -218,8 +231,10 @@ def _number(value: object) -> float | None:
 
 def _finite(cid: str, body: Mapping[str, object], key: str) -> float:
     number = _number(body.get(key))
-    if number is None:
-        raise CorrectionInvalidError(f"correction {cid}: `{key}` must be a finite number")
+    if number is None or abs(number) > MAX_CORRECTION_COORD:
+        raise CorrectionInvalidError(
+            f"correction {cid}: `{key}` must be a number within ±{MAX_CORRECTION_COORD}"
+        )
     return number
 
 
@@ -265,6 +280,8 @@ def apply_corrections(
         {i.handle: i for i in drawing.inserts},
         {t.handle: t for t in drawing.texts},
     )
+    for t in drawing.texts:
+        rows.count_height(t, +1)
     touch = ROUTE_END_TOUCH_M / metres_per_unit
     for fc in corrections:
         _apply(rows, fc, touch)
@@ -279,9 +296,38 @@ class _Rows:
     curves: dict[str, SourceCurve]
     inserts: dict[str, SourceInsert]
     texts: dict[str, SourceText]
+    # Layer -> sorted heights of its readable texts, kept in step by `put_text`: a default text
+    # height is a lookup, not a scan of every text (security review M).
+    heights: dict[str, list[float]] = dataclasses.field(default_factory=dict)
 
     def taken(self, handle: str) -> bool:
         return handle in self.curves or handle in self.inserts or handle in self.texts
+
+    def put_text(self, text: SourceText) -> None:
+        """Add or replace a text row (by handle), keeping the height index in step."""
+        old = self.texts.get(text.handle)
+        if old is not None:
+            self.count_height(old, -1)
+        self.texts[text.handle] = text
+        self.count_height(text, +1)
+
+    def count_height(self, text: SourceText, step: int) -> None:
+        if not text.readable or not text.height:
+            return
+        height = abs(text.height)
+        layer = self.heights.setdefault(text.layer, [])
+        if step > 0:
+            bisect.insort(layer, height)
+        else:
+            del layer[bisect.bisect_left(layer, height)]
+
+    def median_height(self, layer: str) -> float:
+        """Median height of the readable texts on the layer, else DEFAULT_TEXT_HEIGHT."""
+        heights = self.heights.get(layer)
+        if not heights:
+            return DEFAULT_TEXT_HEIGHT
+        mid = len(heights) // 2
+        return heights[mid] if len(heights) % 2 else (heights[mid - 1] + heights[mid]) / 2
 
 
 def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
@@ -293,15 +339,11 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
         text = rows.texts.get(c.handle)
         if text is None:
             raise CorrectionInvalidError(f"{where}: no text with handle {c.handle} in the drawing")
-        rows.texts[c.handle] = dataclasses.replace(
-            text, text=c.text, raw_text=c.text, readable=True
-        )
+        rows.put_text(dataclasses.replace(text, text=c.text, raw_text=c.text, readable=True))
     elif isinstance(c, AddText):
         _check_free(rows, fc.fix_handle, where)
-        height = c.height if c.height is not None else _default_height(rows.texts.values(), c.layer)
-        rows.texts[fc.fix_handle] = SourceText(
-            fc.fix_handle, c.layer, (c.x, c.y), height, c.text, c.text, True
-        )
+        height = c.height if c.height is not None else rows.median_height(c.layer)
+        rows.put_text(SourceText(fc.fix_handle, c.layer, (c.x, c.y), height, c.text, c.text, True))
     elif isinstance(c, AddItem):
         _check_free(rows, fc.fix_handle, where)
         rows.inserts[fc.fix_handle] = SourceInsert(fc.fix_handle, c.layer, FIX_BLOCK, (c.x, c.y))
@@ -317,7 +359,7 @@ def _move_layer(rows: _Rows, c: MoveLayer, where: str) -> None:
     if (insert := rows.inserts.get(c.handle)) is not None:
         rows.inserts[c.handle] = dataclasses.replace(insert, layer=c.to_layer)
     elif (text := rows.texts.get(c.handle)) is not None:
-        rows.texts[c.handle] = dataclasses.replace(text, layer=c.to_layer)
+        rows.put_text(dataclasses.replace(text, layer=c.to_layer))
     elif (curve := rows.curves.get(c.handle)) is not None:
         rows.curves[c.handle] = dataclasses.replace(curve, layer=c.to_layer)
     else:
@@ -327,11 +369,6 @@ def _move_layer(rows: _Rows, c: MoveLayer, where: str) -> None:
 def _check_free(rows: _Rows, handle: str, where: str) -> None:
     if rows.taken(handle):
         raise CorrectionInvalidError(f"{where}: handle {handle} already exists")
-
-
-def _default_height(texts: Iterable[SourceText], layer: str) -> float:
-    heights = [abs(t.height) for t in texts if t.layer == layer and t.readable and t.height]
-    return float(statistics.median(heights)) if heights else DEFAULT_TEXT_HEIGHT
 
 
 def _piece(rows: _Rows, handle: str, where: str) -> SourceCurve:

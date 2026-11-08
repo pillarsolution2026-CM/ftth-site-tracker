@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
@@ -10,6 +11,7 @@ import pytest
 from cad_worker.application.build_revision import compose_design
 from cad_worker.domain.corrections import (
     DEFAULT_TEXT_HEIGHT,
+    MAX_CORRECTION_COORD,
     AddItem,
     AddText,
     CorrectionInvalidError,
@@ -158,6 +160,50 @@ def test_invalid_corrections_are_refused(raw: object) -> None:
         parse_corrections(raw)
 
 
+def _one(body: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"id": ID1, "correction": body}]
+
+
+@pytest.mark.parametrize("key", ["x", "y"])
+def test_coordinates_are_capped_at_a_billion_drawing_units(key: str) -> None:
+    for kind, extra in (("add_item", {}), ("add_text", {"text": "a"})):
+        body: dict[str, Any] = {"kind": kind, "layer": "L", "x": 0, "y": 0, **extra}
+        parse_corrections(_one({**body, key: -MAX_CORRECTION_COORD}))  # the bound itself is fine
+        with pytest.raises(CorrectionInvalidError, match="within"):
+            parse_corrections(_one({**body, key: MAX_CORRECTION_COORD + 1}))
+        with pytest.raises(CorrectionInvalidError, match="within"):
+            parse_corrections(_one({**body, key: -1e10}))
+
+
+@pytest.mark.parametrize("char", ["\x00", "\n", "\t", "\x1f"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"kind": "move_layer", "handle": "A{c}B", "toLayer": "L"},
+        {"kind": "move_layer", "handle": "A", "toLayer": "L{c}M"},
+        {"kind": "set_text", "handle": "A", "text": "J{c}36"},
+        {"kind": "set_text", "handle": "A{c}", "text": "J"},
+        {"kind": "add_text", "layer": "L{c}", "x": 0, "y": 0, "text": "J"},
+        {"kind": "add_text", "layer": "L", "x": 0, "y": 0, "text": "J{c}36"},
+        {"kind": "add_item", "layer": "{c}L", "x": 0, "y": 0},
+        {"kind": "merge_routes", "handles": ["A", "B{c}"]},
+    ],
+)
+def test_control_characters_are_refused(body: dict[str, Any], char: str) -> None:
+    def put(value: Any) -> Any:
+        if isinstance(value, str):
+            return value.replace("{c}", char)
+        return [put(v) for v in value] if isinstance(value, list) else value
+
+    with pytest.raises(CorrectionInvalidError):
+        parse_corrections(_one({k: put(v) for k, v in body.items()}))
+
+
+def test_non_control_unicode_is_accepted() -> None:
+    [fc] = parse_corrections(_one({"kind": "set_text", "handle": "A", "text": "كابينة 1-7 ✓"}))
+    assert fc.correction == SetText("A", "كابينة 1-7 ✓")
+
+
 # ---------- each kind ----------
 
 
@@ -249,6 +295,48 @@ def test_add_text_with_and_without_height() -> None:
     assert added[0] == SourceText(f"FIX-{ID1}", "jont 144", (10, 20), 2.5, "J 144", "J 144", True)
     assert added[1].height == 0.4 and added[1].handle == f"FIX-{ID2}"
     assert added[2].height == DEFAULT_TEXT_HEIGHT
+
+
+def test_default_height_follows_earlier_corrections() -> None:
+    """Texts moved, typed or added earlier count on their new layer, and no longer on the old."""
+    drawing = empty(
+        texts=(
+            SourceText("a", "A", (0, 0), 1.0, "x", "x", True),
+            SourceText("b", "A", (0, 0), 9.0, "x", "x", True),
+            SourceText("u", "B", (0, 0), 4.0, "?", "?", False),  # unreadable until typed
+        )
+    )
+    steps = [
+        MoveLayer("b", "B"),  # A = [1], B = [9]
+        SetText("u", "typed"),  # B = [4, 9]
+        AddText("B", 0, 0, "n", 20.0),  # B = [4, 9, 20]
+        AddText("A", 0, 0, "default on A", None),  # median of [1] -> 1; A = [1, 1]
+        AddText("B", 0, 0, "default on B", None),  # median of [4, 9, 20] -> 9; B = [4, 9, 9, 20]
+        MoveLayer("b", "A"),  # A = [1, 1, 9], B = [4, 9, 20]
+        AddText("A", 0, 0, "again on A", None),  # median of [1, 1, 9] -> 1
+        AddText("B", 0, 0, "again on B", None),  # median of [4, 9, 20] -> 9
+    ]
+    out = apply(drawing, *steps)
+    assert [t.height for t in out.texts[4:]] == [1.0, 9.0, 1.0, 9.0]
+
+
+def test_many_added_texts_on_a_large_drawing_stay_fast() -> None:
+    """5000 add_text without height on 100k texts: no scan of every text per correction."""
+    drawing = empty(
+        texts=tuple(
+            SourceText(f"t{i}", f"L{i % 10}", (i, 0), 1.0 + i % 7, "x", "x", True)
+            for i in range(100_000)
+        )
+    )
+    corrections = [
+        FrozenCorrection(str(uuid.UUID(int=n + 1)), AddText(f"L{n % 10}", n, 1, "J", None))
+        for n in range(5000)
+    ]
+    started = time.perf_counter()
+    out = apply_corrections(drawing, corrections, metres_per_unit=1.0)
+    assert time.perf_counter() - started < 2.0
+    assert len(out.texts) == 105_000
+    assert out.texts[-1].height == 4.0  # median of 1..7 on every layer
 
 
 def test_add_text_clears_label_missing() -> None:
