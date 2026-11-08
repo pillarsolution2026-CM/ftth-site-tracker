@@ -1060,7 +1060,7 @@
     "problems": {
       "title": "Drawing errors",
       "heading": "Drawing errors: {total}",
-      "hint": "Every error blocks publishing. Fixing tools on this page come in the next change; until then, fix the drawing and upload it again. Coordinates are listed to find each place in AutoCAD.",
+      "hint": "Every error blocks publishing. Fix each place with its tool on this page (the drawing file never changes), or fix the drawing in AutoCAD and upload it again. Coordinates are listed to find each place in AutoCAD.",
       "none": "No drawing errors found.",
       "place": "Place",
       "drawingXY": "Drawing X/Y",
@@ -1112,6 +1112,74 @@
       "LABEL_LENGTH_MISSING": {
         "description": "A cable label gives its type but no length.",
         "fix": "Write the length in the label."
+      }
+    },
+    "fix": {
+      "open": "Fix this place",
+      "close": "Close",
+      "pending": "Fixed — it will disappear after the rebuild",
+      "saving": "Saving…",
+      "inAutocad": "This error is fixed in AutoCAD: fix the drawing and upload it as a new version (a download with the corrections comes in the next change).",
+      "moveSuggested": "Move to the suggested layer",
+      "otherLayer": "Or another layer",
+      "chooseLayer": "Choose a layer",
+      "moveToLayer": "Move to this layer",
+      "newLabel": "Label text",
+      "addLabel": "Add the label",
+      "editLabel": "Label text (edit it)",
+      "saveLabel": "Save the label",
+      "lengthHint": "Add the length to the label.",
+      "mismatchChoice": "How to fix it",
+      "modeEdit": "Edit the label",
+      "modeItem": "Place an item of the label's type here",
+      "itemLayer": "Layer of the item (its type)",
+      "placeItem": "Place the item here",
+      "noPointLayers": "No layer is mapped to an item type yet. Save the mapping first.",
+      "mergePieces": "{count} pieces will be joined into one cable.",
+      "merge": "Merge the pieces into one cable"
+    },
+    "corrections": {
+      "title": "Corrections",
+      "heading": "Corrections: {active} in force",
+      "hint": "Corrections are saved apart from the drawing, which never changes. They are applied when the revision is built again.",
+      "none": "No corrections yet.",
+      "colKind": "Correction",
+      "colValues": "Values",
+      "colMadeBy": "Made by",
+      "colState": "State",
+      "active": "In force",
+      "withdrawn": "Withdrawn",
+      "answers": "Answers: {problem}",
+      "kind": {
+        "move_layer": "Move to a layer",
+        "set_text": "Edit a label",
+        "add_text": "Add a label",
+        "add_item": "Add an item",
+        "merge_routes": "Merge routes"
+      },
+      "values": {
+        "move_layer": "Move",
+        "set_text": "Set the text of",
+        "merge_routes": "{count} pieces:"
+      },
+      "withdraw": "Withdraw the correction",
+      "withdrawTitle": "Withdraw this correction?",
+      "withdrawText": "It stays in the history but is no longer applied. Rebuild to see the effect.",
+      "withdrawConfirm": "Withdraw",
+      "rebuild": "Apply the corrections and rebuild",
+      "rebuilding": "Rebuilding…",
+      "rebuildText": "This discards the current draft and builds a new revision of the same file with the current mapping and the corrections in force.",
+      "changesSince": "Corrections made or withdrawn since this revision was built: {count}.",
+      "noChangesSince": "No correction changed since this revision was built. You can still rebuild to pick up the current mapping.",
+      "mappingMissing": "Save the mapping of the file first; a build needs it.",
+      "error": {
+        "HANDLE_NOT_FOUND": "That element is not in the drawing",
+        "TOO_MANY_CORRECTIONS": "This drawing has reached the limit of corrections",
+        "NOT_PROCESSED": "The drawing file is not processed yet",
+        "ALREADY_WITHDRAWN": "This correction was already withdrawn",
+        "NOT_DRAFT": "Only a draft revision can be changed",
+        "VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again.",
+        "MAPPING_VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again."
       }
     }
   },

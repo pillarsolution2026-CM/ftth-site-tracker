@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import type { PublishReadiness } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
-import { renderScreen } from '@/test-utils/render';
+import { QC_ACCESS, renderScreen } from '@/test-utils/render';
+import type { ProjectAccess } from '@/features/projects/model/project-access';
 import { DesignRevisionDetailScreen } from './design-revision-detail';
 
 const api = vi.hoisted(() => ({
@@ -16,7 +17,12 @@ vi.mock('../hooks/use-text-review', () => ({ useTextReview: () => ({}) }));
 vi.mock('../hooks/use-diff-view', () => ({ useDiffView: () => ({}) }));
 vi.mock('./text-review', () => ({ TextReviewView: () => null }));
 vi.mock('./diff-section', () => ({ DiffSection: () => null }));
-vi.mock('./problems-section', () => ({ ProblemsSection: () => null }));
+const sections = vi.hoisted(() => ({
+  problems: vi.fn(() => null),
+  corrections: vi.fn(() => null),
+}));
+vi.mock('./problems-section', () => ({ ProblemsSection: sections.problems }));
+vi.mock('./corrections-panel', () => ({ CorrectionsSection: sections.corrections }));
 vi.mock('./revision-summary', () => ({ RevisionSummary: () => null }));
 
 const CAD_FILE = '33333333-3333-4333-8333-333333333333';
@@ -41,7 +47,7 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
   };
 }
 
-function renderDetail() {
+function renderDetail(access?: ProjectAccess) {
   renderScreen(
     <DesignRevisionDetailScreen
       projectId="p"
@@ -49,12 +55,15 @@ function renderDetail() {
       listPath="/en/projects/p/design-revisions"
       cadFilesPath="/en/projects/p/cad-files"
     />,
+    access ? { access } : {},
   );
 }
 
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
   api.getDesignRevision.mockResolvedValue(revision);
+  sections.problems.mockClear();
+  sections.corrections.mockClear();
 });
 
 describe('DesignRevisionDetailScreen publish checklist', () => {
@@ -119,5 +128,37 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     await user.click(button);
     expect(await screen.findByText(/4.* drawing errors are left/)).toBeInTheDocument();
     await waitFor(() => expect(api.getPublishReadiness).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('DesignRevisionDetailScreen drawing corrections', () => {
+  const lastProps = (fn: typeof sections.problems) =>
+    (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+
+  it('offers the fix tools and the rebuild on a draft to a user who can write designs', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    renderDetail();
+    await screen.findByRole('button', { name: 'Publish' });
+    expect(lastProps(sections.problems)).toMatchObject({ canFix: true, cadFileId: CAD_FILE });
+    expect(lastProps(sections.corrections)).toMatchObject({
+      canEdit: true,
+      cadFileId: CAD_FILE,
+      listPath: '/en/projects/p/design-revisions',
+    });
+  });
+
+  it('offers neither on a published revision', async () => {
+    api.getDesignRevision.mockResolvedValue({ ...revision, status: 'published', revNo: 2 });
+    renderDetail();
+    await waitFor(() => expect(sections.corrections).toHaveBeenCalled());
+    expect(lastProps(sections.problems)).toMatchObject({ canFix: false });
+    expect(lastProps(sections.corrections)).toMatchObject({ canEdit: false });
+  });
+
+  it('offers neither without design:write', async () => {
+    renderDetail(QC_ACCESS);
+    await waitFor(() => expect(sections.corrections).toHaveBeenCalled());
+    expect(lastProps(sections.problems)).toMatchObject({ canFix: false });
+    expect(lastProps(sections.corrections)).toMatchObject({ canEdit: false });
   });
 });

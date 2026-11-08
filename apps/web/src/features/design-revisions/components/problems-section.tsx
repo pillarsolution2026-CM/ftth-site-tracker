@@ -1,7 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import type { DrawingProblemItem, DrawingProblemView, ProblemSeverity } from '@ftth/shared';
+import type {
+  DrawingProblemCode,
+  DrawingProblemItem,
+  DrawingProblemView,
+  ProblemSeverity,
+} from '@ftth/shared';
 import { ltr } from '@ftth/i18n';
 import { errorCodeOf } from '@/shared/api/bff-client';
 import { Button } from '@/shared/ui/button';
@@ -11,6 +16,8 @@ import { Notice } from '@/shared/ui/notice';
 import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useDrawingProblems } from '../api/queries';
+import { useFixTools, type FixTools } from '../hooks/use-fix-tools';
+import { FixTool } from './fix-tool';
 
 /** Places shown per problem before "show all" (a problem keeps at most 500). */
 const FIRST_PLACES = 20;
@@ -31,14 +38,20 @@ const round = (value: number) => Math.round(value * 100) / 100;
 export function ProblemsSection({
   projectId,
   revisionId,
+  cadFileId,
   enabled,
+  canFix,
 }: {
   projectId: string;
   revisionId: string;
+  cadFileId: string;
   enabled: boolean;
+  /** Draft revision and `design:write`: the fix tools are offered. */
+  canFix: boolean;
 }) {
   const { t } = useI18n();
   const query = useDrawingProblems(projectId, revisionId, enabled);
+  const tools = useFixTools(projectId, cadFileId, enabled && canFix);
   const problems = query.data?.items ?? [];
   const total = query.data?.total ?? 0;
   return (
@@ -55,13 +68,13 @@ export function ProblemsSection({
         <Notice kind="success">{t('design.problems.none')}</Notice>
       ) : null}
       {problems.map((problem) => (
-        <ProblemBlock key={problem.code} problem={problem} />
+        <ProblemBlock key={problem.code} problem={problem} tools={tools} />
       ))}
     </section>
   );
 }
 
-function ProblemBlock({ problem }: { problem: DrawingProblemView }) {
+function ProblemBlock({ problem, tools }: { problem: DrawingProblemView; tools: FixTools }) {
   const { t } = useI18n();
   const [showAll, setShowAll] = useState(false);
   const places = showAll ? problem.items : problem.items.slice(0, FIRST_PLACES);
@@ -100,7 +113,7 @@ function ProblemBlock({ problem }: { problem: DrawingProblemView }) {
         </thead>
         <tbody>
           {places.map((item) => (
-            <PlaceRow key={item.handle} item={item} />
+            <PlaceRow key={item.handle} code={problem.code} item={item} tools={tools} />
           ))}
         </tbody>
       </Table>
@@ -120,7 +133,15 @@ function ProblemBlock({ problem }: { problem: DrawingProblemView }) {
   );
 }
 
-function PlaceRow({ item }: { item: DrawingProblemItem }) {
+function PlaceRow({
+  code,
+  item,
+  tools,
+}: {
+  code: DrawingProblemCode;
+  item: DrawingProblemItem;
+  tools: FixTools;
+}) {
   const { t } = useI18n();
   const zoom = `ZOOM C ${round(item.drawingX)},${round(item.drawingY)}`;
   return (
@@ -144,6 +165,7 @@ function PlaceRow({ item }: { item: DrawingProblemItem }) {
         <div className="text-sm opacity-80">
           {t('design.problems.handle')}: <Ltr>{item.handle}</Ltr>
         </div>
+        <FixTool code={code} place={item} tools={tools} />
       </Td>
       <Td>
         <Ltr className="break-all">{item.layer}</Ltr>

@@ -1060,7 +1060,7 @@
     "problems": {
       "title": "Erreurs du dessin",
       "heading": "Erreurs du dessin : {total}",
-      "hint": "Chaque erreur bloque la publication. Les outils de correction de cette page arrivent dans la prochaine modification ; d'ici là, corrigez le dessin et téléversez-le à nouveau. Les coordonnées permettent de retrouver chaque endroit dans AutoCAD.",
+      "hint": "Chaque erreur bloque la publication. Corrigez chaque endroit avec son outil sur cette page (le fichier du dessin ne change jamais), ou corrigez le dessin dans AutoCAD et téléversez-le à nouveau. Les coordonnées permettent de retrouver chaque endroit dans AutoCAD.",
       "none": "Aucune erreur de dessin trouvée.",
       "place": "Endroit",
       "drawingXY": "X/Y du dessin",
@@ -1112,6 +1112,74 @@
       "LABEL_LENGTH_MISSING": {
         "description": "Une étiquette de câble donne son type mais pas sa longueur.",
         "fix": "Écrire la longueur dans l'étiquette."
+      }
+    },
+    "fix": {
+      "open": "Corriger cet endroit",
+      "close": "Fermer",
+      "pending": "Corrigé — disparaîtra après la reconstruction",
+      "saving": "Enregistrement…",
+      "inAutocad": "Cette erreur se corrige dans AutoCAD : corrigez le dessin et téléversez-le comme nouvelle version (le téléchargement avec les corrections viendra au prochain changement).",
+      "moveSuggested": "Déplacer vers le calque suggéré",
+      "otherLayer": "Ou un autre calque",
+      "chooseLayer": "Choisir un calque",
+      "moveToLayer": "Déplacer vers ce calque",
+      "newLabel": "Texte de l'étiquette",
+      "addLabel": "Ajouter l'étiquette",
+      "editLabel": "Texte de l'étiquette (à modifier)",
+      "saveLabel": "Enregistrer l'étiquette",
+      "lengthHint": "Ajoutez la longueur à l'étiquette.",
+      "mismatchChoice": "Comment corriger",
+      "modeEdit": "Modifier l'étiquette",
+      "modeItem": "Placer ici un élément du type de l'étiquette",
+      "itemLayer": "Calque de l'élément (son type)",
+      "placeItem": "Placer l'élément ici",
+      "noPointLayers": "Aucun calque n'est encore associé à un type d'élément. Enregistrez d'abord l'association.",
+      "mergePieces": "{count} tronçons seront réunis en un seul câble.",
+      "merge": "Fusionner les tronçons en un seul câble"
+    },
+    "corrections": {
+      "title": "Corrections",
+      "heading": "Corrections : {active} en vigueur",
+      "hint": "Les corrections sont enregistrées à part du dessin, qui ne change jamais. Elles s'appliquent quand la révision est reconstruite.",
+      "none": "Aucune correction pour le moment.",
+      "colKind": "Correction",
+      "colValues": "Valeurs",
+      "colMadeBy": "Faite par",
+      "colState": "État",
+      "active": "En vigueur",
+      "withdrawn": "Retirée",
+      "answers": "Répond à : {problem}",
+      "kind": {
+        "move_layer": "Déplacer vers un calque",
+        "set_text": "Modifier une étiquette",
+        "add_text": "Ajouter une étiquette",
+        "add_item": "Ajouter un élément",
+        "merge_routes": "Fusionner des tracés"
+      },
+      "values": {
+        "move_layer": "Déplacer",
+        "set_text": "Définir le texte de",
+        "merge_routes": "{count} tronçons :"
+      },
+      "withdraw": "Retirer la correction",
+      "withdrawTitle": "Retirer cette correction ?",
+      "withdrawText": "Elle reste dans l'historique mais n'est plus appliquée. Reconstruisez pour voir l'effet.",
+      "withdrawConfirm": "Retirer",
+      "rebuild": "Appliquer les corrections et reconstruire",
+      "rebuilding": "Reconstruction…",
+      "rebuildText": "Cela abandonne le brouillon actuel et construit une nouvelle révision du même fichier avec l'association actuelle et les corrections en vigueur.",
+      "changesSince": "Corrections faites ou retirées depuis la construction de cette révision : {count}.",
+      "noChangesSince": "Aucune correction n'a changé depuis la construction de cette révision. Vous pouvez reconstruire pour prendre en compte l'association actuelle.",
+      "mappingMissing": "Enregistrez d'abord l'association du fichier ; la construction en a besoin.",
+      "error": {
+        "HANDLE_NOT_FOUND": "Cet élément n'est pas dans le dessin",
+        "TOO_MANY_CORRECTIONS": "Ce dessin a atteint la limite de corrections",
+        "NOT_PROCESSED": "Le fichier du dessin n'est pas encore traité",
+        "ALREADY_WITHDRAWN": "Cette correction est déjà retirée",
+        "NOT_DRAFT": "Seule une révision en brouillon peut être modifiée",
+        "VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez.",
+        "MAPPING_VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez."
       }
     }
   },
