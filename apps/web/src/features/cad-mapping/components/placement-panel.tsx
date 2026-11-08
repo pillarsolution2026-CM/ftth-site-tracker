@@ -173,7 +173,7 @@ export function PlacementPanel(props: PlacementPanelProps) {
         <>
           <AddPointForm
             items={items}
-            hasRevision={!!props.drawing?.revisionId}
+            mappingSaved={props.drawing === null || props.drawing.mappingVersion !== null}
             onAdd={props.onAddPoints}
           />
           <KmlImport items={items} onAdd={props.onAddPoints} />
@@ -220,11 +220,12 @@ function PlacementSummary({ solved }: { solved: PlacementSolved }) {
 
 function AddPointForm({
   items,
-  hasRevision,
+  mappingSaved,
   onAdd,
 }: {
   items: readonly PlacementItem[];
-  hasRevision: boolean;
+  /** False when the file has no saved mapping: its rules classify the items (ADR-037). */
+  mappingSaved: boolean;
   onAdd: PlacementPanelProps['onAddPoints'];
 }) {
   const { t } = useI18n();
@@ -265,7 +266,7 @@ function AddPointForm({
       <h3 id="placement-add" className="font-semibold">
         {t('mapping.placement.add')}
       </h3>
-      {!hasRevision ? <p className="text-sm">{t('mapping.placement.noRevision')}</p> : null}
+      {!mappingSaved ? <p className="text-sm">{t('mapping.placement.noMapping')}</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Select
           id="placement-item"

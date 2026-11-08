@@ -25,6 +25,12 @@ export default function ProjectCad() {
           params: { projectId, featureId },
         })
       }
+      onProposePoint={(featureId) =>
+        router.push({
+          pathname: '/project/[projectId]/propose/[featureId]',
+          params: { projectId, featureId },
+        })
+      }
       onOpenPending={() =>
         router.push({ pathname: '/project/[projectId]/pending', params: { projectId } })
       }

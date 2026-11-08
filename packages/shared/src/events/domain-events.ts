@@ -8,6 +8,7 @@ export const EVENT_ENTITIES = {
   workOrderAttachment: 'work_order_attachment',
   cadFile: 'cad_file',
   cadMapping: 'cad_mapping',
+  gpsProposal: 'gps_proposal',
   designRevision: 'design_revision',
   textLink: 'text_link',
   executionUpdate: 'execution_update',
@@ -42,6 +43,9 @@ export const EVENT_TYPES = {
   cadFileFailed: 'cad_file.failed',
   /** Payload: version, crsEpsg, drawingUnit, rule count. */
   cadMappingSaved: 'cad_mapping.saved',
+  gpsProposalReceived: 'gps_proposal.received',
+  gpsProposalAccepted: 'gps_proposal.accepted',
+  gpsProposalRejected: 'gps_proposal.rejected',
   designRevisionQueued: 'design_revision.queued',
   /** Written by the worker (actor_id NULL). */
   designRevisionBuildStarted: 'design_revision.build_started',

@@ -54,6 +54,7 @@ import {
   DESIGN_READ_QUERIES,
   DESIGN_REVISION_REPOSITORY,
   DRAWING_PROBLEM_REPOSITORY,
+  GPS_PROPOSAL_REPOSITORY,
   JOB_QUEUE,
   PROJECT_EPSG_LOOKUP,
   TILE_CONFIG,
@@ -77,7 +78,16 @@ import { DrizzleCadUnitOfWork } from './infrastructure/drizzle-cad.unit-of-work.
 import { DrizzleDesignReadQueries } from './infrastructure/drizzle-design-read.queries.js';
 import { DrizzleDrawingProblemRepository } from './infrastructure/drizzle-drawing-problem.repository.js';
 import { DrizzleDesignRevisionRepository } from './infrastructure/drizzle-design-revision.repository.js';
+import { DrizzleGpsProposalRepository } from './infrastructure/drizzle-gps-proposal.repository.js';
 import { DrizzleMappingViewQueries } from './infrastructure/drizzle-mapping-view.queries.js';
+import {
+  AcceptGpsProposalUseCase,
+  GetGpsProposalPhotoUseCase,
+  ListGpsProposalsUseCase,
+  RejectGpsProposalUseCase,
+} from './application/gps-proposal.use-cases.js';
+import type { GpsProposalRepository } from './domain/gps-proposal.js';
+import { GpsProposalsController } from './interface/gps-proposals.controller.js';
 import { ProjectsServiceEpsgLookup } from './infrastructure/projects-epsg-lookup.js';
 import { RedisJobQueue } from './infrastructure/redis-job-queue.js';
 import { CadExtractionController } from './interface/cad-extraction.controller.js';
@@ -140,6 +150,32 @@ const providers: Provider[] = [
     provide: DRAWING_PROBLEM_REPOSITORY,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleDrawingProblemRepository(db),
+  },
+  {
+    provide: GPS_PROPOSAL_REPOSITORY,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleGpsProposalRepository(db),
+  },
+  {
+    provide: ListGpsProposalsUseCase,
+    inject: [GPS_PROPOSAL_REPOSITORY],
+    useFactory: (proposals: GpsProposalRepository) => new ListGpsProposalsUseCase(proposals),
+  },
+  {
+    provide: GetGpsProposalPhotoUseCase,
+    inject: [GPS_PROPOSAL_REPOSITORY, OBJECT_STORAGE],
+    useFactory: (proposals: GpsProposalRepository, storage: ObjectStorage) =>
+      new GetGpsProposalPhotoUseCase(proposals, storage),
+  },
+  {
+    provide: AcceptGpsProposalUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new AcceptGpsProposalUseCase(uow, systemClock),
+  },
+  {
+    provide: RejectGpsProposalUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new RejectGpsProposalUseCase(uow, systemClock),
   },
   {
     provide: CAD_UNIT_OF_WORK,
@@ -307,6 +343,7 @@ const providers: Provider[] = [
     CadFilesController,
     CadExtractionController,
     CadMappingController,
+    GpsProposalsController,
     DesignRevisionsController,
     TilesVerifyController,
   ],

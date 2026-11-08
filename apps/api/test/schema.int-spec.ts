@@ -15,6 +15,7 @@ import {
   projects,
   designRevisions,
   features,
+  gpsPointProposals,
   revisionDiffItems,
   textLinks,
   workOrderAttachments,
@@ -50,6 +51,7 @@ describe('Drizzle schema matches migrations 0003, 0005 and 0007', () => {
     designFeatures,
     textLinks,
     revisionDiffItems,
+    gpsPointProposals,
   ] as PgTable[])('table %#: same columns as the database', async (table) => {
     const config = getTableConfig(table);
     const { rows } = await pool.query<{ column_name: string }>(

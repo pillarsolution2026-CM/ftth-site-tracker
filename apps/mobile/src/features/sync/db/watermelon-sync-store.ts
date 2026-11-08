@@ -106,8 +106,13 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
   /** Saves a validated operation and its photo files in one local transaction. */
   async enqueue(op: SyncOp, files: readonly LocalPhotoFile[]): Promise<void> {
     const valid = SyncOpSchema.parse(op);
-    // As-Built edits carry no photos (ADR-030).
-    const photos = valid.kind === 'execution_update.record' ? valid.payload.photos : [];
+    // As-Built edits carry no photos (ADR-030); a GPS proposal has at most one (ADR-037).
+    const photos =
+      valid.kind === 'execution_update.record'
+        ? valid.payload.photos
+        : valid.kind === 'placement_point.propose' && valid.payload.photo
+          ? [valid.payload.photo]
+          : [];
     const declared = new Set(photos.map((photo) => photo.photoId));
     if (files.length !== declared.size || files.some((file) => !declared.has(file.photoId))) {
       throw new Error('Photo files do not match the operation');

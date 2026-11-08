@@ -4,6 +4,7 @@ import {
   AsBuiltFeatureStateSchema,
   RecordAsBuiltEditOpSchema,
 } from '../asbuilt/asbuilt.schemas.js';
+import { ProposePlacementPointOpSchema } from '../cad/gps-proposal.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { FeatureTypeSchema } from '../design/feature-types.js';
 import { WorkTypeSchema } from '../work-orders/work-order.schemas.js';
@@ -17,7 +18,11 @@ import { ExecutionUpdateSchema, RecordUpdatePayloadSchema } from './execution.sc
  * resumable upload `…/sync/photos/:photoId`.
  */
 
-export const OP_KINDS = ['execution_update.record', 'asbuilt_edit.record'] as const;
+export const OP_KINDS = [
+  'execution_update.record',
+  'asbuilt_edit.record',
+  'placement_point.propose',
+] as const;
 export const OpKindSchema = z.enum(OP_KINDS);
 export type OpKind = z.infer<typeof OpKindSchema>;
 
@@ -30,10 +35,14 @@ export const RecordUpdateOpSchema = z.object({
 });
 export type RecordUpdateOp = z.infer<typeof RecordUpdateOpSchema>;
 
-/** Union of every operation a device may send (Phase 4 adds As-Built edits, ADR-030). */
+/**
+ * Union of every operation a device may send (Phase 4 adds As-Built edits, ADR-030; ADR-037 adds
+ * supervisor GPS point proposals).
+ */
 export const SyncOpSchema = z.discriminatedUnion('kind', [
   RecordUpdateOpSchema,
   RecordAsBuiltEditOpSchema,
+  ProposePlacementPointOpSchema,
 ]);
 export type SyncOp = z.infer<typeof SyncOpSchema>;
 
@@ -74,14 +83,20 @@ export const OP_REJECTION_CODES = [
   'GEOMETRY_KIND_MISMATCH',
   /** Geometry PostGIS finds invalid or a route of zero length. */
   'GEOMETRY_INVALID',
+  // ---- GPS point proposals (ADR-037) ----
+  /** The item is not a cabinet, handhole, manhole, joint or box. */
+  'FEATURE_TYPE_NOT_ALLOWED',
+  /** The fix is reported worse than GPS_PROPOSAL_MAX_ACCURACY_M (the phone should never send it). */
+  'GPS_ACCURACY_TOO_LOW',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;
 
 export const OpResultSchema = z.discriminatedUnion('outcome', [
   /**
-   * `updateId` is the id of the record the op created: an execution update, or an As-Built edit
-   * for `asbuilt_edit.record` (name kept from Phase 3 so devices in the field stay compatible).
+   * `updateId` is the id of the record the op created: an execution update, an As-Built edit for
+   * `asbuilt_edit.record`, or a GPS point proposal for `placement_point.propose` (name kept from
+   * Phase 3 so devices in the field stay compatible).
    */
   z.object({
     clientOpId: z.uuid(),

@@ -149,6 +149,9 @@ class FakeServer implements SyncTransport {
         this.asBuiltEdits.push(asBuiltEditFrom(op, updateId, request.deviceId));
         return { clientOpId: op.clientOpId, outcome: 'applied', updateId };
       }
+      if (op.kind === 'placement_point.propose') {
+        return { clientOpId: op.clientOpId, outcome: 'applied', updateId };
+      }
       for (const photo of op.payload.photos) {
         this.photos.set(photo.photoId, {
           size: photo.sizeBytes,

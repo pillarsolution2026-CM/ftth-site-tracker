@@ -1,9 +1,12 @@
 import {
   EVENT_ENTITIES,
   EVENT_TYPES,
+  GPS_PROPOSAL_MAX_ACCURACY_M,
+  isGpsProposalFeatureType,
   type OpRejectionCode,
   type OpResult,
   type AsBuiltEdit,
+  type ProposePlacementPointOp,
   type RecordAsBuiltEditOp,
   type RecordUpdateOp,
   type SyncOp,
@@ -42,6 +45,9 @@ class Rejection extends Error {
  * Applies a device's outbox batch (ADR-024). Each operation runs in its own transaction, so one
  * refused operation never blocks the rest, and every result is final for that `clientOpId`.
  */
+const PROPOSAL_HANDLE_MAX = 64;
+const PROPOSAL_CODE_MAX = 200;
+
 export class PushSyncUseCase {
   constructor(
     private readonly uow: ExecutionUnitOfWork,
@@ -74,7 +80,8 @@ export class PushSyncUseCase {
       if (
         violated === 'sync_operations_pkey' ||
         violated === 'execution_updates_client_op_id_key' ||
-        violated === 'asbuilt_edits_client_op_id_key'
+        violated === 'asbuilt_edits_client_op_id_key' ||
+        violated === 'gps_point_proposals_client_op_id_key'
       ) {
         return this.uow.run(async (tx) => {
           const stored = await tx.findOperation(op.clientOpId);
@@ -117,6 +124,9 @@ export class PushSyncUseCase {
     try {
       if (op.kind === 'asbuilt_edit.record') {
         return await this.recordAsBuilt(tx, input, op, hash);
+      }
+      if (op.kind === 'placement_point.propose') {
+        return await this.proposePoint(tx, input, op, hash);
       }
       // No assignment grants `execution:write`: nothing is in reach (fail closed).
       if (!input.scope) throw new Rejection('FEATURE_OUT_OF_SCOPE');
@@ -253,6 +263,104 @@ export class PushSyncUseCase {
         lines: payload.lines,
         photoIds: payload.photos.map((photo) => photo.photoId),
         flags,
+      },
+    });
+    return result;
+  }
+
+  /**
+   * A supervisor's GPS fix for a point item of the published drawing (ADR-037). Owner decision:
+   * any supervisor assigned to the project, an item in any zone, so no zone check; the caller only
+   * needs `execution:write` (a null scope refuses). The PM decides later; nothing else changes.
+   */
+  private async proposePoint(
+    tx: ExecutionTx,
+    input: PushInput,
+    op: ProposePlacementPointOp,
+    hash: string,
+  ): Promise<OpResult> {
+    const { projectId } = input;
+    const { payload } = op;
+    if (!input.scope) throw new Rejection('FEATURE_OUT_OF_SCOPE');
+
+    const target = await tx.proposalTarget(projectId, payload.designRevisionId, payload.featureId);
+    if (!target) {
+      const exists = await tx.featureExists(projectId, payload.featureId);
+      throw new Rejection(exists ? 'REVISION_NOT_PUBLISHED' : 'FEATURE_NOT_FOUND');
+    }
+    if (!isGpsProposalFeatureType(target.featureType)) {
+      throw new Rejection('FEATURE_TYPE_NOT_ALLOWED');
+    }
+    // Handles longer than the column cannot come from a real DXF; refuse instead of a database
+    // error that would make the device resend forever (security review L2).
+    if (target.handle.length > PROPOSAL_HANDLE_MAX) throw new Rejection('FEATURE_NOT_FOUND');
+    if (payload.fix.accuracyM > GPS_PROPOSAL_MAX_ACCURACY_M) {
+      throw new Rejection('GPS_ACCURACY_TOO_LOW');
+    }
+    if (payload.photo && (await tx.anyPhotoExists([payload.photo.photoId]))) {
+      throw new Rejection('PHOTO_ID_REUSED');
+    }
+
+    const receivedAt = this.clock.now();
+    const proposalId = this.ids.next();
+    const result: OpResult = {
+      clientOpId: op.clientOpId,
+      outcome: 'applied',
+      updateId: proposalId,
+    };
+    await tx.insertOperation({
+      clientOpId: op.clientOpId,
+      projectId,
+      userId: input.userId,
+      deviceId: input.deviceId,
+      kind: op.kind,
+      payloadSha256: hash,
+      result,
+      receivedAt,
+    });
+    await tx.insertGpsProposal({
+      id: proposalId,
+      projectId,
+      clientOpId: op.clientOpId,
+      designRevisionId: payload.designRevisionId,
+      featureId: payload.featureId,
+      cadFileId: target.cadFileId,
+      handle: target.handle,
+      featureType: target.featureType,
+      code: target.code === null ? null : target.code.slice(0, PROPOSAL_CODE_MAX),
+      fix: { ...payload.fix, at: new Date(payload.fix.at) },
+      receivedAt,
+      proposedBy: input.userId,
+      deviceId: input.deviceId,
+      note: payload.note,
+      photo: payload.photo
+        ? {
+            photoId: payload.photo.photoId,
+            requirementKey: payload.photo.requirementKey,
+            sha256: payload.photo.sha256,
+            sizeBytes: payload.photo.sizeBytes,
+            takenAt: new Date(payload.photo.takenAt),
+            gps: payload.photo.gps,
+          }
+        : null,
+    });
+    await tx.appendEvent({
+      projectId,
+      entity: EVENT_ENTITIES.gpsProposal,
+      entityId: proposalId,
+      type: EVENT_TYPES.gpsProposalReceived,
+      actorId: input.userId,
+      payload: {
+        clientOpId: op.clientOpId,
+        deviceId: input.deviceId,
+        designRevisionId: payload.designRevisionId,
+        featureId: payload.featureId,
+        cadFileId: target.cadFileId,
+        handle: target.handle,
+        lat: payload.fix.lat,
+        lon: payload.fix.lon,
+        accuracyM: payload.fix.accuracyM,
+        photoId: payload.photo?.photoId ?? null,
       },
     });
     return result;

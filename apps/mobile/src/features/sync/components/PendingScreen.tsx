@@ -9,6 +9,7 @@ import { useTheme } from '../../../shared/ui/theme';
 import { useField } from '../hooks/FieldProvider';
 import { OwnEditsList } from '../../asbuilt/components/OwnEditsList';
 import { rejectionKey } from '../../asbuilt/model/own-edits';
+import { pendingRows, reviewFor } from '../model/pending-rows';
 import { SyncStatusBar } from './SyncStatusBar';
 
 const STATE_TOKEN = {
@@ -23,20 +24,15 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
   const { entries: allEntries, store, bundle } = useField();
   // Execution updates here; As-Built edits are listed with their status below.
-  const entries = useMemo(
-    () =>
-      allEntries.flatMap((e) =>
-        e.op.kind === 'execution_update.record' ? [{ ...e, op: e.op }] : [],
-      ),
-    [allEntries],
-  );
+  const rows = useMemo(() => pendingRows(allEntries), [allEntries]);
   const [remote, setRemote] = useState<Map<string, ExecutionUpdate>>(new Map());
 
   useEffect(() => {
     let active = true;
     void (async () => {
       const byOp = new Map<string, ExecutionUpdate>();
-      for (const featureId of new Set(entries.map((e) => e.op.payload.featureId))) {
+      const updateRows = rows.flatMap((row) => (row.type === 'update' ? [row] : []));
+      for (const featureId of new Set(updateRows.map((row) => row.op.payload.featureId))) {
         for (const update of await store.remoteUpdatesFor(featureId))
           byOp.set(update.clientOpId, update);
       }
@@ -45,7 +41,7 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
     return () => {
       active = false;
     };
-  }, [entries, store]);
+  }, [rows, store]);
 
   const codeOf = (featureId: string) =>
     bundle?.features.find((f) => f.id === featureId)?.code ?? '';
@@ -55,23 +51,27 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
       <SyncStatusBar onOpenPending={() => undefined} />
       <Text style={[styles.title, { color: theme.text }]}>{t('field.pending.title')}</Text>
       <FlatList
-        data={entries}
-        keyExtractor={(entry) => entry.clientOpId}
+        data={rows}
+        keyExtractor={(row) => row.entry.clientOpId}
         contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={{ color: theme.text }}>{t('field.pending.empty')}</Text>}
         ListFooterComponent={<OwnEditsList />}
-        renderItem={({ item: entry }) => {
+        renderItem={({ item: row }) => {
+          const entry = row.entry;
           const token = STATE_TOKEN[entry.state];
-          const review = remote.get(entry.clientOpId);
+          const review = reviewFor(row, remote);
+          const kindLabel =
+            row.type === 'update'
+              ? t(`items.workTypes.${row.op.payload.workType}`)
+              : t('field.pending.kinds.placementPoint');
           return (
             <View
               style={[styles.row, { borderColor: token.color }]}
               testID={`entry-${entry.clientOpId}`}
             >
               <Text style={[styles.rowTitle, { color: theme.text }]}>
-                {t(`items.workTypes.${entry.op.payload.workType}`)} ·{' '}
-                {ltr(codeOf(entry.op.payload.featureId))} ·{' '}
-                {ltr(new Date(entry.op.capturedAt).toLocaleString())}
+                {kindLabel} · {ltr(codeOf(row.op.payload.featureId))} ·{' '}
+                {ltr(new Date(row.op.capturedAt).toLocaleString())}
               </Text>
               <Text style={{ color: theme.text }}>
                 {t(`field.pending.states.${entry.state}`)}

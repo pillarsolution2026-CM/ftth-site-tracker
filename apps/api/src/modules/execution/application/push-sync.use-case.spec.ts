@@ -15,7 +15,11 @@ const asBuiltStubs: Pick<
   | 'addedFeatureInScope'
   | 'approvedVersions'
   | 'insertAsBuiltEdit'
+  | 'proposalTarget'
+  | 'insertGpsProposal'
 > = {
+  proposalTarget: async () => null,
+  insertGpsProposal: async () => undefined,
   publishedRevision: async () => null,
   featureIdTaken: async () => false,
   asBuiltTarget: async () => null,

@@ -759,6 +759,54 @@
       "label": "Type",
       "placeholder": "ex. 4 way, 144"
     },
+    "proposals": {
+      "title": "Points GPS des superviseurs",
+      "intro": "Un superviseur envoie la position d'un élément depuis le terrain. L'accepter ajoute un point de contrôle au mappage (nouvelle version) sans construire de révision ; appuyez sur « Construire une révision » quand vous êtes prêt. Enregistrez vos modifications avant d'accepter car la page se recharge.",
+      "loading": "Chargement des propositions…",
+      "empty": "Aucun point GPS en attente de décision.",
+      "historyEmpty": "Aucune décision pour le moment.",
+      "pending": "En attente de décision",
+      "showHistory": "Afficher l'historique",
+      "hideHistory": "Masquer l'historique",
+      "historyTitle": "Historique",
+      "item": "Élément",
+      "by": "Superviseur",
+      "fixAt": "Heure du relevé",
+      "accuracy": "Précision",
+      "accuracyValue": "±{value} m",
+      "latlon": "Lat / Lon",
+      "note": "Note",
+      "photo": "Photo du point",
+      "photoOpen": "Agrandir la photo de {item}",
+      "photoClose": "Fermer la photo",
+      "photoUploading": "La photo est en cours d'envoi",
+      "accept": "Accepter",
+      "acceptFor": "Accepter le point {item}",
+      "reject": "Refuser",
+      "rejectFor": "Refuser le point {item}",
+      "noMapping": "Enregistrez d'abord le mappage, puis réessayez.",
+      "reasonLabel": "Motif du refus",
+      "reasonRequired": "Saisissez le motif du refus",
+      "confirmReject": "Confirmer le refus",
+      "cancel": "Annuler",
+      "decision": "Décision",
+      "decidedBy": "par {name}",
+      "reason": "Motif : {reason}",
+      "version": "Version du mappage {version}",
+      "status": {
+        "pending": "En attente",
+        "accepted": "Accepté",
+        "rejected": "Refusé"
+      },
+      "accepted": "Le point a été ajouté. Appuyez sur « Construire une révision » quand vous êtes prêt.",
+      "rejected": "Le point a été refusé.",
+      "error": {
+        "VERSION_MISMATCH": "Le mappage a changé depuis son ouverture. Rechargez, puis réessayez.",
+        "ALREADY_DECIDED": "Ce point a déjà fait l'objet d'une décision. La liste a été actualisée.",
+        "TOO_MANY_POINTS": "Le mappage a atteint le nombre maximal de points de contrôle. Supprimez-en un, puis réessayez.",
+        "reload": "Recharger"
+      }
+    },
     "placement": {
       "title": "Placer le dessin sur la carte",
       "intro": "Indiquez la vraie Lat/Lon de quelques éléments du dessin. 1 point déplace le dessin, 2 points le tournent aussi, 3 ou plus donnent le meilleur ajustement. Le fichier du dessin ne change jamais.",
@@ -781,7 +829,7 @@
       "from": {
         "typed": "Saisi",
         "kml": "KML / KMZ",
-        "gps": "GPS terrain"
+        "gps": "Point GPS du superviseur"
       },
       "outlier": "Loin des autres points : vérifiez-le ou écartez-le",
       "remove": "Supprimer {id}",
@@ -797,7 +845,7 @@
       "addPoint": "Ajouter le point",
       "latLonInvalid": "Saisissez une latitude entre -90 et 90 et une longitude entre -180 et 180",
       "xyInvalid": "Saisissez le X et le Y du dessin",
-      "noRevision": "Construisez une révision une fois pour choisir des éléments du dessin ; en attendant, saisissez X / Y à la main.",
+      "noMapping": "Enregistrez d'abord les règles pour afficher les éléments du dessin. En attendant, saisissez X / Y à la main.",
       "itemType": {
         "box": "Boîtier",
         "hhi": "Chambre",
@@ -1143,7 +1191,8 @@
       "nothingUnderCrosshair": "Déplacez le plan jusqu'à placer un élément sous le réticule",
       "update": "Mise à jour",
       "designLength": "Longueur de conception {length} m",
-      "updatesOnFeature": "{count} mises à jour sur cet élément"
+      "updatesOnFeature": "{count} mises à jour sur cet élément",
+      "sendPoint": "Envoyer mon point"
     },
     "steps": {
       "activity": "Activité",
@@ -1209,14 +1258,37 @@
         "REVISION_NOT_PUBLISHED": "Révision de conception non publiée",
         "ITEM_NOT_FOUND": "Article introuvable",
         "ITEM_WORK_TYPE_MISMATCH": "L'article n'appartient pas à cette activité",
-        "VALIDATION_FAILED": "Données invalides"
+        "VALIDATION_FAILED": "Données invalides",
+        "FEATURE_TYPE_NOT_ALLOWED": "Cet élément n'est pas une armoire, une chambre, une jonction ou un boîtier",
+        "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé"
       },
       "updateStatus": {
         "pending": "En attente de validation",
         "approved": "Approuvée",
         "rejected": "Rejetée"
       },
-      "reviewReason": "Motif : {reason}"
+      "reviewReason": "Motif : {reason}",
+      "kinds": {
+        "placementPoint": "Point GPS"
+      }
+    },
+    "placement": {
+      "title": "Envoyer mon point",
+      "intro": "Placez-vous sur l'élément et envoyez la position du téléphone pour validation par le chef de projet.",
+      "accuracy": "Précision actuelle ±{accuracy} m",
+      "noFix": "Recherche de la position…",
+      "noPermission": "L'accès à la position est désactivé. Activez-le dans les réglages du téléphone.",
+      "distance": "Distance à la position du plan {distance} m",
+      "wait": "Précision inférieure à ±{max} m. Attendez un instant ou allez en terrain dégagé.",
+      "ready": "Précision suffisante, vous pouvez envoyer.",
+      "photoOptional": "Photo (facultative)",
+      "takePhoto": "Prendre une photo",
+      "retakePhoto": "Reprendre",
+      "removePhoto": "Supprimer la photo",
+      "photoTaken": "Photo prise",
+      "note": "Note (facultative)",
+      "send": "Envoyer le point",
+      "cancel": "Annuler"
     }
   },
   "asbuiltReview": {
