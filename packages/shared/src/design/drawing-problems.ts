@@ -75,42 +75,23 @@ export const DrawingProblemSchema = z.object({
 });
 export type DrawingProblem = z.infer<typeof DrawingProblemSchema>;
 
-// ---------- API: list and ignore (ADR-034) ----------
+// ---------- API: list (ADR-034, ADR-038) ----------
 
-/** Who ignored a problem place, on their own responsibility, and when. */
-export const ProblemIgnoreSchema = z.object({
-  byId: z.uuid().nullable(),
-  at: z.iso.datetime(),
-});
-
-export const DrawingProblemItemViewSchema = DrawingProblemItemSchema.extend({
-  ignored: ProblemIgnoreSchema.nullable(),
-});
-export type DrawingProblemItemView = z.infer<typeof DrawingProblemItemViewSchema>;
-
-export const DrawingProblemViewSchema = DrawingProblemSchema.extend({
-  items: z.array(DrawingProblemItemViewSchema).max(MAX_PROBLEM_ITEMS),
-  /** Places of this problem ignored so far. */
-  ignoredCount: z.number().int().min(0),
-});
+/**
+ * ADR-038: every problem is an error that blocks publishing; Ignore (ADR-034) is withdrawn and
+ * ignores recorded earlier no longer count. The severity stays only as a display hint. The web shows
+ * per code a description and what is required to fix it (i18n `designRevisions.problems.<code>`).
+ */
+export const DrawingProblemViewSchema = DrawingProblemSchema;
 export type DrawingProblemView = z.infer<typeof DrawingProblemViewSchema>;
 
 /** GET …/design-revisions/:revisionId/problems — empty for revisions built before ADR-033. */
 export const DrawingProblemListSchema = z.object({
   items: z.array(DrawingProblemViewSchema),
+  /** Every place of every problem; publishing needs 0 (ADR-038). */
+  total: z.number().int().min(0),
 });
 export type DrawingProblemList = z.infer<typeof DrawingProblemListSchema>;
-
-/**
- * POST …/design-revisions/:revisionId/problems/ignore — draft revisions only. The user confirms
- * that ignoring is on their own responsibility; the drawing itself is not changed.
- */
-export const IgnoreDrawingProblemRequestSchema = z.object({
-  code: DrawingProblemCodeSchema,
-  handle: z.string().min(1).max(64),
-  acceptResponsibility: z.literal(true),
-});
-export type IgnoreDrawingProblemRequest = z.infer<typeof IgnoreDrawingProblemRequestSchema>;
 
 /** Reads the problems out of `design_revisions.warnings` (older count-only warnings are skipped). */
 export function drawingProblemsOf(warnings: unknown): DrawingProblem[] {

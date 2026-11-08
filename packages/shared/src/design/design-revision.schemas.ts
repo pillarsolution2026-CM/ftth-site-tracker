@@ -174,13 +174,57 @@ export const PublishDesignRevisionRequestSchema = z.object({
 });
 export type PublishDesignRevisionRequest = z.infer<typeof PublishDesignRevisionRequestSchema>;
 
-/** 409 details when publishing with open items and no acknowledgement. */
-export const PublishBlockedDetailsSchema = z.object({
-  reason: z.literal('OPEN_ITEMS'),
-  textLinksToReview: z.number().int().min(0),
-  diffConflicts: z.number().int().min(0),
-});
+/**
+ * 409 details when publishing is refused (ADR-038). Checked in this order: coordinates
+ * (`CRS_UNKNOWN`, `PLACEMENT_MISSING`), drawing errors (`PROBLEMS_OPEN`), then open items without
+ * acknowledgement (`OPEN_ITEMS`).
+ */
+export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
+  /** No placement frozen on the revision: its source CRS was never chosen (ADR-032 / ADR-035). */
+  z.object({ reason: z.literal('CRS_UNKNOWN') }),
+  /** The frozen placement has no control point in use (all excluded or none). */
+  z.object({ reason: z.literal('PLACEMENT_MISSING') }),
+  /** Drawing problems are left; every one must be fixed first (ADR-038). */
+  z.object({ reason: z.literal('PROBLEMS_OPEN'), problemCount: z.number().int().min(1) }),
+  z.object({
+    reason: z.literal('OPEN_ITEMS'),
+    textLinksToReview: z.number().int().min(0),
+    diffConflicts: z.number().int().min(0),
+  }),
+]);
 export type PublishBlockedDetails = z.infer<typeof PublishBlockedDetailsSchema>;
+
+/**
+ * GET …/design-revisions/:revisionId/publish-readiness — the checklist shown before «نشر»
+ * (ADR-038). `ok` false on any of the first three locks the button; `open_items` not ok only asks
+ * for the acknowledgement, as before.
+ */
+export const PUBLISH_CHECK_KEYS = [
+  'crs_known',
+  'control_point',
+  'no_problems',
+  'open_items',
+] as const;
+export const PublishCheckKeySchema = z.enum(PUBLISH_CHECK_KEYS);
+export type PublishCheckKey = z.infer<typeof PublishCheckKeySchema>;
+
+export const PublishCheckSchema = z.object({
+  key: PublishCheckKeySchema,
+  ok: z.boolean(),
+  /** crs_known: null; control_point: points in use; no_problems: problems left; open_items: open. */
+  count: z.number().int().min(0).nullable(),
+});
+export type PublishCheck = z.infer<typeof PublishCheckSchema>;
+
+export const PublishReadinessSchema = z.object({
+  /** Always the four keys, in PUBLISH_CHECK_KEYS order. */
+  checks: z.array(PublishCheckSchema).length(PUBLISH_CHECK_KEYS.length),
+  /** The first three checks are ok and the revision is a draft. */
+  canPublish: z.boolean(),
+  /** Open items exist: publishing needs `acknowledgeOpenItems: true`. */
+  needsAcknowledgement: z.boolean(),
+});
+export type PublishReadiness = z.infer<typeof PublishReadinessSchema>;
 
 // ---------- features ----------
 
