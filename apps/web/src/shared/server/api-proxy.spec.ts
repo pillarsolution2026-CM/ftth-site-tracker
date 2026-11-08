@@ -131,6 +131,16 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows the supervisor GPS proposals, their photo and decisions (ADR-037)', () => {
+    expect(upstreamPath([PROJECT, 'gps-proposals'])).toBe(`/projects/${PROJECT}/gps-proposals`);
+    expect(upstreamPath([PROJECT, 'gps-proposals', 'abc-1', 'photo'])).toBe(
+      `/projects/${PROJECT}/gps-proposals/abc-1/photo`,
+    );
+    expect(upstreamPath([PROJECT, 'gps-proposals', 'abc-1', 'accept'])).toBe(
+      `/projects/${PROJECT}/gps-proposals/abc-1/accept`,
+    );
+  });
+
   it('rejects other resources, bad project ids and traversal', () => {
     expect(upstreamPath([PROJECT, 'members'])).toBeNull();
     expect(upstreamPath([PROJECT])).toBeNull();

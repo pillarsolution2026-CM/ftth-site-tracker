@@ -33,6 +33,8 @@ const ALLOWED_RESOURCES = new Set([
   'contract',
   'contractors',
   'asbuilt',
+  // Supervisor GPS point proposals: list, photo, accept / reject (ADR-037).
+  'gps-proposals',
 ]);
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
