@@ -4,6 +4,7 @@ import {
   type CadImportJob,
   type DrawingProblemCode,
   type FeatureType,
+  type GpsProposalListQuery,
   type TextLinkCounts,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
@@ -14,6 +15,11 @@ import type { CadFile } from '../domain/cad-file.js';
 import type { CadFileRepository, CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import type { CadMappingRecord } from '../domain/cad-mapping.js';
 import type { DesignRevision } from '../domain/design-revision.js';
+import type {
+  GpsProposalDecision,
+  GpsProposalRecord,
+  GpsProposalRepository,
+} from '../domain/gps-proposal.js';
 import type {
   CadMappingRepository,
   DesignRevisionRepository,
@@ -376,6 +382,53 @@ export class InMemoryDrawingProblems implements DrawingProblemRepository {
   }
 }
 
+/** GPS point proposals in memory; `centres` stands in for the drawing rows (key: feature id). */
+export class InMemoryGpsProposals implements GpsProposalRepository {
+  readonly rows = new Map<string, GpsProposalRecord>();
+  readonly centres = new Map<string, { x: number; y: number }>();
+
+  async list(projectId: string, query: GpsProposalListQuery): Promise<GpsProposalRecord[]> {
+    return [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.projectId === projectId &&
+          (!query.status || row.status === query.status) &&
+          (!query.cadFileId || row.cadFileId === query.cadFileId),
+      )
+      .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
+  }
+  async find(projectId: string, proposalId: string): Promise<GpsProposalRecord | null> {
+    const row = this.rows.get(proposalId);
+    return row?.projectId === projectId ? { ...row } : null;
+  }
+  async photo(): Promise<{ storageKey: string | null } | null> {
+    return null;
+  }
+  async drawnCentre(
+    _projectId: string,
+    proposal: { featureId: string },
+  ): Promise<{ x: number; y: number } | null> {
+    return this.centres.get(proposal.featureId) ?? null;
+  }
+  async decide(
+    projectId: string,
+    proposalId: string,
+    decision: GpsProposalDecision,
+  ): Promise<boolean> {
+    const row = this.rows.get(proposalId);
+    if (row?.projectId !== projectId || row.status !== 'pending') return false;
+    this.rows.set(proposalId, {
+      ...row,
+      status: decision.status,
+      decidedBy: { id: decision.decidedBy, name: 'PM' },
+      decidedAt: decision.decidedAt,
+      rejectReason: decision.status === 'rejected' ? decision.reason : null,
+      acceptedMappingVersion: decision.status === 'accepted' ? decision.mappingVersion : null,
+    });
+    return true;
+  }
+}
+
 /** Not transactional (nothing here fails halfway); good enough to test use-case orchestration. */
 export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly files = new InMemoryCadFiles();
@@ -383,6 +436,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly revisions = new InMemoryDesignRevisions();
   readonly links = new InMemoryTextLinks();
   readonly problems = new InMemoryDrawingProblems();
+  readonly proposals = new InMemoryGpsProposals();
   readonly events = new InMemoryEventLog();
 
   run<T>(work: (tx: CadTx) => Promise<T>): Promise<T> {
@@ -392,6 +446,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
       revisions: this.revisions,
       links: this.links,
       problems: this.problems,
+      proposals: this.proposals,
       events: this.events,
     });
   }

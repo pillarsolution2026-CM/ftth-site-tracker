@@ -13,7 +13,8 @@ interface Row {
   size_bytes: number;
   received_bytes: number;
   stored_at: Date | null;
-  update_id: string;
+  update_id: string | null;
+  proposal_id: string | null;
 }
 
 const toRow = (row: Row): PhotoUploadRow => ({
@@ -25,6 +26,7 @@ const toRow = (row: Row): PhotoUploadRow => ({
   receivedBytes: row.received_bytes,
   storedAt: row.stored_at ? new Date(row.stored_at) : null,
   updateId: row.update_id,
+  proposalId: row.proposal_id,
 });
 
 async function findPhoto(
@@ -35,10 +37,11 @@ async function findPhoto(
 ): Promise<PhotoUploadRow | null> {
   const [row] = await rowsOf<Row>(
     db,
-    sql`SELECT p.id, p.project_id, u.user_id, p.sha256, p.size_bytes, p.received_bytes,
-               p.stored_at, p.update_id
+    sql`SELECT p.id, p.project_id, COALESCE(u.user_id, g.proposed_by) AS user_id, p.sha256,
+               p.size_bytes, p.received_bytes, p.stored_at, p.update_id, p.proposal_id
         FROM execution_photos p
-        JOIN execution_updates u ON u.project_id = p.project_id AND u.id = p.update_id
+        LEFT JOIN execution_updates u ON u.project_id = p.project_id AND u.id = p.update_id
+        LEFT JOIN gps_point_proposals g ON g.project_id = p.project_id AND g.id = p.proposal_id
         WHERE p.project_id = ${projectId} AND p.id = ${photoId}
         ${lock ? sql`FOR UPDATE OF p` : sql``}`,
   );
@@ -72,8 +75,9 @@ class DrizzlePhotoUploadTx implements PhotoUploadTx {
       this.db,
       sql`SELECT COALESCE(sum(p.received_bytes), 0)::text AS bytes
           FROM execution_photos p
-          JOIN execution_updates u ON u.project_id = p.project_id AND u.id = p.update_id
-          WHERE u.user_id = ${userId} AND p.stored_at IS NULL AND p.received_bytes > 0`,
+          LEFT JOIN execution_updates u ON u.project_id = p.project_id AND u.id = p.update_id
+          LEFT JOIN gps_point_proposals g ON g.project_id = p.project_id AND g.id = p.proposal_id
+          WHERE COALESCE(u.user_id, g.proposed_by) = ${userId} AND p.stored_at IS NULL AND p.received_bytes > 0`,
     );
     return Number(row?.bytes ?? 0);
   }

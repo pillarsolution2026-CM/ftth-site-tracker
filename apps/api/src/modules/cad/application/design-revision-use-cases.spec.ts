@@ -193,7 +193,7 @@ describe('SaveCadMappingUseCase', () => {
 });
 
 describe('GetPlacementDrawingUseCase (ADR-035)', () => {
-  const drawing = { revisionId: null, items: [], lines: [], truncated: false };
+  const drawing = { mappingVersion: null, items: [], lines: [], truncated: false };
   const calls: unknown[][] = [];
   const view: CadMappingViewQueries = {
     blocks: async () => [],

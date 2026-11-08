@@ -4,6 +4,7 @@ import type {
   AsBuiltGeometry,
   CatalogItem,
   ExecutionUpdate,
+  GpsProposalFeatureType,
   OfflineFeature,
   OpResult,
   PhotoRequirement,
@@ -150,6 +151,48 @@ export interface ExecutionTx {
   ): Promise<boolean>;
   approvedVersions(projectId: string, featureId: string): Promise<ApprovedVersions>;
   insertAsBuiltEdit(edit: NewAsBuiltEdit): Promise<{ lengthM: string | null }>;
+
+  // ---- GPS point proposals (ADR-037) -----------------------------------------------------
+  /** The feature as drawn in `revisionId` (published only) with where it came from in the file. */
+  proposalTarget(
+    projectId: string,
+    revisionId: string,
+    featureId: string,
+  ): Promise<ProposalTarget | null>;
+  insertGpsProposal(proposal: NewGpsProposal): Promise<void>;
+}
+
+export interface ProposalTarget {
+  featureType: string;
+  code: string | null;
+  /** Drawing handle of the item in the file (`design_features.source_handle`). */
+  handle: string;
+  cadFileId: string;
+}
+
+export interface NewGpsProposal {
+  id: string;
+  projectId: string;
+  clientOpId: string;
+  designRevisionId: string;
+  featureId: string;
+  cadFileId: string;
+  handle: string;
+  featureType: GpsProposalFeatureType;
+  code: string | null;
+  fix: { lat: number; lon: number; accuracyM: number; at: Date };
+  receivedAt: Date;
+  proposedBy: string;
+  deviceId: string;
+  note: string | null;
+  photo: {
+    photoId: string;
+    requirementKey: string;
+    sha256: string;
+    sizeBytes: number;
+    takenAt: Date;
+    gps: { lon: number; lat: number; accuracyM: number | null } | null;
+  } | null;
 }
 
 export interface NewAsBuiltEdit {
@@ -219,7 +262,9 @@ export interface PhotoUploadRow {
   sizeBytes: number;
   receivedBytes: number;
   storedAt: Date | null;
-  updateId: string;
+  /** A photo belongs to an update or to a GPS point proposal (exactly one is set). */
+  updateId: string | null;
+  proposalId: string | null;
 }
 
 export interface PhotoUploadTx {
