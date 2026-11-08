@@ -19,6 +19,7 @@ export * from './cad/crs-detection.schemas.js';
 export * from './cad/cad-mapping.schemas.js';
 export * from './cad/placement.schemas.js';
 export * from './cad/gps-proposal.schemas.js';
+export * from './cad/drawing-corrections.schemas.js';
 export * from './design/feature-types.js';
 export * from './design/drawing-problems.js';
 export * from './design/text-link.js';

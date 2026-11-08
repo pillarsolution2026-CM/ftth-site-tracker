@@ -9,6 +9,7 @@ export const EVENT_ENTITIES = {
   cadFile: 'cad_file',
   cadMapping: 'cad_mapping',
   gpsProposal: 'gps_proposal',
+  drawingCorrection: 'drawing_correction',
   designRevision: 'design_revision',
   textLink: 'text_link',
   executionUpdate: 'execution_update',
@@ -46,6 +47,8 @@ export const EVENT_TYPES = {
   gpsProposalReceived: 'gps_proposal.received',
   gpsProposalAccepted: 'gps_proposal.accepted',
   gpsProposalRejected: 'gps_proposal.rejected',
+  drawingCorrectionAdded: 'drawing_correction.added',
+  drawingCorrectionWithdrawn: 'drawing_correction.withdrawn',
   designRevisionQueued: 'design_revision.queued',
   /** Written by the worker (actor_id NULL). */
   designRevisionBuildStarted: 'design_revision.build_started',
