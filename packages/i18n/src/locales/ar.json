@@ -1143,7 +1143,8 @@
       "nothingUnderCrosshair": "حرّك الرسمة حتى يقع العنصر تحت علامة التصويب",
       "update": "تحديث",
       "designLength": "الطول التصميمي {length} م",
-      "updatesOnFeature": "{count} تحديث على العنصر"
+      "updatesOnFeature": "{count} تحديث على العنصر",
+      "sendPoint": "ابعت نقطتي"
     },
     "steps": {
       "activity": "النشاط",
@@ -1209,14 +1210,37 @@
         "REVISION_NOT_PUBLISHED": "نسخة التصميم غير منشورة",
         "ITEM_NOT_FOUND": "البند غير موجود",
         "ITEM_WORK_TYPE_MISMATCH": "البند لا يخص هذا النشاط",
-        "VALIDATION_FAILED": "بيانات غير صالحة"
+        "VALIDATION_FAILED": "بيانات غير صالحة",
+        "FEATURE_TYPE_NOT_ALLOWED": "هذا العنصر ليس كابينة أو غرفة تفتيش أو وصلة أو بوكس",
+        "GPS_ACCURACY_TOO_LOW": "دقة الـGPS أسوأ من المسموح، أعد الإرسال من مكان مفتوح"
       },
       "updateStatus": {
         "pending": "بانتظار المراجعة",
         "approved": "معتمد",
         "rejected": "مرفوض"
       },
-      "reviewReason": "السبب: {reason}"
+      "reviewReason": "السبب: {reason}",
+      "kinds": {
+        "placementPoint": "نقطة GPS"
+      }
+    },
+    "placement": {
+      "title": "ابعت نقطتي",
+      "intro": "قف عند العنصر ثم أرسل موقع الهاتف ليراجعه مدير المشروع.",
+      "accuracy": "الدقة الحالية ±{accuracy} م",
+      "noFix": "جارٍ تحديد الموقع…",
+      "noPermission": "لا يوجد إذن للموقع. فعّله من إعدادات الهاتف.",
+      "distance": "المسافة عن موضع التصميم {distance} م",
+      "wait": "الدقة أضعف من ±{max} م. انتظر قليلًا أو انتقل إلى مكان مفتوح.",
+      "ready": "الدقة مناسبة، يمكنك الإرسال.",
+      "photoOptional": "صورة (اختيارية)",
+      "takePhoto": "التقاط صورة",
+      "retakePhoto": "إعادة الالتقاط",
+      "removePhoto": "حذف الصورة",
+      "photoTaken": "تم التقاط الصورة",
+      "note": "ملاحظة (اختيارية)",
+      "send": "إرسال النقطة",
+      "cancel": "إلغاء"
     }
   },
   "asbuiltReview": {

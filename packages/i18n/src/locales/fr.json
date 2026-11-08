@@ -1143,7 +1143,8 @@
       "nothingUnderCrosshair": "Déplacez le plan jusqu'à placer un élément sous le réticule",
       "update": "Mise à jour",
       "designLength": "Longueur de conception {length} m",
-      "updatesOnFeature": "{count} mises à jour sur cet élément"
+      "updatesOnFeature": "{count} mises à jour sur cet élément",
+      "sendPoint": "Envoyer mon point"
     },
     "steps": {
       "activity": "Activité",
@@ -1209,14 +1210,37 @@
         "REVISION_NOT_PUBLISHED": "Révision de conception non publiée",
         "ITEM_NOT_FOUND": "Article introuvable",
         "ITEM_WORK_TYPE_MISMATCH": "L'article n'appartient pas à cette activité",
-        "VALIDATION_FAILED": "Données invalides"
+        "VALIDATION_FAILED": "Données invalides",
+        "FEATURE_TYPE_NOT_ALLOWED": "Cet élément n'est pas une armoire, une chambre, une jonction ou un boîtier",
+        "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé"
       },
       "updateStatus": {
         "pending": "En attente de validation",
         "approved": "Approuvée",
         "rejected": "Rejetée"
       },
-      "reviewReason": "Motif : {reason}"
+      "reviewReason": "Motif : {reason}",
+      "kinds": {
+        "placementPoint": "Point GPS"
+      }
+    },
+    "placement": {
+      "title": "Envoyer mon point",
+      "intro": "Placez-vous sur l'élément et envoyez la position du téléphone pour validation par le chef de projet.",
+      "accuracy": "Précision actuelle ±{accuracy} m",
+      "noFix": "Recherche de la position…",
+      "noPermission": "L'accès à la position est désactivé. Activez-le dans les réglages du téléphone.",
+      "distance": "Distance à la position du plan {distance} m",
+      "wait": "Précision inférieure à ±{max} m. Attendez un instant ou allez en terrain dégagé.",
+      "ready": "Précision suffisante, vous pouvez envoyer.",
+      "photoOptional": "Photo (facultative)",
+      "takePhoto": "Prendre une photo",
+      "retakePhoto": "Reprendre",
+      "removePhoto": "Supprimer la photo",
+      "photoTaken": "Photo prise",
+      "note": "Note (facultative)",
+      "send": "Envoyer le point",
+      "cancel": "Annuler"
     }
   },
   "asbuiltReview": {
