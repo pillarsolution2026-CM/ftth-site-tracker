@@ -149,6 +149,8 @@ const REASONS = [
   'NOT_PROCESSED',
   'ALREADY_WITHDRAWN',
   'NOT_DRAFT',
+  // The rebuild route's word for a revision that is not a draft or failed.
+  'NOT_REBUILDABLE',
   'VERSION_MISMATCH',
   'MAPPING_VERSION_MISMATCH',
 ] as const;

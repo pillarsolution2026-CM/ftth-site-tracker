@@ -1178,6 +1178,7 @@
         "NOT_PROCESSED": "The drawing file is not processed yet",
         "ALREADY_WITHDRAWN": "This correction was already withdrawn",
         "NOT_DRAFT": "Only a draft revision can be changed",
+        "NOT_REBUILDABLE": "Only a draft revision can be changed",
         "VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again.",
         "MAPPING_VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again."
       }

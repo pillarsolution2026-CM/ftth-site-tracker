@@ -1178,6 +1178,7 @@
         "NOT_PROCESSED": "Le fichier du dessin n'est pas encore traité",
         "ALREADY_WITHDRAWN": "Cette correction est déjà retirée",
         "NOT_DRAFT": "Seule une révision en brouillon peut être modifiée",
+        "NOT_REBUILDABLE": "Seule une révision en brouillon peut être modifiée",
         "VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez.",
         "MAPPING_VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez."
       }

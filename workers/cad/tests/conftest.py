@@ -26,12 +26,6 @@ def _apply_migrations(admin_url: str, db_name: str) -> str:
     with psycopg.connect(url, autocommit=True) as conn:
         for path in MIGRATION_FILES:
             conn.execute(path.read_text("utf-8"))
-        # Until the API's migration 0015 (ADR-038) is merged: the column the worker reads. A no-op
-        # once the migration has created it.
-        conn.execute(
-            "ALTER TABLE design_revisions "
-            "ADD COLUMN IF NOT EXISTS corrections jsonb NOT NULL DEFAULT '[]'::jsonb"
-        )
     return url
 
 
