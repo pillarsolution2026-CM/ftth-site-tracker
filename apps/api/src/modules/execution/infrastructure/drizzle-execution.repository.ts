@@ -15,7 +15,9 @@ import type {
   ItemFacts,
   LatestRevision,
   NewAsBuiltEdit,
+  NewGpsProposal,
   NewUpdate,
+  ProposalTarget,
   StoredOperation,
 } from '../application/ports.js';
 
@@ -404,6 +406,60 @@ export class DrizzleExecutionTx implements ExecutionTx {
           RETURNING length_m::text AS length_m`,
     );
     return { lengthM: toDecimalTextOrNull(row?.length_m ?? null) };
+  }
+
+  // ---- GPS point proposals (ADR-037) -----------------------------------------------------
+
+  async proposalTarget(
+    projectId: string,
+    revisionId: string,
+    featureId: string,
+  ): Promise<ProposalTarget | null> {
+    const [row] = await rowsOf<{
+      feature_type: string;
+      code: string | null;
+      handle: string;
+      cad_file_id: string;
+    }>(
+      this.db,
+      sql`SELECT df.feature_type, df.code, df.source_handle AS handle, r.cad_file_id
+          FROM design_features df
+          JOIN design_revisions r ON r.project_id = df.project_id AND r.id = df.revision_id
+          WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
+            AND df.feature_id = ${featureId} AND r.status = 'published'`,
+    );
+    return row
+      ? {
+          featureType: row.feature_type,
+          code: row.code,
+          handle: row.handle,
+          cadFileId: row.cad_file_id,
+        }
+      : null;
+  }
+
+  async insertGpsProposal(proposal: NewGpsProposal): Promise<void> {
+    const { fix, photo } = proposal;
+    await this.db.execute(sql`
+      INSERT INTO gps_point_proposals (
+        id, project_id, client_op_id, design_revision_id, feature_id, cad_file_id, handle,
+        feature_type, code, fix, accuracy_m, fix_at, received_at, proposed_by, device_id, note)
+      VALUES (
+        ${proposal.id}, ${proposal.projectId}, ${proposal.clientOpId}, ${proposal.designRevisionId},
+        ${proposal.featureId}, ${proposal.cadFileId}, ${proposal.handle}, ${proposal.featureType},
+        ${proposal.code}, ST_SetSRID(ST_MakePoint(${fix.lon}, ${fix.lat}), 4326), ${fix.accuracyM},
+        ${fix.at.toISOString()}, ${proposal.receivedAt.toISOString()}, ${proposal.proposedBy},
+        ${proposal.deviceId}, ${proposal.note})`);
+    if (photo) {
+      await this.db.execute(sql`
+        INSERT INTO execution_photos
+          (id, project_id, proposal_id, requirement_key, sha256, size_bytes, content_type,
+           taken_at, gps_wgs84, gps_accuracy_m)
+        VALUES (${photo.photoId}, ${proposal.projectId}, ${proposal.id}, ${photo.requirementKey},
+                ${photo.sha256}, ${photo.sizeBytes}, 'image/jpeg', ${photo.takenAt.toISOString()},
+                ${photo.gps ? sql`ST_SetSRID(ST_MakePoint(${photo.gps.lon}, ${photo.gps.lat}), 4326)` : sql`NULL`},
+                ${photo.gps?.accuracyM ?? null})`);
+    }
   }
 }
 

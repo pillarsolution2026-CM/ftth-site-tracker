@@ -126,7 +126,12 @@ export class PutPhotoChunkUseCase {
         entityId: input.photoId,
         type: EVENT_TYPES.executionPhotoStored,
         actorId: input.userId,
-        payload: { updateId: row.updateId, sha256, sizeBytes: row.sizeBytes },
+        payload: {
+          updateId: row.updateId,
+          proposalId: row.proposalId,
+          sha256,
+          sizeBytes: row.sizeBytes,
+        },
       });
       return { kind: 'status', status: statusOf({ ...progressed, storedAt: at }) };
     });

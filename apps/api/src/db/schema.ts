@@ -647,6 +647,41 @@ export const revisionDiffItems = pgTable(
   ],
 );
 
+/**
+ * Supervisor GPS point proposals (migration 0014, ADR-037). The row is a fact: only the one
+ * decision pending -> accepted | rejected may change it (trigger). `fix` is read with PostGIS.
+ */
+export const gpsPointProposals = pgTable(
+  'gps_point_proposals',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    clientOpId: uuid('client_op_id').notNull().unique(),
+    designRevisionId: uuid('design_revision_id').notNull(),
+    featureId: uuid('feature_id').notNull(),
+    cadFileId: uuid('cad_file_id').notNull(),
+    handle: text('handle').notNull(),
+    featureType: text('feature_type').notNull(),
+    code: text('code'),
+    fix: customType<{ data: string }>({ dataType: () => 'geometry(Point, 4326)' })('fix').notNull(),
+    accuracyM: doublePrecision('accuracy_m').notNull(),
+    fixAt: timestamp('fix_at', { withTimezone: true }).notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    proposedBy: uuid('proposed_by').notNull(),
+    deviceId: uuid('device_id').notNull(),
+    note: text('note'),
+    status: text('status')
+      .$type<'pending' | 'accepted' | 'rejected'>()
+      .notNull()
+      .default('pending'),
+    decidedBy: uuid('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    rejectReason: text('reject_reason'),
+    acceptedMappingVersion: integer('accepted_mapping_version'),
+  },
+  (table) => [unique('gps_point_proposals_project_id_id_key').on(table.projectId, table.id)],
+);
+
 // ---------------------------------------------------------------------------------------------
 // Phase 2 (migration 0007, ADR-027). Triggers lock the BOQ of an approved contract and keep the
 // currency immutable; `amount` is generated (never insert it).
@@ -891,4 +926,5 @@ export const schema = {
   designFeatures,
   textLinks,
   revisionDiffItems,
+  gpsPointProposals,
 };
