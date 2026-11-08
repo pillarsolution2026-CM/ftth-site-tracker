@@ -119,7 +119,9 @@ export function ProposePointScreen({ feature, deps, onDone, onCancel }: ProposeP
       });
       await record(
         op,
-        photo ? [{ photoId: photo.photoId, fileUri: photo.fileUri, sizeBytes: photo.sizeBytes }] : [],
+        photo
+          ? [{ photoId: photo.photoId, fileUri: photo.fileUri, sizeBytes: photo.sizeBytes }]
+          : [],
       );
       onDone();
     } finally {
@@ -169,7 +171,9 @@ export function ProposePointScreen({ feature, deps, onDone, onCancel }: ProposeP
         <Text style={[styles.label, { color: theme.text }]}>
           {t('field.placement.photoOptional')}
         </Text>
-        {photo ? <Text style={{ color: theme.text }}>{t('field.placement.photoTaken')}</Text> : null}
+        {photo ? (
+          <Text style={{ color: theme.text }}>{t('field.placement.photoTaken')}</Text>
+        ) : null}
         <Button
           variant="secondary"
           label={photo ? t('field.placement.retakePhoto') : t('field.placement.takePhoto')}

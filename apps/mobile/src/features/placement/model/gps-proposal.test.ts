@@ -88,7 +88,13 @@ describe('accuracy gate (owner 2026-11-08: refuse worse than ±5 m)', () => {
 describe('feature type filter', () => {
   it('offers the button for the five point types only', () => {
     for (const type of GPS_PROPOSAL_FEATURE_TYPES) expect(canProposePoint(type)).toBe(true);
-    expect([...GPS_PROPOSAL_FEATURE_TYPES].sort()).toEqual(['box', 'cabinet', 'hhi', 'joint', 'mh']);
+    expect([...GPS_PROPOSAL_FEATURE_TYPES].sort()).toEqual([
+      'box',
+      'cabinet',
+      'hhi',
+      'joint',
+      'mh',
+    ]);
     for (const type of FEATURE_TYPES.filter((t) => !canProposePoint(t))) {
       expect(['cabinet', 'hhi', 'mh', 'joint', 'box']).not.toContain(type);
     }

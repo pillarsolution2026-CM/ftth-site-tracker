@@ -40,10 +40,7 @@ export interface GpsProposalRepository {
     options?: { lock?: boolean },
   ): Promise<GpsProposalRecord | null>;
   /** The stored photo's key; `exists: false` when the proposal is unknown or has no photo. */
-  photo(
-    projectId: string,
-    proposalId: string,
-  ): Promise<{ storageKey: string | null } | null>;
+  photo(projectId: string, proposalId: string): Promise<{ storageKey: string | null } | null>;
   /**
    * The item's drawn centre in drawing units, from the published revision's design feature and
    * the extracted rows of the file (an insert's centre / position, a text's position, or the

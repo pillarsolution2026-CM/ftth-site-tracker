@@ -232,10 +232,14 @@ describe('placement items from the uploaded file (ADR-037)', () => {
   it('applies the touch tolerance in metres, whatever the drawing unit', async () => {
     // 0.1 ft = 0.03048 m: within 0.05 m, so the two squares are one symbol in a feet drawing.
     const fileId = await insertCadFile();
-    await insertMapping(fileId, [{ source: 'layer', layer: 'CAB', target: 'cabinet', role: 'main' }], {
-      name: 'ft',
-      mpu: '0.3048',
-    });
+    await insertMapping(
+      fileId,
+      [{ source: 'layer', layer: 'CAB', target: 'cabinet', role: 'main' }],
+      {
+        name: 'ft',
+        mpu: '0.3048',
+      },
+    );
     await insertCurve(fileId, 'F1', 'CAB', square(0, 0, 2, 2), true);
     await insertCurve(fileId, 'F2', 'CAB', square(2.1, 0, 4, 2), true);
     const drawing = await drawingOf(fileId);
@@ -335,9 +339,10 @@ async function publishDrawing(): Promise<Published> {
     null,
   );
   const ring = await feature('ring', `POINT(${E0 + 80} ${N0 + 5})`, 'RNG', 'insert', 'R1', null);
-  await ctx.pool.query(`UPDATE design_revisions SET status = 'draft', built_at = now() WHERE id = $1`, [
-    revisionId,
-  ]);
+  await ctx.pool.query(
+    `UPDATE design_revisions SET status = 'draft', built_at = now() WHERE id = $1`,
+    [revisionId],
+  );
   await ctx.pool.query(
     `UPDATE design_revisions
      SET status = 'published', rev_no = (SELECT coalesce(max(rev_no), 0) + 1 FROM design_revisions WHERE project_id = $2),
@@ -518,9 +523,11 @@ describe('sync op placement_point.propose', () => {
   });
 
   it('keeps a proposal of another project out of reach', async () => {
-    const result = await pushRaw(fx.tokens.supervisorA, [
-      propose({ revisionId: pub.revisionId, featureId: pub.box }),
-    ], fx.otherProjectId);
+    const result = await pushRaw(
+      fx.tokens.supervisorA,
+      [propose({ revisionId: pub.revisionId, featureId: pub.box })],
+      fx.otherProjectId,
+    );
     // Supervisor A has no assignment in the other project.
     expect(result.status).toBe(403);
   });
@@ -594,12 +601,21 @@ describe('sync op placement_point.propose', () => {
 describe('GPS proposals for the PM', () => {
   let pub: Published;
   const base = () => `/projects/${fx.projectId}/gps-proposals`;
-  const accept = (id: string, mappingVersion: number, token = fx.tokens.pm, project = fx.projectId) =>
+  const accept = (
+    id: string,
+    mappingVersion: number,
+    token = fx.tokens.pm,
+    project = fx.projectId,
+  ) =>
     as(token)(http().post(`/projects/${project}/gps-proposals/${id}/accept`)).send({
       mappingVersion,
     });
-  const reject = (id: string, reason: string | undefined, token = fx.tokens.pm, project = fx.projectId) =>
-    as(token)(http().post(`/projects/${project}/gps-proposals/${id}/reject`)).send({ reason });
+  const reject = (
+    id: string,
+    reason: string | undefined,
+    token = fx.tokens.pm,
+    project = fx.projectId,
+  ) => as(token)(http().post(`/projects/${project}/gps-proposals/${id}/reject`)).send({ reason });
   const mappingOf = async () => {
     const { rows } = await ctx.pool.query(
       `SELECT version, placement, rules FROM cad_mappings WHERE cad_file_id = $1`,
@@ -612,9 +628,10 @@ describe('GPS proposals for the PM', () => {
   const revisionCount = async () =>
     Number(
       (
-        await ctx.pool.query(`SELECT count(*)::int AS n FROM design_revisions WHERE project_id = $1`, [
-          fx.projectId,
-        ])
+        await ctx.pool.query(
+          `SELECT count(*)::int AS n FROM design_revisions WHERE project_id = $1`,
+          [fx.projectId],
+        )
       ).rows[0].n,
     );
 
@@ -725,7 +742,10 @@ describe('GPS proposals for the PM', () => {
     ]);
     expect(await revisionCount()).toBe(builds);
     expect(await eventTypes(ctx.pool, pub.fileId)).toContain('cad_mapping.saved');
-    expect(await eventTypes(ctx.pool, id)).toEqual(['gps_proposal.received', 'gps_proposal.accepted']);
+    expect(await eventTypes(ctx.pool, id)).toEqual([
+      'gps_proposal.received',
+      'gps_proposal.accepted',
+    ]);
   });
 
   it('keeps only the last accepted gps point of an item; typed and other points stay', async () => {
@@ -898,9 +918,9 @@ describe('database rules (migration 0014)', () => {
 
   it('refuses DELETE and TRUNCATE', async () => {
     const id = await newProposal();
-    await expect(ctx.pool.query(`DELETE FROM gps_point_proposals WHERE id = $1`, [id])).rejects.toThrow(
-      /append-only/,
-    );
+    await expect(
+      ctx.pool.query(`DELETE FROM gps_point_proposals WHERE id = $1`, [id]),
+    ).rejects.toThrow(/append-only/);
     // Referenced by `execution_photos`, so only CASCADE gets as far as the triggers.
     await expect(ctx.pool.query(`TRUNCATE gps_point_proposals CASCADE`)).rejects.toThrow(
       /append-only/,
