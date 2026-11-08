@@ -14,7 +14,7 @@ import { useTextReview } from '../hooks/use-text-review';
 import { isBuilding } from '../model/revision-status';
 import { DiffSection } from './diff-section';
 import { ProblemsSection } from './problems-section';
-import { PublishDialog } from './publish-dialog';
+import { PublishChecklist } from './publish-checklist';
 import { RevisionStatusBadge } from './revision-status-badge';
 import { RevisionSummary } from './revision-summary';
 import { TextReviewView } from './text-review';
@@ -23,10 +23,13 @@ export function DesignRevisionDetailScreen({
   projectId,
   revisionId,
   listPath,
+  cadFilesPath,
 }: {
   projectId: string;
   revisionId: string;
   listPath: string;
+  /** The project's CAD files list; the coordinates (mapping) screen is under each file. */
+  cadFilesPath: string;
 }) {
   const { t } = useI18n();
   const state = useRevisionDetail(projectId, revisionId);
@@ -57,16 +60,6 @@ export function DesignRevisionDetailScreen({
         {isBuilding(revision.status) ? (
           <span aria-live="polite">{t('design.autoRefresh')}</span>
         ) : null}
-        {state.canPublish ? (
-          <Button
-            onClick={state.startPublish}
-            disabled={state.publishing || state.blocked !== null}
-          >
-            {state.publishing && !state.blocked
-              ? t('design.actions.publishing')
-              : t('design.actions.publish')}
-          </Button>
-        ) : null}
         {state.canDiscard ? (
           <Button
             variant="outline"
@@ -77,15 +70,20 @@ export function DesignRevisionDetailScreen({
           </Button>
         ) : null}
       </div>
-      {state.actionErrorKey ? <Notice kind="error">{t(state.actionErrorKey)}</Notice> : null}
-      {state.blocked ? (
-        <PublishDialog
-          blocked={state.blocked}
+      {state.actionMessage ? (
+        <Notice kind="error">{t(state.actionMessage.key, state.actionMessage.params)}</Notice>
+      ) : null}
+      {state.canPublish ? (
+        <PublishChecklist
+          readiness={state.readiness}
+          loading={state.readinessLoading}
+          failed={state.readinessFailed}
           acknowledged={state.acknowledged}
           publishing={state.publishing}
+          allowed={state.publishAllowed}
+          mappingHref={`${cadFilesPath}/${revision.cadFileId}/mapping`}
           onAcknowledgedChange={state.setAcknowledged}
-          onConfirm={state.confirmPublish}
-          onCancel={state.cancelPublish}
+          onPublish={state.publish}
         />
       ) : null}
       {state.confirmingDiscard ? (
@@ -120,7 +118,6 @@ export function DesignRevisionDetailScreen({
               projectId={projectId}
               revisionId={revisionId}
               enabled={state.canRead && state.built}
-              canIgnore={state.canReview}
             />
           </Card>
           <Card>

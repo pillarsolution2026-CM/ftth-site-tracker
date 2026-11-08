@@ -975,10 +975,27 @@
       "cancel": "Annuler"
     },
     "publish": {
-      "title": "Points ouverts",
-      "text": "{links} liens de textes restent à relire et {conflicts} changements sont des conflits. La publication verrouille la révision en l'état.",
-      "acknowledge": "Je comprends et je veux publier avec des points ouverts",
-      "confirm": "Publier quand même"
+      "title": "Avant de publier",
+      "loading": "Vérification en cours…",
+      "loadFailed": "Impossible de vérifier. Réessayez.",
+      "done": "Fait",
+      "notDone": "Pas fait",
+      "checks": {
+        "crs_known": "Coordonnées : CRS source choisi",
+        "control_point": "Au moins un point de contrôle utilisé ({count})",
+        "no_problems": "Aucune erreur de dessin ({count} restantes)",
+        "open_items": "Éléments ouverts revus ({count})"
+      },
+      "fixCoordinates": "Ouvrir l'écran des coordonnées",
+      "lockedHint": "La publication est verrouillée tant que les trois premières vérifications ne sont pas faites.",
+      "openItemsText": "Des éléments restent ouverts. La publication verrouille la révision en l'état.",
+      "acknowledge": "Je comprends et je veux publier avec des éléments ouverts",
+      "blocked": {
+        "CRS_UNKNOWN": "Le système de coordonnées source du dessin n'a jamais été choisi. Choisissez-le d'abord sur l'écran des coordonnées.",
+        "PLACEMENT_MISSING": "Le placement n'a aucun point de contrôle utilisé. Ajoutez ou incluez d'abord un point de contrôle.",
+        "PROBLEMS_OPEN": "{count} erreurs de dessin restent. Corrigez-les toutes avant de publier.",
+        "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation."
+      }
     },
     "error": {
       "NOT_DRAFT": "Seule une révision en brouillon peut être publiée",
@@ -1041,46 +1058,60 @@
       "none": "Aucun changement à afficher"
     },
     "problems": {
-      "title": "Problèmes du dessin",
-      "hint": "Corrigez le dessin et téléversez-le à nouveau, ou ignorez un emplacement sous votre responsabilité. Les coordonnées sont celles du dessin, pour les retrouver dans AutoCAD.",
-      "none": "Aucun problème trouvé dans le dessin.",
-      "ignoredCount": "{count} sur {total} ignorés",
-      "place": "Emplacement (dessin)",
+      "title": "Erreurs du dessin",
+      "heading": "Erreurs du dessin : {total}",
+      "hint": "Chaque erreur bloque la publication. Les outils de correction de cette page arrivent dans la prochaine modification ; d'ici là, corrigez le dessin et téléversez-le à nouveau. Les coordonnées permettent de retrouver chaque endroit dans AutoCAD.",
+      "none": "Aucune erreur de dessin trouvée.",
+      "place": "Endroit",
+      "drawingXY": "X/Y du dessin",
+      "projectEN": "E/N du projet",
+      "handle": "Handle",
       "layer": "Calque",
       "near": "Près de",
-      "status": "État",
       "showFirst": "Afficher les {count} premiers",
       "showAll": "Tout afficher ({count})",
-      "moreThanListed": "Seuls les {listed} premiers emplacements sont listés.",
+      "moreThanListed": "Seuls les {listed} premiers endroits sont listés.",
       "label": "Étiquette",
-      "moveTo": "Calque attendu",
-      "ignoredAt": "Ignoré sous la responsabilité de l’utilisateur, {at}",
-      "confirmTitle": "Ignorer cet emplacement",
-      "confirmText": "Ignorer laisse le dessin tel quel. Vous en prenez la responsabilité ; votre nom et l’heure sont enregistrés.",
-      "confirmIgnore": "J’en prends la responsabilité : ignorer",
-      "ignoreFailed": "Impossible d’ignorer cet emplacement. Réessayez.",
-      "ignore": "Ignorer",
-      "open": "Ouvert",
+      "moveTo": "Doit être sur le calque",
+      "whatLabel": "De quoi il s'agit",
+      "fixLabel": "Pour corriger",
+      "severityHint": "Gravité : {severity}",
       "severity": {
         "error": "Erreur",
         "warning": "Avertissement",
         "info": "Information"
       },
       "code": {
-        "ROUTE_SPLIT": "Lignes de tracé interrompues",
-        "RING_LABEL_MISMATCH": "Rings et étiquettes ne correspondent pas",
+        "ROUTE_SPLIT": "Lignes de tracé coupées",
+        "RING_LABEL_MISMATCH": "Anneaux et étiquettes ne correspondent pas",
         "WRONG_LAYER": "Sur le mauvais calque",
         "LABEL_MISSING": "Symbole sans étiquette",
         "LABEL_TYPE_MISMATCH": "Symbole et étiquette en désaccord",
         "LABEL_LENGTH_MISSING": "Étiquette de câble sans longueur"
       },
-      "explain": {
-        "ROUTE_SPLIT": "Des lignes du tracé sont interrompues. Elles doivent être reliées pour que le tracé soit clair.",
-        "RING_LABEL_MISMATCH": "Un ring sans étiquette, ou une étiquette de ring sans ring.",
-        "WRONG_LAYER": "L’élément ou son étiquette est sur un autre calque. Unifiez les calques pour une lecture simple.",
-        "LABEL_MISSING": "Les autres symboles de ce type ont une étiquette ; celui-ci n’en a pas.",
-        "LABEL_TYPE_MISMATCH": "Le symbole indique un type et son étiquette un autre (ex. jonction 36 étiquetée 144).",
-        "LABEL_LENGTH_MISSING": "Le type de câble ou de fourreau est écrit sans sa longueur. Pour information."
+      "ROUTE_SPLIT": {
+        "description": "Un câble est dessiné en morceaux séparés qui se rejoignent bout à bout loin de tout élément ; le système ne peut pas le lire comme un seul tracé.",
+        "fix": "Joindre les morceaux en un seul câble."
+      },
+      "RING_LABEL_MISMATCH": {
+        "description": "Les formes d'anneau et les étiquettes d'anneau ne correspondent pas une à une : un anneau sans étiquette, ou une étiquette sans anneau.",
+        "fix": "Faire correspondre les anneaux et leurs étiquettes une à une."
+      },
+      "WRONG_LAYER": {
+        "description": "Un élément ou son étiquette est dessiné sur le calque d'un autre type.",
+        "fix": "Le déplacer vers le calque suggéré."
+      },
+      "LABEL_MISSING": {
+        "description": "Un symbole n'a pas d'étiquette alors que les autres symboles de son type en ont.",
+        "fix": "Ajouter l'étiquette de son type."
+      },
+      "LABEL_TYPE_MISMATCH": {
+        "description": "L'étiquette nomme un autre type que l'élément auquel elle appartient (par exemple une jonction 36 étiquetée 144).",
+        "fix": "Corriger l'étiquette ou l'élément."
+      },
+      "LABEL_LENGTH_MISSING": {
+        "description": "Une étiquette de câble donne son type mais pas sa longueur.",
+        "fix": "Écrire la longueur dans l'étiquette."
       }
     }
   },

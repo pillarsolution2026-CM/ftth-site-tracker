@@ -14,6 +14,7 @@ export default async function DesignRevisionPage({
       projectId={projectId}
       revisionId={revisionId}
       listPath={`/${locale}/projects/${projectId}/design-revisions`}
+      cadFilesPath={`/${locale}/projects/${projectId}/cad-files`}
     />
   );
 }

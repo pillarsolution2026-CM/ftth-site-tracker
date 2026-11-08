@@ -5,6 +5,7 @@ import {
   DesignRevisionSummarySchema,
   DiffPageSchema,
   DrawingProblemListSchema,
+  PublishReadinessSchema,
   TextLinkPageSchema,
   TextLinkSchema,
   type CreateDesignRevisionRequest,
@@ -16,7 +17,7 @@ import {
   type DiffListQuery,
   type DiffPage,
   type DrawingProblemList,
-  type IgnoreDrawingProblemRequest,
+  type PublishReadiness,
   type PublishDesignRevisionRequest,
   type ReviewTextLinkRequest,
   type TextLink,
@@ -105,13 +106,6 @@ export function listDrawingProblems(projectId: string, id: string): Promise<Draw
   return bffJson(`${one(projectId, id)}/problems`, DrawingProblemListSchema);
 }
 
-export function ignoreDrawingProblem(
-  projectId: string,
-  id: string,
-  body: IgnoreDrawingProblemRequest,
-): Promise<DrawingProblemList> {
-  return bffJson(`${one(projectId, id)}/problems/ignore`, DrawingProblemListSchema, {
-    method: 'POST',
-    body,
-  });
+export function getPublishReadiness(projectId: string, id: string): Promise<PublishReadiness> {
+  return bffJson(`${one(projectId, id)}/publish-readiness`, PublishReadinessSchema);
 }

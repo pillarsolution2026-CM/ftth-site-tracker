@@ -1,7 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CreateDesignRevisionRequest,
-  IgnoreDrawingProblemRequest,
   PublishDesignRevisionRequest,
   ReviewTextLinkRequest,
 } from '@ftth/shared';
@@ -9,7 +8,7 @@ import {
   createDesignRevision,
   discardDesignRevision,
   getDesignRevision,
-  ignoreDrawingProblem,
+  getPublishReadiness,
   listDesignFeatures,
   listDesignRevisions,
   listDiff,
@@ -151,10 +150,20 @@ export function useDrawingProblems(projectId: string, id: string, enabled: boole
   });
 }
 
-export function useIgnoreDrawingProblem(projectId: string, id: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (body: IgnoreDrawingProblemRequest) => ignoreDrawingProblem(projectId, id, body),
-    onSuccess: (list) => client.setQueryData([...revisionKey(projectId, id), 'problems'], list),
+const readinessKey = (projectId: string, id: string) =>
+  [...revisionKey(projectId, id), 'publish-readiness'] as const;
+
+/** The publish checklist (ADR-038); refetched after a refused publish. */
+export function usePublishReadiness(projectId: string, id: string, enabled: boolean) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: readinessKey(projectId, id),
+    queryFn: () => getPublishReadiness(projectId, id),
   });
+}
+
+export function useRefetchPublishReadiness(projectId: string, id: string) {
+  const client = useQueryClient();
+  return () => client.invalidateQueries({ queryKey: readinessKey(projectId, id) });
 }
