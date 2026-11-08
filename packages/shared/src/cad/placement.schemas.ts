@@ -103,16 +103,20 @@ export const PLACEMENT_SCALE_WARNING = 0.001;
 // ---------- what the placement screen draws and picks from (ADR-035) ----------
 
 /**
- * A point item of the latest built revision of the file, at its drawn centre **in drawing units**
- * (the place the build starts from): an insert's position, a text's position, or the centre of the
- * joint extents of a shape group. A control point picked from this list uses `x`/`y` and `handle`.
+ * A point item of the uploaded file, classified by the file's saved mapping rules as the build
+ * does (ADR-037; no built revision needed), at its drawn centre **in drawing units** (the place the
+ * build starts from): an insert's drawn centre, a text's position, or the centre of the joint
+ * extents of a shape group. A control point picked from this list uses `x`/`y` and `handle`.
  */
 export const PLACEMENT_ITEM_MAX_NAMES = 8;
 
 export const PlacementItemSchema = z.object({
   handle: z.string(),
   featureType: PointFeatureTypeSchema,
-  /** The item's code (e.g. "04B") when the build found one. */
+  /**
+   * The item's code when known without a build: an insert attribute or a text item's own text.
+   * Codes the build links from nearby texts are not known yet; `names` carries those texts.
+   */
   code: z.string().nullable(),
   /**
    * Short texts written around the item in the drawing, nearest first: each text whose nearest
@@ -133,8 +137,11 @@ export type PlacementLine = z.infer<typeof PlacementLineSchema>;
 export const PLACEMENT_DRAWING_MAX_LINES = 5000;
 
 export const PlacementDrawingSchema = z.object({
-  /** The built revision the items come from; null when the file has none yet. */
-  revisionId: z.uuid().nullable(),
+  /**
+   * Version of the saved mapping whose rules classified the items (ADR-037); null when no mapping
+   * is saved yet (then `items` and `lines` are empty: save the rules first).
+   */
+  mappingVersion: z.number().int().min(1).nullable(),
   items: z.array(PlacementItemSchema),
   lines: z.array(PlacementLineSchema),
   /** More route lines exist than `PLACEMENT_DRAWING_MAX_LINES`; the preview shows the first ones. */
