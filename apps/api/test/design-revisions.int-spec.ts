@@ -203,6 +203,26 @@ const setWarnings = (revisionId: string, warnings: unknown[]) =>
     JSON.stringify(warnings),
   ]);
 
+/**
+ * The placement is a frozen input of a revision (trigger of migrations 0005 / 0012): the trigger is
+ * switched off for this one update, as the work-orders suite does for its legacy line.
+ */
+async function setRevisionPlacement(id: string, value: string | null): Promise<void> {
+  const client = await ctx.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('ALTER TABLE design_revisions DISABLE TRIGGER design_revisions_immutable');
+    await client.query('UPDATE design_revisions SET placement = $2 WHERE id = $1', [id, value]);
+    await client.query('ALTER TABLE design_revisions ENABLE TRIGGER design_revisions_immutable');
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function simulateBuild(revisionId: string, withData = true): Promise<SimulatedBuild> {
   const q = (text: string, values: unknown[] = []) => ctx.pool.query(text, values);
   const ids: SimulatedBuild = {
@@ -1254,11 +1274,7 @@ describe('a built draft revision', () => {
           },
         ],
       });
-    const setPlacement = (value: string | null) =>
-      ctx.pool.query('UPDATE design_revisions SET placement = $2 WHERE id = $1', [
-        revisionId,
-        value,
-      ]);
+    const setPlacement = (value: string | null) => setRevisionPlacement(revisionId, value);
     expect((await as(supervisor)(http().post(url('/publish'))).send({})).status).toBe(403);
     // Another project's id: 404 even for an admin, who passes every project scope.
     const stranger = await as(admin)(
@@ -1363,13 +1379,13 @@ describe('further revisions', () => {
     const second = DesignRevisionSummarySchema.parse(created.body);
     expect(second.baseRevisionId).toBe(revisionId);
     await simulateBuild(second.id, false);
-    await ctx.pool.query('UPDATE design_revisions SET placement = $2 WHERE id = $1', [
+    await setRevisionPlacement(
       second.id,
       JSON.stringify({
         sourceCrs: 'project',
         points: [{ id: 'p1', drawing: { x: 1, y: 1 }, lat: 30.9, lon: 32.7, source: 'typed' }],
       }),
-    ]);
+    );
 
     const published = await as(pm)(
       http().post(`${revisionsUrl(projectA)}/${second.id}/publish`),
