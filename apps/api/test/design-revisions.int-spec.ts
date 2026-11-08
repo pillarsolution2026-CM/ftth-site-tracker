@@ -1260,7 +1260,8 @@ describe('a built draft revision', () => {
         value,
       ]);
     expect((await as(supervisor)(http().post(url('/publish'))).send({})).status).toBe(403);
-    const stranger = await as(pm)(
+    // Another project's id: 404 even for an admin, who passes every project scope.
+    const stranger = await as(admin)(
       http().get(`${revisionsUrl(projectB)}/${revisionId}/publish-readiness`),
     );
     expect(stranger.status).toBe(404);
