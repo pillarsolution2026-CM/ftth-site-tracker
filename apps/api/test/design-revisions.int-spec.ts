@@ -558,12 +558,18 @@ describe('CAD mapping', () => {
     expect((await http().get(url)).status).toBe(401);
   });
 
-  it('serves an empty placement drawing until the file has a built revision (ADR-035)', async () => {
-    const url = `${filesUrl(projectA)}/${fileId}/mapping/placement-drawing`;
+  it('serves an empty placement drawing until the file has a saved mapping (ADR-037)', async () => {
+    const bare = await insertCadFile('processed');
+    await ctx.pool.query(
+      `INSERT INTO cad_inserts (project_id, cad_file_id, handle, layer, block_name, position)
+       VALUES ($1, $2, 'Z1', 'sub', 'sub', ST_GeomFromText('POINT Z (1 2 0)', 0))`,
+      [projectA, bare],
+    );
+    const url = `${filesUrl(projectA)}/${bare}/mapping/placement-drawing`;
     const res = await as(supervisor)(http().get(url));
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(PlacementDrawingSchema.parse(res.body)).toEqual({
-      revisionId: null,
+      mappingVersion: null,
       items: [],
       lines: [],
       truncated: false,
@@ -829,33 +835,44 @@ describe('a built draft revision', () => {
     // A cabinet drawn as two touching squares: one symbol at the centre of both (2, 1).
     await curve('S1', 'CAB', 'LINESTRING Z (0 0 0, 2 0 0, 2 2 0, 0 2 0, 0 0 0)', true);
     await curve('S2', 'CAB', 'LINESTRING Z (2 0 0, 4 0 0, 4 2 0, 2 2 0, 2 0 0)', true);
-    const cabinet = randomUUID();
-    await q(
-      `INSERT INTO features (id, project_id, feature_type, first_revision_id) VALUES ($1, $2, 'cabinet', $3)`,
-      [cabinet, projectA, revisionId],
-    );
-    await q(
-      `INSERT INTO design_features (revision_id, feature_id, project_id, feature_type, code, layer, source_kind, source_handle, geom, attrs)
-       VALUES ($1, $2, $3, 'cabinet', NULL, 'CAB', 'curve', 'S1', ${point(E0, N0)}, $4)`,
-      [revisionId, cabinet, projectA, JSON.stringify({ shapes: ['S1', 'S2'] })],
-    );
+    // The saved rules decide (ADR-037; no revision needed): add a cabinet layer and an hhi text
+    // rule to the saved mapping for this test, then put it back.
+    const saved = await q(`SELECT rules FROM cad_mappings WHERE cad_file_id = $1`, [fileId]);
+    const rules = saved.rows[0]?.rules as object[];
+    await q(`UPDATE cad_mappings SET rules = $2::jsonb WHERE cad_file_id = $1`, [
+      fileId,
+      JSON.stringify([
+        ...rules,
+        { source: 'layer', layer: 'CAB', target: 'cabinet', role: 'main' },
+        { source: 'text', layer: 'RRR', text: 'H', target: 'hhi' },
+      ]),
+    ]);
     try {
       const url = `${filesUrl(projectA)}/${fileId}/mapping/placement-drawing`;
       const res = await as(supervisor)(http().get(url));
       expect(res.status, JSON.stringify(res.body)).toBe(200);
       const drawing = PlacementDrawingSchema.parse(res.body);
-      expect(drawing.revisionId).toBe(revisionId);
-      // Each short text names its nearest item within 80 m, nearest first: the cabinet gets its
-      // name "1-7" and the texts at (1, 2) from the extraction; "garbled" is unreadable.
-      expect(drawing.items).toEqual([
-        { handle: 'B1', featureType: 'box', code: null, names: [], layer: 'sub', x: 10, y: 20 },
-        { handle: 'B2', featureType: 'box', code: null, names: [], layer: 'sub', x: 50, y: 60 },
-        {
-          ...{ handle: 'S1', featureType: 'cabinet', code: null, layer: 'CAB', x: 2, y: 1 },
-          names: ['1-7', '1-1', 'F 36 C', 'NEW-HHI'],
-        },
-        { handle: 'H1', featureType: 'hhi', code: null, names: ['H'], layer: 'RRR', x: 30, y: 40 },
+      expect(drawing.mappingVersion).toBe(mappingVersion);
+      // The drawn positions the simulated build above expects: B1, B2 (drawn centre, not the
+      // insertion point), the cabinet S1 (centre of two touching squares) and the hhi text H1.
+      const at = (handle: string) => {
+        const item = drawing.items.find((i) => i.handle === handle);
+        return item && { type: item.featureType, x: item.x, y: item.y };
+      };
+      expect(at('B1')).toEqual({ type: 'box', x: 10, y: 20 });
+      expect(at('B2')).toEqual({ type: 'box', x: 50, y: 60 });
+      expect(at('S1')).toEqual({ type: 'cabinet', x: 2, y: 1 });
+      expect(at('H1')).toEqual({ type: 'hhi', x: 30, y: 40 });
+      // S2 is part of S1's symbol; I3 / I5 are on a layer or block without a point rule.
+      expect(drawing.items.map((i) => i.handle)).toEqual([
+        ...['B1', 'B2', 'I1', 'I2', 'I4'], // boxes: layer 'sub' (I4's HHI block has no rule)
+        'S1',
+        ...['H1', 'X1', 'X2', 'X3'], // hhi: text rules, by code 'H' < 'NEW-HHI'
       ]);
+      // Each short text names its nearest item within 80 m: the cabinet's name "1-7" (the
+      // texts at (1, 2) are nearer to the items drawn there); "garbled" is unreadable.
+      expect(drawing.items.find((i) => i.handle === 'S1')?.names).toEqual(['1-7']);
+      expect(drawing.items.find((i) => i.handle === 'H1')?.names).toEqual(['H']);
       expect(drawing.lines).toEqual([
         [
           [0, 0],
@@ -864,8 +881,10 @@ describe('a built draft revision', () => {
       ]);
       expect(drawing.truncated).toBe(false);
     } finally {
-      await q(`DELETE FROM design_features WHERE feature_id = $1`, [cabinet]);
-      await q(`DELETE FROM features WHERE id = $1`, [cabinet]);
+      await q(`UPDATE cad_mappings SET rules = $2::jsonb WHERE cad_file_id = $1`, [
+        fileId,
+        JSON.stringify(rules),
+      ]);
     }
   });
 

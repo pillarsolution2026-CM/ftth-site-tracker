@@ -52,8 +52,8 @@ export const PLACEMENT_DRAWING_LIMITS: PlacementDrawingLimits = {
 };
 
 /**
- * What the placement screen draws and picks control points from (ADR-035): the point items and
- * route lines of the newest built revision of the file, in drawing units.
+ * What the placement screen draws and picks control points from (ADR-035, ADR-037): the point
+ * items and route lines of the uploaded file classified by its saved mapping, in drawing units.
  */
 export class GetPlacementDrawingUseCase {
   constructor(

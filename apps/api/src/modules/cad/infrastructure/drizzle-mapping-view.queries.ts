@@ -1,6 +1,8 @@
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import {
   PLACEMENT_ITEM_MAX_NAMES,
+  POINT_FEATURE_TYPES,
+  type MappingRule,
   type PlacementDrawing,
   type PlacementItem,
   type PlacementLine,
@@ -14,6 +16,15 @@ import type {
   MappingTextGroup,
   PlacementDrawingLimits,
 } from '../domain/design-revision.repository.js';
+
+/**
+ * Closed shapes on one point layer closer than this (metres) are one symbol (ADR-033). Mirrors
+ * `SHAPE_TOUCH_M` of the CAD worker (`design_build.py`): technical tuning, not a business rule.
+ */
+const SHAPE_TOUCH_M = 0.05;
+
+/** Space, tab, LF, CR: what `String.prototype.trim` removes from CAD text in practice. */
+const TRIM_CHARS = sql`' ' || chr(9) || chr(10) || chr(13)`;
 
 /** Grouping behind the mapping screen; reads the rows the CAD worker extracted. */
 export class DrizzleMappingViewQueries implements CadMappingViewQueries {
@@ -34,8 +45,7 @@ export class DrizzleMappingViewQueries implements CadMappingViewQueries {
   }
 
   async texts(projectId: string, cadFileId: string, limit: number): Promise<MappingTextGroup[]> {
-    // Space, tab, LF, CR: what `String.prototype.trim` removes from CAD text in practice.
-    const trimmed = sql<string>`btrim(${cadTexts.text}, ' ' || chr(9) || chr(10) || chr(13))`;
+    const trimmed = sql<string>`btrim(${cadTexts.text}, ${TRIM_CHARS})`;
     const rows = await this.db
       .select({ layer: cadTexts.layer, text: trimmed, total: count() })
       .from(cadTexts)
@@ -58,19 +68,34 @@ export class DrizzleMappingViewQueries implements CadMappingViewQueries {
     cadFileId: string,
     limits: PlacementDrawingLimits,
   ): Promise<PlacementDrawing> {
-    const [revision] = await rowsOf<{ id: string; mpu: string }>(
+    const [mapping] = await rowsOf<{
+      rules: MappingRule[];
+      mpu: string;
+      version: number;
+      status: string;
+    }>(
       this.db,
-      sql`SELECT id, metres_per_unit AS mpu FROM design_revisions
-          WHERE project_id = ${projectId} AND cad_file_id = ${cadFileId}
-            AND status IN ('draft', 'published')
-          ORDER BY created_at DESC LIMIT 1`,
+      sql`SELECT m.rules, m.metres_per_unit AS mpu, m.version, f.status
+          FROM cad_mappings m
+          JOIN cad_files f ON f.project_id = m.project_id AND f.id = m.cad_file_id
+          WHERE m.project_id = ${projectId} AND m.cad_file_id = ${cadFileId}`,
     );
-    if (!revision) return { revisionId: null, items: [], lines: [], truncated: false };
-    const mpu = Number(revision.mpu);
+    if (!mapping) return { mappingVersion: null, items: [], lines: [], truncated: false };
+    const empty = { mappingVersion: mapping.version, items: [], lines: [], truncated: false };
+    // While a (re)run is in flight the rows of an earlier run are about to be replaced: show none.
+    if (mapping.status !== 'processed') return empty;
 
-    // The drawn centre the build starts from (ADR-032/035): an insert's drawn centre (else its
-    // position, as the worker reads it), a text's position, or
-    // the centre of the joint extents of a shape group (`attrs.shapes`, else the source curve).
+    const mpu = Number(mapping.mpu);
+    const rules = JSON.stringify(mapping.rules);
+    const pointTypes = sql`ARRAY[${sql.join(
+      POINT_FEATURE_TYPES.map((type) => sql`${type}`),
+      sql`, `,
+    )}]::text[]`;
+
+    // The classification of the build (`design_build.py`) over the extracted rows, in drawing
+    // units: a block rule wins over the layer rule for inserts; text rules match trimmed,
+    // lower-cased text on one layer; closed shapes on a point layer touching within 0.05 m are
+    // one item keyed by the smallest handle, at the centre of the joint extents.
     // Names: each short readable text goes to its nearest item within the radius (a hint only).
     const items = await rowsOf<{
       handle: string;
@@ -82,34 +107,67 @@ export class DrizzleMappingViewQueries implements CadMappingViewQueries {
       y: number;
     }>(
       this.db,
-      sql`WITH item AS (
-            SELECT * FROM (
-              SELECT df.source_handle AS handle, df.feature_type, df.code, df.layer,
-                     CASE df.source_kind WHEN 'insert' THEN ST_X(COALESCE(ci.centre, ci.position))
-                                         WHEN 'text' THEN ST_X(ct.position)
-                                         ELSE (ST_XMin(sh.box) + ST_XMax(sh.box)) / 2 END AS x,
-                     CASE df.source_kind WHEN 'insert' THEN ST_Y(COALESCE(ci.centre, ci.position))
-                                         WHEN 'text' THEN ST_Y(ct.position)
-                                         ELSE (ST_YMin(sh.box) + ST_YMax(sh.box)) / 2 END AS y
-              FROM design_features df
-              LEFT JOIN cad_inserts ci
-                ON df.source_kind = 'insert' AND ci.cad_file_id = ${cadFileId}
-               AND ci.handle = df.source_handle
-              LEFT JOIN cad_texts ct
-                ON df.source_kind = 'text' AND ct.cad_file_id = ${cadFileId}
-               AND ct.handle = df.source_handle
-              LEFT JOIN LATERAL (
-                SELECT ST_Extent(cc.geom) AS box FROM cad_curves cc
-                WHERE df.source_kind = 'curve' AND cc.cad_file_id = ${cadFileId}
-                  AND cc.handle = ANY (
-                    CASE WHEN jsonb_typeof(df.attrs -> 'shapes') = 'array'
-                         THEN ARRAY(SELECT jsonb_array_elements_text(df.attrs -> 'shapes'))
-                         ELSE ARRAY[df.source_handle] END)
-              ) sh ON true
-              WHERE df.revision_id = ${revision.id} AND df.project_id = ${projectId}
-                AND df.feature_type <> 'route'
-            ) AS located
-            WHERE x IS NOT NULL AND y IS NOT NULL
+      sql`WITH layer_rule AS (
+            SELECT DISTINCT ON (r ->> 'layer') r ->> 'layer' AS layer, r ->> 'target' AS target
+            FROM jsonb_array_elements(${rules}::jsonb) r WHERE r ->> 'source' = 'layer'
+          ),
+          block_rule AS (
+            SELECT DISTINCT ON (r ->> 'block') r ->> 'block' AS block, r ->> 'target' AS target
+            FROM jsonb_array_elements(${rules}::jsonb) r WHERE r ->> 'source' = 'block'
+          ),
+          text_rule AS (
+            SELECT DISTINCT ON (r ->> 'layer', lower(btrim(r ->> 'text', ${TRIM_CHARS})))
+                   r ->> 'layer' AS layer, lower(btrim(r ->> 'text', ${TRIM_CHARS})) AS key,
+                   r ->> 'target' AS target
+            FROM jsonb_array_elements(${rules}::jsonb) r
+            WHERE r ->> 'source' = 'text' AND r ->> 'target' = ANY (${pointTypes})
+          ),
+          point_layer AS (SELECT layer, target FROM layer_rule WHERE target = ANY (${pointTypes})),
+          inserted AS (
+            SELECT ci.handle, COALESCE(b.target, l.target) AS feature_type, NULL::text AS code,
+                   ci.layer, ST_X(COALESCE(ci.centre, ci.position)) AS x,
+                   ST_Y(COALESCE(ci.centre, ci.position)) AS y
+            FROM cad_inserts ci
+            LEFT JOIN block_rule b ON b.block = ci.block_name
+            LEFT JOIN layer_rule l ON l.layer = ci.layer
+            WHERE ci.cad_file_id = ${cadFileId} AND ci.project_id = ${projectId}
+              AND COALESCE(b.target, l.target) = ANY (${pointTypes})
+          ),
+          lettered AS (
+            SELECT ct.handle, tr.target AS feature_type, btrim(ct.text, ${TRIM_CHARS}) AS code,
+                   ct.layer, ST_X(ct.position) AS x, ST_Y(ct.position) AS y
+            FROM cad_texts ct
+            JOIN text_rule tr ON tr.layer = ct.layer
+                             AND tr.key = lower(btrim(ct.text, ${TRIM_CHARS}))
+            WHERE ct.cad_file_id = ${cadFileId} AND ct.project_id = ${projectId} AND ct.readable
+          ),
+          shape AS (
+            SELECT cc.handle, cc.layer, pl.target, cc.geom,
+                   ST_Expand(ST_Envelope(ST_Force2D(cc.geom)), ${SHAPE_TOUCH_M / 2 / mpu}::float8) AS env
+            FROM cad_curves cc
+            JOIN point_layer pl ON pl.layer = cc.layer
+            WHERE cc.cad_file_id = ${cadFileId} AND cc.project_id = ${projectId}
+              AND cc.is_closed AND cc.vertex_count >= 2
+          ),
+          clustered AS (
+            SELECT shape.*, ST_ClusterDBSCAN(env, 0, 1) OVER (PARTITION BY layer) AS cluster_id
+            FROM shape
+          ),
+          joined_shape AS (
+            SELECT min(handle COLLATE "C") AS handle, target, layer, ST_Extent(geom) AS box
+            FROM clustered
+            GROUP BY layer, cluster_id, target
+          ),
+          shaped AS (
+            SELECT handle, target AS feature_type, NULL::text AS code, layer,
+                   (ST_XMin(box) + ST_XMax(box)) / 2 AS x,
+                   (ST_YMin(box) + ST_YMax(box)) / 2 AS y
+            FROM joined_shape
+          ),
+          item AS (
+            SELECT * FROM inserted
+            UNION ALL SELECT * FROM lettered
+            UNION ALL SELECT * FROM shaped
           ),
           -- One plain join within the radius, then the nearest item per text, computed once and
           -- grouped by item (a per-text nearest search, or a per-item subquery over this CTE,
@@ -138,21 +196,26 @@ export class DrizzleMappingViewQueries implements CadMappingViewQueries {
     const tolerance = limits.toleranceM / mpu;
     const lines = await rowsOf<{ coords: PlacementLine; total: string }>(
       this.db,
-      sql`SELECT ST_AsGeoJSON(simple, 6)::json -> 'coordinates' AS coords, count(*) OVER () AS total
+      sql`WITH route_layer AS (
+            SELECT DISTINCT r ->> 'layer' AS layer
+            FROM jsonb_array_elements(${rules}::jsonb) r
+            WHERE r ->> 'source' = 'layer' AND r ->> 'target' = 'route'
+          )
+          SELECT ST_AsGeoJSON(simple, 6)::json -> 'coordinates' AS coords, count(*) OVER () AS total
           FROM (
-            SELECT df.source_handle,
+            SELECT cc.handle,
                    ST_Simplify(ST_Force2D(cc.geom), ${tolerance}::float8) AS simple
-            FROM design_features df
-            JOIN cad_curves cc ON cc.cad_file_id = ${cadFileId} AND cc.handle = df.source_handle
-            WHERE df.revision_id = ${revision.id} AND df.project_id = ${projectId}
-              AND df.feature_type = 'route'
+            FROM cad_curves cc
+            JOIN route_layer rl ON rl.layer = cc.layer
+            WHERE cc.cad_file_id = ${cadFileId} AND cc.project_id = ${projectId}
+              AND cc.length > 0
           ) AS route
           WHERE ST_NPoints(simple) >= 2
-          ORDER BY source_handle
+          ORDER BY handle
           LIMIT ${limits.maxLines}`,
     );
     return {
-      revisionId: revision.id,
+      mappingVersion: mapping.version,
       items: items.map((row) => ({
         handle: row.handle,
         featureType: row.feature_type,

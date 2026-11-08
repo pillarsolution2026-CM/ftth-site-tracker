@@ -195,11 +195,12 @@ export interface CadMappingViewQueries {
   /** Readable texts grouped by (layer, trimmed text): count DESC, layer, text; at most `limit`. */
   texts(projectId: string, cadFileId: string, limit: number): Promise<MappingTextGroup[]>;
   /**
-   * Point items and route lines of the newest built (draft or published) revision of the file, in
-   * drawing units, taken from the extracted entities (ADR-035 placement screen). At most
-   * `maxLines` route lines, simplified to about `toleranceM` metres. An item's `names` are the
-   * readable texts of at most `nameMaxChars` characters whose nearest item it is, within
-   * `nameRadiusM` metres.
+   * Point items and route lines of the uploaded file in drawing units (ADR-037): the extracted
+   * rows classified by the file's saved mapping rules as the build does, with no revision needed.
+   * Empty (`mappingVersion` null) without a saved mapping, and empty while the file is not
+   * processed. At most `maxLines` route lines, simplified to about `toleranceM` metres. An item's
+   * `names` are the readable texts of at most `nameMaxChars` characters whose nearest item it is,
+   * within `nameRadiusM` metres.
    */
   placementDrawing(
     projectId: string,
