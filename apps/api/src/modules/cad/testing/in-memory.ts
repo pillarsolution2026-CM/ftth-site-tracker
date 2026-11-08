@@ -3,6 +3,7 @@ import {
   type CadBuildRevisionJob,
   type CadImportJob,
   type FeatureType,
+  type FrozenDrawingCorrection,
   type GpsProposalListQuery,
   type TextLinkCounts,
 } from '@ftth/shared';
@@ -14,6 +15,12 @@ import type { CadFile } from '../domain/cad-file.js';
 import type { CadFileRepository, CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import type { CadMappingRecord } from '../domain/cad-mapping.js';
 import type { DesignRevision } from '../domain/design-revision.js';
+import type {
+  DrawingCorrectionRecord,
+  DrawingCorrectionRepository,
+  HandleKind,
+  NewDrawingCorrection,
+} from '../domain/drawing-correction.js';
 import type {
   GpsProposalDecision,
   GpsProposalRecord,
@@ -128,6 +135,8 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
   /** Source of `cadFileName` for the join the database does. */
   readonly fileNames = new Map<string, string>();
   private sequence = 0;
+  /** What each revision froze (the domain record does not carry it: the worker reads it). */
+  readonly frozenCorrections = new Map<string, FrozenDrawingCorrection[]>();
 
   async list(projectId: string): Promise<DesignRevision[]> {
     return [...this.rows.values()]
@@ -162,6 +171,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       throw new AppError('CONFLICT', 'open revision', { reason: 'REVISION_IN_PROGRESS' });
     }
     this.sequence += 1;
+    this.frozenCorrections.set(revision.id, revision.corrections);
     this.rows.set(revision.id, {
       id: revision.id,
       projectId: revision.projectId,
@@ -399,6 +409,87 @@ export class InMemoryGpsProposals implements GpsProposalRepository {
   }
 }
 
+/** Drawing corrections in memory; `handles` stands in for the extracted rows of every file. */
+export class InMemoryDrawingCorrections implements DrawingCorrectionRepository {
+  readonly rows = new Map<string, DrawingCorrectionRecord>();
+  /** handle -> kinds of rows that carry it (any file; tests use one file). */
+  readonly handles = new Map<string, Set<HandleKind>>();
+
+  private inFile(projectId: string, cadFileId: string): DrawingCorrectionRecord[] {
+    return [...this.rows.values()].filter(
+      (row) => row.projectId === projectId && row.cadFileId === cadFileId,
+    );
+  }
+  private ordered(rows: DrawingCorrectionRecord[]): DrawingCorrectionRecord[] {
+    return rows.sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    );
+  }
+
+  async list(projectId: string, cadFileId: string): Promise<DrawingCorrectionRecord[]> {
+    return this.ordered(this.inFile(projectId, cadFileId)).reverse();
+  }
+  async find(
+    projectId: string,
+    cadFileId: string,
+    correctionId: string,
+  ): Promise<DrawingCorrectionRecord | null> {
+    const row = this.rows.get(correctionId);
+    return row?.projectId === projectId && row.cadFileId === cadFileId ? { ...row } : null;
+  }
+  async countActive(projectId: string, cadFileId: string): Promise<number> {
+    return this.inFile(projectId, cadFileId).filter((row) => row.withdrawnAt === null).length;
+  }
+  async listActiveFrozen(projectId: string, cadFileId: string): Promise<FrozenDrawingCorrection[]> {
+    return this.ordered(this.inFile(projectId, cadFileId))
+      .filter((row) => row.withdrawnAt === null)
+      .map((row) => ({ id: row.id, correction: row.correction }));
+  }
+  async handleKinds(
+    _projectId: string,
+    _cadFileId: string,
+    handles: string[],
+  ): Promise<Map<string, Set<HandleKind>>> {
+    const found = new Map<string, Set<HandleKind>>();
+    for (const handle of handles) {
+      const kinds = this.handles.get(handle);
+      if (kinds) found.set(handle, kinds);
+    }
+    return found;
+  }
+  async insert(correction: NewDrawingCorrection): Promise<void> {
+    this.rows.set(correction.id, {
+      id: correction.id,
+      projectId: correction.projectId,
+      cadFileId: correction.cadFileId,
+      correction: correction.correction,
+      problem: correction.problem,
+      createdBy: { id: correction.createdById, name: 'PM' },
+      createdAt: correction.createdAt,
+      withdrawnBy: null,
+      withdrawnAt: null,
+    });
+  }
+  async withdraw(
+    projectId: string,
+    cadFileId: string,
+    correctionId: string,
+    actorId: string,
+    at: Date,
+  ): Promise<boolean> {
+    const row = this.rows.get(correctionId);
+    if (row?.projectId !== projectId || row.cadFileId !== cadFileId || row.withdrawnAt) {
+      return false;
+    }
+    this.rows.set(correctionId, {
+      ...row,
+      withdrawnBy: { id: actorId, name: 'PM' },
+      withdrawnAt: at,
+    });
+    return true;
+  }
+}
+
 /** Not transactional (nothing here fails halfway); good enough to test use-case orchestration. */
 export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly files = new InMemoryCadFiles();
@@ -407,6 +498,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly links = new InMemoryTextLinks();
   readonly problems = new InMemoryDrawingProblems();
   readonly proposals = new InMemoryGpsProposals();
+  readonly corrections = new InMemoryDrawingCorrections();
   readonly events = new InMemoryEventLog();
 
   run<T>(work: (tx: CadTx) => Promise<T>): Promise<T> {
@@ -417,6 +509,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
       links: this.links,
       problems: this.problems,
       proposals: this.proposals,
+      corrections: this.corrections,
       events: this.events,
     });
   }

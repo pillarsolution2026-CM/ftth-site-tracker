@@ -9,6 +9,7 @@ import type {
 } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { CadFile } from './cad-file.js';
+import type { DrawingCorrectionRepository } from './drawing-correction.js';
 import type { GpsProposalRepository } from './gps-proposal.js';
 import type {
   CadMappingRepository,
@@ -58,6 +59,7 @@ export interface CadTx {
   links: TextLinkRepository;
   problems: DrawingProblemRepository;
   proposals: GpsProposalRepository;
+  corrections: DrawingCorrectionRepository;
   events: EventLog;
 }
 

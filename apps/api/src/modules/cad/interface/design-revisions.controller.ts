@@ -27,6 +27,7 @@ import {
   DrawingProblemListSchema,
   PublishDesignRevisionRequestSchema,
   PublishReadinessSchema,
+  RebuildDesignRevisionRequestSchema,
   ReviewTextLinkRequestSchema,
   TextLinkListQuerySchema,
   TextLinkPageSchema,
@@ -43,6 +44,7 @@ import {
   type DrawingProblemList,
   type PublishDesignRevisionRequest,
   type PublishReadiness,
+  type RebuildDesignRevisionRequest,
   type ReviewTextLinkRequest,
   type TextLink,
   type TextLinkListQuery,
@@ -67,6 +69,7 @@ import {
   ListRevisionDiffUseCase,
   ListTextLinksUseCase,
 } from '../application/design-revision-queries.use-cases.js';
+import { RebuildDesignRevisionUseCase } from '../application/rebuild-design-revision.use-case.js';
 import { DiscardDesignRevisionUseCase } from '../application/discard-design-revision.use-case.js';
 import { ListDrawingProblemsUseCase } from '../application/drawing-problems.use-cases.js';
 import {
@@ -96,6 +99,7 @@ export class DesignRevisionsController {
     @Inject(PublishDesignRevisionUseCase) private readonly publish: PublishDesignRevisionUseCase,
     @Inject(GetPublishReadinessUseCase) private readonly readiness: GetPublishReadinessUseCase,
     @Inject(DiscardDesignRevisionUseCase) private readonly discard: DiscardDesignRevisionUseCase,
+    @Inject(RebuildDesignRevisionUseCase) private readonly rebuild: RebuildDesignRevisionUseCase,
     @Inject(GetRevisionTilesUseCase) private readonly tiles: GetRevisionTilesUseCase,
     @Inject(CreateTileUrlUseCase) private readonly tileUrl: CreateTileUrlUseCase,
   ) {}
@@ -119,6 +123,27 @@ export class DesignRevisionsController {
   ): Promise<DesignRevisionSummary> {
     const revision = await this.create.execute({
       projectId,
+      actorId: actorIdOf(request),
+      request: body,
+    });
+    return toRevisionSummaryDto(revision);
+  }
+
+  /** Discards the draft and builds a new revision of the same file in one step (ADR-038). */
+  @Post(':revisionId/rebuild')
+  @HttpCode(202)
+  @RequirePermission('design:write')
+  @ApiOkResponse({ schema: openApiSchema(DesignRevisionSummarySchema) })
+  async rebuildOne(
+    @ProjectIdParam() projectId: string,
+    @Param('revisionId', UuidParamPipe) revisionId: string,
+    @Body(new ZodValidationPipe(RebuildDesignRevisionRequestSchema))
+    body: RebuildDesignRevisionRequest,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<DesignRevisionSummary> {
+    const revision = await this.rebuild.execute({
+      projectId,
+      revisionId,
       actorId: actorIdOf(request),
       request: body,
     });

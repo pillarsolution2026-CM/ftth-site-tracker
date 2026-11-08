@@ -166,6 +166,7 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
         drawingUnit: revision.drawingUnit,
         metresPerUnit: revision.metresPerUnit,
         placement: revision.placement,
+        corrections: revision.corrections,
         insUnits: revision.insUnits,
         unitsConflict: revision.unitsConflict,
         createdBy: revision.createdById,
