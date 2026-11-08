@@ -36,6 +36,8 @@ export interface DrawingCorrectionRepository {
     options?: { lock?: boolean },
   ): Promise<DrawingCorrectionRecord | null>;
   countActive(projectId: string, cadFileId: string): Promise<number>;
+  /** Every row of the file, withdrawn ones included. */
+  countAll(projectId: string, cadFileId: string): Promise<number>;
   /** The corrections in force, in creation order (created_at, id): what a revision freezes. */
   listActiveFrozen(projectId: string, cadFileId: string): Promise<FrozenDrawingCorrection[]>;
   /** For each given handle, the kinds of extracted rows of this file that carry it. */

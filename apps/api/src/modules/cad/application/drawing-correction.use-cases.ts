@@ -1,6 +1,7 @@
 import {
   EVENT_ENTITIES,
   EVENT_TYPES,
+  MAX_CORRECTION_ROWS_PER_FILE,
   MAX_CORRECTIONS_PER_FILE,
   type CreateDrawingCorrectionRequest,
   type DrawingCorrectionInput,
@@ -75,7 +76,13 @@ export class CreateDrawingCorrectionUseCase {
           status: file.status,
         });
       }
-      if ((await tx.corrections.countActive(projectId, cadFileId)) >= MAX_CORRECTIONS_PER_FILE) {
+      // Active cap, and a cap on every row ever made so add + withdraw loops stay bounded (rows
+      // are immutable and never deleted; security review M2).
+      const [active, all] = await Promise.all([
+        tx.corrections.countActive(projectId, cadFileId),
+        tx.corrections.countAll(projectId, cadFileId),
+      ]);
+      if (active >= MAX_CORRECTIONS_PER_FILE || all >= MAX_CORRECTION_ROWS_PER_FILE) {
         throw new AppError('CONFLICT', 'The file has too many corrections', {
           reason: 'TOO_MANY_CORRECTIONS',
           max: MAX_CORRECTIONS_PER_FILE,

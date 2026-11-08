@@ -84,6 +84,14 @@ export class DrizzleDrawingCorrectionRepository implements DrawingCorrectionRepo
     return row?.n ?? 0;
   }
 
+  async countAll(projectId: string, cadFileId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(cadFileCorrections)
+      .where(inFile(projectId, cadFileId));
+    return row?.n ?? 0;
+  }
+
   async listActiveFrozen(projectId: string, cadFileId: string): Promise<FrozenDrawingCorrection[]> {
     const rows = await this.db
       .select({ id: cadFileCorrections.id, correction: cadFileCorrections.correction })

@@ -17,9 +17,22 @@ import { DesignRevisionSummarySchema } from '../design/design-revision.schemas.j
  * `RING_LABEL_MISMATCH` and a route that needs a new path are fixed in AutoCAD (part 3).
  */
 
-const Finite = z.number().refine(Number.isFinite, 'Must be a finite number');
-const Handle = z.string().min(1).max(64);
-const LayerName = z.string().min(1).max(255);
+/** |x|, |y| of added texts / items, drawing units (security review: no inf / NaN geometry). */
+export const MAX_CORRECTION_COORD = 1_000_000_000;
+const Coord = z
+  .number()
+  .refine(Number.isFinite, 'Must be a finite number')
+  .min(-MAX_CORRECTION_COORD)
+  .max(MAX_CORRECTION_COORD);
+/** No control characters (U+0000–U+001F): Postgres refuses NUL; none belongs in a name or label. */
+const noControl = (value: string) => ![...value].some((char) => char.charCodeAt(0) < 0x20);
+const Handle = z.string().min(1).max(64).refine(noControl, 'Control characters are not allowed');
+const LayerName = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(noControl, 'Control characters are not allowed');
+const Text = z.string().trim().min(1).refine(noControl, 'Control characters are not allowed');
 
 export const DRAWING_CORRECTION_KINDS = [
   'move_layer',
@@ -35,6 +48,8 @@ export const MAX_TEXT_LENGTH = 255;
 /** Pieces one merge may join; technical cap, not a rule. */
 export const MAX_MERGE_PIECES = 50;
 export const MAX_CORRECTIONS_PER_FILE = 5000;
+/** Rows per file including withdrawn ones (security review: add + withdraw loops stay bounded). */
+export const MAX_CORRECTION_ROWS_PER_FILE = 4 * MAX_CORRECTIONS_PER_FILE;
 
 export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   /** An insert, text or curve moves to another layer (its rule then decides what it is). */
@@ -47,15 +62,15 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('set_text'),
     handle: Handle,
-    text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+    text: Text.max(MAX_TEXT_LENGTH),
   }),
   /** A new text, e.g. a missing label next to its item. `height` in drawing units. */
   z.strictObject({
     kind: z.literal('add_text'),
     layer: LayerName,
-    x: Finite,
-    y: Finite,
-    text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+    x: Coord,
+    y: Coord,
+    text: Text.max(MAX_TEXT_LENGTH),
     height: z.number().positive().max(1_000_000).nullable().default(null),
   }),
   /**
@@ -65,8 +80,8 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('add_item'),
     layer: LayerName,
-    x: Finite,
-    y: Finite,
+    x: Coord,
+    y: Coord,
   }),
   /** Route pieces that meet end to end are joined into one route, keyed by the smallest handle. */
   z.strictObject({

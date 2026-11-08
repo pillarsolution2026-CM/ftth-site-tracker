@@ -1,4 +1,8 @@
-import { MAX_CORRECTIONS_PER_FILE, type CadMappingInput } from '@ftth/shared';
+import {
+  MAX_CORRECTION_ROWS_PER_FILE,
+  MAX_CORRECTIONS_PER_FILE,
+  type CadMappingInput,
+} from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
 import type { CadFile } from '../domain/cad-file.js';
@@ -197,6 +201,18 @@ describe('adding a correction', () => {
     });
     await withdraw(first.id);
     await expect(setText()).resolves.toBeDefined();
+  });
+
+  it('caps every row ever made, withdrawn ones included (add + withdraw loops stay bounded)', async () => {
+    const first = await setText();
+    const withdrawnAt = new Date('2026-11-09T00:00:00Z');
+    for (let i = 1; i < MAX_CORRECTION_ROWS_PER_FILE; i++) {
+      uow.corrections.rows.set(`id-${i}`, { ...first, id: `id-${i}`, withdrawnAt });
+    }
+    await expect(setText()).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'TOO_MANY_CORRECTIONS' },
+    });
   });
 });
 

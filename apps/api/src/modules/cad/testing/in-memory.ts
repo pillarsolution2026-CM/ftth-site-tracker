@@ -440,6 +440,9 @@ export class InMemoryDrawingCorrections implements DrawingCorrectionRepository {
   async countActive(projectId: string, cadFileId: string): Promise<number> {
     return this.inFile(projectId, cadFileId).filter((row) => row.withdrawnAt === null).length;
   }
+  async countAll(projectId: string, cadFileId: string): Promise<number> {
+    return this.inFile(projectId, cadFileId).length;
+  }
   async listActiveFrozen(projectId: string, cadFileId: string): Promise<FrozenDrawingCorrection[]> {
     return this.ordered(this.inFile(projectId, cadFileId))
       .filter((row) => row.withdrawnAt === null)
