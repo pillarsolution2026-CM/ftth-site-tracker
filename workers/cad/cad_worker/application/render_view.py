@@ -2,9 +2,10 @@
 
 `view_status` queued -> ready, or failed with a code. The job runs only while it is the file's
 `view_job_id` and the view is `queued` (a superseded job writes nothing). The DXF (converted, else
-the original DXF) is rendered outside any transaction; the upload to
-`projects/<projectId>/cad/<cadFileId>/view.json.gz` and `ready` happen under the row lock, so a
-stale job can never overwrite a newer job's file.
+the original DXF) is rendered by the renderer (a child process with timeout and memory limit in
+production) and uploaded to its own key `projects/<p>/cad/<f>/view-<jobId>.json.gz` with no
+transaction open; then one short transaction locks the row, re-checks the job and sets `ready`.
+A job found stale at that point deletes its upload (best effort).
 """
 
 from __future__ import annotations
@@ -19,30 +20,25 @@ from typing import Literal
 from cad_worker.adapters.job_message import CadRenderViewJob
 from cad_worker.application.keys import drawing_view_key
 from cad_worker.application.ports import (
+    DeletableStorage,
     DrawingViewRepository,
-    ObjectStorage,
     ViewFailure,
     ViewRenderer,
     ViewResult,
 )
-from cad_worker.domain.drawing_view import write_view_gzip
 from cad_worker.domain.extents import Extents
 
 log = logging.getLogger(__name__)
 
 Outcome = Literal["ready", "failed", "superseded"]
 
-# Technical cap of the stored gzip file (the vertex / text caps keep real views far below it).
-MAX_VIEW_BYTES = 256 * 1024 * 1024
-
 
 @dataclass(frozen=True, slots=True)
 class ViewDeps:
     repo: DrawingViewRepository
-    storage: ObjectStorage
+    storage: DeletableStorage
     renderer: ViewRenderer
     tmp_root: Path | None = None
-    max_bytes: int = MAX_VIEW_BYTES
 
 
 def run_render(job: CadRenderViewJob, deps: ViewDeps, worker_id: str) -> Outcome:
@@ -82,6 +78,7 @@ def _render(
     started: float,
     worker_id: str,
 ) -> Outcome:
+    key = drawing_view_key(job.project_id, job.cad_file_id, job.id)
     with tempfile.TemporaryDirectory(prefix="view-", dir=deps.tmp_root) as tmp_name:
         tmp = Path(tmp_name)
         dxf = tmp / "drawing.dxf"
@@ -89,32 +86,29 @@ def _render(
             deps.storage.download(dxf_key, dxf)
         except FileNotFoundError as exc:
             raise ViewFailure("FILE_MISSING", f"object not found: {dxf_key}") from exc
-        rendered = deps.renderer.render(dxf, str(job.cad_file_id), extents)
-        dxf.unlink()
         out = tmp / "view.json.gz"
-        with out.open("wb") as fh:
-            write_view_gzip(rendered.view, fh)
-        size = out.stat().st_size
-        if size > deps.max_bytes:
-            raise ViewFailure("TOO_LARGE", f"view is {size} bytes (max {deps.max_bytes})")
-        view = rendered.view
-        stats: dict[str, object] = {
-            **rendered.stats.to_json(),
-            "vertices": view.vertex_count,
-            "texts": view.text_count,
-            "truncated": view.truncated,
-            "seconds": round(time.monotonic() - started, 1),
-            "workerId": worker_id,
-        }
-        key = drawing_view_key(job.project_id, job.cad_file_id)
-        with deps.repo.open_finish(job) as tx:
-            if tx is None:
-                log.info("view job %s superseded while rendering; dropped", job.id)
-                return "superseded"
-            try:
-                deps.storage.upload(out, key)
-            except Exception as exc:
-                raise ViewFailure("STORAGE_FAILED", f"{type(exc).__name__}: {exc}") from exc
-            tx.finish(ViewResult(storage_key=key, size_bytes=size, stats=stats))
+        output = deps.renderer.render_to(dxf, out, str(job.cad_file_id), extents)
+        try:
+            deps.storage.upload(out, key)
+        except Exception as exc:
+            raise ViewFailure("STORAGE_FAILED", f"{type(exc).__name__}: {exc}") from exc
+    stats: dict[str, object] = {
+        **output.stats,
+        "seconds": round(time.monotonic() - started, 1),
+        "workerId": worker_id,
+    }
+    result = ViewResult(storage_key=key, size_bytes=output.size_bytes, stats=stats)
+    # A database error propagates (the job is redelivered and rewrites the same per-job key).
+    if not deps.repo.finish(job, result):
+        log.info("view job %s superseded while rendering; dropped", job.id)
+        _discard(deps, key)
+        return "superseded"
     log.info("view job %s ready: %s", job.id, stats)
     return "ready"
+
+
+def _discard(deps: ViewDeps, key: str) -> None:
+    try:
+        deps.storage.delete(key)
+    except Exception:
+        log.warning("could not delete stale drawing view %s", key, exc_info=True)

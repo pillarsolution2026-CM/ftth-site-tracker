@@ -20,10 +20,14 @@ protocol:
 - `cad.render_view` (ADR-039): the drawing view («عارض الرسومات») of a processed file. Every
   model-space entity is flattened on its own with `ezdxf.disassemble` (blocks exploded, curves and
   bulges to vertices, hatch outlines, texts kept) and grouped under its top-level handle
-  (`adapters/ezdxf_view.py`, `domain/drawing_view.py`); gzip JSON (`DrawingView`) written to
-  `projects/<projectId>/cad/<cadFileId>/view.json.gz`, `cad_files.view_status` `ready` (or
-  `failed`: `FILE_NOT_PROCESSED`, `FILE_MISSING`, `READ_FAILED`, `TOO_LARGE`, `STORAGE_FAILED`,
-  `MAX_ATTEMPTS_EXCEEDED`, `INTERNAL`). Guarded by `view_job_id`; drawing units.
+  (`adapters/ezdxf_view.py`, `domain/drawing_view.py`); gzip JSON (`DrawingView`) written to the
+  per-job key `projects/<projectId>/cad/<cadFileId>/view-<jobId>.json.gz` before a short guarded
+  transaction sets `cad_files.view_status` `ready` (or `failed`: `FILE_NOT_PROCESSED`,
+  `FILE_MISSING`, `READ_FAILED`, `TOO_LARGE`, `TIMEOUT`, `STORAGE_FAILED`,
+  `MAX_ATTEMPTS_EXCEEDED`, `INTERNAL`). Guarded by `view_job_id`; drawing units. Bounded work:
+  caps (vertices, texts, decomposed parts, text length, 96 MiB uncompressed JSON) are applied while
+  decomposing, and the render runs in a child process (`adapters/view_process.py`) with
+  `VIEW_TIMEOUT_S` (300) and an address-space limit `VIEW_MAX_MEMORY_MB` (3072, Linux).
 
 Layout:
 

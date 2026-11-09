@@ -25,7 +25,6 @@ from cad_worker.domain.asbuilt_drawing import (
 )
 from cad_worker.domain.crs_detect import CrsDetection
 from cad_worker.domain.design_build import BackgroundSelection, DrawingData
-from cad_worker.domain.drawing_view import RenderedView
 from cad_worker.domain.extents import Extents
 from cad_worker.domain.model import (
     CadWarning,
@@ -78,6 +77,12 @@ class ObjectStorage(Protocol):
         ...
 
     def upload(self, src: Path, key: str) -> None: ...
+
+
+class DeletableStorage(ObjectStorage, Protocol):
+    def delete(self, key: str) -> None:
+        """Remove an object; a missing key is not an error."""
+        ...
 
 
 class DrawingSource(Protocol):
@@ -414,6 +419,7 @@ ViewFailureCode = Literal[
     "FILE_MISSING",
     "READ_FAILED",
     "TOO_LARGE",
+    "TIMEOUT",
     "STORAGE_FAILED",
     "MAX_ATTEMPTS_EXCEEDED",
     "INTERNAL",
@@ -456,17 +462,19 @@ class ViewResult:
     stats: dict[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class RenderOutput:
+    size_bytes: int  # the gzip file
+    json_bytes: int  # uncompressed
+    stats: dict[str, object]
+
+
 class ViewRenderer(Protocol):
-    def render(self, path: Path, cad_file_id: str, extents: Extents | None) -> RenderedView:
-        """Raises ViewFailure(READ_FAILED)."""
-        ...
-
-
-class ViewFinish(Protocol):
-    """One open transaction holding the lock on the file row while the view is current."""
-
-    def finish(self, result: ViewResult) -> None:
-        """Set `ready` with key, size and time; append `cad_file.view_rendered`; commit."""
+    def render_to(
+        self, dxf: Path, out: Path, cad_file_id: str, extents: Extents | None
+    ) -> RenderOutput:
+        """Write the gzip JSON view of `dxf` to `out`. Raises ViewFailure(READ_FAILED |
+        TOO_LARGE | TIMEOUT | INTERNAL)."""
         ...
 
 
@@ -476,8 +484,10 @@ class DrawingViewRepository(Protocol):
         (superseded or already finished)."""
         ...
 
-    def open_finish(self, job: CadRenderViewJob) -> AbstractContextManager[ViewFinish | None]:
-        """Lock the row while this job is still current; None when superseded."""
+    def finish(self, job: CadRenderViewJob, result: ViewResult) -> bool:
+        """In one short transaction (lock and statement timeouts): lock the row, re-check that
+        the job is current and `queued`, set `ready` with key, size and time, append
+        `cad_file.view_rendered`. False when superseded (nothing written)."""
         ...
 
     def fail(self, job: CadRenderViewJob, code: ViewFailureCode, message: str) -> bool:

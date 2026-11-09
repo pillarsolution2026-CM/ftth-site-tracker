@@ -16,8 +16,9 @@ from cad_worker.adapters.ezdxf_view import EzdxfViewRenderer
 from cad_worker.adapters.job_message import CadRenderViewJob
 from cad_worker.adapters.postgres_view_repo import PostgresViewRepository
 from cad_worker.adapters.storage import FsStorage
+from cad_worker.adapters.view_process import SubprocessViewRenderer
+from cad_worker.application.ports import RenderOutput
 from cad_worker.application.render_view import ViewDeps, run_render
-from cad_worker.domain.drawing_view import RenderedView
 from cad_worker.domain.extents import Extents
 from tests.conftest import QueuedFile
 from tests.support.dxf_samples import write_sample
@@ -90,6 +91,15 @@ def view_events(db: psycopg.Connection[Any], f: QueuedFile) -> list[tuple[str, d
     return [(r[0], r[1]) for r in rows]
 
 
+def view_key(f: QueuedFile, job_id: uuid.UUID) -> str:
+    return f"projects/{f.project_id}/cad/{f.cad_file_id}/view-{job_id}.json.gz"
+
+
+def views_in_storage(root: Path, f: QueuedFile) -> list[str]:
+    folder = root / f"projects/{f.project_id}/cad/{f.cad_file_id}"
+    return sorted(p.name for p in folder.glob("view*"))
+
+
 def deps_for(database_url: str, root: Path, **overrides: Any) -> ViewDeps:
     base: dict[str, Any] = {
         "repo": PostgresViewRepository(database_url),
@@ -110,7 +120,7 @@ def test_view_is_rendered_stored_and_ready(
     assert run_render(view_job(f, job_id), deps_for(database_url, storage_root), "w1") == "ready"
 
     row = view_row(db, f)
-    key = f"projects/{f.project_id}/cad/{f.cad_file_id}/view.json.gz"
+    key = view_key(f, job_id)  # one object per job (security review L2)
     stored = storage_root / key
     assert (row["status"], row["key"], row["error"]) == ("ready", key, None)
     assert row["size"] == stored.stat().st_size and row["rendered_at"] is not None
@@ -123,6 +133,27 @@ def test_view_is_rendered_stored_and_ready(
     payload = events[0][1]
     assert payload["jobId"] == str(job_id) and payload["sizeBytes"] == row["size"]
     assert payload["stats"]["entities"] > 0 and payload["stats"]["truncated"] is False
+    assert payload["stats"]["jsonBytes"] > row["size"]
+
+
+def test_a_new_render_gets_its_own_key(
+    database_url: str,
+    db: psycopg.Connection[Any],
+    make_cad_file: Any,
+    storage_root: Path,
+    tmp_path: Path,
+) -> None:
+    f, first = processed_file(db, make_cad_file, storage_root, tmp_path)
+    deps = deps_for(database_url, storage_root)
+    assert run_render(view_job(f, first), deps, "w1") == "ready"
+    second = uuid.uuid4()
+    db.execute(
+        "UPDATE cad_files SET view_status = 'queued', view_job_id = %s WHERE id = %s",
+        (second, f.cad_file_id),
+    )
+    assert run_render(view_job(f, second), deps, "w1") == "ready"
+    assert view_row(db, f)["key"] == view_key(f, second)
+    assert (storage_root / view_key(f, first)).is_file()  # the served file is never rewritten
 
 
 def test_converted_dxf_of_a_dwg_is_drawn(
@@ -151,7 +182,7 @@ def test_stale_job_is_dropped_without_writing(
     deps = deps_for(database_url, storage_root)
     assert run_render(view_job(f, uuid.uuid4()), deps, "w1") == "superseded"
     assert view_row(db, f)["status"] == "queued"
-    assert not (storage_root / f"projects/{f.project_id}/cad/{f.cad_file_id}/view.json.gz").exists()
+    assert views_in_storage(storage_root, f) == []
     assert view_events(db, f) == []
     # the current job, then a redelivery of it after `ready`: dropped too
     assert run_render(view_job(f, job_id), deps, "w1") == "ready"
@@ -167,17 +198,19 @@ class SupersedingRenderer:
         self._url = database_url
         self._file_id = file_id
 
-    def render(self, path: Path, cad_file_id: str, extents: Extents | None) -> RenderedView:
-        rendered = self._inner.render(path, cad_file_id, extents)
+    def render_to(
+        self, dxf: Path, out: Path, cad_file_id: str, extents: Extents | None
+    ) -> RenderOutput:
+        output = self._inner.render_to(dxf, out, cad_file_id, extents)
         with psycopg.connect(self._url, autocommit=True) as conn:
             conn.execute(
                 "UPDATE cad_files SET view_job_id = %s WHERE id = %s",
                 (uuid.uuid4(), self._file_id),
             )
-        return rendered
+        return output
 
 
-def test_job_superseded_while_rendering_writes_nothing(
+def test_job_superseded_while_rendering_deletes_its_upload(
     database_url: str,
     db: psycopg.Connection[Any],
     make_cad_file: Any,
@@ -190,7 +223,24 @@ def test_job_superseded_while_rendering_writes_nothing(
     )
     assert run_render(view_job(f, job_id), deps, "w1") == "superseded"
     assert view_row(db, f)["status"] == "queued"
-    assert not (storage_root / f"projects/{f.project_id}/cad/{f.cad_file_id}/view.json.gz").exists()
+    assert views_in_storage(storage_root, f) == []  # uploaded, then deleted (best effort)
+    assert view_events(db, f) == []
+
+
+def test_row_locked_by_another_transaction_times_out_instead_of_hanging(
+    database_url: str,
+    db: psycopg.Connection[Any],
+    make_cad_file: Any,
+    storage_root: Path,
+    tmp_path: Path,
+) -> None:
+    f, job_id = processed_file(db, make_cad_file, storage_root, tmp_path)
+    with psycopg.connect(database_url) as other:
+        other.execute("SELECT 1 FROM cad_files WHERE id = %s FOR UPDATE", (f.cad_file_id,))
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            run_render(view_job(f, job_id), deps_for(database_url, storage_root), "w1")
+        other.rollback()
+    assert view_row(db, f)["status"] == "queued"  # redelivered later (ADR-013)
 
 
 @pytest.mark.parametrize(
@@ -201,6 +251,7 @@ def test_job_superseded_while_rendering_writes_nothing(
         ("missing", "FILE_MISSING"),
         ("unreadable", "READ_FAILED"),
         ("too_large", "TOO_LARGE"),
+        ("timeout", "TIMEOUT"),
     ],
 )
 def test_failures_are_recorded_with_a_code(
@@ -218,6 +269,7 @@ def test_failures_are_recorded_with_a_code(
         "missing": {"write_object": False},
         "unreadable": {"data": b"\x00\x01 not a dxf"},
         "too_large": {},
+        "timeout": {},
     }
     kwargs = cases[case]
     f, job_id = processed_file(db, make_cad_file, storage_root, tmp_path, **kwargs)
@@ -225,13 +277,16 @@ def test_failures_are_recorded_with_a_code(
         "UPDATE cad_files SET view_storage_key = 'old', view_size_bytes = 1 WHERE id = %s",
         (f.cad_file_id,),
     )
-    deps = deps_for(
-        database_url, storage_root, **({"max_bytes": 10} if case == "too_large" else {})
-    )
+    renderers: dict[str, Any] = {
+        "too_large": EzdxfViewRenderer(max_json_bytes=10),
+        "timeout": SubprocessViewRenderer(timeout_s=0.01),
+    }
+    deps = deps_for(database_url, storage_root, renderer=renderers.get(case, EzdxfViewRenderer()))
     assert run_render(view_job(f, job_id), deps, "w1") == "failed"
     row = view_row(db, f)
     assert (row["status"], row["error"], row["key"], row["size"]) == ("failed", code, None, None)
     events = view_events(db, f)
     assert [(e[0], e[1]["errorCode"]) for e in events] == [("cad_file.view_failed", code)]
+    assert views_in_storage(storage_root, f) == []
     # a failed view is final for this job: a redelivery is dropped
     assert run_render(view_job(f, job_id, attempt=2), deps, "w1") == "superseded"

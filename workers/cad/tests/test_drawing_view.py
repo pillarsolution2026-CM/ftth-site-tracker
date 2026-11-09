@@ -7,22 +7,30 @@ import io
 import json
 import math
 import re
+import sys
+import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import pytest
 from ezdxf.filemanagement import new as new_dxf
 
-from cad_worker.adapters.ezdxf_view import EzdxfViewRenderer, _EntityRenderer
+from cad_worker.adapters.ezdxf_view import EzdxfViewRenderer, _EntityRenderer, valid_handle
+from cad_worker.adapters.view_process import SubprocessViewRenderer
 from cad_worker.application.ports import ViewFailure
 from cad_worker.domain.drawing_view import (
+    DRAWING_VIEW_MAX_TEXT_LENGTH,
     DrawingView,
     DrawingViewBuilder,
     EntityShapes,
     ViewEntity,
     ViewLayer,
+    ViewTooLargeError,
+    capped_counts,
     flat_path,
     shape_sagitta,
+    utf16_cut,
     view_sagitta,
     write_view_gzip,
 )
@@ -185,7 +193,10 @@ def test_vertex_cap_truncates_deterministically(drawing: tuple[Path, dict[str, s
     b = EzdxfViewRenderer(max_vertices=cap).render(path, FILE_ID, None)
     assert a.view == b.view and a.view.truncated is True
     assert 0 < a.view.vertex_count <= cap
-    assert a.view.text_count == full.text_count  # texts have their own cap
+    # The entity that overflowed stops (its later parts are not read); texts of later entities
+    # are still kept: they have their own cap.
+    texts = {t.text for e in a.view.entities for t in e.texts}
+    assert {"Hello", "Line1\nLine2"} <= texts
 
 
 def test_text_cap_truncates() -> None:
@@ -232,6 +243,9 @@ def test_sagitta_follows_extents_and_shape_size() -> None:
     assert shape_sagitta(0.05, 2) == pytest.approx(0.004)  # small symbol: its own size
     assert shape_sagitta(math.inf, math.inf) == 1.0
     assert shape_sagitta(0.05, 0) > 0
+    # a huge circle in a small drawing: at most ~2048 chords, not millions
+    huge = shape_sagitta(0.001, 2e12)
+    assert math.pi / math.acos(1 - huge / 1e12) <= 2049
 
 
 def test_flat_path_rounds_and_drops_degenerate_paths() -> None:
@@ -264,3 +278,144 @@ def test_gzip_json_mirrors_the_contract(drawing: tuple[Path, dict[str, str]]) ->
     assert text["texts"] == [
         {"x": 10.0, "y": 20.0, "height": 2.5, "rotation": 30.0, "text": "Hello"}
     ]
+
+
+# ---------- security review (M1, L1, Info) ----------
+
+
+def _bomb(path: Path, *, texts: bool = False, depth: int = 12, fan: int = 8) -> None:
+    """A nested-block bomb: block L(i) holds `fan` inserts of L(i-1); 8^12 ≈ 7e10 leaves."""
+    doc = new_dxf("R2018")
+    leaf = doc.blocks.new("L0")
+    if texts:
+        leaf.add_text("T", dxfattribs={"insert": (0, 0), "height": 1})
+    else:
+        leaf.add_line((0, 0), (1, 0))
+    for i in range(1, depth + 1):
+        block = doc.blocks.new(f"L{i}")
+        for j in range(fan):
+            block.add_blockref(f"L{i - 1}", (j * 2.0, 0))
+    msp = doc.modelspace()
+    msp.add_blockref(f"L{depth}", (0, 0))
+    msp.add_blockref(f"L{depth}", (0, 100))
+    doc.saveas(path)
+
+
+@pytest.mark.parametrize("texts", [False, True], ids=["lines", "texts"])
+def test_nested_block_bomb_stops_at_the_budget(tmp_path: Path, texts: bool) -> None:
+    path = tmp_path / "bomb.dxf"
+    _bomb(path, texts=texts)
+    started = time.monotonic()
+    rendered = EzdxfViewRenderer(max_vertices=2000, max_texts=500, max_parts=200_000).render(
+        path, FILE_ID, None
+    )
+    assert time.monotonic() - started < 10
+    view = rendered.view
+    assert view.truncated is True
+    assert view.vertex_count <= 2000 and view.text_count <= 500
+    assert [e.kind for e in view.entities] == ["INSERT"]  # the second bomb adds nothing
+
+
+def test_bomb_of_empty_parts_stops_at_the_parts_cap(tmp_path: Path) -> None:
+    doc = new_dxf("R2018")
+    doc.blocks.new("L0").add_point((0, 0))  # draws nothing
+    for i in range(1, 11):
+        block = doc.blocks.new(f"L{i}")
+        for j in range(8):
+            block.add_blockref(f"L{i - 1}", (j, 0))
+    doc.modelspace().add_blockref("L10", (0, 0))
+    doc.modelspace().add_line((0, 0), (1, 1))  # after the parts cap: not read
+    path = tmp_path / "empty-bomb.dxf"
+    doc.saveas(path)
+    started = time.monotonic()
+    rendered = EzdxfViewRenderer(max_parts=20_000).render(path, FILE_ID, None)
+    assert time.monotonic() - started < 10
+    assert rendered.view.truncated is True and rendered.view.entities == ()
+    assert rendered.stats.entities == 1
+
+
+def test_long_texts_are_cut_to_the_contract_length(tmp_path: Path) -> None:
+    doc = new_dxf("R2018")
+    long = "ب" * (DRAWING_VIEW_MAX_TEXT_LENGTH + 500)
+    doc.modelspace().add_text(long, dxfattribs={"insert": (0, 0), "height": 1})
+    path = tmp_path / "long.dxf"
+    doc.saveas(path)
+    text = EzdxfViewRenderer().render(path, FILE_ID, None).view.entities[0].texts[0].text
+    assert text == "ب" * DRAWING_VIEW_MAX_TEXT_LENGTH
+    emoji = "\U0001f600" * 3  # 6 UTF-16 units
+    assert utf16_cut(emoji, 5) == "\U0001f600" * 2  # never half a surrogate pair
+    assert utf16_cut("abc", 5) == "abc"
+
+
+def test_long_handles_are_skipped_and_layer_names_cut() -> None:
+    builder = DrawingViewBuilder(FILE_ID, [ViewLayer("L" * 300, "#ff0000", True)])
+    assert builder.layer_index("l" * 300) == 0  # still found by its full name
+    assert builder.build().layers[0].name == "L" * 255
+    assert valid_handle("1A2B") and not valid_handle("") and not valid_handle("F" * 65)
+
+
+def test_uncompressed_json_cap(drawing: tuple[Path, dict[str, str]], tmp_path: Path) -> None:
+    path, _ = drawing
+    view = EzdxfViewRenderer().render(path, FILE_ID, None).view
+    size = write_view_gzip(view, io.BytesIO())
+    assert size > 100
+    with pytest.raises(ViewTooLargeError):
+        write_view_gzip(view, io.BytesIO(), max_json_bytes=100)
+    out = tmp_path / "v.json.gz"
+    with pytest.raises(ViewFailure) as info:
+        EzdxfViewRenderer(max_json_bytes=100).render_to(path, out, FILE_ID, None)
+    assert info.value.code == "TOO_LARGE" and not out.exists()
+    output = EzdxfViewRenderer().render_to(path, out, FILE_ID, None)
+    assert output.json_bytes == size and output.size_bytes == out.stat().st_size
+
+
+def test_event_counters_are_capped() -> None:
+    counter = Counter({f"T{i:03d}": i + 1 for i in range(80)})
+    counter["X" * 100] = 1000
+    capped = capped_counts(counter, limit=50)
+    assert len(capped) == 51 and "X" * 32 in capped
+    assert sum(capped.values()) == sum(counter.values())
+    assert capped["other"] == sum(range(1, 32))  # the 31 smallest
+
+
+def test_subprocess_renderer_writes_the_view(
+    drawing: tuple[Path, dict[str, str]], tmp_path: Path
+) -> None:
+    path, h = drawing
+    out = tmp_path / "view.json.gz"
+    output = SubprocessViewRenderer(timeout_s=120).render_to(
+        path, out, FILE_ID, Extents(0, 0, 100, 100)
+    )
+    data = json.loads(gzip.decompress(out.read_bytes()))
+    assert {e["handle"] for e in data["entities"]} >= {h["insert"], h["text"]}
+    assert output.size_bytes == out.stat().st_size and output.stats["entities"] == len(h)
+
+
+def test_subprocess_renderer_times_out(
+    drawing: tuple[Path, dict[str, str]], tmp_path: Path
+) -> None:
+    path, _ = drawing
+    out = tmp_path / "view.json.gz"
+    with pytest.raises(ViewFailure) as info:
+        SubprocessViewRenderer(timeout_s=0.01).render_to(path, out, FILE_ID, None)
+    assert info.value.code == "TIMEOUT" and not out.exists()
+
+
+def test_subprocess_renderer_reports_read_failures(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.dxf"
+    bad.write_bytes(b"\x00\x01 not a dxf")
+    with pytest.raises(ViewFailure) as info:
+        SubprocessViewRenderer(timeout_s=120).render_to(bad, tmp_path / "v.gz", FILE_ID, None)
+    assert info.value.code == "READ_FAILED"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="RLIMIT_AS is Linux only")
+def test_subprocess_memory_limit_is_too_large(
+    drawing: tuple[Path, dict[str, str]], tmp_path: Path
+) -> None:
+    path, _ = drawing
+    with pytest.raises(ViewFailure) as info:
+        SubprocessViewRenderer(timeout_s=120, max_memory_mb=64).render_to(
+            path, tmp_path / "v.gz", FILE_ID, None
+        )
+    assert info.value.code == "TOO_LARGE"
