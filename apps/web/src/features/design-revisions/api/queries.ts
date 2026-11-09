@@ -14,6 +14,9 @@ import {
   withdrawCorrection,
   discardDesignRevision,
   getDesignRevision,
+  getDrawingView,
+  getDrawingViewState,
+  requestDrawingView,
   getPublishReadiness,
   listDesignFeatures,
   listDesignRevisions,
@@ -210,4 +213,41 @@ export function usePublishReadiness(projectId: string, id: string, enabled: bool
 export function useRefetchPublishReadiness(projectId: string, id: string) {
   const client = useQueryClient();
   return () => client.invalidateQueries({ queryKey: readinessKey(projectId, id) });
+}
+
+/** Poll interval of the drawing view status while it is being prepared. */
+export const VIEW_POLL_MS = 3000;
+
+export const drawingViewStateKey = (projectId: string, cadFileId: string) =>
+  ['drawing-view-state', projectId, cadFileId] as const;
+
+/** Status of the drawing view of a file; polled every 3 s while `queued` (ADR-039). */
+export function useDrawingViewState(projectId: string, cadFileId: string, enabled: boolean) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: drawingViewStateKey(projectId, cadFileId),
+    queryFn: () => getDrawingViewState(projectId, cadFileId),
+    refetchInterval: (query) => (query.state.data?.status === 'queued' ? VIEW_POLL_MS : false),
+  });
+}
+
+export function useRequestDrawingView(projectId: string, cadFileId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => requestDrawingView(projectId, cadFileId),
+    onSuccess: (state) => client.setQueryData(drawingViewStateKey(projectId, cadFileId), state),
+  });
+}
+
+/** The view file; fetched once it is ready and never refetched (it is immutable per file). */
+export function useDrawingView(projectId: string, cadFileId: string, enabled: boolean) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: ['drawing-view', projectId, cadFileId],
+    queryFn: () => getDrawingView(projectId, cadFileId),
+    staleTime: Infinity,
+    gcTime: 5 * 60_000,
+  });
 }

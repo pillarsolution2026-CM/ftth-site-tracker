@@ -143,6 +143,9 @@ test('mapping to a published design revision: unit, save, build, review, publish
   // Draft: counts, units warning, text review in "needs review", diff.
   await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Lengths use the unit chosen by the project manager/)).toBeVisible();
+  // Drawing viewer (ADR-039): the mock has no rendered view yet.
+  await expect(page.getByRole('heading', { name: 'Drawing viewer' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Prepare the view' })).toBeVisible();
   const counts = page.getByRole('region', { name: 'Network features' });
   await expect(counts).toContainText('361.5');
   await expect(page.getByLabel('Status', { exact: true })).toHaveValue('review');

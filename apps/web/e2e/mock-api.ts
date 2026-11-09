@@ -26,6 +26,7 @@ import {
   CadLayerListResponseSchema,
   CadTextPageSchema,
   Decimal4StringSchema,
+  DrawingViewStateSchema,
   Decimal6StringSchema,
   IMPORT_FIELDS,
   IMPORT_HEADER_SYNONYMS,
@@ -874,7 +875,7 @@ async function handleProject(
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
-  if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub]);
+  if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub, subId]);
   if (resource === 'design-revisions') {
     return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {
       const record = cadFiles.get(cadId);
@@ -1156,12 +1157,20 @@ function commitImport(
   send(res, 201, detailOut(workOrder));
 }
 
+const viewState = (cadFileId: string, status: 'none' | 'queued') => ({
+  cadFileId,
+  status,
+  errorCode: null,
+  sizeBytes: null,
+  renderedAt: null,
+});
+
 async function handleCad(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
   method: string,
-  [id, sub]: (string | undefined)[],
+  [id, sub, subId]: (string | undefined)[],
 ): Promise<void> {
   if (id === undefined) {
     if (method === 'GET') {
@@ -1203,6 +1212,12 @@ async function handleCad(
   if (sub === 'mapping') return handleMapping(req, res, method, mockCad(file), helpers);
   if (sub === 'corrections' && method === 'GET')
     return send(res, 200, { items: [], activeCount: 0 });
+  // Drawing viewer (ADR-039): the mock has no rendered view; the page offers «Prepare the view».
+  if (sub === 'view' && subId === 'status' && method === 'GET')
+    return send(res, 200, DrawingViewStateSchema.parse(viewState(file.id, 'none')));
+  if (sub === 'view' && subId === undefined && method === 'POST')
+    return send(res, 202, DrawingViewStateSchema.parse(viewState(file.id, 'queued')));
+  if (sub === 'view') return sendError(res, 404, 'NOT_FOUND');
   if (sub === 'log')
     return send(res, 200, CadFileLogResponseSchema.parse({ log: 'ezdxf: recovered 0 issues\n' }));
   if (sub === 'reprocess' && method === 'POST') {

@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { DrawingProblemList } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/test-utils/render';
@@ -152,5 +153,46 @@ describe('ProblemsSection', () => {
       />,
     );
     expect(await screen.findByText('No drawing errors found.')).toBeInTheDocument();
+  });
+
+  it('has a button beside every place that asks the viewer to show it', async () => {
+    api.listDrawingProblems.mockResolvedValue(list());
+    const onShow = vi.fn();
+    renderScreen(
+      <ProblemsSection
+        projectId={PROJECT}
+        revisionId={REVISION}
+        cadFileId={FILE}
+        enabled
+        canFix={false}
+        onShowOnDrawing={onShow}
+      />,
+    );
+    const buttons = await screen.findAllByRole('button', { name: 'Show the place on the drawing' });
+    expect(buttons).toHaveLength(3);
+    await userEvent.setup().click(buttons[1] as HTMLElement);
+    expect(onShow).toHaveBeenCalledWith({
+      code: 'ROUTE_SPLIT',
+      handle: 'B1',
+      x: 7113.2,
+      y: 4573.4,
+    });
+  });
+
+  it('has no such button without a viewer', async () => {
+    api.listDrawingProblems.mockResolvedValue(list());
+    renderScreen(
+      <ProblemsSection
+        projectId={PROJECT}
+        revisionId={REVISION}
+        cadFileId={FILE}
+        enabled
+        canFix={false}
+      />,
+    );
+    await screen.findByRole('table', { name: /On the wrong layer/ });
+    expect(
+      screen.queryByRole('button', { name: 'Show the place on the drawing' }),
+    ).not.toBeInTheDocument();
   });
 });

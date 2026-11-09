@@ -17,6 +17,7 @@ import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useDrawingProblems } from '../api/queries';
 import { useFixTools, type FixTools } from '../hooks/use-fix-tools';
+import type { ShowPlace } from '../hooks/use-drawing-viewer';
 import { FixTool } from './fix-tool';
 
 /** Places shown per problem before "show all" (a problem keeps at most 500). */
@@ -41,6 +42,7 @@ export function ProblemsSection({
   cadFileId,
   enabled,
   canFix,
+  onShowOnDrawing,
 }: {
   projectId: string;
   revisionId: string;
@@ -48,6 +50,8 @@ export function ProblemsSection({
   enabled: boolean;
   /** Draft revision and `design:write`: the fix tools are offered. */
   canFix: boolean;
+  /** Zoom the drawing viewer to a place and highlight it. */
+  onShowOnDrawing?: (place: Omit<ShowPlace, 'nonce'>) => void;
 }) {
   const { t } = useI18n();
   const query = useDrawingProblems(projectId, revisionId, enabled);
@@ -68,13 +72,23 @@ export function ProblemsSection({
         <Notice kind="success">{t('design.problems.none')}</Notice>
       ) : null}
       {problems.map((problem) => (
-        <ProblemBlock key={problem.code} problem={problem} tools={tools} />
+        <ProblemBlock key={problem.code} problem={problem} tools={tools} onShow={onShowOnDrawing} />
       ))}
     </section>
   );
 }
 
-function ProblemBlock({ problem, tools }: { problem: DrawingProblemView; tools: FixTools }) {
+type OnShow = ((place: Omit<ShowPlace, 'nonce'>) => void) | undefined;
+
+function ProblemBlock({
+  problem,
+  tools,
+  onShow,
+}: {
+  problem: DrawingProblemView;
+  tools: FixTools;
+  onShow: OnShow;
+}) {
   const { t } = useI18n();
   const [showAll, setShowAll] = useState(false);
   const places = showAll ? problem.items : problem.items.slice(0, FIRST_PLACES);
@@ -113,7 +127,13 @@ function ProblemBlock({ problem, tools }: { problem: DrawingProblemView; tools: 
         </thead>
         <tbody>
           {places.map((item) => (
-            <PlaceRow key={item.handle} code={problem.code} item={item} tools={tools} />
+            <PlaceRow
+              key={item.handle}
+              code={problem.code}
+              item={item}
+              tools={tools}
+              onShow={onShow}
+            />
           ))}
         </tbody>
       </Table>
@@ -137,10 +157,12 @@ function PlaceRow({
   code,
   item,
   tools,
+  onShow,
 }: {
   code: DrawingProblemCode;
   item: DrawingProblemItem;
   tools: FixTools;
+  onShow: OnShow;
 }) {
   const { t } = useI18n();
   const zoom = `ZOOM C ${round(item.drawingX)},${round(item.drawingY)}`;
@@ -165,6 +187,17 @@ function PlaceRow({
         <div className="text-sm opacity-80">
           {t('design.problems.handle')}: <Ltr>{item.handle}</Ltr>
         </div>
+        {onShow ? (
+          <Button
+            variant="outline"
+            className="mt-2"
+            onClick={() =>
+              onShow({ code, handle: item.handle, x: item.drawingX, y: item.drawingY })
+            }
+          >
+            {t('design.viewer.showOnDrawing')}
+          </Button>
+        ) : null}
         <FixTool code={code} place={item} tools={tools} />
       </Td>
       <Td>

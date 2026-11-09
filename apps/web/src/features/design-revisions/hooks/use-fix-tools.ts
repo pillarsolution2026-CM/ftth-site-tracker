@@ -92,9 +92,10 @@ export function useFixForm(
   code: DrawingProblemCode,
   place: DrawingProblemItem,
   tools: FixTools,
+  initiallyOpen = false,
 ): FixForm {
   const tool = toolOf(code);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const [text, setText] = useState(tool === 'add_text' ? '' : (place.text ?? ''));
   const [layer, setLayer] = useState('');
   const [mismatchMode, setMismatchMode] = useState<'edit' | 'item'>('edit');
