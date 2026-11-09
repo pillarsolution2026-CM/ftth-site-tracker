@@ -6,13 +6,19 @@ polylines (curves and bulges flattened, hatch boundaries as outlines, meshes as 
 texts, all under the top-level handle. The file is read like the import (`ezdxf.recover`, the same
 text decoder and style fonts), so texts read the same as in `cad_texts`.
 
+Bounded work (security review M1): the decomposition is consumed lazily and stops as soon as the
+entity exceeds the builder's remaining budget (vertices, texts, parts); the model-space loop stops
+once nothing more can be added; vertices are pulled from lazy flattening, never materialised past
+the budget. The whole render runs in a child process with a timeout and a memory limit
+(`adapters/view_process.py`).
+
 One bad entity (or one bad part of a block) never fails the drawing: it is counted and skipped.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -25,18 +31,24 @@ from ezdxf.tools.text import plain_mtext
 
 from cad_worker.adapters.ezdxf_curves import to_wcs
 from cad_worker.adapters.ezdxf_reader import _clean, _rgb, _text_anchor
-from cad_worker.application.ports import ViewFailure
+from cad_worker.application.ports import RenderOutput, ViewFailure
 from cad_worker.domain.drawing_view import (
+    DRAWING_VIEW_MAX_JSON_BYTES,
+    DRAWING_VIEW_MAX_PARTS,
     DRAWING_VIEW_MAX_TEXTS,
     DRAWING_VIEW_MAX_VERTICES,
+    HANDLE_MAX_LENGTH,
     DrawingViewBuilder,
     EntityShapes,
     RenderedView,
     RenderStats,
     ViewLayer,
+    ViewTooLargeError,
     hex_color,
     shape_sagitta,
+    utf16_length,
     view_sagitta,
+    write_view_gzip,
 )
 from cad_worker.domain.extents import Extents
 from cad_worker.domain.text_decoder import TextDecoder
@@ -89,8 +101,9 @@ def _layers(doc: Any) -> list[ViewLayer]:
     return out
 
 
-def _xy(points: Iterable[Any]) -> list[tuple[float, float]]:
-    return [(float(p[0]), float(p[1])) for p in points]
+def _xy(points: Iterable[Any]) -> Iterator[tuple[float, float]]:
+    """Lazy: the budget check in `EntityShapes.add_path` stops pulling vertices."""
+    return ((float(p[0]), float(p[1])) for p in points)
 
 
 def _size(points: Iterable[Any]) -> float:
@@ -98,6 +111,11 @@ def _size(points: Iterable[Any]) -> float:
     if not box.has_data:
         return 0.0
     return float(box.size.magnitude)
+
+
+def valid_handle(handle: str) -> bool:
+    """The contract's handle: 1..64 characters (UTF-16 units)."""
+    return len(handle) > 0 and utf16_length(handle) <= HANDLE_MAX_LENGTH
 
 
 class _EntityRenderer:
@@ -114,6 +132,9 @@ class _EntityRenderer:
         return _clean(decoded.text) if decoded.text is not None else raw
 
     def text(self, e: Any, kind: str, shapes: EntityShapes) -> None:
+        if shapes.texts_closed or shapes.texts_overflow:
+            shapes.texts_overflow = True  # no text can be kept: stop this entity
+            return
         if kind == "MTEXT":
             raw = _clean(str(plain_mtext(_clean(str(e.text)), split=False)))
             x, y, _ = Vec3(e.dxf.insert)
@@ -142,6 +163,8 @@ class _EntityRenderer:
 
     def _path(self, path: Any, shapes: EntityShapes) -> None:
         for sub in path.sub_paths():
+            if shapes.full:
+                return
             if sub.has_curves:
                 sagitta = shape_sagitta(self._sagitta, _size(sub.control_vertices()))
                 shapes.add_path(_xy(sub.flattening(sagitta)))
@@ -150,7 +173,10 @@ class _EntityRenderer:
 
     def _curve(self, e: Any, kind: str, shapes: EntityShapes) -> None:
         if kind in ("ARC", "CIRCLE"):
-            size = 2.0 * abs(float(e.dxf.radius))
+            radius = abs(float(e.dxf.radius))
+            if not math.isfinite(radius):
+                raise ValueError("non-finite radius")  # counted as a part error
+            size = 2.0 * radius
         elif kind == "ELLIPSE":
             size = 2.0 * Vec3(e.dxf.major_axis).magnitude
         else:
@@ -162,6 +188,8 @@ class _EntityRenderer:
         kind = e.dxftype()
         if kind in _TEXTS or kind == "MTEXT":
             self.text(e, kind, shapes)
+        elif shapes.paths_closed:
+            shapes.paths_overflow = True  # the vertex cap is reached: stop this entity
         elif kind == "LINE":
             shapes.add_path(_xy((e.dxf.start, e.dxf.end)))
         elif kind in _CURVES:
@@ -176,7 +204,9 @@ class _EntityRenderer:
                 self._path(primitive.path, shapes)
             elif primitive.mesh is not None:
                 for face in primitive.mesh.faces_as_vertices():
-                    points = _xy(face)
+                    if shapes.full:
+                        break
+                    points = [(float(p[0]), float(p[1])) for p in face]
                     shapes.add_path([*points, points[0]] if points else points)
             else:
                 return False
@@ -184,16 +214,22 @@ class _EntityRenderer:
 
 
 class EzdxfViewRenderer:
+    """In-process renderer (tests, and the child process of `SubprocessViewRenderer`)."""
+
     def __init__(
         self,
         decoder: TextDecoder | None = None,
         *,
         max_vertices: int = DRAWING_VIEW_MAX_VERTICES,
         max_texts: int = DRAWING_VIEW_MAX_TEXTS,
+        max_parts: int = DRAWING_VIEW_MAX_PARTS,
+        max_json_bytes: int = DRAWING_VIEW_MAX_JSON_BYTES,
     ) -> None:
         self._decoder = decoder or TextDecoder()
         self._max_vertices = max_vertices
         self._max_texts = max_texts
+        self._max_parts = max_parts
+        self._max_json_bytes = max_json_bytes
 
     def render(self, path: Path, cad_file_id: str, extents: Extents | None) -> RenderedView:
         """Raises ViewFailure(READ_FAILED) when the file cannot be read. `extents` (from the
@@ -205,13 +241,40 @@ class EzdxfViewRenderer:
         fonts = {s.dxf.name.lower(): str(s.dxf.get("font", "")) or None for s in doc.styles}
         renderer = _EntityRenderer(self._decoder, fonts, view_sagitta(extents))
         builder = DrawingViewBuilder(
-            cad_file_id, _layers(doc), max_vertices=self._max_vertices, max_texts=self._max_texts
+            cad_file_id,
+            _layers(doc),
+            max_vertices=self._max_vertices,
+            max_texts=self._max_texts,
+            max_parts=self._max_parts,
         )
         stats = RenderStats()
         for entity in doc.modelspace():
+            if builder.full:
+                break  # both caps (or the parts cap) reached: the rest cannot be added
             stats.entities += 1
             self._entity(entity, renderer, builder, stats)
         return RenderedView(builder.build(), stats)
+
+    def render_to(
+        self, dxf: Path, out: Path, cad_file_id: str, extents: Extents | None
+    ) -> RenderOutput:
+        """Render and write the gzip JSON to `out`. Raises ViewFailure(READ_FAILED | TOO_LARGE)."""
+        rendered = self.render(dxf, cad_file_id, extents)
+        view = rendered.view
+        try:
+            with out.open("wb") as fh:
+                json_bytes = write_view_gzip(view, fh, self._max_json_bytes)
+        except ViewTooLargeError as exc:
+            out.unlink(missing_ok=True)
+            raise ViewFailure("TOO_LARGE", str(exc)) from exc
+        stats: dict[str, object] = {
+            **rendered.stats.to_json(),
+            "vertices": view.vertex_count,
+            "texts": view.text_count,
+            "truncated": view.truncated,
+            "jsonBytes": json_bytes,
+        }
+        return RenderOutput(size_bytes=out.stat().st_size, json_bytes=json_bytes, stats=stats)
 
     def _entity(
         self,
@@ -224,13 +287,18 @@ class EzdxfViewRenderer:
         if kind in PROXY_TYPES:
             stats.skip("proxy", kind)
             return
-        shapes = EntityShapes()
+        shapes = builder.shapes()
         supported = unsupported = 0
         try:
             handle = str(entity.dxf.get("handle", "") or "")
+            if not valid_handle(handle):
+                stats.skip("handle", kind)  # the viewer could not pick it: never sent
+                return
             layer = _clean(str(entity.dxf.get("layer", "0")))
             color = entity_color(entity)
             for part in recursive_decompose([entity]):
+                if not builder.take_part():
+                    break  # parts cap: `truncated`
                 try:
                     if renderer.part(part, shapes):
                         supported += 1
@@ -239,13 +307,18 @@ class EzdxfViewRenderer:
                         stats.unsupported_parts[str(part.dxftype())] += 1
                 except Exception:  # one bad part of a block must not lose the rest
                     stats.part_errors += 1
+                if shapes.full:
+                    break  # over this entity's budget: stop decomposing (never read further)
         except Exception:  # broken entity or block: keep what was collected
             if not shapes.paths and not shapes.texts:
                 stats.skip("error", kind)
                 return
             stats.part_errors += 1
         if not shapes.paths and not shapes.texts:
-            if unsupported and not supported:
+            if shapes.full:
+                builder.add(handle, layer, color, kind, shapes)  # records the overflow
+                stats.dropped += 1
+            elif unsupported and not supported:
                 stats.skip("unsupported", kind)
             else:
                 stats.empty += 1  # e.g. a POINT, an empty block, a blank text

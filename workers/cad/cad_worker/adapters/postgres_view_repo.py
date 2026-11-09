@@ -1,14 +1,14 @@
 """DrawingViewRepository on PostgreSQL (ADR-039, `cad_files.view_*`, migration 0016).
 
 Every read and write is guarded by `cad_files.view_job_id` and `view_status = 'queued'`
-(ADR-013): a job that is no longer the file's view job writes nothing. `project_id` is part of
+(ADR-013): a job that is no longer the file's view job writes nothing. The view object is
+uploaded BEFORE `finish`, which only locks, re-checks and sets `ready` in one short transaction
+(`lock_timeout` 5 s, `statement_timeout` 15 s; security review L2/L3). `project_id` is part of
 every query. Events (`cad_file.view_rendered` / `cad_file.view_failed`) have no actor.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any
 
 import psycopg
@@ -34,6 +34,8 @@ UPDATE cad_files SET view_status = 'ready', view_storage_key = %s, view_size_byt
   view_rendered_at = now(), view_error_code = NULL
 WHERE id = %s AND project_id = %s AND view_job_id = %s AND view_status = 'queued'
 """
+LOCK_TIMEOUT_SQL = "SET LOCAL lock_timeout = '5s'"
+STATEMENT_TIMEOUT_SQL = "SET LOCAL statement_timeout = '15s'"
 FAIL_SQL = """
 UPDATE cad_files SET view_status = 'failed', view_error_code = %s, view_storage_key = NULL,
   view_size_bytes = NULL, view_rendered_at = NULL
@@ -84,28 +86,38 @@ class PostgresViewRepository:
             extents=_extents(tuple(row[4:8])),
         )
 
-    @contextmanager
-    def open_finish(self, job: CadRenderViewJob) -> Iterator[PostgresViewFinish | None]:
-        conn = self._connect()
-        try:
+    def finish(self, job: CadRenderViewJob, result: ViewResult) -> bool:
+        with self._connect() as conn:  # one short transaction, committed on exit
+            conn.execute(LOCK_TIMEOUT_SQL)
+            conn.execute(STATEMENT_TIMEOUT_SQL)
             locked = conn.execute(LOCK_SQL, (job.cad_file_id, job.project_id, job.id)).fetchone()
             if locked is None:
                 conn.rollback()
-                yield None
-                return
-            session = PostgresViewFinish(conn, job)
-            yield session
-            if not session.committed:
-                conn.rollback()
-        except BaseException:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+                return False
+            cur = conn.execute(
+                READY_SQL,
+                (result.storage_key, result.size_bytes, job.cad_file_id, job.project_id, job.id),
+            )
+            if cur.rowcount != 1:
+                raise RuntimeError("cad_files view row changed under the lock")
+            _event(
+                conn,
+                job,
+                "cad_file.view_rendered",
+                {
+                    "jobId": str(job.id),
+                    "attempt": job.attempt,
+                    "storageKey": result.storage_key,
+                    "sizeBytes": result.size_bytes,
+                    "stats": result.stats,
+                },
+            )
+        return True
 
     def fail(self, job: CadRenderViewJob, code: ViewFailureCode, message: str) -> bool:
         text = _pg_text(message)[:ERROR_MESSAGE_LIMIT]
         with self._connect() as conn:
+            conn.execute(LOCK_TIMEOUT_SQL)
             cur = conn.execute(FAIL_SQL, (code, job.cad_file_id, job.project_id, job.id))
             if cur.rowcount != 1:
                 return False
@@ -121,33 +133,3 @@ class PostgresViewRepository:
                 },
             )
         return True
-
-
-class PostgresViewFinish:
-    def __init__(self, conn: psycopg.Connection[Any], job: CadRenderViewJob) -> None:
-        self._conn = conn
-        self._job = job
-        self.committed = False
-
-    def finish(self, result: ViewResult) -> None:
-        job = self._job
-        cur = self._conn.execute(
-            READY_SQL,
-            (result.storage_key, result.size_bytes, job.cad_file_id, job.project_id, job.id),
-        )
-        if cur.rowcount != 1:
-            raise RuntimeError("cad_files view row changed during the render")
-        _event(
-            self._conn,
-            job,
-            "cad_file.view_rendered",
-            {
-                "jobId": str(job.id),
-                "attempt": job.attempt,
-                "storageKey": result.storage_key,
-                "sizeBytes": result.size_bytes,
-                "stats": result.stats,
-            },
-        )
-        self._conn.commit()
-        self.committed = True

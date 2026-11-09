@@ -24,3 +24,6 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     converter_timeout_s: int = 300
     converter_max_old_space_mb: int = 2048
+    # Drawing view render (ADR-039): child process wall clock and address-space limit (Linux).
+    view_timeout_s: int = 300
+    view_max_memory_mb: int = 3072

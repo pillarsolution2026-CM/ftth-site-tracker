@@ -3,9 +3,14 @@
 Mirror of `packages/shared/src/cad/drawing-view.schemas.ts` (`DrawingView`). The ezdxf adapter
 (`adapters/ezdxf_view.py`) flattens every model-space entity and hands its shapes to a
 `DrawingViewBuilder`, which groups them under the top-level handle, keeps the extents and applies
-the technical caps deterministically (model-space order; once a shape does not fit, no further
-shape of that kind is added and `truncated` is set).
+the technical caps deterministically (model-space order).
 
+Caps are enforced WHILE an entity is decomposed (security review M1): each entity collects into
+`EntityShapes` that only accept the builder's remaining vertices / texts / parts, so a crafted
+drawing (nested-block bomb, a huge arc) never materialises more than the caps allow. Once a shape
+does not fit, the entity stops, `truncated` is set and no further shape of that kind is added.
+
+Strings are cut to the contract's limits in UTF-16 code units (what Zod's `.max()` counts).
 Coordinates stay in DRAWING units (like problem places' `drawingX/Y`) and are rounded to
 `COORD_DECIMALS` decimals; the stored file is compact gzip JSON.
 """
@@ -13,6 +18,7 @@ Coordinates stay in DRAWING units (like problem places' `drawingX/Y`) and are ro
 from __future__ import annotations
 
 import gzip
+import heapq
 import json
 import math
 from collections import Counter
@@ -26,16 +32,47 @@ DRAWING_VIEW_VERSION = 1
 # Technical caps of the view file (contract constants), not business rules.
 DRAWING_VIEW_MAX_VERTICES = 3_000_000
 DRAWING_VIEW_MAX_TEXTS = 200_000
+DRAWING_VIEW_MAX_TEXT_LENGTH = 2000
+DRAWING_VIEW_MAX_JSON_BYTES = 96 * 1024 * 1024
+HANDLE_MAX_LENGTH = 64
+LAYER_NAME_MAX_LENGTH = 255
+KIND_MAX_LENGTH = 32
+# Worker-only cap: decomposed parts (block contents) read per drawing, drawn or not, so a block
+# bomb of empty parts ends too.
+DRAWING_VIEW_MAX_PARTS = 1_000_000
+# Keys kept per counter in the job event (the rest is summed under "other").
+STATS_MAX_KEYS = 50
 
 COORD_DECIMALS = 4
-KIND_MAX_LENGTH = 32
 # Curves are flattened with a sagitta of at most this fraction of the drawing diagonal …
 EXTENTS_SAGITTA_RATIO = 1e-5
-# … and at most this fraction of the shape's own size, so a small symbol stays round when zoomed.
+# … and at most this fraction of the shape's own size, so a small symbol stays round when zoomed …
 SHAPE_SAGITTA_RATIO = 0.002
+# … but never so small that one full turn needs more than this many chords.
+MAX_SEGMENTS_PER_TURN = 2048
 MIN_SAGITTA = 1e-9
 
 Xy = tuple[float, float]
+
+
+class ViewTooLargeError(Exception):
+    """The uncompressed JSON would exceed `DRAWING_VIEW_MAX_JSON_BYTES`."""
+
+
+def utf16_cut(text: str, limit: int) -> str:
+    """`text` cut to at most `limit` UTF-16 code units, never inside a surrogate pair."""
+    if len(text) * 2 <= limit:
+        return text  # fast path: even all-astral text fits
+    units = 0
+    for i, ch in enumerate(text):
+        units += 2 if ord(ch) > 0xFFFF else 1
+        if units > limit:
+            return text[:i]
+    return text
+
+
+def utf16_length(text: str) -> int:
+    return len(text) + sum(1 for ch in text if ord(ch) > 0xFFFF)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,13 +133,20 @@ def view_sagitta(extents: Extents | None) -> float:
     return diagonal * EXTENTS_SAGITTA_RATIO
 
 
+_TURN_FLOOR = 1.0 - math.cos(math.pi / MAX_SEGMENTS_PER_TURN)
+
+
 def shape_sagitta(drawing_sagitta: float, shape_size: float) -> float:
-    """Sagitta for one curve of size `shape_size` (bounding-box diagonal or diameter)."""
-    own = shape_size * SHAPE_SAGITTA_RATIO if math.isfinite(shape_size) else math.inf
+    """Sagitta for one curve of size `shape_size` (bounding-box diagonal or diameter). Never
+    below what `MAX_SEGMENTS_PER_TURN` chords per turn need, so a huge arc in a small drawing
+    cannot ask for millions of vertices."""
+    finite_size = math.isfinite(shape_size) and shape_size > 0
+    own = shape_size * SHAPE_SAGITTA_RATIO if finite_size else math.inf
     value = min(drawing_sagitta, own)
     if not math.isfinite(value):
         return 1.0  # unknown drawing size and a degenerate shape: any value draws it
-    return max(value, MIN_SAGITTA)
+    floor = shape_size / 2.0 * _TURN_FLOOR if finite_size else 0.0
+    return max(value, floor, MIN_SAGITTA)
 
 
 def _round(value: float) -> float:
@@ -110,12 +154,24 @@ def _round(value: float) -> float:
     return rounded + 0.0  # -0.0 -> 0.0
 
 
-def flat_path(points: Iterable[Sequence[float]]) -> tuple[float, ...] | None:
+class BudgetExceededError(Exception):
+    """Internal: a path has more points than the remaining vertex budget."""
+
+
+def flat_path(
+    points: Iterable[Sequence[float]], limit: int | None = None
+) -> tuple[float, ...] | None:
     """[(x, y, …), …] -> (x0, y0, x1, y1, …) rounded; consecutive duplicates (after rounding)
-    removed. None when fewer than two distinct points remain or a coordinate is not finite."""
+    removed. None when fewer than two distinct points remain or a coordinate is not finite.
+    Raises BudgetExceededError as soon as more than `limit` points were read (lazy input is
+    never read further)."""
     out: list[float] = []
     last: Xy | None = None
+    read = 0
     for p in points:
+        read += 1
+        if limit is not None and read > limit:
+            raise BudgetExceededError
         x, y = float(p[0]), float(p[1])
         if not (math.isfinite(x) and math.isfinite(y)):
             return None
@@ -129,21 +185,50 @@ def flat_path(points: Iterable[Sequence[float]]) -> tuple[float, ...] | None:
 
 @dataclass(slots=True)
 class EntityShapes:
-    """What one top-level entity draws, collected before it is added to the view."""
+    """What one top-level entity draws, collected before it is added to the view, within the
+    budgets left by the builder (`*_closed`: that kind is already full). A shape that does not
+    fit sets `*_overflow` and `full` tells the decomposition to stop, so after a cap is reached
+    every later entity stops at its first shape of that kind (an INSERT keeps its attributes,
+    which come first) and a block bomb costs a few parts per entity."""
 
+    vertex_budget: int = DRAWING_VIEW_MAX_VERTICES
+    text_budget: int = DRAWING_VIEW_MAX_TEXTS
     paths: list[tuple[float, ...]] = field(default_factory=list)
     texts: list[ViewText] = field(default_factory=list)
+    vertices: int = 0
+    paths_closed: bool = False
+    texts_closed: bool = False
+    paths_overflow: bool = False
+    texts_overflow: bool = False
+
+    @property
+    def full(self) -> bool:
+        return self.paths_overflow or self.texts_overflow
 
     def add_path(self, points: Iterable[Sequence[float]]) -> bool:
-        path = flat_path(points)
+        if self.paths_overflow or self.paths_closed:
+            self.paths_overflow = True
+            return False
+        try:
+            path = flat_path(points, self.vertex_budget - self.vertices)
+        except BudgetExceededError:
+            self.paths_overflow = True
+            return False
         if path is None:
             return False
         self.paths.append(path)
+        self.vertices += len(path) // 2
         return True
 
     def add_text(self, x: float, y: float, height: float, rotation: float, text: str) -> bool:
+        if self.texts_overflow or self.texts_closed:
+            self.texts_overflow = True
+            return False
         values = (float(x), float(y), float(height), float(rotation))
         if not text.strip() or not all(math.isfinite(v) for v in values):
+            return False
+        if len(self.texts) >= self.text_budget:
+            self.texts_overflow = True
             return False
         self.texts.append(
             ViewText(
@@ -151,7 +236,7 @@ class EntityShapes:
                 y=_round(values[1]),
                 height=_round(values[2]),
                 rotation=_round(values[3] % 360.0),
-                text=text,
+                text=utf16_cut(text, DRAWING_VIEW_MAX_TEXT_LENGTH),
             )
         )
         return True
@@ -165,6 +250,7 @@ class DrawingViewBuilder:
         *,
         max_vertices: int = DRAWING_VIEW_MAX_VERTICES,
         max_texts: int = DRAWING_VIEW_MAX_TEXTS,
+        max_parts: int = DRAWING_VIEW_MAX_PARTS,
     ) -> None:
         self._cad_file_id = cad_file_id
         self._layers: list[ViewLayer] = []
@@ -174,25 +260,55 @@ class DrawingViewBuilder:
         self._entities: list[ViewEntity] = []
         self._max_vertices = max_vertices
         self._max_texts = max_texts
+        self._max_parts = max_parts
         self._vertices = 0
         self._texts = 0
+        self._parts = 0
         self._paths_full = False
         self._texts_full = False
+        self._parts_full = False
         self._min_x = self._min_y = math.inf
         self._max_x = self._max_y = -math.inf
 
     @property
     def truncated(self) -> bool:
-        return self._paths_full or self._texts_full
+        return self._paths_full or self._texts_full or self._parts_full
+
+    @property
+    def full(self) -> bool:
+        """Nothing more can be added: stop reading the drawing."""
+        return (self._paths_full and self._texts_full) or self._parts_full
+
+    def shapes(self) -> EntityShapes:
+        """An empty collector holding this builder's remaining budgets."""
+        return EntityShapes(
+            vertex_budget=0 if self._paths_full else self._max_vertices - self._vertices,
+            text_budget=0 if self._texts_full else self._max_texts - self._texts,
+            paths_closed=self._paths_full,
+            texts_closed=self._texts_full,
+        )
+
+    def take_part(self) -> bool:
+        """Count one decomposed part; False (and `truncated`) once the parts cap is reached."""
+        if self._parts >= self._max_parts:
+            self._parts_full = True
+            return False
+        self._parts += 1
+        return True
 
     def layer_index(self, name: str, default: ViewLayer | None = None) -> int:
         """Index of a layer (DXF layer names are case-insensitive). A name missing from the
-        layer table is appended as a visible black layer."""
+        layer table is appended as a visible black layer. Names are cut to the contract's
+        length; the index stays keyed by the full name."""
         key = name.casefold()
         found = self._index.get(key)
         if found is not None:
             return found
-        self._layers.append(default or ViewLayer(name=name, color="#000000", visible=True))
+        layer = default or ViewLayer(name=name, color="#000000", visible=True)
+        cut = utf16_cut(layer.name, LAYER_NAME_MAX_LENGTH)
+        if cut != layer.name:
+            layer = ViewLayer(name=cut, color=layer.color, visible=layer.visible)
+        self._layers.append(layer)
         self._index[key] = len(self._layers) - 1
         return self._index[key]
 
@@ -205,13 +321,16 @@ class DrawingViewBuilder:
     def add(
         self, handle: str, layer: str, color: str | None, kind: str, shapes: EntityShapes
     ) -> bool:
-        """Add an entity's shapes within the caps. False when nothing of it was kept."""
+        """Add an entity's shapes (collected within `shapes()` budgets). False when nothing of
+        it was kept."""
+        if shapes.paths_overflow:
+            self._paths_full = True
+        if shapes.texts_overflow:
+            self._texts_full = True
         paths: list[tuple[float, ...]] = []
         for path in shapes.paths:
-            if self._paths_full:
-                break
             count = len(path) // 2
-            if self._vertices + count > self._max_vertices:
+            if self._vertices + count > self._max_vertices:  # a collector not from shapes()
                 self._paths_full = True
                 break
             self._vertices += count
@@ -220,8 +339,6 @@ class DrawingViewBuilder:
                 self._grow(path[i], path[i + 1])
         texts: list[ViewText] = []
         for text in shapes.texts:
-            if self._texts_full:
-                break
             if self._texts + 1 > self._max_texts:
                 self._texts_full = True
                 break
@@ -256,13 +373,23 @@ class DrawingViewBuilder:
         )
 
 
+def capped_counts(counter: Counter[str], limit: int = STATS_MAX_KEYS) -> dict[str, int]:
+    """The `limit` largest counts (ties by name), the rest summed under "other"; keys cut."""
+    items = heapq.nsmallest(limit, counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    out = {k[:KIND_MAX_LENGTH]: v for k, v in sorted(items)}
+    rest = sum(counter.values()) - sum(v for _, v in items)
+    if rest:
+        out["other"] = out.get("other", 0) + rest
+    return out
+
+
 @dataclass(slots=True)
 class RenderStats:
     entities: int = 0
     rendered: int = 0
     empty: int = 0  # drawn nothing (e.g. a POINT, an empty block)
     dropped: int = 0  # left out by the caps
-    skipped: Counter[str] = field(default_factory=Counter)  # proxy / unsupported / error
+    skipped: Counter[str] = field(default_factory=Counter)  # proxy / unsupported / error / handle
     skipped_types: Counter[str] = field(default_factory=Counter)
     part_errors: int = 0
     unsupported_parts: Counter[str] = field(default_factory=Counter)
@@ -277,10 +404,10 @@ class RenderStats:
             "rendered": self.rendered,
             "empty": self.empty,
             "dropped": self.dropped,
-            "skipped": dict(sorted(self.skipped.items())),
-            "skippedTypes": dict(sorted(self.skipped_types.items())),
+            "skipped": capped_counts(self.skipped),
+            "skippedTypes": capped_counts(self.skipped_types),
             "partErrors": self.part_errors,
-            "unsupportedParts": dict(sorted(self.unsupported_parts.items())),
+            "unsupportedParts": capped_counts(self.unsupported_parts),
         }
 
 
@@ -332,8 +459,17 @@ def view_json_chunks(view: DrawingView) -> Iterable[str]:
     yield "]}"
 
 
-def write_view_gzip(view: DrawingView, out: BinaryIO) -> None:
-    """Deterministic gzip (no mtime, no file name) of the view JSON (UTF-8)."""
+def write_view_gzip(
+    view: DrawingView, out: BinaryIO, max_json_bytes: int = DRAWING_VIEW_MAX_JSON_BYTES
+) -> int:
+    """Deterministic gzip (no mtime, no file name) of the view JSON (UTF-8). Returns the
+    uncompressed size; raises ViewTooLargeError as soon as it would exceed `max_json_bytes`."""
+    written = 0
     with gzip.GzipFile(filename="", mode="wb", fileobj=out, mtime=0, compresslevel=6) as gz:
         for chunk in view_json_chunks(view):
-            gz.write(chunk.encode("utf-8"))
+            data = chunk.encode("utf-8")
+            written += len(data)
+            if written > max_json_bytes:
+                raise ViewTooLargeError(f"view JSON exceeds {max_json_bytes} bytes")
+            gz.write(data)
+    return written
