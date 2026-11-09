@@ -63,12 +63,15 @@ function mappingView(metresPerUnit = '1') {
       { name: 'CABINET SITE SUB CABINET' },
       { name: 'JOINT' },
       { name: 'Notes' },
+      { name: 'BG' },
     ],
     mapping: {
       metresPerUnit,
       version: 3,
       rules: [
         { source: 'layer', layer: 'JOINT', target: 'joint' },
+        { source: 'layer', layer: 'CABINET SITE SUB CABINET', target: 'cabinet', role: 'sub' },
+        { source: 'layer', layer: 'BG', target: 'background' },
         { source: 'layer', layer: 'Notes', target: 'label' },
         { source: 'layer', layer: 'Cab', target: 'cabinet', role: 'main' },
         { source: 'block', block: 'HHI', target: 'hhi' },
@@ -122,6 +125,14 @@ describe('fix tools', () => {
       correction: { kind: 'move_layer', handle: 'A1', toLayer: 'CABINET SITE SUB CABINET' },
       problem: { code: 'WRONG_LAYER', handle: 'A1' },
     });
+  });
+
+  it('WRONG_LAYER: offers only layers with a rule (owner 2026-11-09)', async () => {
+    await show('WRONG_LAYER', [{ suggestedLayer: 'NO RULE LAYER' }]);
+    expect(screen.queryByRole('button', { name: /suggested layer/ })).not.toBeInTheDocument();
+    await screen.findByLabelText('Or another layer');
+    expect(screen.queryByRole('option', { name: 'BG' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'JOINT' })).toBeInTheDocument();
   });
 
   it('WRONG_LAYER: moves to a layer picked from the file layers, not the current one', async () => {

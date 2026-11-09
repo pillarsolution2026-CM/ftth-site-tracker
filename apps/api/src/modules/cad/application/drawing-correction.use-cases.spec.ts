@@ -27,7 +27,12 @@ let clock: FakeClock;
 let ids: IdGenerator;
 
 const MAPPING: CadMappingInput = {
-  rules: [{ source: 'layer', layer: 'N_DUC_CBL', target: 'route' }],
+  rules: [
+    { source: 'layer', layer: 'N_DUC_CBL', target: 'route' },
+    { source: 'layer', layer: 'N_MH', target: 'mh' },
+    { source: 'layer', layer: 'L', target: 'label' },
+    { source: 'layer', layer: 'BG', target: 'background' },
+  ],
   crsEpsg: 32636,
   drawingUnit: 'in',
   version: null,
@@ -122,6 +127,24 @@ const rebuild = (revisionId: string, mappingVersion = 1) =>
   });
 
 describe('adding a correction', () => {
+  // Moves need a saved rule on the target layer (owner 2026-11-09).
+  beforeEach(async () => {
+    await save();
+  });
+
+  it('refuses a move to a layer without a rule, or with a background / ignore rule', async () => {
+    for (const toLayer of ['NO_RULE', 'BG']) {
+      await expect(
+        add({ correction: { kind: 'move_layer', handle: 'A2', toLayer }, problem: null }),
+      ).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        httpStatus: 422,
+        details: { reason: 'LAYER_HAS_NO_RULE', layer: toLayer },
+      });
+    }
+    expect(uow.corrections.rows.size).toBe(0);
+  });
+
   it('stores it with its problem and records the event', async () => {
     const created = await add({
       correction: { kind: 'move_layer', handle: 'A2', toLayer: 'N_MH' },
@@ -129,7 +152,7 @@ describe('adding a correction', () => {
     });
     expect(created.problem).toEqual({ code: 'WRONG_LAYER', handle: 'A2' });
     expect(created.withdrawnAt).toBeNull();
-    expect(uow.events.types()).toEqual(['drawing_correction.added']);
+    expect(uow.events.types()).toEqual(['cad_mapping.saved', 'drawing_correction.added']);
   });
 
   it('accepts add_text and add_item without any handle', async () => {
@@ -164,7 +187,7 @@ describe('adding a correction', () => {
       add({ correction: { kind: 'merge_routes', handles: ['C1', 'A1'] }, problem: null }),
     ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['A1'] } });
     expect(uow.corrections.rows.size).toBe(0);
-    expect(uow.events.events).toHaveLength(0);
+    expect(uow.events.types()).toEqual(['cad_mapping.saved']);
   });
 
   it('merges curves that exist', async () => {

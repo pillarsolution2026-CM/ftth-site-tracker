@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DrawingCorrectionInputSchema,
   MAX_CORRECTION_COORD,
+  moveLayerTargets,
 } from './drawing-corrections.schemas.js';
 
 describe('DrawingCorrectionInputSchema (security review limits)', () => {
@@ -35,5 +36,18 @@ describe('DrawingCorrectionInputSchema (security review limits)', () => {
       DrawingCorrectionInputSchema.safeParse({ kind: 'set_text', handle: 'A1', text: 'وصلة 144' })
         .success,
     ).toBe(true);
+  });
+});
+
+describe('moveLayerTargets (owner 2026-11-09: only layers with a rule)', () => {
+  it('keeps layers mapped to a feature type or label, never ignore / background / block rules', () => {
+    const targets = moveLayerTargets([
+      { source: 'layer', layer: 'CAB', target: 'cabinet', role: 'sub' },
+      { source: 'layer', layer: 'TXT', target: 'label' },
+      { source: 'layer', layer: 'BG', target: 'background' },
+      { source: 'layer', layer: 'NO', target: 'ignore' },
+      { source: 'block', block: 'B', target: 'box' },
+    ] as Parameters<typeof moveLayerTargets>[0]);
+    expect([...targets].sort()).toEqual(['CAB', 'TXT']);
   });
 });

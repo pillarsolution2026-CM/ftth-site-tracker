@@ -268,11 +268,22 @@ def apply_corrections(
     corrections: Sequence[FrozenCorrection],
     *,
     metres_per_unit: float,
+    move_targets: frozenset[str] | None = None,
 ) -> DrawingData:
     """The drawing with every correction applied in order. `metres_per_unit` (after placement)
-    turns the route end tolerance into drawing units. Raises CorrectionInvalidError."""
+    turns the route end tolerance into drawing units. `move_targets`: the layers a `move_layer` may
+    target (layers whose rule is a feature type or `label`, owner 2026-11-09); None = not checked.
+    Raises CorrectionInvalidError."""
     if not corrections:
         return drawing
+    if move_targets is not None:
+        for fc in corrections:
+            c = fc.correction
+            if isinstance(c, MoveLayer) and c.to_layer not in move_targets:
+                raise CorrectionInvalidError(
+                    f"drawing correction {fc.id}: layer {c.to_layer} has no rule that makes it a "
+                    "drawing item or label"
+                )
     if not metres_per_unit > 0:
         raise CorrectionInvalidError("metres per drawing unit must be positive")
     rows = _Rows(

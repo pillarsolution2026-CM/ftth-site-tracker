@@ -151,7 +151,12 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
         # feature, text link and problem sees the corrected drawing. The background tile layer is
         # rendered from the raw rows and does not show them.
         try:
-            drawing = apply_corrections(drawing, corrections, metres_per_unit=place.unit_m)
+            drawing = apply_corrections(
+                drawing,
+                corrections,
+                metres_per_unit=place.unit_m,
+                move_targets=rules.layers_with(*FEATURE_TYPES, "label"),
+            )
         except CorrectionInvalidError as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         base = tx.load_base()

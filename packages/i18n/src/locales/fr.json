@@ -1179,6 +1179,7 @@
         "ALREADY_WITHDRAWN": "Cette correction est déjà retirée",
         "NOT_DRAFT": "Seule une révision en brouillon peut être modifiée",
         "NOT_REBUILDABLE": "Seule une révision en brouillon peut être modifiée",
+        "LAYER_HAS_NO_RULE": "La couche choisie n'a pas de règle qui en fait un élément ou une étiquette du dessin. Choisissez une couche avec une règle.",
         "VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez.",
         "MAPPING_VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez."
       }
