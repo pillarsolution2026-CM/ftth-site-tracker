@@ -11,12 +11,20 @@ import { z } from 'zod';
 
 export const DRAWING_VIEW_VERSION = 1;
 
+/** Technical caps of the view file, not business rules (security review of ADR-039). */
+export const DRAWING_VIEW_MAX_VERTICES = 3_000_000;
+export const DRAWING_VIEW_MAX_TEXTS = 200_000;
+/** Characters kept of one text; longer texts are cut by the worker. */
+export const DRAWING_VIEW_MAX_TEXT_LENGTH = 2000;
+/** Uncompressed JSON size the worker refuses above (`TOO_LARGE`). */
+export const DRAWING_VIEW_MAX_JSON_BYTES = 96 * 1024 * 1024;
+
 /** `#rrggbb`. ACI colours are resolved by the worker; BYLAYER entities carry `null`. */
 const Hex = z.string().regex(/^#[0-9a-f]{6}$/);
 const Finite = z.number().refine(Number.isFinite, 'Must be a finite number');
 
 export const DrawingViewLayerSchema = z.object({
-  name: z.string(),
+  name: z.string().max(255),
   color: Hex,
   /** Off or frozen in the drawing: hidden at first, the user can switch it on. */
   visible: z.boolean(),
@@ -30,13 +38,13 @@ export const DrawingViewTextSchema = z.object({
   height: Finite,
   /** Degrees, counter-clockwise. */
   rotation: Finite,
-  text: z.string(),
+  text: z.string().max(DRAWING_VIEW_MAX_TEXT_LENGTH),
 });
 export type DrawingViewText = z.infer<typeof DrawingViewTextSchema>;
 
 export const DrawingViewEntitySchema = z.object({
   /** Top-level handle in model space (an INSERT keeps its own handle for all its block shapes). */
-  handle: z.string(),
+  handle: z.string().min(1).max(64),
   /** Index into `layers` of the top-level entity's layer (what a `move_layer` changes). */
   layer: z.number().int().min(0),
   /** Colour when not BYLAYER; null = the layer's colour. */
@@ -60,10 +68,6 @@ export const DrawingViewSchema = z.object({
   truncated: z.boolean(),
 });
 export type DrawingView = z.infer<typeof DrawingViewSchema>;
-
-/** Technical caps of the view file, not business rules. */
-export const DRAWING_VIEW_MAX_VERTICES = 3_000_000;
-export const DRAWING_VIEW_MAX_TEXTS = 200_000;
 
 export const DRAWING_VIEW_STATUSES = ['none', 'queued', 'ready', 'failed'] as const;
 export const DrawingViewStatusSchema = z.enum(DRAWING_VIEW_STATUSES);
