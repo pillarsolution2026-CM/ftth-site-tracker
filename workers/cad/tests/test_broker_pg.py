@@ -343,7 +343,7 @@ def queued_view(db: psycopg.Connection[Any], f: QueuedFile) -> uuid.UUID:
     """The file processed (its DXF already in storage) with a queued view job."""
     view_job_id = uuid.uuid4()
     db.execute(
-        "UPDATE cad_files SET status = 'processed', view_status = 'queued', view_job_id = %s "
+        "UPDATE cad_files SET status = 'processed', view_status = 'queued', view_queued_at = now(), view_job_id = %s "
         "WHERE id = %s",
         (view_job_id, f.cad_file_id),
     )

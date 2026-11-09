@@ -64,7 +64,7 @@ def processed_file(
     db.execute(
         "UPDATE cad_files SET status = %s, converted_storage_key = %s, "
         "extents_min_x = 0, extents_min_y = 0, extents_max_x = 300, extents_max_y = 400, "
-        "view_status = 'queued', view_job_id = %s WHERE id = %s",
+        "view_status = 'queued', view_queued_at = now(), view_job_id = %s WHERE id = %s",
         (status, converted_key, view_job_id, f.cad_file_id),
     )
     return f, view_job_id
@@ -148,7 +148,7 @@ def test_a_new_render_gets_its_own_key(
     assert run_render(view_job(f, first), deps, "w1") == "ready"
     second = uuid.uuid4()
     db.execute(
-        "UPDATE cad_files SET view_status = 'queued', view_job_id = %s WHERE id = %s",
+        "UPDATE cad_files SET view_status = 'queued', view_queued_at = now(), view_job_id = %s WHERE id = %s",
         (second, f.cad_file_id),
     )
     assert run_render(view_job(f, second), deps, "w1") == "ready"

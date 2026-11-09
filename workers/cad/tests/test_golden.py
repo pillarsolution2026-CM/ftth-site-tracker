@@ -462,7 +462,7 @@ def test_rabaa_original_drawing_view(
         assert len(rows) == groups["cabinet/main"] + groups["cabinet/sub"] == 84
         job_id = uuid.uuid4()
         db.execute(
-            "UPDATE cad_files SET view_status = 'queued', view_job_id = %s WHERE id = %s",
+            "UPDATE cad_files SET view_status = 'queued', view_queued_at = now(), view_job_id = %s WHERE id = %s",
             (job_id, result["cad_file_id"]),
         )
         job = CadRenderViewJob(

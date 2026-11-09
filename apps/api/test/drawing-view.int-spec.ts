@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { CadRenderViewJobSchema, DrawingViewStateSchema } from '@ftth/shared';
 import { Redis } from 'ioredis';
 import request from 'supertest';
@@ -202,7 +202,8 @@ describe('drawing view routes', () => {
     expect(res.headers['content-encoding']).toBe('gzip');
     expect(res.headers['cache-control']).toBe('private, no-store');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect((res.body as Buffer).equals(gz)).toBe(true);
+    // The client decodes the gzip body (content-encoding), so the bytes are the stored JSON.
+    expect((res.body as Buffer).equals(gunzipSync(gz))).toBe(true);
 
     // Ready: POST changes nothing.
     await as(admin)(http().post(viewUrl(id))).expect(202);
