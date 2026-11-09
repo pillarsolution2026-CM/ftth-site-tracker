@@ -62,14 +62,26 @@ class CadExportAsBuiltJob(_Message):
     enqueued_at: datetime = Field(alias="enqueuedAt")
 
 
+class CadRenderViewJob(_Message):
+    """Render the drawing view of a processed CAD file (ADR-039). The storage keys are read from
+    the `cad_files` row (converted DXF, else the original DXF), never from the message."""
+
+    id: UUID
+    type: Literal["cad.render_view"]
+    cad_file_id: UUID = Field(alias="cadFileId")
+    project_id: UUID = Field(alias="projectId")
+    attempt: int = Field(ge=1, le=CAD_JOB_MAX_ATTEMPTS)
+    enqueued_at: datetime = Field(alias="enqueuedAt")
+
+
 class CadHealthJob(_Message):
     id: str = Field(min_length=1)
     type: Literal["health"]
 
 
 # Jobs that touch the database and are redelivered after a crash (ADR-013).
-DurableJob = CadImportJob | CadBuildRevisionJob | CadExportAsBuiltJob
-AnyJob = CadImportJob | CadBuildRevisionJob | CadExportAsBuiltJob | CadHealthJob
+DurableJob = CadImportJob | CadBuildRevisionJob | CadExportAsBuiltJob | CadRenderViewJob
+AnyJob = CadImportJob | CadBuildRevisionJob | CadExportAsBuiltJob | CadRenderViewJob | CadHealthJob
 
 CadJob = Annotated[AnyJob, Field(discriminator="type")]
 

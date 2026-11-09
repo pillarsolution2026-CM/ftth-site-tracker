@@ -1,6 +1,6 @@
 # CAD worker
 
-Python worker for server-side CAD processing (ADR-002, ADR-013). Three job types on the same Redis
+Python worker for server-side CAD processing (ADR-002, ADR-013). Four job types on the same Redis
 protocol:
 
 - `cad.import` (Phase 1a): DWG/DXF import into raw extraction tables (SRID 0, drawing units), plus
@@ -17,6 +17,13 @@ protocol:
   edits on `ASBUILT_EDITS`, added features on `ASBUILT_ADDED`, status texts; written to
   `projects/<projectId>/asbuilt/<exportId>.dxf`, row `done` (or `failed`). Layer names are checked
   and texts sanitised in `domain/asbuilt_drawing.py`.
+- `cad.render_view` (ADR-039): the drawing view («عارض الرسومات») of a processed file. Every
+  model-space entity is flattened on its own with `ezdxf.disassemble` (blocks exploded, curves and
+  bulges to vertices, hatch outlines, texts kept) and grouped under its top-level handle
+  (`adapters/ezdxf_view.py`, `domain/drawing_view.py`); gzip JSON (`DrawingView`) written to
+  `projects/<projectId>/cad/<cadFileId>/view.json.gz`, `cad_files.view_status` `ready` (or
+  `failed`: `FILE_NOT_PROCESSED`, `FILE_MISSING`, `READ_FAILED`, `TOO_LARGE`, `STORAGE_FAILED`,
+  `MAX_ATTEMPTS_EXCEEDED`, `INTERNAL`). Guarded by `view_job_id`; drawing units.
 
 Layout:
 
@@ -26,7 +33,7 @@ Layout:
   `revision_match.py` (ADR-020), `asbuilt_drawing.py` (As-Built DXF model), `geo.py` = the only
   place for CRS transforms.
 - `cad_worker/application`: use cases (`import_job`, `extract`, `build_revision`,
-  `export_asbuilt`), consumer loop,
+  `export_asbuilt`, `render_view`), consumer loop,
   ports.
 - `cad_worker/adapters`: ezdxf reader, LibreDWG-WASM converter (Node subprocess), PostgreSQL
   (psycopg, COPY; `postgres_revision_repo.py` for revisions, `postgres_export_repo.py` for As-Built

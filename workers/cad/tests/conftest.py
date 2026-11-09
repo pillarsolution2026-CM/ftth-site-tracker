@@ -17,6 +17,19 @@ from tests.support.env import MIGRATIONS_DIR, env_value
 
 MIGRATION_FILES = sorted(MIGRATIONS_DIR.glob("*.sql"))
 
+# TEMPORARY (ADR-039): the `cad_files.view_*` columns of migration 0016, written in parallel by the
+# API. Remove at merge, once `0016_*.sql` is in MIGRATIONS_DIR (IF NOT EXISTS keeps both safe).
+VIEW_COLUMNS_SQL = """
+ALTER TABLE cad_files
+  ADD COLUMN IF NOT EXISTS view_status text NOT NULL DEFAULT 'none'
+    CHECK (view_status IN ('none', 'queued', 'ready', 'failed')),
+  ADD COLUMN IF NOT EXISTS view_job_id uuid,
+  ADD COLUMN IF NOT EXISTS view_storage_key text,
+  ADD COLUMN IF NOT EXISTS view_size_bytes integer,
+  ADD COLUMN IF NOT EXISTS view_error_code text,
+  ADD COLUMN IF NOT EXISTS view_rendered_at timestamptz
+"""
+
 
 def _apply_migrations(admin_url: str, db_name: str) -> str:
     with psycopg.connect(admin_url, autocommit=True) as admin:
@@ -26,6 +39,7 @@ def _apply_migrations(admin_url: str, db_name: str) -> str:
     with psycopg.connect(url, autocommit=True) as conn:
         for path in MIGRATION_FILES:
             conn.execute(path.read_text("utf-8"))
+        conn.execute(VIEW_COLUMNS_SQL)
     return url
 
 
