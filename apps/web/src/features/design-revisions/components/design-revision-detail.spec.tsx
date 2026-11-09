@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { PublishReadiness } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,9 +18,11 @@ vi.mock('../hooks/use-diff-view', () => ({ useDiffView: () => ({}) }));
 vi.mock('./text-review', () => ({ TextReviewView: () => null }));
 vi.mock('./diff-section', () => ({ DiffSection: () => null }));
 const sections = vi.hoisted(() => ({
-  problems: vi.fn(() => null),
-  corrections: vi.fn(() => null),
+  problems: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+  corrections: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+  viewer: vi.fn<(props: Record<string, unknown>) => null>(() => null),
 }));
+vi.mock('./drawing-viewer', () => ({ DrawingViewer: sections.viewer }));
 vi.mock('./problems-section', () => ({ ProblemsSection: sections.problems }));
 vi.mock('./corrections-panel', () => ({ CorrectionsSection: sections.corrections }));
 vi.mock('./revision-summary', () => ({ RevisionSummary: () => null }));
@@ -64,6 +66,7 @@ beforeEach(() => {
   api.getDesignRevision.mockResolvedValue(revision);
   sections.problems.mockClear();
   sections.corrections.mockClear();
+  sections.viewer.mockClear();
 });
 
 describe('DesignRevisionDetailScreen publish checklist', () => {
@@ -160,5 +163,46 @@ describe('DesignRevisionDetailScreen drawing corrections', () => {
     await waitFor(() => expect(sections.corrections).toHaveBeenCalled());
     expect(lastProps(sections.problems)).toMatchObject({ canFix: false });
     expect(lastProps(sections.corrections)).toMatchObject({ canEdit: false });
+  });
+});
+
+describe('DesignRevisionDetailScreen drawing viewer', () => {
+  const lastProps = (fn: typeof sections.viewer) =>
+    (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+
+  it('shows the viewer for the revision file and lets the fix tools in only on a draft', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    renderDetail();
+    await waitFor(() => expect(sections.viewer).toHaveBeenCalled());
+    expect(lastProps(sections.viewer)).toMatchObject({
+      cadFileId: CAD_FILE,
+      canWrite: true,
+      canFix: true,
+      focus: null,
+    });
+  });
+
+  it('sends a «show on the drawing» request from the problems table to the viewer', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    renderDetail();
+    await waitFor(() => expect(sections.problems).toHaveBeenCalled());
+    const show = lastProps(sections.problems).onShowOnDrawing as (place: unknown) => void;
+    act(() => show({ code: 'WRONG_LAYER', handle: 'A1', x: 1, y: 2 }));
+    expect(lastProps(sections.viewer).focus).toEqual({
+      code: 'WRONG_LAYER',
+      handle: 'A1',
+      x: 1,
+      y: 2,
+      nonce: 1,
+    });
+    act(() => show({ code: 'WRONG_LAYER', handle: 'A1', x: 1, y: 2 }));
+    expect(lastProps(sections.viewer).focus).toMatchObject({ nonce: 2 });
+  });
+
+  it('does not show the viewer before the revision is built', async () => {
+    api.getDesignRevision.mockResolvedValue({ ...revision, status: 'queued' });
+    renderDetail();
+    await screen.findByText(/once the build has finished/);
+    expect(sections.viewer).not.toHaveBeenCalled();
   });
 });

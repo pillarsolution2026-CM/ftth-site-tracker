@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
@@ -8,12 +9,14 @@ import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import type { ShowPlace } from '../hooks/use-drawing-viewer';
 import { useDiffView } from '../hooks/use-diff-view';
 import { useRevisionDetail } from '../hooks/use-revision-detail';
 import { useTextReview } from '../hooks/use-text-review';
 import { isBuilding } from '../model/revision-status';
 import { CorrectionsSection } from './corrections-panel';
 import { DiffSection } from './diff-section';
+import { DrawingViewer } from './drawing-viewer';
 import { ProblemsSection } from './problems-section';
 import { PublishChecklist } from './publish-checklist';
 import { RevisionStatusBadge } from './revision-status-badge';
@@ -36,6 +39,9 @@ export function DesignRevisionDetailScreen({
   const state = useRevisionDetail(projectId, revisionId);
   const review = useTextReview(projectId, revisionId, state.canRead && state.built);
   const diff = useDiffView(projectId, revisionId, state.canRead && state.built);
+  const [focus, setFocus] = useState<ShowPlace | null>(null);
+  const showOnDrawing = (place: Omit<ShowPlace, 'nonce'>) =>
+    setFocus((previous) => ({ ...place, nonce: (previous?.nonce ?? 0) + 1 }));
 
   if (!state.canRead) return <ErrorNotice code="FORBIDDEN" />;
   if (state.loadErrorCode) return <ErrorNotice code={state.loadErrorCode} />;
@@ -71,6 +77,19 @@ export function DesignRevisionDetailScreen({
           </Button>
         ) : null}
       </div>
+      {state.built ? (
+        <Card>
+          <DrawingViewer
+            projectId={projectId}
+            revisionId={revisionId}
+            cadFileId={revision.cadFileId}
+            enabled={state.canRead && state.built}
+            canWrite={state.canWrite}
+            canFix={state.canReview}
+            focus={focus}
+          />
+        </Card>
+      ) : null}
       {state.actionMessage ? (
         <Notice kind="error">{t(state.actionMessage.key, state.actionMessage.params)}</Notice>
       ) : null}
@@ -121,6 +140,7 @@ export function DesignRevisionDetailScreen({
               cadFileId={revision.cadFileId}
               enabled={state.canRead && state.built}
               canFix={state.canReview}
+              onShowOnDrawing={showOnDrawing}
             />
           </Card>
           <Card>
