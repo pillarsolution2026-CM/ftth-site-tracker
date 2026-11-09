@@ -69,6 +69,22 @@ export const CadExportAsBuiltJobSchema = z.object({
 });
 export type CadExportAsBuiltJob = z.infer<typeof CadExportAsBuiltJobSchema>;
 
+/**
+ * Render the drawing view of a processed CAD file (ADR-039). The worker reads the file's current
+ * storage keys from `cad_files` (converted DXF, else the original DXF), never from the message, and
+ * writes `projects/<projectId>/cad/<cadFileId>/view.json.gz`.
+ */
+export const CadRenderViewJobSchema = z.object({
+  /** Equals cad_files.view_job_id; a job whose id is no longer current is dropped. */
+  id: z.uuid(),
+  type: z.literal('cad.render_view'),
+  cadFileId: z.uuid(),
+  projectId: z.uuid(),
+  attempt: z.number().int().min(1).max(CAD_JOB_MAX_ATTEMPTS),
+  enqueuedAt: z.iso.datetime(),
+});
+export type CadRenderViewJob = z.infer<typeof CadRenderViewJobSchema>;
+
 /** Existing liveness probe job (Phase 0). */
 export const CadHealthJobSchema = z.object({
   id: z.string().min(1),
@@ -80,6 +96,7 @@ export const CadJobSchema = z.discriminatedUnion('type', [
   CadImportJobSchema,
   CadBuildRevisionJobSchema,
   CadExportAsBuiltJobSchema,
+  CadRenderViewJobSchema,
   CadHealthJobSchema,
 ]);
 export type CadJob = z.infer<typeof CadJobSchema>;
