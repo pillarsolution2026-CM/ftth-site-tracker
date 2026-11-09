@@ -34,6 +34,12 @@ from cad_worker.application.ports import (
     TextLinkRow,
     TileLimitError,
 )
+from cad_worker.domain.corrections import (
+    CorrectionInvalidError,
+    apply_corrections,
+    curve_handles,
+    parse_corrections,
+)
 from cad_worker.domain.design import (
     FEATURE_TYPES,
     DesignFeatureDraft,
@@ -135,10 +141,19 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
                 inputs.crs_epsg,
                 float(inputs.metres_per_unit),  # geometry only; the exact factor stays stored
             )
-        except (MappingInvalidError, PlacementInvalidError) as exc:
+            corrections = parse_corrections(inputs.corrections)
+        except (MappingInvalidError, PlacementInvalidError, CorrectionInvalidError) as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
-        # Route layers for routes; point layers for their closed shapes (ADR-033).
-        drawing = tx.load_drawing(rules.layers_with(*FEATURE_TYPES))
+        # Route layers for routes; point layers for their closed shapes (ADR-033); curves named by
+        # a correction wherever they are.
+        drawing = tx.load_drawing(rules.layers_with(*FEATURE_TYPES), curve_handles(corrections))
+        # Corrections made on the program page (ADR-038), before classification and checks: every
+        # feature, text link and problem sees the corrected drawing. The background tile layer is
+        # rendered from the raw rows and does not show them.
+        try:
+            drawing = apply_corrections(drawing, corrections, metres_per_unit=place.unit_m)
+        except CorrectionInvalidError as exc:
+            raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         base = tx.load_base()
         design = compose_design(drawing, rules, place, base, deps.new_id)
         route_length = tx.write(design.rows)
@@ -151,7 +166,12 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
                 design,
                 route_length,
                 key,
-                [f"build: {built_s:.1f}s", tiles_log, f"total: {time.monotonic() - started:.1f}s"],
+                [
+                    f"corrections: {len(corrections)} applied",
+                    f"build: {built_s:.1f}s",
+                    tiles_log,
+                    f"total: {time.monotonic() - started:.1f}s",
+                ],
             )
         )
     return "built"

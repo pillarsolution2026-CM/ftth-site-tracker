@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -152,17 +153,18 @@ def queue_revision(
     unit: str = "m",
     base_revision_id: uuid.UUID | None = None,
     placement: object = None,
+    corrections: Sequence[object] = (),
 ) -> QueuedRevision:
     revision_id, job_id = uuid.uuid4(), uuid.uuid4()
     factor = {"m": Decimal("1"), "in": Decimal("0.0254")}[unit]
     db.execute(
         "INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, "
         "base_revision_id, rules, mapping_version, crs_epsg, drawing_unit, metres_per_unit, "
-        "placement, ins_units, units_conflict) "
-        "VALUES (%s, %s, %s, 'queued', %s, %s, %s, 1, 32636, %s, %s, %s, 1, true)",
+        "placement, corrections, ins_units, units_conflict) "
+        "VALUES (%s, %s, %s, 'queued', %s, %s, %s, 1, 32636, %s, %s, %s, %s, 1, true)",
         (revision_id, seeded.project_id, seeded.cad_file_id, job_id, base_revision_id,
          json.dumps(RULES if rules is None else rules), unit, factor,
-         None if placement is None else json.dumps(placement)),
+         None if placement is None else json.dumps(placement), json.dumps(list(corrections))),
     )  # fmt: skip
     return QueuedRevision(seeded.project_id, seeded.cad_file_id, revision_id, job_id)
 

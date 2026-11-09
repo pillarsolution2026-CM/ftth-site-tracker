@@ -207,6 +207,17 @@ The owner replaced Qalyub (known drawing problems) and the Darawish trial with *
 - **Tests:** API unit 472, web 413 (one spec times out under full load, passes alone), shared 188, i18n; API integration tests run on CI.
 - **Not done:** part 2 (fix tools on the page, applied at build) and part 3 (DXF export with fixes, upload as new version). Until part 2 lands, a drawing with problems cannot be published (intended). Point 1-ب (un-ignore) dropped.
 
+#### Drawing errors — part 2 of 3: fix tools on the program page (ADR-038; branch `feat/drawing-corrections`)
+- **Done:**
+  - Contracts: `drawing-corrections.schemas.ts` (`move_layer`, `set_text`, `add_text`, `add_item`, `merge_routes`; frozen list; rebuild request), events `drawing_correction.added/withdrawn`.
+  - Migration `0015_drawing_corrections.sql`: append-only `cad_file_corrections` (one withdraw allowed), `design_revisions.corrections` frozen with the other build inputs.
+  - API: list / add / withdraw corrections on a CAD file (`design:write` to change), handles checked against the file's rows, cap 5000 in force and 20000 rows in all; corrections frozen on revision create; `POST …/design-revisions/:r/rebuild` discards the draft and builds again in one step.
+  - Worker: applies the frozen corrections to the drawing rows before classification and checks (route pieces chained end to end; any correction that cannot be applied fails the revision with its id); background tiles still show the raw drawing.
+  - Web: a fix tool per problem place (move to suggested layer, type a label, edit a label or place an item, type the length, merge route pieces), «fixed — disappears after rebuild», corrections panel with withdraw, «طبّق التصليحات وابنِ من جديد».
+  - Security review: no High. Fixed: default label height no longer quadratic (M1), total rows cap (M2), coordinate bound and no control characters (L3, L4). Open to the owner: moving an item to a layer without a rule removes it before the checks (audited, but it can hide an error).
+- **Tests:** shared, API unit (incl. caps), web, worker 124 touched tests on real PostGIS (incl. 5000 labels on 100 000 texts < 2 s); API integration tests on CI.
+- **Not done:** part 3 (DXF export with corrections and `ERRORS`, upload as a new version); the Rabaa fix on staging after merge.
+
 ### Phase 3 — Supervisor app (offline) — started before Phase 2 (ADR-023)
 Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_rules`, zones UI), which was not built. Phase 1b is still awaiting approval; neither 1b nor 2 is marked approved here. Contracts: `docs/phase-3-contracts.md`. ADRs: 023 (order of phases), 024 (sync design), 025 (on-device encryption). Migration `0006`.
 - **Done:**

@@ -1201,6 +1201,8 @@ async function handleCad(
     return void res.end(file.data ?? Buffer.alloc(0));
   }
   if (sub === 'mapping') return handleMapping(req, res, method, mockCad(file), helpers);
+  if (sub === 'corrections' && method === 'GET')
+    return send(res, 200, { items: [], activeCount: 0 });
   if (sub === 'log')
     return send(res, 200, CadFileLogResponseSchema.parse({ log: 'ezdxf: recovered 0 issues\n' }));
   if (sub === 'reprocess' && method === 'POST') {

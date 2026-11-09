@@ -31,6 +31,13 @@ import {
   ListTextLinksUseCase,
 } from './application/design-revision-queries.use-cases.js';
 import { DiscardDesignRevisionUseCase } from './application/discard-design-revision.use-case.js';
+import { RebuildDesignRevisionUseCase } from './application/rebuild-design-revision.use-case.js';
+import {
+  CreateDrawingCorrectionUseCase,
+  ListDrawingCorrectionsUseCase,
+  WithdrawDrawingCorrectionUseCase,
+} from './application/drawing-correction.use-cases.js';
+import { DrawingCorrectionsController } from './interface/drawing-corrections.controller.js';
 import type { JobQueue, ProjectEpsgLookup, TileConfig } from './application/ports.js';
 import {
   GetPublishReadinessUseCase,
@@ -319,6 +326,28 @@ const providers: Provider[] = [
       new DiscardDesignRevisionUseCase(uow, systemClock, uuidGenerator),
   },
   {
+    provide: RebuildDesignRevisionUseCase,
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
+      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator),
+  },
+  {
+    provide: ListDrawingCorrectionsUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new ListDrawingCorrectionsUseCase(uow),
+  },
+  {
+    provide: CreateDrawingCorrectionUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) =>
+      new CreateDrawingCorrectionUseCase(uow, systemClock, uuidGenerator),
+  },
+  {
+    provide: WithdrawDrawingCorrectionUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new WithdrawDrawingCorrectionUseCase(uow, systemClock),
+  },
+  {
     provide: GetRevisionTilesUseCase,
     inject: [DESIGN_REVISION_REPOSITORY, OBJECT_STORAGE],
     useFactory: (revisions: DesignRevisionRepository, storage: ObjectStorage) =>
@@ -343,6 +372,7 @@ const providers: Provider[] = [
     CadFilesController,
     CadExtractionController,
     CadMappingController,
+    DrawingCorrectionsController,
     GpsProposalsController,
     DesignRevisionsController,
     TilesVerifyController,

@@ -14,6 +14,9 @@ from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepositor
 from cad_worker.adapters.storage import FsStorage
 from cad_worker.application.build_revision import BuildDeps, run_build
 from tests.support.revisions import (
+    RULES,
+    X0,
+    Y0,
     QueuedRevision,
     SeededFile,
     publish,
@@ -310,3 +313,78 @@ def test_published_revision_is_never_rebuilt_and_triggers_protect_it(
             (revision.revision_id,),
         )
     assert count(db, "design_features", revision) == before[0]
+
+
+CORRECTION_IDS = [str(uuid.UUID(int=n)) for n in range(1, 6)]
+
+
+def test_corrections_are_applied_before_features_links_and_problems(
+    db: psycopg.Connection[Any], deps: BuildDeps
+) -> None:
+    """ADR-038: the frozen corrections change what the build sees, in their order."""
+    rules = [*RULES, {"source": "layer", "layer": "MH", "target": "mh"}]
+    corrections = [
+        # The two routes meeting near box I2 become one (clears ROUTE_SPLIT).
+        {"id": CORRECTION_IDS[0], "correction": {"kind": "merge_routes", "handles": ["C2", "C1"]}},
+        # A line on a layer without a rule (not read otherwise) becomes a route.
+        {"id": CORRECTION_IDS[1],
+         "correction": {"kind": "move_layer", "handle": "C5", "toLayer": "N_DUC_CBL"}},
+        # The unreadable label next to box I2 is typed: the box takes its code from it.
+        {"id": CORRECTION_IDS[2], "correction": {"kind": "set_text", "handle": "T4", "text": "1-2"}},
+        {"id": CORRECTION_IDS[3],
+         "correction": {"kind": "add_item", "layer": "MH", "x": X0 + 20, "y": Y0 + 20}},
+        {"id": CORRECTION_IDS[4], "correction": {"kind": "add_text", "layer": "CAP F36",
+                                                 "x": X0 + 150.5, "y": Y0 + 53, "text": "J-9",
+                                                 "height": None}},
+    ]  # fmt: skip
+    revision = queue_revision(db, seed_processed_file(db), rules=rules, corrections=corrections)
+    assert run_build(revision.job(), deps, "w1") == "built"
+
+    row = revision_row(db, revision)
+    assert row["status"] == "draft", (row["error_code"], row["error_message"])
+    assert row["counts"]["features"]["route"] == 2  # C1+C2 merged, C5 moved
+    assert row["counts"]["features"]["mh"] == 1  # the added item, by its layer's rule
+    assert row["counts"]["routeLengthM"] == "400.000"  # 200 (merged) + 200 (C5)
+    assert [w["code"] for w in row["warnings"]] == ["ROUTE_ZERO_LENGTH_SKIPPED"]
+    assert "corrections: 5 applied" in row["log"]
+    rows = features(db, revision)
+    assert set(rows) == {"C1", "C5", "I1", "I2", "I3", "T3", f"FIX-{CORRECTION_IDS[3]}"}
+    assert rows["C1"][3] == Decimal("200.000")
+    assert rows["I2"][2] == "1-2"
+    item = db.execute(
+        "SELECT ST_X(geom) - %s, ST_Y(geom) - %s, block_name FROM design_features "
+        "WHERE revision_id = %s AND source_handle = %s",
+        (X0, Y0, revision.revision_id, f"FIX-{CORRECTION_IDS[3]}"),
+    ).fetchone()
+    assert item == (pytest.approx(20.0), pytest.approx(20.0), "__fix__")
+    added = db.execute(
+        "SELECT text, readable, height_m FROM text_links WHERE revision_id = %s "
+        "AND text_handle = %s",
+        (revision.revision_id, f"FIX-{CORRECTION_IDS[4]}"),
+    ).fetchone()
+    assert added == ("J-9", True, pytest.approx(0.2))  # median height of the layer's texts
+
+
+def test_a_correction_on_a_vanished_handle_fails_with_mapping_invalid(
+    db: psycopg.Connection[Any], deps: BuildDeps
+) -> None:
+    corrections = [
+        {"id": CORRECTION_IDS[0], "correction": {"kind": "set_text", "handle": "T99", "text": "x"}}
+    ]
+    revision = queue_revision(db, seed_processed_file(db), corrections=corrections)
+    assert run_build(revision.job(), deps, "w1") == "failed"
+    row = revision_row(db, revision)
+    assert row["error_code"] == "MAPPING_INVALID"
+    assert row["error_message"] == (
+        f"drawing correction {CORRECTION_IDS[0]}: no text with handle T99 in the drawing"
+    )
+    assert count(db, "design_features", revision) == 0
+
+
+def test_invalid_frozen_corrections_fail_with_mapping_invalid(
+    db: psycopg.Connection[Any], deps: BuildDeps
+) -> None:
+    corrections = [{"id": CORRECTION_IDS[0], "correction": {"kind": "paint"}}]
+    revision = queue_revision(db, seed_processed_file(db), corrections=corrections)
+    assert run_build(revision.job(), deps, "w1") == "failed"
+    assert revision_row(db, revision)["error_code"] == "MAPPING_INVALID"

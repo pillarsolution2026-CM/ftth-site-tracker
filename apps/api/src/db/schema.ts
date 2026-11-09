@@ -28,9 +28,11 @@ import type {
   DesignRevisionCounts,
   DiffChange,
   DiffCounts,
+  DrawingCorrectionInput,
   DrawingProblemCode,
   DrawingUnit,
   FeatureType,
+  FrozenDrawingCorrection,
   MappingRule,
   Placement,
   TextLinkCounts,
@@ -496,6 +498,8 @@ export const designRevisions = pgTable(
     drawingUnit: text('drawing_unit').$type<DrawingUnit>().notNull(),
     metresPerUnit: numeric('metres_per_unit', { precision: 12, scale: 6 }).notNull(),
     placement: jsonb('placement').$type<Placement>(),
+    /** Corrections in force at creation, in order (ADR-038); read by the worker. */
+    corrections: jsonb('corrections').$type<FrozenDrawingCorrection[]>().notNull().default([]),
     insUnits: integer('ins_units'),
     unitsConflict: boolean('units_conflict').notNull().default(false),
     counts: jsonb('counts').$type<DesignRevisionCounts>(),
@@ -524,6 +528,36 @@ export const designRevisions = pgTable(
       foreignColumns: [cadFiles.projectId, cadFiles.id],
     }).onDelete('restrict'),
     index('design_revisions_project_created_idx').on(table.projectId, table.createdAt),
+  ],
+);
+
+/** Drawing corrections (migration 0015, ADR-038): append-only; only the withdrawal changes. */
+export const cadFileCorrections = pgTable(
+  'cad_file_corrections',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    cadFileId: uuid('cad_file_id').notNull(),
+    correction: jsonb('correction').$type<DrawingCorrectionInput>().notNull(),
+    problemCode: text('problem_code').$type<DrawingProblemCode>(),
+    problemHandle: text('problem_handle'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    withdrawnBy: uuid('withdrawn_by').references(() => users.id),
+    withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: 'cad_file_corrections_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }),
+    index('cad_file_corrections_file_idx').on(
+      table.projectId,
+      table.cadFileId,
+      table.createdAt,
+      table.id,
+    ),
   ],
 );
 

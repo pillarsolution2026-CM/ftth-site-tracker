@@ -46,7 +46,8 @@ UPDATE design_revisions SET status = 'building', build_started_at = now()
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status IN ('queued', 'building')
 """
 LOCK_SQL = """
-SELECT cad_file_id, base_revision_id, rules, crs_epsg, drawing_unit, metres_per_unit, placement
+SELECT cad_file_id, base_revision_id, rules, crs_epsg, drawing_unit, metres_per_unit, placement,
+  corrections
 FROM design_revisions
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'building'
 FOR UPDATE
@@ -62,7 +63,8 @@ BUILD_STATEMENT_TIMEOUT_SQL = "SET LOCAL statement_timeout = '120s'"
 FILE_STATUS_SQL = "SELECT status FROM cad_files WHERE id = %s AND project_id = %s FOR SHARE"
 CURVES_SQL = """
 SELECT handle, layer, ST_AsBinary(ST_Force2D(geom)), is_closed, entity_type FROM cad_curves
-WHERE cad_file_id = %s AND project_id = %s AND layer = ANY(%s) ORDER BY handle
+WHERE cad_file_id = %s AND project_id = %s AND (layer = ANY(%s) OR handle = ANY(%s))
+ORDER BY handle
 """
 # A symbol's position is the centre of what it draws (ADR-032); files processed before migration
 # 0010 have no centre and keep the insertion point.
@@ -185,6 +187,7 @@ class PostgresRevisionRepository:
                 drawing_unit=str(row[4]),
                 metres_per_unit=Decimal(row[5]),
                 placement=row[6],
+                corrections=row[7],
             )
             build = PostgresRevisionBuild(conn, job, inputs)
             yield build
@@ -235,7 +238,9 @@ class PostgresRevisionBuild:
     def _ids(self) -> tuple[UUID, UUID]:
         return (self.inputs.cad_file_id, self.inputs.project_id)
 
-    def load_drawing(self, curve_layers: frozenset[str]) -> DrawingData:
+    def load_drawing(
+        self, curve_layers: frozenset[str], curve_handles: frozenset[str] = frozenset()
+    ) -> DrawingData:
         status = self._conn.execute(FILE_STATUS_SQL, self._ids).fetchone()
         if status is None or status[0] != "processed":
             found = status[0] if status else "missing"
@@ -243,7 +248,7 @@ class PostgresRevisionBuild:
         curves = tuple(
             SourceCurve(str(h), str(layer), _coords(g), bool(closed), str(kind))
             for h, layer, g, closed, kind in self._conn.execute(
-                CURVES_SQL, (*self._ids, sorted(curve_layers))
+                CURVES_SQL, (*self._ids, sorted(curve_layers), sorted(curve_handles))
             )
         )
         inserts = tuple(

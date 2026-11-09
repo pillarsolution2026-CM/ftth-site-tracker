@@ -1,11 +1,17 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CreateDesignRevisionRequest,
+  CreateDrawingCorrectionRequest,
   PublishDesignRevisionRequest,
+  RebuildDesignRevisionRequest,
   ReviewTextLinkRequest,
 } from '@ftth/shared';
 import {
+  createCorrection,
   createDesignRevision,
+  listCorrections,
+  rebuildDesignRevision,
+  withdrawCorrection,
   discardDesignRevision,
   getDesignRevision,
   getPublishReadiness,
@@ -147,6 +153,44 @@ export function useDrawingProblems(projectId: string, id: string, enabled: boole
     enabled,
     queryKey: [...revisionKey(projectId, id), 'problems'],
     queryFn: () => listDrawingProblems(projectId, id),
+  });
+}
+
+export const correctionsKey = (projectId: string, cadFileId: string) =>
+  ['drawing-corrections', projectId, cadFileId] as const;
+
+/** Corrections of a CAD file, newest first (ADR-038). */
+export function useCorrections(projectId: string, cadFileId: string, enabled: boolean) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: correctionsKey(projectId, cadFileId),
+    queryFn: () => listCorrections(projectId, cadFileId),
+  });
+}
+
+export function useCreateCorrection(projectId: string, cadFileId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateDrawingCorrectionRequest) =>
+      createCorrection(projectId, cadFileId, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: correctionsKey(projectId, cadFileId) }),
+  });
+}
+
+export function useWithdrawCorrection(projectId: string, cadFileId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => withdrawCorrection(projectId, cadFileId, id),
+    onSuccess: () => client.invalidateQueries({ queryKey: correctionsKey(projectId, cadFileId) }),
+  });
+}
+
+export function useRebuildRevision(projectId: string, id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RebuildDesignRevisionRequest) => rebuildDesignRevision(projectId, id, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: revisionsKey(projectId) }),
   });
 }
 
