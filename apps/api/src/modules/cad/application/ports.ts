@@ -1,4 +1,4 @@
-import type { CadBuildRevisionJob, CadImportJob } from '@ftth/shared';
+import type { CadBuildRevisionJob, CadImportJob, CadRenderViewJob } from '@ftth/shared';
 
 /** Producer side of the job protocol (ADR-013). Adapter: Redis list `cad:jobs`. */
 export interface JobQueue {
@@ -6,6 +6,8 @@ export interface JobQueue {
   enqueueCadImport(job: CadImportJob): Promise<void>;
   /** Same protocol for `cad.build_revision`; a rejection marks the revision ENQUEUE_FAILED. */
   enqueueBuildRevision(job: CadBuildRevisionJob): Promise<void>;
+  /** Same protocol for `cad.render_view` (ADR-039); a rejection marks the view failed. */
+  enqueueRenderView(job: CadRenderViewJob): Promise<void>;
 }
 
 /** The project's CRS, read through the projects module's application service. */

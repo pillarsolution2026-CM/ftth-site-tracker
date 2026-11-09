@@ -309,6 +309,16 @@ export const cadFiles = pgTable(
     queuedAt: timestamp('queued_at', { withTimezone: true }),
     processingStartedAt: timestamp('processing_started_at', { withTimezone: true }),
     processedAt: timestamp('processed_at', { withTimezone: true }),
+    /** «عارض الرسومات» (migration 0016, ADR-039): written by the API (queue) and the worker. */
+    viewStatus: text('view_status')
+      .$type<'none' | 'queued' | 'ready' | 'failed'>()
+      .notNull()
+      .default('none'),
+    viewJobId: uuid('view_job_id'),
+    viewStorageKey: text('view_storage_key'),
+    viewSizeBytes: integer('view_size_bytes'),
+    viewErrorCode: text('view_error_code'),
+    viewRenderedAt: timestamp('view_rendered_at', { withTimezone: true }),
   },
   (table) => [
     unique('cad_files_project_id_id_key').on(table.projectId, table.id),

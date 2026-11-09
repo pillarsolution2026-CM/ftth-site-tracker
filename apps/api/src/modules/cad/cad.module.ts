@@ -22,6 +22,11 @@ import {
   GetPlacementDrawingUseCase,
   SaveCadMappingUseCase,
 } from './application/cad-mapping.use-cases.js';
+import {
+  GetDrawingViewContentUseCase,
+  GetDrawingViewStateUseCase,
+  RequestDrawingViewUseCase,
+} from './application/drawing-view.use-cases.js';
 import { CreateDesignRevisionUseCase } from './application/create-design-revision.use-case.js';
 import {
   GetDesignRevisionUseCase,
@@ -101,6 +106,7 @@ import { CadExtractionController } from './interface/cad-extraction.controller.j
 import { CadFilesController } from './interface/cad-files.controller.js';
 import { CadMappingController } from './interface/cad-mapping.controller.js';
 import { DesignRevisionsController } from './interface/design-revisions.controller.js';
+import { DrawingViewController } from './interface/drawing-view.controller.js';
 import { TilesVerifyController } from './interface/tiles-verify.controller.js';
 
 const providers: Provider[] = [
@@ -207,6 +213,23 @@ const providers: Provider[] = [
     inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
     useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
       new ReprocessCadFileUseCase(uow, queue, systemClock, uuidGenerator),
+  },
+  {
+    provide: GetDrawingViewStateUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetDrawingViewStateUseCase(uow),
+  },
+  {
+    provide: RequestDrawingViewUseCase,
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
+      new RequestDrawingViewUseCase(uow, queue, systemClock, uuidGenerator),
+  },
+  {
+    provide: GetDrawingViewContentUseCase,
+    inject: [CAD_UNIT_OF_WORK, OBJECT_STORAGE],
+    useFactory: (uow: CadUnitOfWork, storage: ObjectStorage) =>
+      new GetDrawingViewContentUseCase(uow, storage),
   },
   {
     provide: ListCadFilesUseCase,
@@ -373,6 +396,7 @@ const providers: Provider[] = [
     CadExtractionController,
     CadMappingController,
     DrawingCorrectionsController,
+    DrawingViewController,
     GpsProposalsController,
     DesignRevisionsController,
     TilesVerifyController,

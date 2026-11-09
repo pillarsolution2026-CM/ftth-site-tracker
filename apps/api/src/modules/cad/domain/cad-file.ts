@@ -41,6 +41,17 @@ export interface CadFile {
   processedAt: Date | null;
 }
 
+/** The flattened drawing for the canvas viewer (ADR-039); lives in the `view_*` columns of the file. */
+export interface DrawingViewRecord {
+  cadFileId: string;
+  status: 'none' | 'queued' | 'ready' | 'failed';
+  jobId: string | null;
+  storageKey: string | null;
+  sizeBytes: number | null;
+  errorCode: string | null;
+  renderedAt: Date | null;
+}
+
 /** A file stuck in queued/processing for longer than CAD_STALE_AFTER_MINUTES may be reprocessed. */
 export function isStale(file: CadFile, now: Date): boolean {
   const since =

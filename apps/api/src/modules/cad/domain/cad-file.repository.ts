@@ -8,7 +8,7 @@ import type {
   CadTextPage,
 } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
-import type { CadFile } from './cad-file.js';
+import type { CadFile, DrawingViewRecord } from './cad-file.js';
 import type { DrawingCorrectionRepository } from './drawing-correction.js';
 import type { GpsProposalRepository } from './gps-proposal.js';
 import type {
@@ -40,6 +40,15 @@ export interface CadFileRepository {
     jobId: string,
     message: string,
   ): Promise<boolean>;
+  /** The drawing view state of the file (ADR-039); null when the file is not in the project. */
+  findView(projectId: string, cadFileId: string): Promise<DrawingViewRecord | null>;
+  /**
+   * none | failed → queued with a new view job id (clears key, size, error). Returns false when
+   * the view is already queued or ready (nothing changes).
+   */
+  markViewQueued(projectId: string, cadFileId: string, jobId: string): Promise<boolean>;
+  /** queued → failed (QUEUE_UNAVAILABLE), only if `jobId` is still the current view job. */
+  markViewEnqueueFailed(projectId: string, cadFileId: string, jobId: string): Promise<boolean>;
   /** Technical log of the last processing run (may be long); null if none. */
   findLog(projectId: string, cadFileId: string): Promise<string | null>;
 }
