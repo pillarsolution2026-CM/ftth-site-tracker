@@ -17,13 +17,16 @@ export function FixTool({
   code,
   place,
   tools,
+  defaultOpen = false,
 }: {
   code: DrawingProblemCode;
   place: DrawingProblemItem;
   tools: FixTools;
+  /** The form starts open (the floating panel on the drawing). */
+  defaultOpen?: boolean;
 }) {
   const { t } = useI18n();
-  const form = useFixForm(code, place, tools);
+  const form = useFixForm(code, place, tools, defaultOpen);
   if (!tools.enabled) return null;
   if (tools.isPending(code, place.handle)) {
     return (

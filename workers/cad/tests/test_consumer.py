@@ -8,12 +8,18 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from cad_worker.adapters.job_message import CadBuildRevisionJob, CadExportAsBuiltJob, parse_job
+from cad_worker.adapters.job_message import (
+    CadBuildRevisionJob,
+    CadExportAsBuiltJob,
+    CadRenderViewJob,
+    parse_job,
+)
 from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.export_asbuilt import ExportDeps
 from cad_worker.application.import_job import ImportDeps
 from cad_worker.application.ports import BrokerUnavailableError, RecoveredJob
+from cad_worker.application.render_view import ViewDeps
 
 
 class MemoryBroker:
@@ -48,12 +54,13 @@ class ExplodingRepo:
 
 
 NO_EXPORT = ExportDeps(repo=None, storage=None, writer=None)  # type: ignore[arg-type]
+NO_VIEW = ViewDeps(repo=None, storage=None, renderer=None)  # type: ignore[arg-type]
 
 
 def make_consumer(broker: MemoryBroker, repo: Any = None) -> Consumer:
     deps = ImportDeps(repo=repo, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
     build = BuildDeps(repo=repo, storage=None)  # type: ignore[arg-type]
-    return Consumer(broker, deps, "w", build, NO_EXPORT)
+    return Consumer(broker, deps, "w", build, NO_EXPORT, NO_VIEW)
 
 
 def test_health_job_result_then_ack() -> None:
@@ -108,7 +115,7 @@ def test_loop_survives_a_queue_outage_with_growing_backoff() -> None:
     sleeps: list[float] = []
     deps = ImportDeps(repo=None, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
     build = BuildDeps(repo=None, storage=None)  # type: ignore[arg-type]
-    consumer = Consumer(broker, deps, "w", build, NO_EXPORT, sleep=sleeps.append)
+    consumer = Consumer(broker, deps, "w", build, NO_EXPORT, NO_VIEW, sleep=sleeps.append)
 
     consumer.run(lambda: broker.claims >= 5)
 
@@ -151,7 +158,9 @@ def test_build_job_infrastructure_error_leaves_job_in_flight() -> None:
     deps = ImportDeps(repo=None, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
     build = BuildDeps(repo=ExplodingRevisionRepo(), storage=None)  # type: ignore[arg-type]
     with pytest.raises(ConnectionError):
-        Consumer(broker, deps, "w", build, NO_EXPORT).process_raw(json.dumps(BUILD_MESSAGE))
+        Consumer(broker, deps, "w", build, NO_EXPORT, NO_VIEW).process_raw(
+            json.dumps(BUILD_MESSAGE)
+        )
     assert broker.acked == [] and broker.dead == []
 
 
@@ -193,5 +202,46 @@ def test_export_job_infrastructure_error_leaves_job_in_flight() -> None:
     build = BuildDeps(repo=None, storage=None)  # type: ignore[arg-type]
     export = ExportDeps(repo=ExplodingExportRepo(), storage=None, writer=None)  # type: ignore[arg-type]
     with pytest.raises(ConnectionError):
-        Consumer(broker, deps, "w", build, export).process_raw(json.dumps(EXPORT_MESSAGE))
+        Consumer(broker, deps, "w", build, export, NO_VIEW).process_raw(json.dumps(EXPORT_MESSAGE))
+    assert broker.acked == [] and broker.dead == []
+
+
+VIEW_MESSAGE = {
+    "id": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a41",
+    "type": "cad.render_view",
+    "cadFileId": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a42",
+    "projectId": "7f0f3a0e-3c33-4a3b-9d3c-6e5f2f0b6a43",
+    "attempt": 1,
+    "enqueuedAt": "2026-11-09T10:00:00.000Z",
+    "future": "ignored",
+}
+
+
+def test_view_job_message_mirrors_the_zod_schema() -> None:
+    job = parse_job(json.dumps(VIEW_MESSAGE))
+    assert isinstance(job, CadRenderViewJob)
+    assert str(job.cad_file_id).endswith("42") and str(job.project_id).endswith("43")
+    for broken in (
+        {**VIEW_MESSAGE, "attempt": 0},
+        {**VIEW_MESSAGE, "attempt": 4},
+        {**VIEW_MESSAGE, "cadFileId": "nope"},
+        {k: v for k, v in VIEW_MESSAGE.items() if k != "projectId"},
+        {k: v for k, v in VIEW_MESSAGE.items() if k != "enqueuedAt"},
+    ):
+        with pytest.raises(ValidationError):
+            parse_job(json.dumps(broken))
+
+
+class ExplodingViewRepo:
+    def start_view(self, *_: Any) -> None:
+        raise ConnectionError("database down")
+
+
+def test_view_job_infrastructure_error_leaves_job_in_flight() -> None:
+    broker = MemoryBroker()
+    deps = ImportDeps(repo=None, storage=None, converter=None, reader=None)  # type: ignore[arg-type]
+    build = BuildDeps(repo=None, storage=None)  # type: ignore[arg-type]
+    view = ViewDeps(repo=ExplodingViewRepo(), storage=None, renderer=None)  # type: ignore[arg-type]
+    with pytest.raises(ConnectionError):
+        Consumer(broker, deps, "w", build, NO_EXPORT, view).process_raw(json.dumps(VIEW_MESSAGE))
     assert broker.acked == [] and broker.dead == []

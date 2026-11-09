@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from cad_worker.adapters.settings import Settings
-from cad_worker.application.ports import ObjectStorage
+from cad_worker.application.ports import DeletableStorage
 
 _MISSING_CODES = {"404", "NoSuchKey", "NotFound"}
 
@@ -33,6 +33,9 @@ class FsStorage:
         shutil.copyfile(src, tmp)
         os.replace(tmp, target)
 
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
 
 class S3Storage:
     def __init__(self, client: Any, bucket: str) -> None:
@@ -51,8 +54,11 @@ class S3Storage:
     def upload(self, src: Path, key: str) -> None:
         self._client.upload_file(str(src), self._bucket, key)
 
+    def delete(self, key: str) -> None:
+        self._client.delete_object(Bucket=self._bucket, Key=key)  # no error when missing
 
-def build_storage(settings: Settings) -> ObjectStorage:
+
+def build_storage(settings: Settings) -> DeletableStorage:
     if settings.storage_driver == "fs":
         return FsStorage(Path(settings.storage_fs_root))
     missing = [

@@ -7,6 +7,8 @@ import {
   DrawingCorrectionListSchema,
   DrawingCorrectionSchema,
   DrawingProblemListSchema,
+  DrawingViewSchema,
+  DrawingViewStateSchema,
   PublishReadinessSchema,
   TextLinkPageSchema,
   TextLinkSchema,
@@ -23,6 +25,8 @@ import {
   type DiffListQuery,
   type DiffPage,
   type DrawingProblemList,
+  type DrawingView,
+  type DrawingViewState,
   type PublishReadiness,
   type PublishDesignRevisionRequest,
   type ReviewTextLinkRequest,
@@ -159,4 +163,28 @@ export function rebuildDesignRevision(
 
 export function getPublishReadiness(projectId: string, id: string): Promise<PublishReadiness> {
   return bffJson(`${one(projectId, id)}/publish-readiness`, PublishReadinessSchema);
+}
+
+const viewPath = (projectId: string, cadFileId: string) =>
+  projectApiPath(projectId, `/cad-files/${encodeURIComponent(cadFileId)}/view`);
+
+/** Drawing viewer (ADR-039): is the flattened view of the file ready. */
+export function getDrawingViewState(
+  projectId: string,
+  cadFileId: string,
+): Promise<DrawingViewState> {
+  return bffJson(`${viewPath(projectId, cadFileId)}/status`, DrawingViewStateSchema);
+}
+
+/** Queues the render job (202) for a file whose view is missing or failed. */
+export function requestDrawingView(
+  projectId: string,
+  cadFileId: string,
+): Promise<DrawingViewState> {
+  return bffJson(viewPath(projectId, cadFileId), DrawingViewStateSchema, { method: 'POST' });
+}
+
+/** The view itself (gzip JSON, several MB; the browser decompresses it). */
+export function getDrawingView(projectId: string, cadFileId: string): Promise<DrawingView> {
+  return bffJson(viewPath(projectId, cadFileId), DrawingViewSchema);
 }

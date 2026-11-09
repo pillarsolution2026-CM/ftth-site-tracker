@@ -18,3 +18,9 @@ def revision_tiles_key(project_id: object, revision_id: object) -> str:
 def asbuilt_export_key(project_id: object, export_id: object) -> str:
     """As-Built DXF export (Phase 4 contract, ADR-030); written once per export."""
     return f"projects/{project_id}/asbuilt/{export_id}.dxf"
+
+
+def drawing_view_key(project_id: object, cad_file_id: object, job_id: object) -> str:
+    """Drawing view of a CAD file (ADR-039), gzip JSON, one object per render job: written
+    before the row is locked, so a stale job can never overwrite the file of a newer one."""
+    return f"projects/{project_id}/cad/{cad_file_id}/view-{job_id}.json.gz"

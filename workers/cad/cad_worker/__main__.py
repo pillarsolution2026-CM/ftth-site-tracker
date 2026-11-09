@@ -15,14 +15,17 @@ from cad_worker.adapters.libredwg_converter import LibreDwgWasmConverter, defaul
 from cad_worker.adapters.postgres_export_repo import PostgresExportRepository
 from cad_worker.adapters.postgres_repo import PostgresCadRepository
 from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepository
+from cad_worker.adapters.postgres_view_repo import PostgresViewRepository
 from cad_worker.adapters.queue import RedisJobBroker
 from cad_worker.adapters.settings import Settings
 from cad_worker.adapters.storage import build_storage
+from cad_worker.adapters.view_process import SubprocessViewRenderer
 from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.export_asbuilt import ExportDeps
 from cad_worker.application.health import check_health
 from cad_worker.application.import_job import ImportDeps
+from cad_worker.application.render_view import ViewDeps
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,6 +56,13 @@ def main(argv: list[str] | None = None) -> int:
         storage=storage,
         writer=EzdxfDxfWriter(),
     )
+    view = ViewDeps(
+        repo=PostgresViewRepository(settings.database_url),
+        storage=storage,
+        renderer=SubprocessViewRenderer(
+            timeout_s=settings.view_timeout_s, max_memory_mb=settings.view_max_memory_mb
+        ),
+    )
     broker = RedisJobBroker.from_url(settings.redis_url, settings.worker_id)
     stop = False
 
@@ -62,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
-    Consumer(broker, deps, settings.worker_id, build, export).run(lambda: stop)
+    Consumer(broker, deps, settings.worker_id, build, export, view).run(lambda: stop)
     return 0
 
 

@@ -14,6 +14,7 @@ from cad_worker.adapters.job_message import (
     CadBuildRevisionJob,
     CadExportAsBuiltJob,
     CadImportJob,
+    CadRenderViewJob,
     DurableJob,
 )
 from cad_worker.domain.asbuilt_drawing import (
@@ -76,6 +77,12 @@ class ObjectStorage(Protocol):
         ...
 
     def upload(self, src: Path, key: str) -> None: ...
+
+
+class DeletableStorage(ObjectStorage, Protocol):
+    def delete(self, key: str) -> None:
+        """Remove an object; a missing key is not an error."""
+        ...
 
 
 class DrawingSource(Protocol):
@@ -402,4 +409,87 @@ class AsBuiltExportRepository(Protocol):
 
     def fail(self, job: CadExportAsBuiltJob, code: ExportFailureCode, message: str) -> bool:
         """Mark `failed` + event, guarded by `current_job_id`. False when superseded."""
+        ...
+
+
+# ---------- drawing view (ADR-039) ----------
+
+ViewFailureCode = Literal[
+    "FILE_NOT_PROCESSED",
+    "FILE_MISSING",
+    "READ_FAILED",
+    "TOO_LARGE",
+    "TIMEOUT",
+    "STORAGE_FAILED",
+    "MAX_ATTEMPTS_EXCEEDED",
+    "INTERNAL",
+]
+
+
+class ViewFailure(Exception):
+    """A handled render failure: `view_status = 'failed'` with this code (no retry)."""
+
+    def __init__(self, code: ViewFailureCode, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+@dataclass(frozen=True, slots=True)
+class ViewInputs:
+    """The CAD file row read when the job is claimed."""
+
+    cad_file_id: UUID
+    project_id: UUID
+    status: str
+    format: str
+    storage_key: str
+    converted_storage_key: str | None
+    extents: Extents | None
+
+    @property
+    def dxf_key(self) -> str | None:
+        """The DXF to draw: the converted DXF, else the original when it is a DXF."""
+        if self.converted_storage_key:
+            return self.converted_storage_key
+        return self.storage_key if self.format == "dxf" else None
+
+
+@dataclass(frozen=True, slots=True)
+class ViewResult:
+    storage_key: str
+    size_bytes: int
+    stats: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class RenderOutput:
+    size_bytes: int  # the gzip file
+    json_bytes: int  # uncompressed
+    stats: dict[str, object]
+
+
+class ViewRenderer(Protocol):
+    def render_to(
+        self, dxf: Path, out: Path, cad_file_id: str, extents: Extents | None
+    ) -> RenderOutput:
+        """Write the gzip JSON view of `dxf` to `out`. Raises ViewFailure(READ_FAILED |
+        TOO_LARGE | TIMEOUT | INTERNAL)."""
+        ...
+
+
+class DrawingViewRepository(Protocol):
+    def start_view(self, job: CadRenderViewJob) -> ViewInputs | None:
+        """The file row when `view_job_id` is this job and `view_status = 'queued'`, else None
+        (superseded or already finished)."""
+        ...
+
+    def finish(self, job: CadRenderViewJob, result: ViewResult) -> bool:
+        """In one short transaction (lock and statement timeouts): lock the row, re-check that
+        the job is current and `queued`, set `ready` with key, size and time, append
+        `cad_file.view_rendered`. False when superseded (nothing written)."""
+        ...
+
+    def fail(self, job: CadRenderViewJob, code: ViewFailureCode, message: str) -> bool:
+        """Mark `failed` + event, guarded by `view_job_id`. False when superseded."""
         ...

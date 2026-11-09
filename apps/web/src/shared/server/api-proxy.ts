@@ -123,7 +123,11 @@ function toClientResponse(upstream: Response): Response {
     'cache-control': 'private, no-store',
     'x-content-type-options': 'nosniff',
   });
+  // fetch has already decoded a compressed body (e.g. the gzip drawing view, ADR-039): the
+  // upstream length is the compressed one, so it must not be forwarded with the decoded bytes.
+  const decoded = upstream.headers.has('content-encoding');
   for (const name of FORWARDED_RESPONSE_HEADERS) {
+    if (decoded && name === 'content-length') continue;
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }

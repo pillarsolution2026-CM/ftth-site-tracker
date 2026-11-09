@@ -12,16 +12,19 @@ import pytest
 import redis
 
 from cad_worker.adapters.ezdxf_reader import EzdxfReader
+from cad_worker.adapters.ezdxf_view import EzdxfViewRenderer
 from cad_worker.adapters.ezdxf_writer import EzdxfDxfWriter
 from cad_worker.adapters.postgres_export_repo import PostgresExportRepository
 from cad_worker.adapters.postgres_repo import PostgresCadRepository
 from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepository
+from cad_worker.adapters.postgres_view_repo import PostgresViewRepository
 from cad_worker.adapters.queue import RedisJobBroker
 from cad_worker.adapters.storage import FsStorage
 from cad_worker.application.build_revision import BuildDeps
 from cad_worker.application.consumer import Consumer
 from cad_worker.application.export_asbuilt import ExportDeps
 from cad_worker.application.import_job import ImportDeps
+from cad_worker.application.render_view import ViewDeps
 from tests.conftest import QueuedFile
 from tests.support.asbuilt import line, queue_export, seed_design
 from tests.support.dxf_samples import write_sample
@@ -58,7 +61,10 @@ def consumer(database_url: str, redis_client: redis.Redis, tmp_path: Path) -> Co
     export = ExportDeps(
         PostgresExportRepository(database_url), FsStorage(tmp_path / "storage"), EzdxfDxfWriter()
     )
-    return Consumer(RedisJobBroker(redis_client, WORKER), deps, WORKER, build, export)
+    view = ViewDeps(
+        PostgresViewRepository(database_url), FsStorage(tmp_path / "storage"), EzdxfViewRenderer()
+    )
+    return Consumer(RedisJobBroker(redis_client, WORKER), deps, WORKER, build, export, view)
 
 
 @pytest.fixture
@@ -331,3 +337,70 @@ def test_third_crash_marks_export_failed(
         (str(q.export_id),),
     ).fetchall()
     assert rows == [("asbuilt_export.failed", None, "MAX_ATTEMPTS_EXCEEDED")]
+
+
+def queued_view(db: psycopg.Connection[Any], f: QueuedFile) -> uuid.UUID:
+    """The file processed (its DXF already in storage) with a queued view job."""
+    view_job_id = uuid.uuid4()
+    db.execute(
+        "UPDATE cad_files SET status = 'processed', view_status = 'queued', view_queued_at = now(), view_job_id = %s "
+        "WHERE id = %s",
+        (view_job_id, f.cad_file_id),
+    )
+    return view_job_id
+
+
+def view_message(f: QueuedFile, job_id: uuid.UUID, attempt: int = 1) -> str:
+    return json.dumps(
+        {
+            "id": str(job_id),
+            "type": "cad.render_view",
+            "cadFileId": str(f.cad_file_id),
+            "projectId": str(f.project_id),
+            "attempt": attempt,
+            "enqueuedAt": "2026-11-09T10:00:00.000Z",
+        }
+    )
+
+
+def view_status(db: psycopg.Connection[Any], f: QueuedFile) -> tuple[Any, ...]:
+    row = db.execute(
+        "SELECT view_status, view_error_code FROM cad_files WHERE id = %s", (f.cad_file_id,)
+    ).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+def test_view_job_is_dispatched_and_acked(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any], queued: QueuedFile
+) -> None:
+    job_id = queued_view(db, queued)
+    redis_client.lpush("cad:jobs", view_message(queued, job_id))
+    assert consumer.process_one(timeout_s=1) is True
+    assert view_status(db, queued) == ("ready", None)
+    assert redis_client.llen(f"cad:processing:{WORKER}") == 0
+
+
+def test_stale_view_job_is_acked_and_dropped(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any], queued: QueuedFile
+) -> None:
+    queued_view(db, queued)
+    redis_client.lpush("cad:jobs", view_message(queued, uuid.uuid4()))
+    assert consumer.process_one(timeout_s=1) is True
+    assert view_status(db, queued) == ("queued", None)
+    assert redis_client.llen(f"cad:processing:{WORKER}") == 0
+
+
+def test_orphaned_view_job_is_requeued_then_failed_at_the_third_crash(
+    consumer: Consumer, redis_client: redis.Redis, db: psycopg.Connection[Any], queued: QueuedFile
+) -> None:
+    job_id = queued_view(db, queued)
+    redis_client.lpush("cad:processing:dead-6", view_message(queued, job_id, attempt=2))
+    consumer.recover(include_own=False)
+    requeued = json.loads(redis_client.lrange("cad:jobs", 0, -1)[0])
+    assert requeued["attempt"] == 3 and requeued["type"] == "cad.render_view"
+    redis_client.delete("cad:jobs")
+    redis_client.lpush("cad:processing:dead-7", view_message(queued, job_id, attempt=3))
+    consumer.recover(include_own=False)
+    assert view_status(db, queued) == ("failed", "MAX_ATTEMPTS_EXCEEDED")
+    assert redis_client.llen("cad:processing:dead-7") == 0 and redis_client.llen("cad:jobs") == 0

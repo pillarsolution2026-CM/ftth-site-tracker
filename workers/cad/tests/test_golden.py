@@ -10,6 +10,7 @@ Phase 1b: Qalyub sector 1 is also built into a design revision with
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
@@ -25,13 +26,16 @@ import psycopg
 import pytest
 
 from cad_worker.adapters.ezdxf_reader import EzdxfReader
-from cad_worker.adapters.job_message import CadBuildRevisionJob
+from cad_worker.adapters.ezdxf_view import EzdxfViewRenderer
+from cad_worker.adapters.job_message import CadBuildRevisionJob, CadRenderViewJob
 from cad_worker.adapters.libredwg_converter import LibreDwgWasmConverter
 from cad_worker.adapters.postgres_repo import PostgresCadRepository
 from cad_worker.adapters.postgres_revision_repo import PostgresRevisionRepository
+from cad_worker.adapters.postgres_view_repo import PostgresViewRepository
 from cad_worker.adapters.storage import FsStorage
 from cad_worker.application.build_revision import BuildDeps, run_build
 from cad_worker.application.import_job import ImportDeps, run_import
+from cad_worker.application.render_view import ViewDeps, run_render
 from tests.support.env import fixtures_dir
 from tests.support.fakes import make_job
 from tests.support.golden import summarize
@@ -105,6 +109,7 @@ def processed_drawings(
                 "summary": summarize(db, file_id),
                 "project_id": project_id,
                 "cad_file_id": file_id,
+                "storage_root": root,
             }
             memory = ""
             if resource is not None:
@@ -423,3 +428,70 @@ def test_rabaa_original_corrections_clear_their_problems(
     assert "WRONG_LAYER" not in after
     assert "LABEL_LENGTH_MISSING" not in after
     assert count.get("ROUTE_SPLIT", 0) == before["ROUTE_SPLIT"]["count"] - merged
+
+
+MAX_VIEW_SECONDS = 60
+
+
+@pytest.mark.skipif(not _node_ready(), reason="node or converter/node_modules (npm ci) missing")
+def test_rabaa_original_drawing_view(
+    processed_drawings: dict[str, dict[str, Any]],
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    """ADR-039 smoke test: the view of the original Rabaa holds every cabinet's handle (3 Main
+    Cab + 81 sub cabinets, as found by its revision) and renders in reasonable time."""
+    mapping = _load(RABAA_ORIGINAL_MAPPING)
+    result = processed_drawings.get(mapping["file"])
+    if result is None:
+        pytest.skip(f"real drawing {mapping['file']} not found in {fixtures_dir()}")
+    with psycopg.connect(database_url, autocommit=True) as db:
+        db.execute(
+            "UPDATE design_revisions SET status = 'discarded' WHERE project_id = %s "
+            "AND status = 'draft'",
+            (result["project_id"],),
+        )
+        revision_id, outcome, _ = _build_sector_1(db, database_url, result, mapping, tmp_path)
+        assert outcome == "built"
+        rows = db.execute(
+            "SELECT source_handle FROM design_features WHERE revision_id = %s "
+            "AND feature_type = 'cabinet'",
+            (revision_id,),
+        ).fetchall()
+        groups = mapping["expected"]["groups"]
+        assert len(rows) == groups["cabinet/main"] + groups["cabinet/sub"] == 84
+        job_id = uuid.uuid4()
+        db.execute(
+            "UPDATE cad_files SET view_status = 'queued', view_queued_at = now(), view_job_id = %s WHERE id = %s",
+            (job_id, result["cad_file_id"]),
+        )
+        job = CadRenderViewJob(
+            id=job_id,
+            type="cad.render_view",
+            cadFileId=result["cad_file_id"],
+            projectId=result["project_id"],
+            attempt=1,
+            enqueuedAt=datetime.now(UTC),
+        )
+        root = result["storage_root"]
+        deps = ViewDeps(PostgresViewRepository(database_url), FsStorage(root), EzdxfViewRenderer())
+        started = time.monotonic()
+        assert run_render(job, deps, "golden") == "ready"
+        seconds = time.monotonic() - started
+        row = db.execute(
+            "SELECT view_storage_key, view_size_bytes FROM cad_files WHERE id = %s",
+            (result["cad_file_id"],),
+        ).fetchone()
+    assert row is not None
+    view = json.loads(gzip.decompress((root / row[0]).read_bytes()))
+    handles = {e["handle"] for e in view["entities"]}
+    cabinets = {part for (handle,) in rows for part in str(handle).split("/")}
+    assert cabinets <= handles, sorted(cabinets - handles)[:10]
+    vertices = sum(len(p) // 2 for e in view["entities"] for p in e["paths"])
+    print(
+        f"GOLDEN VIEW {mapping['file']}: {len(view['entities'])} entities, {vertices} vertices, "
+        f"{sum(len(e['texts']) for e in view['entities'])} texts, gzip {row[1]} bytes, "
+        f"truncated={view['truncated']}, {seconds:.1f}s"
+    )
+    assert view["truncated"] is False
+    assert seconds < MAX_VIEW_SECONDS

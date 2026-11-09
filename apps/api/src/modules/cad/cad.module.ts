@@ -6,6 +6,7 @@ import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.
 import { PermissionGuard } from '../../common/permission.guard.js';
 import { APP_ENV } from '../../config/config.module.js';
 import { DB, type Database } from '../../db/db.module.js';
+import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rate-limiter.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
@@ -22,6 +23,11 @@ import {
   GetPlacementDrawingUseCase,
   SaveCadMappingUseCase,
 } from './application/cad-mapping.use-cases.js';
+import {
+  GetDrawingViewContentUseCase,
+  GetDrawingViewStateUseCase,
+  RequestDrawingViewUseCase,
+} from './application/drawing-view.use-cases.js';
 import { CreateDesignRevisionUseCase } from './application/create-design-revision.use-case.js';
 import {
   GetDesignRevisionUseCase,
@@ -60,6 +66,8 @@ import {
   CAD_UNIT_OF_WORK,
   DESIGN_READ_QUERIES,
   DESIGN_REVISION_REPOSITORY,
+  DRAWING_VIEW_RATE_BUDGET,
+  DRAWING_VIEW_RATE_LIMITER,
   DRAWING_PROBLEM_REPOSITORY,
   GPS_PROPOSAL_REPOSITORY,
   JOB_QUEUE,
@@ -101,10 +109,18 @@ import { CadExtractionController } from './interface/cad-extraction.controller.j
 import { CadFilesController } from './interface/cad-files.controller.js';
 import { CadMappingController } from './interface/cad-mapping.controller.js';
 import { DesignRevisionsController } from './interface/design-revisions.controller.js';
+import { DrawingViewRateLimitGuard } from './interface/drawing-view-rate-limit.guard.js';
+import { DrawingViewController } from './interface/drawing-view.controller.js';
 import { TilesVerifyController } from './interface/tiles-verify.controller.js';
 
 const providers: Provider[] = [
   PermissionGuard,
+  DrawingViewRateLimitGuard,
+  {
+    provide: DRAWING_VIEW_RATE_LIMITER,
+    useFactory: () => new FixedWindowRateLimiter(systemClock, 10 * 60_000),
+  },
+  { provide: DRAWING_VIEW_RATE_BUDGET, useValue: 10 },
   {
     provide: JOB_QUEUE,
     inject: [APP_ENV],
@@ -207,6 +223,23 @@ const providers: Provider[] = [
     inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
     useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
       new ReprocessCadFileUseCase(uow, queue, systemClock, uuidGenerator),
+  },
+  {
+    provide: GetDrawingViewStateUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetDrawingViewStateUseCase(uow),
+  },
+  {
+    provide: RequestDrawingViewUseCase,
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
+      new RequestDrawingViewUseCase(uow, queue, systemClock, uuidGenerator),
+  },
+  {
+    provide: GetDrawingViewContentUseCase,
+    inject: [CAD_UNIT_OF_WORK, OBJECT_STORAGE],
+    useFactory: (uow: CadUnitOfWork, storage: ObjectStorage) =>
+      new GetDrawingViewContentUseCase(uow, storage),
   },
   {
     provide: ListCadFilesUseCase,
@@ -373,6 +406,7 @@ const providers: Provider[] = [
     CadExtractionController,
     CadMappingController,
     DrawingCorrectionsController,
+    DrawingViewController,
     GpsProposalsController,
     DesignRevisionsController,
     TilesVerifyController,

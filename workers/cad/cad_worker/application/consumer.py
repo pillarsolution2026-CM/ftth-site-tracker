@@ -15,6 +15,7 @@ from cad_worker.adapters.job_message import (
     CadExportAsBuiltJob,
     CadHealthJob,
     CadImportJob,
+    CadRenderViewJob,
     parse_job,
 )
 from cad_worker.application.build_revision import BuildDeps, run_build
@@ -22,6 +23,7 @@ from cad_worker.application.export_asbuilt import ExportDeps, run_export
 from cad_worker.application.health import check_health
 from cad_worker.application.import_job import ImportDeps, run_import
 from cad_worker.application.ports import BrokerUnavailableError, JobBroker
+from cad_worker.application.render_view import ViewDeps, run_render
 
 log = logging.getLogger(__name__)
 
@@ -42,12 +44,14 @@ class Consumer:
         worker_id: str,
         build: BuildDeps,
         export: ExportDeps,
+        view: ViewDeps,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._broker = broker
         self._deps = deps
         self._build = build
         self._export = export
+        self._view = view
         self._worker_id = worker_id
         self._sleep = sleep
 
@@ -66,6 +70,8 @@ class Consumer:
             run_build(job, self._build, self._worker_id)
         elif isinstance(job, CadExportAsBuiltJob):
             run_export(job, self._export, self._worker_id)
+        elif isinstance(job, CadRenderViewJob):
+            run_render(job, self._view, self._worker_id)
         else:
             run_import(job, self._deps, self._worker_id)
         self._broker.ack(raw)
@@ -78,9 +84,9 @@ class Consumer:
         return True
 
     def recover(self, *, include_own: bool) -> None:
-        """ADR-013 for every durable job type: at MAX_ATTEMPTS the file, the revision or the
-        As-Built export is marked failed (`MAX_ATTEMPTS_EXCEEDED`) before the orphan is
-        dropped."""
+        """ADR-013 for every durable job type: at MAX_ATTEMPTS the file, the revision, the
+        As-Built export or the drawing view is marked failed (`MAX_ATTEMPTS_EXCEEDED`) before the
+        orphan is dropped."""
         for orphan in self._broker.recover(include_own=include_own):
             job = orphan.job
             msg = f"job {job.id} lost {job.attempt} times (worker crashed)"
@@ -88,6 +94,8 @@ class Consumer:
                 self._deps.repo.fail(job, "MAX_ATTEMPTS_EXCEEDED", msg)
             elif isinstance(job, CadExportAsBuiltJob):
                 self._export.repo.fail(job, "MAX_ATTEMPTS_EXCEEDED", msg)
+            elif isinstance(job, CadRenderViewJob):
+                self._view.repo.fail(job, "MAX_ATTEMPTS_EXCEEDED", msg)
             else:
                 self._build.repo.fail(job, "MAX_ATTEMPTS_EXCEEDED", msg)
             self._broker.ack_orphan(orphan)

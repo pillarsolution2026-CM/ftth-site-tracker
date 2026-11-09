@@ -42,6 +42,9 @@ export const EVENT_TYPES = {
   cadFileProcessingStarted: 'cad_file.processing_started',
   cadFileProcessed: 'cad_file.processed',
   cadFileFailed: 'cad_file.failed',
+  /** Written by the CAD worker (ADR-039), no actor. */
+  cadFileViewRendered: 'cad_file.view_rendered',
+  cadFileViewFailed: 'cad_file.view_failed',
   /** Payload: version, crsEpsg, drawingUnit, rule count. */
   cadMappingSaved: 'cad_mapping.saved',
   gpsProposalReceived: 'gps_proposal.received',

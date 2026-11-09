@@ -7,7 +7,7 @@ import pytest
 
 from cad_worker.adapters.settings import Settings
 from cad_worker.adapters.storage import FsStorage, S3Storage, build_storage
-from cad_worker.application.keys import converted_key
+from cad_worker.application.keys import converted_key, drawing_view_key
 
 
 def test_converted_key() -> None:
@@ -25,6 +25,22 @@ def test_fs_roundtrip_and_missing(tmp_path: Path) -> None:
     assert not list((tmp_path / "root").rglob("*.tmp"))
     with pytest.raises(FileNotFoundError):
         storage.download("projects/p/cad/f/none.dxf", dest)
+
+
+def test_fs_delete_is_idempotent(tmp_path: Path) -> None:
+    storage = FsStorage(tmp_path / "root")
+    src = tmp_path / "v.gz"
+    src.write_bytes(b"gz")
+    storage.upload(src, "projects/p/cad/f/view-j.json.gz")
+    storage.delete("projects/p/cad/f/view-j.json.gz")
+    assert not (tmp_path / "root/projects/p/cad/f/view-j.json.gz").exists()
+    storage.delete("projects/p/cad/f/view-j.json.gz")  # missing: no error
+    with pytest.raises(ValueError, match="invalid storage key"):
+        storage.delete("../outside")
+
+
+def test_view_key_is_per_job() -> None:
+    assert drawing_view_key("p", "f", "j") == "projects/p/cad/f/view-j.json.gz"
 
 
 @pytest.mark.parametrize("key", ["../etc/passwd", "/abs/path", "a/../../b", ""])

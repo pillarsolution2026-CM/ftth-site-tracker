@@ -2,6 +2,7 @@ import {
   TEXT_LINK_STATUSES,
   type CadBuildRevisionJob,
   type CadImportJob,
+  type CadRenderViewJob,
   type FeatureType,
   type FrozenDrawingCorrection,
   type GpsProposalListQuery,
@@ -11,7 +12,7 @@ import { AppError } from '../../../common/app-error.js';
 import type { Clock } from '../../../common/clock.js';
 import type { DomainEventInput, EventLog } from '../../../common/event-log.port.js';
 import type { JobQueue } from '../application/ports.js';
-import type { CadFile } from '../domain/cad-file.js';
+import type { CadFile, DrawingViewRecord } from '../domain/cad-file.js';
 import type { CadFileRepository, CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import type { CadMappingRecord } from '../domain/cad-mapping.js';
 import type { DesignRevision } from '../domain/design-revision.js';
@@ -58,6 +59,8 @@ export class InMemoryEventLog implements EventLog {
 
 export class InMemoryCadFiles implements CadFileRepository {
   readonly rows = new Map<string, CadFile>();
+  /** Drawing view state per file (ADR-039); absent = none. */
+  readonly views = new Map<string, DrawingViewRecord>();
 
   async list(projectId: string): Promise<CadFile[]> {
     return [...this.rows.values()].filter((file) => file.projectId === projectId);
@@ -80,6 +83,7 @@ export class InMemoryCadFiles implements CadFileRepository {
       errorCode: null,
       errorMessage: null,
     });
+    this.views.delete(cadFileId);
   }
   async markEnqueueFailed(
     projectId: string,
@@ -97,6 +101,55 @@ export class InMemoryCadFiles implements CadFileRepository {
       errorCode: 'ENQUEUE_FAILED',
       errorMessage: message,
     });
+    return true;
+  }
+  async findView(projectId: string, cadFileId: string): Promise<DrawingViewRecord | null> {
+    if (this.rows.get(cadFileId)?.projectId !== projectId) return null;
+    const view = this.views.get(cadFileId);
+    return view
+      ? { ...view }
+      : {
+          cadFileId,
+          status: 'none',
+          jobId: null,
+          storageKey: null,
+          sizeBytes: null,
+          errorCode: null,
+          renderedAt: null,
+          queuedAt: null,
+        };
+  }
+  async markViewQueued(
+    projectId: string,
+    cadFileId: string,
+    jobId: string,
+    queuedAt: Date,
+    staleBefore: Date,
+  ): Promise<boolean> {
+    const view = await this.findView(projectId, cadFileId);
+    if (!view) return false;
+    const stale = view.status === 'queued' && view.queuedAt !== null && view.queuedAt < staleBefore;
+    if (view.status !== 'none' && view.status !== 'failed' && !stale) return false;
+    this.views.set(cadFileId, {
+      cadFileId,
+      status: 'queued',
+      jobId,
+      storageKey: null,
+      sizeBytes: null,
+      errorCode: null,
+      renderedAt: null,
+      queuedAt,
+    });
+    return true;
+  }
+  async markViewEnqueueFailed(
+    projectId: string,
+    cadFileId: string,
+    jobId: string,
+  ): Promise<boolean> {
+    const view = await this.findView(projectId, cadFileId);
+    if (!view || view.status !== 'queued' || view.jobId !== jobId) return false;
+    this.views.set(cadFileId, { ...view, status: 'failed', errorCode: 'QUEUE_UNAVAILABLE' });
     return true;
   }
   async findLog(): Promise<string | null> {
@@ -521,6 +574,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
 export class RecordingJobQueue implements JobQueue {
   readonly jobs: CadImportJob[] = [];
   readonly buildJobs: CadBuildRevisionJob[] = [];
+  readonly viewJobs: CadRenderViewJob[] = [];
   failWith: Error | null = null;
 
   async enqueueCadImport(job: CadImportJob): Promise<void> {
@@ -530,5 +584,9 @@ export class RecordingJobQueue implements JobQueue {
   async enqueueBuildRevision(job: CadBuildRevisionJob): Promise<void> {
     if (this.failWith) throw this.failWith;
     this.buildJobs.push(job);
+  }
+  async enqueueRenderView(job: CadRenderViewJob): Promise<void> {
+    if (this.failWith) throw this.failWith;
+    this.viewJobs.push(job);
   }
 }

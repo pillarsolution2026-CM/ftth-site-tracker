@@ -4,8 +4,10 @@ import {
   CAD_QUEUE_KEYS,
   CadBuildRevisionJobSchema,
   CadImportJobSchema,
+  CadRenderViewJobSchema,
   type CadBuildRevisionJob,
   type CadImportJob,
+  type CadRenderViewJob,
 } from '@ftth/shared';
 import type { JobQueue } from '../application/ports.js';
 
@@ -38,6 +40,11 @@ export class RedisJobQueue implements JobQueue {
 
   async enqueueBuildRevision(job: CadBuildRevisionJob): Promise<void> {
     const message = JSON.stringify(CadBuildRevisionJobSchema.parse(job));
+    await this.redis.lpush(CAD_QUEUE_KEYS.jobs, message);
+  }
+
+  async enqueueRenderView(job: CadRenderViewJob): Promise<void> {
+    const message = JSON.stringify(CadRenderViewJobSchema.parse(job));
     await this.redis.lpush(CAD_QUEUE_KEYS.jobs, message);
   }
 

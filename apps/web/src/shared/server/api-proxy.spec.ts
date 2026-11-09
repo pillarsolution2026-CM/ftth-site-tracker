@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 // @vitest-environment node
 import {
   createServer,
@@ -165,6 +166,30 @@ describe('createApiProxy', () => {
     expect(seen[0]?.headers.cookie).toBeUndefined();
     expect(seen[0]?.url).toBe(`/projects/${PROJECT}/cad-files?x=1`);
     expect(response.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('passes a gzip body (the drawing view) whole: decoded by fetch, so no stale length', async () => {
+    const json = JSON.stringify({ big: 'x'.repeat(50_000) });
+    const packed = gzipSync(json);
+    upstream = (_req, res) => {
+      res
+        .writeHead(200, {
+          'content-type': 'application/json',
+          'content-encoding': 'gzip',
+          'content-length': String(packed.length),
+        })
+        .end(packed);
+    };
+    const proxy = createApiProxy({ apiUrl, session: session('access-1') });
+    const response = await proxy(request('GET', `${PROJECT}/cad-files/f1/view`), [
+      PROJECT,
+      'cad-files',
+      'f1',
+      'view',
+    ]);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-length')).toBeNull();
+    expect(await response.text()).toBe(json);
   });
 
   it('refreshes before the call when the access cookie is gone, and stores the new pair', async () => {
