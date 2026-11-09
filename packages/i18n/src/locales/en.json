@@ -1179,6 +1179,7 @@
         "ALREADY_WITHDRAWN": "This correction was already withdrawn",
         "NOT_DRAFT": "Only a draft revision can be changed",
         "NOT_REBUILDABLE": "Only a draft revision can be changed",
+        "LAYER_HAS_NO_RULE": "The chosen layer has no rule that makes it a drawing item or label. Pick a layer with a rule.",
         "VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again.",
         "MAPPING_VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again."
       }

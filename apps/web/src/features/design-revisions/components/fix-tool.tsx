@@ -77,7 +77,7 @@ function FixFields({
     case 'move_layer':
       return (
         <>
-          {place.suggestedLayer ? (
+          {place.suggestedLayer && form.moveLayers.includes(place.suggestedLayer) ? (
             <Button onClick={form.moveSuggested} disabled={form.saving}>
               {saveLabel ?? (
                 <>

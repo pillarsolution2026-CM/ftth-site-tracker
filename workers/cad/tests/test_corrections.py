@@ -228,6 +228,20 @@ def test_move_layer_moves_an_insert_with_its_attributes_a_text_and_a_curve() -> 
     assert drawing.inserts[0].layer == "Sap"  # the input is not changed
 
 
+def test_move_layer_to_a_layer_without_a_rule_fails_loudly() -> None:
+    """Owner 2026-11-09: a move only to a layer whose rule is a feature type or label."""
+    drawing = empty(inserts=(SourceInsert("i1", "Sap", "Sap", (5, 5)),))
+    targets = frozenset({"SUB"})
+    ok = apply_corrections(
+        drawing, [fix(MoveLayer("i1", "SUB"))], metres_per_unit=1.0, move_targets=targets
+    )
+    assert ok.inserts[0].layer == "SUB"
+    with pytest.raises(CorrectionInvalidError, match="has no rule"):
+        apply_corrections(
+            drawing, [fix(MoveLayer("i1", "NO_RULE"))], metres_per_unit=1.0, move_targets=targets
+        )
+
+
 def test_move_layer_clears_wrong_layer() -> None:
     drawing = empty(
         curves=(square("j2", "jont 144", 100, 0),),

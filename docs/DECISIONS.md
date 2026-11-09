@@ -366,7 +366,7 @@ Section headings (rows without unit, quantity and price), empty quantities and t
 - **Every problem is an error.** Severity no longer decides anything: any problem the build finds blocks publishing. **Ignore on the user's own responsibility (ADR-034) is withdrawn**; ignores already recorded no longer count.
 - **The upload is accepted** and a report lists every error with its **type, description, what is required to fix it, and where** (drawing and project coordinates, nearest named item).
 - **Fix on the program page.** The PM corrects errors in the program; the drawing file never changes. Each correction is stored separately (who, when) with the file's mapping and applied at build, then frozen on the revision. Tools, one per problem:
-  - `WRONG_LAYER`: move the item or label to the suggested layer (or another chosen layer);
+  - `WRONG_LAYER`: move the item or label to the suggested layer (or another chosen layer). **Only to a layer whose rule makes it a feature type or a label** (owner 2026-11-09): a layer without a rule, or with `ignore` / `background`, would drop the item before the checks and hide its error; the API refuses it (`LAYER_HAS_NO_RULE`) and the build fails on it with the frozen rules;
   - `LABEL_MISSING`: type the label;
   - `LABEL_TYPE_MISMATCH`: edit the label, or place an item of the label's type at the spot;
   - `LABEL_LENGTH_MISSING`: type the length into the label;

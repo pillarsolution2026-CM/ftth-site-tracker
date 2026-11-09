@@ -3,6 +3,7 @@ import {
   EVENT_TYPES,
   MAX_CORRECTION_ROWS_PER_FILE,
   MAX_CORRECTIONS_PER_FILE,
+  moveLayerTargets,
   type CreateDrawingCorrectionRequest,
   type DrawingCorrectionInput,
 } from '@ftth/shared';
@@ -97,6 +98,20 @@ export class CreateDrawingCorrectionUseCase {
           return !have || !kinds.some((kind) => have.has(kind));
         });
         if (missing.length > 0) throw handleNotFound(missing);
+      }
+
+      // Owner 2026-11-09: a move only to a layer whose saved rule makes it a feature type or a
+      // label; otherwise the item would drop out before the checks and its error would vanish.
+      if (request.correction.kind === 'move_layer') {
+        const mapping = await tx.mappings.find(projectId, cadFileId);
+        if (!moveLayerTargets(mapping?.rules ?? []).has(request.correction.toLayer)) {
+          throw new AppError(
+            'VALIDATION_FAILED',
+            'The target layer has no rule that makes it a drawing item or label',
+            { reason: 'LAYER_HAS_NO_RULE', layer: request.correction.toLayer },
+            422,
+          );
+        }
       }
 
       const now = this.clock.now();

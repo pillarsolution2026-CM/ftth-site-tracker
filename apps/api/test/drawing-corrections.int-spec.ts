@@ -117,7 +117,12 @@ async function insertDrawing(): Promise<string> {
 
 const saveMapping = (fileId: string) =>
   as(pm)(http().put(`/projects/${project}/cad-files/${fileId}/mapping`)).send({
-    rules: [{ source: 'layer', layer: 'N_DUC_CBL', target: 'route' }],
+    rules: [
+      { source: 'layer', layer: 'N_DUC_CBL', target: 'route' },
+      // Targets of the moves below: a move needs a rule on its layer (owner 2026-11-09).
+      { source: 'layer', layer: 'N_MH', target: 'mh' },
+      { source: 'layer', layer: 'L', target: 'label' },
+    ],
     crsEpsg: 32636,
     drawingUnit: 'm',
     version: null,
@@ -241,6 +246,7 @@ describe('migration 0015 triggers', () => {
 describe('corrections routes', () => {
   it('adds, lists newest first and withdraws, with events', async () => {
     const fileId = await insertDrawing();
+    expect((await saveMapping(fileId)).status).toBe(200);
     const first = await addCorrection(fileId, {
       correction: { kind: 'move_layer', handle: 'I1', toLayer: 'N_MH' },
       problem: { code: 'WRONG_LAYER', handle: 'I1' },
@@ -279,6 +285,7 @@ describe('corrections routes', () => {
 
   it('validates the references against the extracted rows', async () => {
     const fileId = await insertDrawing();
+    expect((await saveMapping(fileId)).status).toBe(200);
     const refused = (body: object, handles: string[]) =>
       addCorrection(fileId, body).then((res) => {
         expect(res.status).toBe(422);
@@ -287,6 +294,11 @@ describe('corrections routes', () => {
     await refused({ correction: { kind: 'set_text', handle: 'I1', text: 'x' } }, ['I1']);
     await refused({ correction: { kind: 'move_layer', handle: 'ZZ', toLayer: 'L' } }, ['ZZ']);
     await refused({ correction: { kind: 'merge_routes', handles: ['C1', 'T1'] } }, ['T1']);
+    const noRule = await addCorrection(fileId, {
+      correction: { kind: 'move_layer', handle: 'C1', toLayer: 'NO_RULE' },
+    });
+    expect(noRule.status).toBe(422);
+    expect(noRule.body.details).toMatchObject({ reason: 'LAYER_HAS_NO_RULE', layer: 'NO_RULE' });
     expect(
       (
         await addCorrection(fileId, {

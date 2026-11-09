@@ -8,6 +8,7 @@ import {
   type DrawingProblemCode,
   type DrawingProblemItem,
   type PointFeatureType,
+  moveLayerTargets,
 } from '@ftth/shared';
 import type { ClientErrorCode } from '@/shared/api/bff-client';
 import type { ErrorMessage } from './revision-errors';
@@ -121,8 +122,12 @@ export function pointLayersOf(view: CadMappingView | undefined): PointLayer[] {
   return out;
 }
 
+/**
+ * Layers a move may target (owner 2026-11-09): only layers whose saved rule makes them a drawing
+ * item or label, so an item never drops out of the checks by being moved. Same rule as the API.
+ */
 export const layerNamesOf = (view: CadMappingView | undefined): string[] =>
-  (view?.layers ?? []).map((row) => row.name);
+  [...moveLayerTargets(view?.mapping?.rules ?? [])].sort((a, b) => a.localeCompare(b));
 
 export function metresPerUnitOf(view: CadMappingView | undefined): number | null {
   const value = Number(view?.mapping?.metresPerUnit);
@@ -151,6 +156,7 @@ const REASONS = [
   'NOT_DRAFT',
   // The rebuild route's word for a revision that is not a draft or failed.
   'NOT_REBUILDABLE',
+  'LAYER_HAS_NO_RULE',
   'VERSION_MISMATCH',
   'MAPPING_VERSION_MISMATCH',
 ] as const;

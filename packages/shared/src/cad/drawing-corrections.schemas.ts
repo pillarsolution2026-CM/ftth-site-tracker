@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { FEATURE_TYPES } from '../design/feature-types.js';
 import { DrawingProblemCodeSchema } from '../design/drawing-problems.js';
+import type { MappingRule } from './cad-mapping.schemas.js';
 import { DesignRevisionSummarySchema } from '../design/design-revision.schemas.js';
 
 /**
@@ -148,3 +150,19 @@ export const RebuildDesignRevisionRequestSchema = z.strictObject({
 });
 export type RebuildDesignRevisionRequest = z.infer<typeof RebuildDesignRevisionRequestSchema>;
 export const RebuildDesignRevisionResponseSchema = DesignRevisionSummarySchema;
+
+/**
+ * Layers a `move_layer` may target (owner 2026-11-09): only a layer whose mapping rule makes it a
+ * feature type or a label. A layer without a rule, or with `ignore` / `background`, would drop the
+ * item before the checks and hide its error, which ADR-038 forbids. Same rule in the API (at add)
+ * and the worker (at build, with the frozen rules).
+ */
+export const MOVE_LAYER_TARGETS: readonly string[] = [...FEATURE_TYPES, 'label'];
+
+export function moveLayerTargets(rules: readonly MappingRule[]): Set<string> {
+  const out = new Set<string>();
+  for (const rule of rules) {
+    if (rule.source === 'layer' && MOVE_LAYER_TARGETS.includes(rule.target)) out.add(rule.layer);
+  }
+  return out;
+}
