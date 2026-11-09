@@ -1,6 +1,6 @@
 -- 0016 «عارض الرسومات» (ADR-039): the flattened drawing the canvas viewer draws.
 --
--- The worker job `cad.render_view` writes `projects/<p>/cad/<f>/view.json.gz` and sets the view_*
+-- The worker job `cad.render_view` writes `projects/<p>/cad/<f>/view-<jobId>.json.gz` and sets the view_*
 -- columns; the API queues it (view_status 'queued' + view_job_id) and serves the file. A job whose
 -- id is no longer view_job_id is dropped by the worker. The columns are derived data, so the
 -- original-immutability trigger (which guards only identity and fingerprint) is not affected.

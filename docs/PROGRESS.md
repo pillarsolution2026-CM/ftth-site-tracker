@@ -218,6 +218,13 @@ The owner replaced Qalyub (known drawing problems) and the Darawish trial with *
 - **Tests:** shared, API unit (incl. caps), web, worker 124 touched tests on real PostGIS (incl. 5000 labels on 100 000 texts < 2 s); API integration tests on CI.
 - **Not done:** part 3 (DXF export with corrections and `ERRORS`, upload as a new version); the Rabaa fix on staging after merge.
 
+#### «عارض الرسومات» — the drawing viewer canvas (ADR-039; branch `feat/drawing-viewer`)
+- **Owner 2026-11-09:** a canvas at the top of the design revision page, for every drawing: the drawing as drawn (blocks with their shapes, lines, texts, colours, layers on / off, zoom / pan); «اعرض الموضع على الرسمة» beside every problem place; fixing on the drawing with the ADR-038 tools; immediate preview after saving. Belongs to Phase 1 (drawing upload) and to later phases that need it.
+- **Done:** contracts `drawing-view.schemas.ts` and job `cad.render_view`; migrations `0016` (view columns) and `0017` (`view_queued_at`); worker render job (ezdxf flatten per top-level handle, child process with time and memory limits, per-job key, caps on vertices, texts, parts and uncompressed size); API view status / request (rate-limited, stale requeue) / gzip content; web canvas viewer (no new dependency), layer panel, problem marks, show place, fix popover, client-side preview; proxy drops a stale `content-length` for decoded gzip bodies.
+- **Security review:** no High; M1 (worker exhaustion), L1–L5 and the event-size note fixed.
+- **Tests:** shared, API unit, web unit and Playwright `work-orders-cad`, worker unit (bombs, caps, child process); DB tests on CI. Palm Plaza view: 4 s, 309 KB gzip.
+- **Not done:** trial on staging with Rabaa by the owner (Rabaa stays at 131 errors until he fixes it by hand); performance on a real browser not measured yet.
+
 ### Phase 3 — Supervisor app (offline) — started before Phase 2 (ADR-023)
 Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_rules`, zones UI), which was not built. Phase 1b is still awaiting approval; neither 1b nor 2 is marked approved here. Contracts: `docs/phase-3-contracts.md`. ADRs: 023 (order of phases), 024 (sync design), 025 (on-device encryption). Migration `0006`.
 - **Done:**

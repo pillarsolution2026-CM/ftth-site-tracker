@@ -72,7 +72,7 @@ export type CadExportAsBuiltJob = z.infer<typeof CadExportAsBuiltJobSchema>;
 /**
  * Render the drawing view of a processed CAD file (ADR-039). The worker reads the file's current
  * storage keys from `cad_files` (converted DXF, else the original DXF), never from the message, and
- * writes `projects/<projectId>/cad/<cadFileId>/view.json.gz`.
+ * writes `projects/<projectId>/cad/<cadFileId>/view-<jobId>.json.gz` (one key per job).
  */
 export const CadRenderViewJobSchema = z.object({
   /** Equals cad_files.view_job_id; a job whose id is no longer current is dropped. */
