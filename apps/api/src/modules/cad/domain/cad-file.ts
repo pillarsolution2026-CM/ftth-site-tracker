@@ -50,6 +50,7 @@ export interface DrawingViewRecord {
   sizeBytes: number | null;
   errorCode: string | null;
   renderedAt: Date | null;
+  queuedAt: Date | null;
 }
 
 /** A file stuck in queued/processing for longer than CAD_STALE_AFTER_MINUTES may be reprocessed. */

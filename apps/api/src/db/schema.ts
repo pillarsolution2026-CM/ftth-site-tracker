@@ -319,6 +319,8 @@ export const cadFiles = pgTable(
     viewSizeBytes: integer('view_size_bytes'),
     viewErrorCode: text('view_error_code'),
     viewRenderedAt: timestamp('view_rendered_at', { withTimezone: true }),
+    /** Migration 0017: set when queued; a queued view older than the stale limit may be requeued. */
+    viewQueuedAt: timestamp('view_queued_at', { withTimezone: true }),
   },
   (table) => [
     unique('cad_files_project_id_id_key').on(table.projectId, table.id),

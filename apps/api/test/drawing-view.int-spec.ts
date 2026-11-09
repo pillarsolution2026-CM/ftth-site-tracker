@@ -103,9 +103,14 @@ describe('migration 0016 constraints', () => {
       `view_status = 'ready', view_storage_key = 'k', view_size_bytes = 5, view_rendered_at = now()`,
     );
     await update(`view_status = 'failed', view_error_code = 'RENDER_FAILED'`);
+    // 0017: queued needs a queued_at.
+    await expect(update(`view_status = 'queued', view_queued_at = NULL`)).rejects.toThrow();
+    await update(`view_status = 'queued', view_queued_at = now()`);
   });
 });
 
+// POST …/view is limited to 10 per user per 10 minutes (L5): this file keeps to the admin's budget
+// and ends with the 429 test.
 describe('drawing view routes', () => {
   it('queues once, is idempotent, and pushes a valid job to Redis', async () => {
     const id = await insertFile();
@@ -128,6 +133,19 @@ describe('drawing view routes', () => {
       projectId: project,
       attempt: 1,
     });
+  });
+
+  it('requeues a view stuck in queued once it is older than the stale limit', async () => {
+    const id = await insertFile();
+    await as(admin)(http().post(viewUrl(id))).expect(202);
+    expect(await queuedJobs(id)).toHaveLength(1);
+
+    await ctx.pool.query(
+      `UPDATE cad_files SET view_queued_at = now() - interval '20 minutes' WHERE id = $1`,
+      [id],
+    );
+    await as(admin)(http().post(viewUrl(id))).expect(202);
+    expect(await queuedJobs(id)).toHaveLength(2);
   });
 
   it('refuses a file that is not processed, and a role without design:write', async () => {
@@ -182,7 +200,7 @@ describe('drawing view routes', () => {
     ).expect(200);
     expect(res.headers['content-type']).toContain('application/json');
     expect(res.headers['content-encoding']).toBe('gzip');
-    expect(res.headers['cache-control']).toBe('private, max-age=300');
+    expect(res.headers['cache-control']).toBe('private, no-store');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect((res.body as Buffer).equals(gz)).toBe(true);
 
@@ -202,5 +220,19 @@ describe('drawing view routes', () => {
       [id],
     );
     expect(row.rows[0]?.view_job_id).toBeNull();
+  });
+});
+
+describe('drawing view rate limit', () => {
+  it('answers 429 RATE_LIMITED with Retry-After once the budget is spent', async () => {
+    const id = await insertFile();
+    let last = 202;
+    for (let i = 0; i < 12 && last === 202; i += 1) {
+      last = (await as(admin)(http().post(viewUrl(id)))).status;
+    }
+    expect(last).toBe(429);
+    const res = await as(admin)(http().post(viewUrl(id))).expect(429);
+    expect(res.headers['retry-after']).toBeDefined();
+    expect(res.body).toMatchObject({ code: 'RATE_LIMITED' });
   });
 });

@@ -8,6 +8,7 @@ import { openApiSchema } from '../../../common/openapi.js';
 import { PermissionGuard, RequirePermission } from '../../../common/permission.guard.js';
 import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
+import { DrawingViewRateLimitGuard } from './drawing-view-rate-limit.guard.js';
 import {
   GetDrawingViewContentUseCase,
   GetDrawingViewStateUseCase,
@@ -37,6 +38,7 @@ export class DrawingViewController {
   }
 
   @Post()
+  @UseGuards(DrawingViewRateLimitGuard)
   @HttpCode(202)
   @RequirePermission('design:write')
   @ApiOkResponse({ schema: openApiSchema(DrawingViewStateSchema) })
@@ -59,7 +61,7 @@ export class DrawingViewController {
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Content-Encoding', 'gzip');
     response.setHeader('Content-Length', String(sizeBytes));
-    response.setHeader('Cache-Control', 'private, max-age=300');
+    response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     stream.on('error', (error) => response.destroy(error));
     stream.pipe(response);

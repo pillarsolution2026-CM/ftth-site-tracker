@@ -11,3 +11,6 @@ export const GPS_PROPOSAL_REPOSITORY = 'GPS_PROPOSAL_REPOSITORY';
 export const PROJECT_EPSG_LOOKUP = 'CAD_PROJECT_EPSG_LOOKUP';
 /** `{ secret, publicUrl } | null`: signed tile URLs are off when TILE_URL_SECRET/TILES_PUBLIC_URL are unset. */
 export const TILE_CONFIG = 'CAD_TILE_CONFIG';
+/** Per-user limiter of POST …/view (security review L5), 10 per 10 minutes. */
+export const DRAWING_VIEW_RATE_LIMITER = 'CAD_DRAWING_VIEW_RATE_LIMITER';
+export const DRAWING_VIEW_RATE_BUDGET = 'CAD_DRAWING_VIEW_RATE_BUDGET';

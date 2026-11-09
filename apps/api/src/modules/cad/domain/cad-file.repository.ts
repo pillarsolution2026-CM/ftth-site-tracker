@@ -43,10 +43,16 @@ export interface CadFileRepository {
   /** The drawing view state of the file (ADR-039); null when the file is not in the project. */
   findView(projectId: string, cadFileId: string): Promise<DrawingViewRecord | null>;
   /**
-   * none | failed → queued with a new view job id (clears key, size, error). Returns false when
-   * the view is already queued or ready (nothing changes).
+   * none | failed | queued-before-`staleBefore` → queued with a new view job id and `queuedAt`
+   * (clears key, size, error). Returns false when the view is fresh-queued or ready.
    */
-  markViewQueued(projectId: string, cadFileId: string, jobId: string): Promise<boolean>;
+  markViewQueued(
+    projectId: string,
+    cadFileId: string,
+    jobId: string,
+    queuedAt: Date,
+    staleBefore: Date,
+  ): Promise<boolean>;
   /** queued → failed (QUEUE_UNAVAILABLE), only if `jobId` is still the current view job. */
   markViewEnqueueFailed(projectId: string, cadFileId: string, jobId: string): Promise<boolean>;
   /** Technical log of the last processing run (may be long); null if none. */

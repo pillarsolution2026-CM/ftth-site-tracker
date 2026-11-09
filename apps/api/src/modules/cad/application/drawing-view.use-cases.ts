@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 import { Logger } from '@nestjs/common';
-import type { DrawingViewState } from '@ftth/shared';
+import { CAD_STALE_AFTER_MINUTES, type DrawingViewState } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import type { ObjectStorage } from '../../../common/object-storage.port.js';
@@ -44,6 +44,8 @@ export class RequestDrawingViewUseCase {
 
   async execute(projectId: string, cadFileId: string): Promise<DrawingViewState> {
     const jobId = this.ids.next();
+    const now = this.clock.now();
+    const staleBefore = new Date(now.getTime() - CAD_STALE_AFTER_MINUTES * 60_000);
     const queued = await this.uow.run(async (tx) => {
       const file = await tx.files.find(projectId, cadFileId, { lock: true });
       if (!file) throw new AppError('NOT_FOUND', 'CAD file not found');
@@ -53,7 +55,7 @@ export class RequestDrawingViewUseCase {
           status: file.status,
         });
       }
-      return tx.files.markViewQueued(projectId, cadFileId, jobId);
+      return tx.files.markViewQueued(projectId, cadFileId, jobId, now, staleBefore);
     });
 
     if (queued) {

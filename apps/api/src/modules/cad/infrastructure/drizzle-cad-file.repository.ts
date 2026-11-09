@@ -1,5 +1,5 @@
 import { CrsDetectionSchema } from '@ftth/shared';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or } from 'drizzle-orm';
 import type { DbHandle } from '../../../db/db.module.js';
 import { cadFiles } from '../../../db/schema.js';
 import type { CadFile, DrawingViewRecord } from '../domain/cad-file.js';
@@ -71,6 +71,7 @@ const NO_VIEW = {
   viewSizeBytes: null,
   viewErrorCode: null,
   viewRenderedAt: null,
+  viewQueuedAt: null,
 };
 
 const inProject = (projectId: string, cadFileId: string) =>
@@ -157,6 +158,7 @@ export class DrizzleCadFileRepository implements CadFileRepository {
         sizeBytes: cadFiles.viewSizeBytes,
         errorCode: cadFiles.viewErrorCode,
         renderedAt: cadFiles.viewRenderedAt,
+        queuedAt: cadFiles.viewQueuedAt,
       })
       .from(cadFiles)
       .where(inProject(projectId, cadFileId));
@@ -165,11 +167,25 @@ export class DrizzleCadFileRepository implements CadFileRepository {
     return { cadFileId: id, ...rest };
   }
 
-  async markViewQueued(projectId: string, cadFileId: string, jobId: string): Promise<boolean> {
+  async markViewQueued(
+    projectId: string,
+    cadFileId: string,
+    jobId: string,
+    queuedAt: Date,
+    staleBefore: Date,
+  ): Promise<boolean> {
     const updated = await this.db
       .update(cadFiles)
-      .set({ ...NO_VIEW, viewStatus: 'queued', viewJobId: jobId })
-      .where(and(inProject(projectId, cadFileId), inArray(cadFiles.viewStatus, ['none', 'failed'])))
+      .set({ ...NO_VIEW, viewStatus: 'queued', viewJobId: jobId, viewQueuedAt: queuedAt })
+      .where(
+        and(
+          inProject(projectId, cadFileId),
+          or(
+            inArray(cadFiles.viewStatus, ['none', 'failed']),
+            and(eq(cadFiles.viewStatus, 'queued'), lt(cadFiles.viewQueuedAt, staleBefore)),
+          ),
+        ),
+      )
       .returning({ id: cadFiles.id });
     return updated.length > 0;
   }
@@ -181,7 +197,7 @@ export class DrizzleCadFileRepository implements CadFileRepository {
   ): Promise<boolean> {
     const updated = await this.db
       .update(cadFiles)
-      .set({ viewStatus: 'failed', viewErrorCode: 'QUEUE_UNAVAILABLE' })
+      .set({ viewStatus: 'failed', viewErrorCode: 'QUEUE_UNAVAILABLE', viewQueuedAt: null })
       .where(
         and(
           inProject(projectId, cadFileId),

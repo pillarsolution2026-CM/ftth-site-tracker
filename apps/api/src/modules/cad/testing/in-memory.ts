@@ -116,11 +116,20 @@ export class InMemoryCadFiles implements CadFileRepository {
           sizeBytes: null,
           errorCode: null,
           renderedAt: null,
+          queuedAt: null,
         };
   }
-  async markViewQueued(projectId: string, cadFileId: string, jobId: string): Promise<boolean> {
+  async markViewQueued(
+    projectId: string,
+    cadFileId: string,
+    jobId: string,
+    queuedAt: Date,
+    staleBefore: Date,
+  ): Promise<boolean> {
     const view = await this.findView(projectId, cadFileId);
-    if (!view || (view.status !== 'none' && view.status !== 'failed')) return false;
+    if (!view) return false;
+    const stale = view.status === 'queued' && view.queuedAt !== null && view.queuedAt < staleBefore;
+    if (view.status !== 'none' && view.status !== 'failed' && !stale) return false;
     this.views.set(cadFileId, {
       cadFileId,
       status: 'queued',
@@ -129,6 +138,7 @@ export class InMemoryCadFiles implements CadFileRepository {
       sizeBytes: null,
       errorCode: null,
       renderedAt: null,
+      queuedAt,
     });
     return true;
   }

@@ -1,5 +1,9 @@
 import { Readable } from 'node:stream';
-import { CadRenderViewJobSchema, DrawingViewStateSchema } from '@ftth/shared';
+import {
+  CAD_STALE_AFTER_MINUTES,
+  CadRenderViewJobSchema,
+  DrawingViewStateSchema,
+} from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
 import { InMemoryObjectStorage } from '../../../common/testing/in-memory-object-storage.js';
@@ -81,6 +85,7 @@ const readyView = () =>
     sizeBytes: 4,
     errorCode: null,
     renderedAt: clock.now(),
+    queuedAt: null,
   });
 
 describe('GetDrawingViewStateUseCase', () => {
@@ -120,6 +125,7 @@ describe('RequestDrawingViewUseCase', () => {
       sizeBytes: null,
       errorCode: 'RENDER_FAILED',
       renderedAt: null,
+      queuedAt: null,
     });
     const result = await request.execute(PROJECT, FILE);
 
@@ -133,6 +139,21 @@ describe('RequestDrawingViewUseCase', () => {
     const again = await request.execute(PROJECT, FILE);
     expect(again.status).toBe('queued');
     expect(queue.viewJobs).toHaveLength(1);
+  });
+
+  it('requeues a queued view older than the stale limit, with a new job id', async () => {
+    await request.execute(PROJECT, FILE);
+    const firstJob = queue.viewJobs[0]?.id;
+    clock.advanceMinutes(CAD_STALE_AFTER_MINUTES - 1);
+    await request.execute(PROJECT, FILE);
+    expect(queue.viewJobs).toHaveLength(1);
+
+    clock.advanceMinutes(2);
+    const result = await request.execute(PROJECT, FILE);
+    expect(result.status).toBe('queued');
+    expect(queue.viewJobs).toHaveLength(2);
+    expect(queue.viewJobs[1]?.id).not.toBe(firstJob);
+    expect(uow.files.views.get(FILE)?.jobId).toBe(queue.viewJobs[1]?.id);
   });
 
   it('is idempotent when ready: state returned, no job', async () => {

@@ -6,6 +6,7 @@ import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.
 import { PermissionGuard } from '../../common/permission.guard.js';
 import { APP_ENV } from '../../config/config.module.js';
 import { DB, type Database } from '../../db/db.module.js';
+import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rate-limiter.js';
 import { IdentityModule } from '../identity/identity.module.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
@@ -65,6 +66,8 @@ import {
   CAD_UNIT_OF_WORK,
   DESIGN_READ_QUERIES,
   DESIGN_REVISION_REPOSITORY,
+  DRAWING_VIEW_RATE_BUDGET,
+  DRAWING_VIEW_RATE_LIMITER,
   DRAWING_PROBLEM_REPOSITORY,
   GPS_PROPOSAL_REPOSITORY,
   JOB_QUEUE,
@@ -106,11 +109,18 @@ import { CadExtractionController } from './interface/cad-extraction.controller.j
 import { CadFilesController } from './interface/cad-files.controller.js';
 import { CadMappingController } from './interface/cad-mapping.controller.js';
 import { DesignRevisionsController } from './interface/design-revisions.controller.js';
+import { DrawingViewRateLimitGuard } from './interface/drawing-view-rate-limit.guard.js';
 import { DrawingViewController } from './interface/drawing-view.controller.js';
 import { TilesVerifyController } from './interface/tiles-verify.controller.js';
 
 const providers: Provider[] = [
   PermissionGuard,
+  DrawingViewRateLimitGuard,
+  {
+    provide: DRAWING_VIEW_RATE_LIMITER,
+    useFactory: () => new FixedWindowRateLimiter(systemClock, 10 * 60_000),
+  },
+  { provide: DRAWING_VIEW_RATE_BUDGET, useValue: 10 },
   {
     provide: JOB_QUEUE,
     inject: [APP_ENV],
