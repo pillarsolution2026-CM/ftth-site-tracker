@@ -44,6 +44,9 @@ ProblemCode = Literal[
     "SPARE_CORES_MISMATCH",
     "CABLE_SLACK_TOO_SHORT",
     "CABLE_SLACK_TOO_LONG",
+    "BOX_CABINET_UNKNOWN",
+    "CABINET_NAME_DUPLICATE",
+    "CONNECTOR_SIZE_MISSING",
 ]
 PROBLEM_CODES: tuple[ProblemCode, ...] = (
     "ROUTE_SPLIT",
@@ -62,6 +65,10 @@ PROBLEM_CODES: tuple[ProblemCode, ...] = (
     "SPARE_CORES_MISMATCH",
     "CABLE_SLACK_TOO_SHORT",
     "CABLE_SLACK_TOO_LONG",
+    # Owner answers to the ADR-041 questions (2026-11-11).
+    "BOX_CABINET_UNKNOWN",
+    "CABINET_NAME_DUPLICATE",
+    "CONNECTOR_SIZE_MISSING",
 )
 # Display hint only (ADR-038); what blocks publishing is decided by the code (BLOCKS).
 SEVERITY: Mapping[ProblemCode, str] = {
@@ -81,6 +88,9 @@ SEVERITY: Mapping[ProblemCode, str] = {
     "SPARE_CORES_MISMATCH": "error",
     "CABLE_SLACK_TOO_SHORT": "error",
     "CABLE_SLACK_TOO_LONG": "warning",
+    "BOX_CABINET_UNKNOWN": "error",
+    "CABINET_NAME_DUPLICATE": "error",
+    "CONNECTOR_SIZE_MISSING": "error",
 }
 # `DRAWING_PROBLEM_BLOCKS`: every code blocks publishing except a cable longer than its bundle by
 # more than 30 m (ADR-040).

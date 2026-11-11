@@ -6,7 +6,8 @@ before: a `set_text` / `add_text` / `move_layer` fixes role texts too). Mirror o
 
 - Role texts: readable texts on layers whose rule carries `textRoles`, read by `read_role_text`
   (unread texts mean nothing and are left alone). Texts made into features by a `text` rule are
-  not read.
+  not read. A handhole type outside the list takes the type the PM confirmed for that spelling on
+  the text's layer (`handholeTypeAliases`, owner 2026-11-11); unconfirmed it stays unknown.
 - Linking: a role text goes to a feature of `TEXT_ROLE_FEATURE[role]` within the ADR-019 radius
   (`role_link_radius_m(text height)`), distance to the point or to the line. Pairs are one-to-one,
   nearest first, ties by handles (as `pair_labels`): a feature takes one text per role — a route
@@ -31,7 +32,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from itertools import pairwise
 
@@ -199,6 +200,10 @@ def role_texts(
         if reading is None:
             unread += 1 if js_trim(t.text) else 0
             continue
+        if reading.role == "handhole_type" and reading.handhole_type is None:
+            confirmed = rules.confirmed_handhole_type(t.layer, reading.written or "")
+            if confirmed is not None:
+                reading = replace(reading, handhole_type=confirmed)
         out.append(
             RoleText(
                 t.handle,

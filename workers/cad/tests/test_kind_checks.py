@@ -38,11 +38,11 @@ def brief(items: list[dict[str, object]]) -> list[tuple[object, ...]]:
 
 
 def test_severities_and_blocking_mirror_the_contract() -> None:
-    assert len(PROBLEM_CODES) == 16
+    assert len(PROBLEM_CODES) == 19
     assert [c for c in PROBLEM_CODES if not BLOCKS[c]] == ["CABLE_SLACK_TOO_LONG"]
     assert SEVERITY["CABLE_SLACK_TOO_LONG"] == "warning"
     assert SEVERITY["ROUTE_SPLIT"] == "warning" and BLOCKS["ROUTE_SPLIT"]
-    assert all(SEVERITY[c] == "error" for c in PROBLEM_CODES[6:15])
+    assert all(SEVERITY[c] == "error" for c in (*PROBLEM_CODES[6:15], *PROBLEM_CODES[16:]))
 
 
 def test_clean_drawings_have_no_problems() -> None:
@@ -117,8 +117,8 @@ def test_handhole_number_with_a_symbol_in_reach_is_drawn() -> None:
 def test_two_boxes_with_one_number_under_one_cabinet() -> None:
     found = places(with_text(secondary_drawing(), "N2", "1"), "secondary")
     assert brief(found["BOX_NUMBER_DUPLICATE"]) == [
-        ("N1", None, {"cabinet": "1-3", "boxNumber": "1", "featureHandle": "B1"}),
-        ("N2", None, {"cabinet": "1-3", "boxNumber": "1", "featureHandle": "B2"}),
+        ("N1", None, {"cabinet": "1-3", "boxNumber": "1", "found": "1", "featureHandle": "B1"}),
+        ("N2", None, {"cabinet": "1-3", "boxNumber": "1", "found": "1", "featureHandle": "B2"}),
     ]
     # Same number under another cabinet is fine.
     assert "BOX_NUMBER_DUPLICATE" not in places(

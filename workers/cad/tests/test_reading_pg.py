@@ -115,7 +115,14 @@ def test_a_secondary_is_read_by_meaning_and_stored(
     # No 1way bundle in this drawing: neither box is reached.
     assert problems["BOX_NOT_REACHED"]["severity"] == "error"
     assert sorted(i["handle"] for i in problems["BOX_NOT_REACHED"]["items"]) == ["I1", "I2"]
-    assert "LABEL_MISSING" not in problems and "CABINET_BOX_COUNT_MISMATCH" not in problems
+    assert "CABINET_BOX_COUNT_MISMATCH" not in problems
+    # Owner answer Q5 (2026-11-11): both boxes are named but have no cable type written (no layer
+    # of this mapping carries box_cable_type, so no layer is suggested).
+    missing = problems["LABEL_MISSING"]["items"]
+    assert sorted((i["handle"], i["suggestedLayer"], i["params"]["role"]) for i in missing) == [
+        ("I1", None, "box_cable_type"),
+        ("I2", None, "box_cable_type"),
+    ]
     # Role texts are never text links; the Phase-1 label layers still are.
     linked = {
         h

@@ -7,42 +7,59 @@ problems fixed by editing a text, else the symbol; `params.featureHandle` names 
 
 | code | kind | place |
 | LABEL_TYPE_MISMATCH (route) | both | bundle type text (labelWays ≠ rule ways) |
-| LABEL_MISSING (roles) | both | symbol: box number / cabinet, hhi number, sub cabinet name |
+| LABEL_MISSING (roles) | both | symbol: box cabinet / number / cable type / cable length, hhi
+|   number, sub cabinet name (+ box count in a Secondary), route on a `ways` layer: bundle label
+|   (+ cable label in a General) |
 | LABEL_LENGTH_MISSING (roles) | both | bundle type text without length, cable text without length |
 | HANDHOLE_TYPE_MISSING / _UNKNOWN / _NOT_DRAWN | general | symbol / type text / number text |
 | BOX_NUMBER_DUPLICATE / BOX_NOT_REACHED | secondary | number text / symbol |
+| BOX_CABINET_UNKNOWN | secondary | box cabinet text naming no cabinet of the drawing |
 | CABINET_BOX_COUNT_MISMATCH / CABINET_ZONE_MISSING | secondary | «nB» text / symbol |
+| CABINET_NAME_DUPLICATE | both | name text of each cabinet sharing a `cabinetNameKey` |
+| CONNECTOR_SIZE_MISSING | secondary | 1way bundle type text with no duct size |
 | SPARE_CORES_MISMATCH / CABLE_SLACK_TOO_SHORT / _TOO_LONG | general | SP text / cable text |
 
 A required role text is only asked for when the drawing kind reads that role
-(`TEXT_ROLES_BY_KIND`): a General has no box numbers to write.
+(`TEXT_ROLES_BY_KIND`): a General has no box numbers to write. A feature missing several texts has
+one LABEL_MISSING place (the place key is code + handle), for the first missing one in `_needs`
+order (identity first); the next one shows once that one is written.
+
+Owner answers to the ADR-041 questions (2026-11-11), «anything unclear is an error»:
+- Q2: a handhole type the PM confirmed (`handholeTypeAliases`) is read as its list type
+  (`role_reading.role_texts`), so it is no HANDHOLE_TYPE_UNKNOWN.
+- Q3: a route with no bundle TYPE text is LABEL_MISSING (bundle_label), also when a length-only
+  text is linked to it; a route with a type text but no length stays LABEL_LENGTH_MISSING on that
+  text. The two never name the same route.
+- Q4: «SP n» is checked against its own main cable (`_spare_cores`).
+- Q5-Q7: BOX_CABINET_UNKNOWN, the box count / box cable LABEL_MISSING, CABINET_NAME_DUPLICATE,
+  box numbers compared without leading zeros.
+- Q8: a 1way with no bundle label at all is LABEL_MISSING, not CONNECTOR_SIZE_MISSING.
 """
 
 from __future__ import annotations
 
-from bisect import bisect_left
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
-from itertools import accumulate
 
 from shapely import STRtree
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 
-from cad_worker.domain.design import DesignFeatureDraft, FeatureKey
+from cad_worker.domain.design import DesignFeatureDraft, Xy
 from cad_worker.domain.design_build import MappingRules
 from cad_worker.domain.drawing_checks import PROBLEM_CODES, ProblemCode, ProblemItem
 from cad_worker.domain.role_reading import (
     BOX_REACH_M,
+    CONNECTOR_TOUCH_M,
     FeatureTexts,
     Reading,
     RoleText,
     role_text_layers,
 )
 from cad_worker.domain.text_roles import (
-    TEXT_ROLES,
     TEXT_ROLES_BY_KIND,
     CabinetInfoField,
+    DrawingKind,
     TextRole,
     cabinet_name_key,
 )
@@ -51,13 +68,28 @@ from cad_worker.domain.text_roles import (
 CABLE_SLACK_MIN_M = Decimal("15")
 CABLE_SLACK_WARN_ABOVE_M = Decimal("30")
 _MILLI = Decimal("0.001")
+# Technical tolerances of the cable network (owner answer Q4), set on the Al-Fath General: pieces
+# of one network meet where an end lies on another route (as a connector), or where their ends lie
+# near one joint / handhole symbol (the Al-Fath main is cut at handhole 04B and its pieces end
+# 3.4-4.8 m from the symbol; route ends elsewhere are 50 m or more from any symbol).
+CABLE_TOUCH_M = CONNECTOR_TOUCH_M
+NODE_REACH_M = 6.0
+_NODE_TYPES = frozenset({"joint", "hhi", "mh"})
 
-# Feature type -> the role texts it needs (+ cabinet_info field); sub cabinets only need a name.
-_REQUIRED: Mapping[str, tuple[tuple[TextRole, CabinetInfoField | None], ...]] = {
-    "box": (("box_cabinet", None), ("box_number", None)),
-    "hhi": (("handhole_number", None),),
-    "cabinet": (("cabinet_info", "name"),),
-}
+# A role text a feature needs: (role, cabinet_info field, the slot it fills on the feature).
+_Need = tuple[TextRole, CabinetInfoField | None, str]
+_BOX_NEEDS: tuple[_Need, ...] = (
+    ("box_cabinet", None, "box_cabinet"),
+    ("box_number", None, "box_number"),
+    ("box_cable_type", None, "box_cable_type"),
+    ("box_cable_length", None, "box_cable_length"),
+)
+_ROUTE_NEEDS: tuple[_Need, ...] = (
+    ("bundle_label", None, "bundle_label:type"),
+    ("cable_label", None, "cable_label"),
+)
+_CABINET_NAME: _Need = ("cabinet_info", "name", "cabinet_info:name")
+_CABINET_BOX_COUNT: _Need = ("cabinet_info", "box_count", "cabinet_info:box_count")
 
 Problems = dict[ProblemCode, list[ProblemItem]]
 
@@ -77,17 +109,20 @@ def check_kind(
     for f in features:
         ft = texts.get(f.key, FeatureTexts())
         if f.is_route:
-            _route_labels(f, ft, reading, problems)
-        missing = _missing_role(f, ft, roles)
+            _route_labels(f, ft, reading, rules, problems)
+        missing = _missing_role(f, ft, roles, kind, rules)
         if missing is not None and f.source_handle not in phase1_missing:
-            role, info_field = missing
+            role, info_field, _ = missing
             layers = role_text_layers(rules, role)
             params: dict[str, object] = {"role": role}
             if info_field is not None:
                 params["field"] = info_field
+            if info_field == "box_count":
+                drawn = reading.reading_of(f.key).get("boxesDrawn")
+                params["suggested"] = str(drawn if isinstance(drawn, int) else 0)
             problems["LABEL_MISSING"].append(
                 ProblemItem(
-                    f.coords[0],
+                    _place_of(f),
                     f.layer,
                     f.source_handle,
                     layers[0] if layers else None,
@@ -96,6 +131,7 @@ def check_kind(
                 )
             )
     _unpaired_cable_lengths(reading, problems)
+    _cabinet_names(features, reading, problems)
     if kind == "general":
         _handholes(features, reading, rules, problems)
         _spare_cores(features, reading, problems)
@@ -110,29 +146,64 @@ def _text_item(t: RoleText, params: Mapping[str, object] | None = None) -> Probl
     return ProblemItem(t.position, t.layer, t.handle, None, t.text, params)
 
 
+def _place_of(f: DesignFeatureDraft) -> Xy:
+    """A symbol's point; a route's middle (half its drawn length)."""
+    if not f.is_route or len(f.coords) < 2:
+        return f.coords[0]
+    middle = LineString(f.coords).interpolate(0.5, normalized=True)
+    return (float(middle.x), float(middle.y))
+
+
+def _needs(f: DesignFeatureDraft, kind: DrawingKind, rules: MappingRules) -> tuple[_Need, ...]:
+    """The role texts a feature needs, identity first. Sub cabinets need a name, and in a Secondary
+    their box count; a route on a `ways` layer needs its bundle label and its cable label (read in
+    a General only, `TEXT_ROLES_BY_KIND`)."""
+    if f.feature_type == "box":
+        return _BOX_NEEDS
+    if f.feature_type == "hhi":
+        return (("handhole_number", None, "handhole_number"),)
+    if f.feature_type == "cabinet":
+        if f.attrs.get("role") != "sub":
+            return ()
+        return (_CABINET_NAME, _CABINET_BOX_COUNT) if kind == "secondary" else (_CABINET_NAME,)
+    if f.is_route and rules.ways.get(f.layer) is not None:
+        return _ROUTE_NEEDS
+    return ()
+
+
 def _missing_role(
-    f: DesignFeatureDraft, ft: FeatureTexts, roles: Sequence[TextRole]
-) -> tuple[TextRole, CabinetInfoField | None] | None:
-    if f.feature_type == "cabinet" and f.attrs.get("role") != "sub":
-        return None
-    needed = sorted(
-        (r for r in _REQUIRED.get(f.feature_type, ()) if r[0] in roles),
-        key=lambda r: TEXT_ROLES.index(r[0]),
-    )
-    for role, info_field in needed:
-        slot = f"{role}:{info_field}" if info_field else role
-        if ft.one(slot) is None:
-            return role, info_field
+    f: DesignFeatureDraft,
+    ft: FeatureTexts,
+    roles: Sequence[TextRole],
+    kind: DrawingKind,
+    rules: MappingRules,
+) -> _Need | None:
+    for need in _needs(f, kind, rules):
+        if need[0] in roles and ft.one(need[2]) is None:
+            return need
     return None
 
 
 def _route_labels(
-    f: DesignFeatureDraft, ft: FeatureTexts, reading: Reading, problems: Problems
+    f: DesignFeatureDraft,
+    ft: FeatureTexts,
+    reading: Reading,
+    rules: MappingRules,
+    problems: Problems,
 ) -> None:
     r = reading.reading_of(f.key)
     label = ft.one("bundle_label:type")
     if label is None:
         return
+    if (
+        reading.drawing_kind == "secondary"
+        and rules.ways.get(f.layer) == 1
+        and label.reading.duct_size is None
+    ):
+        # Owner Q8: the 1way's connectors and end caps take their size from this label.
+        problems["CONNECTOR_SIZE_MISSING"].append(
+            _text_item(label, {"featureHandle": f.source_handle})
+        )
     ways, label_ways = r.get("ways"), r.get("labelWays")
     if ways is not None and label_ways is not None and ways != label_ways:
         problems["LABEL_TYPE_MISMATCH"].append(
@@ -161,6 +232,26 @@ def _unpaired_cable_lengths(reading: Reading, problems: Problems) -> None:
             if feature is not None:
                 params["featureHandle"] = feature[1]
             problems["LABEL_LENGTH_MISSING"].append(_text_item(t, params))
+
+
+def _cabinet_names(
+    features: Sequence[DesignFeatureDraft], reading: Reading, problems: Problems
+) -> None:
+    """Owner Q6: two cabinets (main or sub) with one name; one place per cabinet, on its name."""
+    by_name: dict[str, list[tuple[DesignFeatureDraft, RoleText]]] = defaultdict(list)
+    for f in features:
+        if f.feature_type != "cabinet":
+            continue
+        name = reading.feature_texts.get(f.key, FeatureTexts()).one("cabinet_info:name")
+        if name is not None and name.reading.value:
+            by_name[cabinet_name_key(name.reading.value)].append((f, name))
+    for key, same in sorted(by_name.items()):
+        if len(same) < 2:
+            continue
+        for f, name in same:
+            problems["CABINET_NAME_DUPLICATE"].append(
+                _text_item(name, {"cabinet": key, "featureHandle": f.source_handle})
+            )
 
 
 # ---------- General ----------
@@ -218,24 +309,57 @@ def _handholes(
 def _spare_cores(
     features: Sequence[DesignFeatureDraft], reading: Reading, problems: Problems
 ) -> None:
-    """Provisional rule (ADR-041 Q4): main cores = cores of the cable on the route the «SP n»
-    text links to; branch cores = Σ cores of the cable labels (one per route) with fewer cores."""
-    cores_by_route: dict[FeatureKey, int] = {}
-    for f in features:
-        cores = reading.reading_of(f.key).get("cableCores")
-        if f.is_route and isinstance(cores, int):
-            cores_by_route[f.key] = cores
-    # Σ cores below a value = prefix sum up to its first position in the sorted cores.
-    sorted_cores = sorted(cores_by_route.values())
-    below = [0, *accumulate(sorted_cores)]
+    """Owner Q4: «SP n» = its main cable's cores - Σ cores of the branch cables leaving that cable.
+
+    The main cable is the cable of the route the SP text is linked to. Routes form networks
+    (`_cable_networks`): a network with one main cable gives it every cable with fewer cores; in a
+    network with several main cables (several SP texts on cables of different cores) each route
+    goes to the main cable it is fewest route pieces away from (ties: the smaller handle's), and
+    each main counts the cables with fewer cores that went to it. Unlabelled pieces carry nothing
+    but still connect. A branch of a branch is not told apart: it counts, so the SP check then
+    fails and the PM looks at it (anything unclear is an error)."""
+    routes = [f for f in features if f.is_route and len(f.coords) >= 2]
+    index = {f.key: n for n, f in enumerate(routes)}
+    cores: list[int | None] = []
+    for f in routes:
+        value = reading.reading_of(f.key).get("cableCores")
+        cores.append(value if isinstance(value, int) and not isinstance(value, bool) else None)
+    spares: list[tuple[RoleText, int]] = []
     for t in reading.texts:
         if t.reading.role != "cable_spare" or t.reading.cores is None:
             continue
         route = reading.text_feature.get(t.handle)
-        main = cores_by_route.get(route) if route is not None else None
-        if route is None or main is None:
+        n = index.get(route) if route is not None else None
+        if n is not None and cores[n] is not None:
+            spares.append((t, n))
+    if not spares:
+        return
+    neighbours = _cable_networks(routes, [f for f in features if f.feature_type in _NODE_TYPES])
+    mains = {cores[n] for _, n in spares}
+    sources = sorted(
+        (n for n, c in enumerate(cores) if c in mains), key=lambda n: routes[n].source_handle
+    )
+    owner: dict[int, int] = {n: n for n in sources}
+    queue = deque(sources)
+    while queue:
+        n = queue.popleft()
+        for m in neighbours[n]:
+            if m not in owner:
+                owner[m] = owner[n]
+                queue.append(m)
+    # Branch cores per (network, main cores): a main cable drawn in several pieces (one label per
+    # piece) sums the branches of all its pieces.
+    component = _components(neighbours)
+    branch_cores: dict[tuple[int, int], int] = defaultdict(int)
+    for m, source in owner.items():
+        c, main_of = cores[m], cores[source]
+        if c is not None and main_of is not None and c < main_of:
+            branch_cores[(component[source], main_of)] += c
+    for t, n in spares:
+        main = cores[n]
+        if main is None:
             continue
-        branches = below[bisect_left(sorted_cores, main)]
+        branches = branch_cores.get((component[n], main), 0)
         expected = main - branches
         if expected != t.reading.cores:
             problems["SPARE_CORES_MISMATCH"].append(
@@ -245,10 +369,56 @@ def _spare_cores(
                         "expected": str(expected),
                         "found": str(t.reading.cores),
                         "mainCores": main,
-                        "featureHandle": route[1],
+                        "featureHandle": routes[n].source_handle,
                     },
                 )
             )
+
+
+def _cable_networks(
+    routes: Sequence[DesignFeatureDraft], nodes: Sequence[DesignFeatureDraft]
+) -> list[list[int]]:
+    """Route -> the routes it meets (sorted): an end within CABLE_TOUCH_M of the other route, or
+    ends of both within NODE_REACH_M of one joint / handhole symbol."""
+    linked: list[set[int]] = [set() for _ in routes]
+    if not routes:
+        return []
+    tree = STRtree([LineString(f.coords) for f in routes])
+    ends = [Point(p) for f in routes for p in (f.coords[0], f.coords[-1])]
+    left, right = tree.query(ends, predicate="dwithin", distance=CABLE_TOUCH_M)
+    for e, j in zip(left.tolist(), right.tolist(), strict=True):
+        i = e // 2
+        if i != j:
+            linked[i].add(j)
+            linked[j].add(i)
+    if nodes:
+        end_tree = STRtree(ends)
+        points = [Point(f.coords[0]) for f in nodes]
+        at, hit = end_tree.query(points, predicate="dwithin", distance=NODE_REACH_M)
+        meeting: dict[int, set[int]] = defaultdict(set)
+        for node, e in zip(at.tolist(), hit.tolist(), strict=True):
+            meeting[node].add(e // 2)
+        for members in meeting.values():
+            for i in members:
+                linked[i].update(members - {i})
+    return [sorted(s) for s in linked]
+
+
+def _components(neighbours: Sequence[Sequence[int]]) -> list[int]:
+    """Route -> the smallest route index of its network."""
+    out = [-1] * len(neighbours)
+    for start in range(len(neighbours)):
+        if out[start] >= 0:
+            continue
+        out[start] = start
+        queue = deque([start])
+        while queue:
+            n = queue.popleft()
+            for m in neighbours[n]:
+                if out[m] < 0:
+                    out[m] = start
+                    queue.append(m)
+    return out
 
 
 def _cable_slack(reading: Reading, problems: Problems) -> None:
@@ -277,24 +447,48 @@ def _cable_slack(reading: Reading, problems: Problems) -> None:
 # ---------- Secondary ----------
 
 
+def box_number_key(number: str) -> str:
+    """Owner Q7: «09» and «9» are one box number (leading zeros dropped; «00» = «0»)."""
+    return number.strip().lstrip("0") or "0"
+
+
 def _boxes(features: Sequence[DesignFeatureDraft], reading: Reading, problems: Problems) -> None:
     boxes = [f for f in features if f.feature_type == "box"]
-    by_identity: dict[tuple[str, str], list[DesignFeatureDraft]] = defaultdict(list)
+    cabinets = {
+        cabinet_name_key(name)
+        for f in features
+        if f.feature_type == "cabinet"
+        and isinstance(name := reading.reading_of(f.key).get("name"), str)
+    }
+    by_identity: dict[tuple[str, str], list[tuple[DesignFeatureDraft, str]]] = defaultdict(list)
     for f in boxes:
         r = reading.reading_of(f.key)
         cabinet, number = r.get("cabinet"), r.get("number")
+        if isinstance(cabinet, str) and cabinet_name_key(cabinet) not in cabinets:
+            text = reading.feature_texts[f.key].one("box_cabinet")
+            if text is not None:
+                problems["BOX_CABINET_UNKNOWN"].append(
+                    _text_item(text, {"cabinet": cabinet, "featureHandle": f.source_handle})
+                )
         if isinstance(cabinet, str) and isinstance(number, str):
-            by_identity[(cabinet_name_key(cabinet), number.strip())].append(f)
+            key = (cabinet_name_key(cabinet), box_number_key(number))
+            by_identity[key].append((f, number.strip()))
     for (cabinet, number), same in sorted(by_identity.items()):
         if len(same) < 2:
             continue
-        for f in same:
+        written = ", ".join(sorted({w for _, w in same}))
+        for f, _ in same:
             text = reading.feature_texts[f.key].one("box_number")
             if text is not None:
                 problems["BOX_NUMBER_DUPLICATE"].append(
                     _text_item(
                         text,
-                        {"cabinet": cabinet, "boxNumber": number, "featureHandle": f.source_handle},
+                        {
+                            "cabinet": cabinet,
+                            "boxNumber": number,
+                            "found": written,
+                            "featureHandle": f.source_handle,
+                        },
                     )
                 )
     ends = [Point(p) for p in reading.one_way_ends]
