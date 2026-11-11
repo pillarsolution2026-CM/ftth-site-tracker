@@ -20,6 +20,8 @@ export * from './cad/crs-detection.schemas.js';
 export * from './cad/text-roles.js';
 export * from './cad/cad-mapping.schemas.js';
 export * from './cad/placement.schemas.js';
+export * from './cad/secondary-placement.schemas.js';
+export * from './cad/installation.schemas.js';
 export * from './cad/gps-proposal.schemas.js';
 export * from './cad/drawing-corrections.schemas.js';
 export * from './cad/drawing-view.schemas.js';

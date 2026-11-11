@@ -10,6 +10,9 @@ export const EVENT_ENTITIES = {
   cadMapping: 'cad_mapping',
   gpsProposal: 'gps_proposal',
   drawingCorrection: 'drawing_correction',
+  /** ADR-042 part D: rows of `cad_file_installation_answers` / `cad_file_trench_marks`. */
+  installationAnswer: 'installation_answer',
+  trenchMark: 'trench_mark',
   designRevision: 'design_revision',
   textLink: 'text_link',
   executionUpdate: 'execution_update',
@@ -52,6 +55,12 @@ export const EVENT_TYPES = {
   gpsProposalRejected: 'gps_proposal.rejected',
   drawingCorrectionAdded: 'drawing_correction.added',
   drawingCorrectionWithdrawn: 'drawing_correction.withdrawn',
+  /** ADR-042. Payload: { cadFileId, answer, previousAnswer (null the first time) }. */
+  installationAnswered: 'installation_answer.answered',
+  /** ADR-042. Payload: { cadFileId, routeHandle, lengthM }. */
+  trenchMarkAdded: 'trench_mark.added',
+  /** ADR-042. Payload: { cadFileId, routeHandle, lengthM }. */
+  trenchMarkWithdrawn: 'trench_mark.withdrawn',
   designRevisionQueued: 'design_revision.queued',
   /** Written by the worker (actor_id NULL). */
   designRevisionBuildStarted: 'design_revision.build_started',
