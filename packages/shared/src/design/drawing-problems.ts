@@ -112,7 +112,7 @@ export const ProblemNearSchema = z.object({
   /** Its code or label; null when it has none. */
   name: z.string().nullable(),
   layer: z.string(),
-  distanceM: z.number().min(0),
+  distanceM: z.number().finite().min(0),
 });
 
 /**
@@ -127,7 +127,10 @@ export const ProblemNearSchema = z.object({
  * - CABLE_SLACK_*: `cableLengthM`, `bundleLengthM`, `slackM` (decimal strings), `featureHandle`.
  * Absent on problems stored before ADR-041.
  */
-export const DrawingProblemParamsSchema = z
+/** Technical bound on a written core count (largest cables are a few thousand cores). */
+export const MAX_PARAM_CORES = 100_000;
+
+const DrawingProblemParamsFields = z
   .object({
     role: TextRoleSchema,
     field: z.enum(CABINET_INFO_FIELDS),
@@ -135,7 +138,7 @@ export const DrawingProblemParamsSchema = z
     boxNumber: z.string(),
     expected: z.string(),
     found: z.string(),
-    mainCores: z.number().int().min(1),
+    mainCores: z.number().finite().int().min(1).max(MAX_PARAM_CORES),
     cableLengthM: DecimalStringSchema,
     bundleLengthM: DecimalStringSchema,
     slackM: DecimalStringSchema,
@@ -143,15 +146,16 @@ export const DrawingProblemParamsSchema = z
     featureHandle: z.string(),
   })
   .partial();
+export const DrawingProblemParamsSchema = DrawingProblemParamsFields;
 export type DrawingProblemParams = z.infer<typeof DrawingProblemParamsSchema>;
 
 export const DrawingProblemItemSchema = z.object({
   /** Revision CRS (metres). */
-  x: z.number(),
-  y: z.number(),
+  x: z.number().finite(),
+  y: z.number().finite(),
   /** Drawing coordinates, to find the spot in AutoCAD (ZOOM C x,y). */
-  drawingX: z.number(),
-  drawingY: z.number(),
+  drawingX: z.number().finite(),
+  drawingY: z.number().finite(),
   layer: z.string(),
   /**
    * The place key (correction `problem.handle`). For problems fixed by editing a text
@@ -197,18 +201,66 @@ export const DrawingProblemListSchema = z.object({
   total: z.number().int().min(0),
   /** Places of non-blocking problems (warnings, ADR-041); shown, never block. */
   warningTotal: z.number().int().min(0).default(0),
+  /** Stored entries that could not be read at all; each counts once in `total` (fail closed). */
+  unreadable: z.number().int().min(0).optional(),
 });
 export type DrawingProblemList = z.infer<typeof DrawingProblemListSchema>;
 
-/** Reads the problems out of `design_revisions.warnings` (older count-only warnings are skipped). */
+const KNOWN_CODES: ReadonlySet<string> = new Set(DRAWING_PROBLEM_CODES);
+
+type Salvaged = { problem: DrawingProblem } | { unreadable: true } | { legacy: true };
+
+/**
+ * Reads one stored entry. Strict parse first; a known code that fails it is salvaged leniently
+ * (count kept, bad places dropped) so its count still reaches the publish gate. An unknown code is
+ * an older count-only warning (skipped); anything that is not even an object with a code is
+ * unreadable and still blocks.
+ */
+function readEntry(entry: unknown): Salvaged {
+  const strict = DrawingProblemSchema.safeParse(entry);
+  if (strict.success) return { problem: strict.data };
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry))
+    return { unreadable: true };
+  const raw = entry as { code?: unknown; count?: unknown; items?: unknown; severity?: unknown };
+  if (typeof raw.code !== 'string') return { unreadable: true };
+  if (!KNOWN_CODES.has(raw.code)) return { legacy: true };
+  const items = (Array.isArray(raw.items) ? raw.items : [])
+    .map((item) => DrawingProblemItemSchema.safeParse(item))
+    .flatMap((r) => (r.success ? [r.data] : []))
+    .slice(0, MAX_PROBLEM_ITEMS);
+  const count =
+    typeof raw.count === 'number' && Number.isSafeInteger(raw.count) && raw.count >= 1
+      ? raw.count
+      : Math.max(1, Array.isArray(raw.items) ? raw.items.length : 0);
+  const severity = ProblemSeveritySchema.safeParse(raw.severity);
+  return {
+    problem: {
+      code: raw.code as DrawingProblemCode,
+      severity: severity.success ? severity.data : 'error',
+      count,
+      items,
+    },
+  };
+}
+
+/**
+ * Reads the problems out of `design_revisions.warnings` (older count-only warnings are skipped).
+ * Fails closed: an entry of a known code that does not parse strictly is kept with its count.
+ */
 export function drawingProblemsOf(warnings: unknown): DrawingProblem[] {
   if (!Array.isArray(warnings)) return [];
   const out: DrawingProblem[] = [];
   for (const entry of warnings) {
-    const parsed = DrawingProblemSchema.safeParse(entry);
-    if (parsed.success) out.push(parsed.data);
+    const read = readEntry(entry);
+    if ('problem' in read) out.push(read.problem);
   }
   return out;
+}
+
+/** Entries of `warnings` that cannot be read at all (not an object with a code). */
+export function unreadableProblemCount(warnings: unknown): number {
+  if (!Array.isArray(warnings)) return 0;
+  return warnings.filter((entry) => 'unreadable' in readEntry(entry)).length;
 }
 
 /** Places that block publishing and places that only warn (summed `count`s). */
@@ -223,4 +275,15 @@ export function problemTotals(problems: readonly DrawingProblem[]): {
     else warnings += p.count;
   }
   return { blocking, warnings };
+}
+
+/** Fail-closed totals straight from the stored warnings: unreadable entries block (1 each). */
+export function problemTotalsOf(warnings: unknown): {
+  blocking: number;
+  warnings: number;
+  unreadable: number;
+} {
+  const unreadable = unreadableProblemCount(warnings);
+  const totals = problemTotals(drawingProblemsOf(warnings));
+  return { blocking: totals.blocking + unreadable, warnings: totals.warnings, unreadable };
 }

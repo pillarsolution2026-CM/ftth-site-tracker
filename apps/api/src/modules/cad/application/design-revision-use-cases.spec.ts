@@ -843,9 +843,39 @@ describe('drawing problems (ADR-038)', () => {
     expect(result.warningTotal).toBe(4);
   });
 
+  it('keeps blocking a problem whose place does not parse (fail closed)', async () => {
+    uow.problems.stored.set(revisionId, [
+      {
+        code: 'SPARE_CORES_MISMATCH',
+        severity: 'error',
+        count: 2,
+        items: [{ ...place('S1'), params: { mainCores: 1e30 } }],
+      },
+      'garbage',
+    ]);
+    const result = await list();
+    expect(result.total).toBe(3);
+    expect(result.unreadable).toBe(1);
+  });
+
+  it('keeps blocking a problem whose place does not parse (fail closed)', async () => {
+    uow.problems.stored.set(revisionId, [
+      {
+        code: 'SPARE_CORES_MISMATCH',
+        severity: 'error',
+        count: 2,
+        items: [{ ...place('S1'), params: { mainCores: 1e30 } }],
+      },
+      'garbage',
+    ]);
+    const result = await list();
+    expect(result.total).toBe(3);
+    expect(result.unreadable).toBe(1);
+  });
+
   it('answers a zero total for a revision without problems and 404 for another project', async () => {
     uow.problems.stored.set(revisionId, []);
-    expect(await list()).toEqual({ items: [], total: 0, warningTotal: 0 });
+    expect(await list()).toEqual({ items: [], total: 0, warningTotal: 0, unreadable: 0 });
     expect((await reason(list(OTHER_PROJECT))).code).toBe('NOT_FOUND');
   });
 });
@@ -913,6 +943,62 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       code: 'CONFLICT',
       status: 409,
       details: { reason: 'CRS_UNKNOWN', drawingKind: 'general' },
+    });
+  });
+
+  it('refuses PROBLEMS_OPEN for a SPARE_CORES_MISMATCH whose params are out of range', async () => {
+    setRevision({ placement: placement([false]) });
+    uow.problems.stored.set(revisionId, [
+      {
+        code: 'SPARE_CORES_MISMATCH',
+        severity: 'error',
+        count: 1,
+        items: [
+          {
+            x: 1,
+            y: 1,
+            drawingX: 1,
+            drawingY: 1,
+            layer: 'L',
+            handle: 'H',
+            suggestedLayer: null,
+            text: null,
+            near: null,
+            params: { mainCores: 1e30 },
+          },
+        ],
+      },
+    ]);
+    expect(await reason(publish())).toMatchObject({
+      details: { reason: 'PROBLEMS_OPEN', problemCount: 1 },
+    });
+  });
+
+  it('refuses PROBLEMS_OPEN for a SPARE_CORES_MISMATCH whose params are out of range', async () => {
+    setRevision({ placement: placement([false]) });
+    uow.problems.stored.set(revisionId, [
+      {
+        code: 'SPARE_CORES_MISMATCH',
+        severity: 'error',
+        count: 1,
+        items: [
+          {
+            x: 1,
+            y: 1,
+            drawingX: 1,
+            drawingY: 1,
+            layer: 'L',
+            handle: 'H',
+            suggestedLayer: null,
+            text: null,
+            near: null,
+            params: { mainCores: 1e30 },
+          },
+        ],
+      },
+    ]);
+    expect(await reason(publish())).toMatchObject({
+      details: { reason: 'PROBLEMS_OPEN', problemCount: 1 },
     });
   });
 

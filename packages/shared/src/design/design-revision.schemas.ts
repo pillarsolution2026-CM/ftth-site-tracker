@@ -250,17 +250,27 @@ export function compareCabinets(
   secondary: readonly (string | null)[],
 ): CabinetsComparison {
   const byKey = (names: readonly (string | null)[]) => {
-    const out = new Map<string, string>();
-    for (const name of names) if (name !== null) out.set(cabinetNameKey(name), name);
+    const out = new Map<string, { name: string; n: number }>();
+    for (const name of names) {
+      if (name === null) continue;
+      const key = cabinetNameKey(name);
+      const seen = out.get(key);
+      if (seen) seen.n += 1;
+      else out.set(key, { name, n: 1 });
+    }
     return out;
   };
   const g = byKey(general);
   const s = byKey(secondary);
-  const missingIn = (from: Map<string, string>, other: Map<string, string>) =>
-    [...from.keys()]
-      .filter((key) => !other.has(key))
-      .sort()
-      .map((key) => from.get(key) ?? key);
+  /** Names the other side lacks, or has fewer times (a name drawn twice must be drawn twice). */
+  const missingIn = (
+    from: Map<string, { name: string; n: number }>,
+    other: Map<string, { name: string; n: number }>,
+  ) =>
+    [...from.entries()]
+      .filter(([key, v]) => (other.get(key)?.n ?? 0) < v.n)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, v]) => v.name);
   const gMissing = missingIn(g, s);
   const sMissing = missingIn(s, g);
   const unnamed = (names: readonly (string | null)[]) => names.filter((n) => n === null).length;

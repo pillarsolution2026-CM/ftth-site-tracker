@@ -12,12 +12,19 @@ import { DecimalStringSchema } from '../common/decimal.js';
  */
 export const READING_ATTR_KEY = 'reading';
 
+/** Technical bounds; a value outside them is dropped (null / 0) for its field only. */
+export const MAX_READING_CORES = 100_000;
+export const MAX_READING_COUNT = 1_000_000;
+
 const Handle = z.string().min(1).max(64);
-const Cores = z.number().int().min(1);
-const Count = z.number().int().min(0);
+const Cores = z.number().int().min(1).max(MAX_READING_CORES);
+const Count = z.number().int().min(0).max(MAX_READING_COUNT);
 const Ways = z.number().int().min(1).max(MAX_BUNDLE_WAYS);
 /** "7/3.5" (outer/inner mm as written). */
 const DuctSize = z.string().min(1).max(32);
+/** Per field: a bad value becomes null / 0 instead of failing the whole revision display. */
+const Soft = <T extends z.ZodType>(schema: T) => schema.nullable().catch(null);
+const SoftCount = Count.catch(0);
 
 /** Handles of the texts each role took (one per role, several for bundle_spare). */
 const RoleTexts = z.partialRecord(TextRoleSchema, z.array(Handle).min(1));
@@ -28,7 +35,7 @@ export const BoxReadingSchema = z.object({
   cabinet: z.string().nullable(),
   number: z.string().nullable(),
   /** «F4C» → 4. */
-  cableCores: Cores.nullable(),
+  cableCores: Soft(Cores),
   /** Building cable length from the cabinet («398M»). */
   cableLengthM: DecimalStringSchema.nullable(),
   texts: RoleTexts,
@@ -37,21 +44,21 @@ export const BoxReadingSchema = z.object({
 export const RouteReadingSchema = z.object({
   of: z.literal('route'),
   /** From the layer rule (`ways`); null when the rule has none. */
-  ways: Ways.nullable(),
+  ways: Soft(Ways),
   /** From the bundle label; ≠ `ways` → LABEL_TYPE_MISMATCH. */
-  labelWays: Ways.nullable(),
-  ductSize: DuctSize.nullable(),
+  labelWays: Soft(Ways),
+  ductSize: Soft(DuctSize),
   /** Written bundle length (bundle_label). */
   writtenLengthM: DecimalStringSchema.nullable(),
   /** General: cable label on this segment («520M/144Core»). */
-  cableCores: Cores.nullable(),
+  cableCores: Soft(Cores),
   cableLengthM: DecimalStringSchema.nullable(),
   /** General: «SP n» on this cable. */
-  spareCores: Cores.nullable(),
+  spareCores: Soft(Cores),
   /** Secondary: «SPn(7/3.5)» at this bundle's end. */
   spares: z.array(z.object({ count: z.number().int().min(1), ductSize: DuctSize })),
   /** Secondary, 1way only: connectors where it leaves another bundle (0, 1 or 2 ends). */
-  connectors: Count,
+  connectors: SoftCount,
   texts: RoleTexts,
 });
 
@@ -71,11 +78,11 @@ export const CabinetReadingSchema = z.object({
   /** «22U» as written (body size; not interpreted here). */
   type: z.string().nullable(),
   /** «22B» → 22. */
-  boxCount: Count.nullable(),
+  boxCount: Soft(Count),
   /** «2P» → 2; information only. */
-  ports: Count.nullable(),
+  ports: Soft(Count),
   /** Secondary: boxes whose box_cabinet is this name; null in the General. */
-  boxesDrawn: Count.nullable(),
+  boxesDrawn: Soft(Count),
   /** Secondary: the zone curve (smallest handle of its group) around it; null = none. */
   zoneHandle: Handle.nullable(),
   texts: RoleTexts,
@@ -110,22 +117,24 @@ export const ReadingTotalsSchema = z.object({
   /** Per bundle type and duct size; `ways` null = route rule without ways. */
   bundles: z.array(
     z.object({
-      ways: Ways.nullable(),
-      ductSize: DuctSize.nullable(),
-      count: Count,
+      ways: Soft(Ways),
+      ductSize: Soft(DuctSize),
+      count: SoftCount,
       writtenLengthM: DecimalStringSchema,
       /** Routes of this group with no written length. */
-      withoutLength: Count,
+      withoutLength: SoftCount,
     }),
   ),
   /** Secondary: one per 1way leaving another bundle (two drops from one point = two). */
-  connectors: z.array(z.object({ ductSize: DuctSize.nullable(), count: Count })),
+  connectors: z.array(z.object({ ductSize: Soft(DuctSize), count: SoftCount })),
   /** Secondary: spare singles per size («SPn(size)») and their end caps (2 × n each). */
-  spares: z.array(z.object({ ductSize: DuctSize, singles: Count, endCaps: Count })),
+  spares: z.array(z.object({ ductSize: DuctSize, singles: SoftCount, endCaps: SoftCount })),
   /** General: cables per core count with Σ written length. */
-  cables: z.array(z.object({ cores: Cores, count: Count, writtenLengthM: DecimalStringSchema })),
+  cables: z.array(
+    z.object({ cores: Cores, count: SoftCount, writtenLengthM: DecimalStringSchema }),
+  ),
   /** General: handholes per type (null = untyped). */
-  handholes: z.array(z.object({ type: HandholeTypeSchema.nullable(), count: Count })),
+  handholes: z.array(z.object({ type: HandholeTypeSchema.nullable(), count: SoftCount })),
 });
 export type ReadingTotals = z.infer<typeof ReadingTotalsSchema>;
 

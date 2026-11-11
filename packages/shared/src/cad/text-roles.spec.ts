@@ -233,3 +233,35 @@ describe('mapping rules with meaning (ADR-041)', () => {
     ]);
   });
 });
+
+describe('hostile input (ReDoS guard)', () => {
+  it('reads "1" + 1998 spaces + "Z" as nothing, fast', () => {
+    const text = `1${' '.repeat(1998)}Z`;
+    const started = performance.now();
+    expect(readRoleText(text, ['cable_label'])).toBeNull();
+    expect(readRoleText(text, ['bundle_label'])).toBeNull();
+    expect(suggestBundleWays(text)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
+  it('skips role texts longer than 64 characters', () => {
+    expect(readRoleText(`${'1'.repeat(70)}Core`, ['cable_label'])).toBeNull();
+    expect(readRoleText('12Core', ['cable_label'])).toMatchObject({ role: 'cable_label' });
+  });
+});
+
+describe('hostile input (ReDoS guard)', () => {
+  it('reads "1" + 1998 spaces + "Z" as nothing, fast', () => {
+    const text = `1${' '.repeat(1998)}Z`;
+    const started = performance.now();
+    expect(readRoleText(text, ['cable_label'])).toBeNull();
+    expect(readRoleText(text, ['bundle_label'])).toBeNull();
+    expect(suggestBundleWays(text)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
+  it('skips role texts longer than 64 characters', () => {
+    expect(readRoleText(`${'1'.repeat(70)}Core`, ['cable_label'])).toBeNull();
+    expect(readRoleText('12Core', ['cable_label'])).toMatchObject({ role: 'cable_label' });
+  });
+});

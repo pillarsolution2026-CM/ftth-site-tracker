@@ -1,8 +1,7 @@
 import {
   EVENT_ENTITIES,
   EVENT_TYPES,
-  drawingProblemsOf,
-  problemTotals,
+  problemTotalsOf,
   otherDrawingKind,
   type PublishBlockedDetails,
   type PublishDesignRevisionRequest,
@@ -27,7 +26,7 @@ async function publishFacts(tx: CadTx, revision: DesignRevision): Promise<Publis
     tx.links.countOpenItems(revision.projectId, revision.id),
     tx.revisions.subCabinetCodes(revision.projectId, revision.id),
   ]);
-  const totals = problemTotals(drawingProblemsOf(warnings));
+  const totals = problemTotalsOf(warnings);
   return {
     status: revision.status,
     drawingKind: revision.drawingKind,

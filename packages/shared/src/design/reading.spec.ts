@@ -15,6 +15,7 @@ import {
   DrawingProblemSchema,
   drawingProblemsOf,
   problemTotals,
+  problemTotalsOf,
 } from './drawing-problems.js';
 import { readingOf, ReadingTotalsSchema } from './feature-reading.schemas.js';
 
@@ -170,6 +171,22 @@ describe('shared cabinets across the pair (ADR-040)', () => {
     expect(compareCabinets(['1-1', '1-1'], ['1-1']).ok).toBe(false);
   });
 
+  it('compares counts per name: [A, A, B] against [A, B, B] is a mismatch', () => {
+    const result = compareCabinets(['1-1', '1-1', '1-2'], ['1-1', '1-2', '1-2']);
+    expect(result.ok).toBe(false);
+    expect(result.general.missingInOther).toEqual(['1-1']);
+    expect(result.secondary.missingInOther).toEqual(['1-2']);
+    expect(compareCabinets(['1-1', '1-1', '1-2'], ['1-2', '1 - 1', '1-1']).ok).toBe(true);
+  });
+
+  it('compares counts per name: [A, A, B] against [A, B, B] is a mismatch', () => {
+    const result = compareCabinets(['1-1', '1-1', '1-2'], ['1-1', '1-2', '1-2']);
+    expect(result.ok).toBe(false);
+    expect(result.general.missingInOther).toEqual(['1-1']);
+    expect(result.secondary.missingInOther).toEqual(['1-2']);
+    expect(compareCabinets(['1-1', '1-1', '1-2'], ['1-2', '1 - 1', '1-1']).ok).toBe(true);
+  });
+
   it('adds the cabinets check, blocker and readiness fields', () => {
     expect(PUBLISH_CHECK_KEYS).toContain('cabinets_match');
     const cabinets = compareCabinets([null], ['1-1']);
@@ -183,5 +200,131 @@ describe('shared cabinets across the pair (ADR-040)', () => {
       needsAcknowledgement: false,
     });
     expect(readiness).toMatchObject({ cabinets: null, warningCount: 0 });
+  });
+});
+
+describe('problems fail closed (ADR-041 review)', () => {
+  const spare = (mainCores: number) => ({
+    code: 'SPARE_CORES_MISMATCH',
+    severity: 'error',
+    count: 2,
+    items: [{ ...place, params: { mainCores } }],
+  });
+
+  it('keeps the count of a known code whose place does not parse', () => {
+    for (const mainCores of [Infinity, 1e30, -5, 1.5]) {
+      const warnings = [spare(mainCores)];
+      expect(problemTotals(drawingProblemsOf(warnings)).blocking).toBe(2);
+      expect(problemTotalsOf(warnings).blocking).toBe(2);
+    }
+    // The unreadable place is dropped from the display; its count stays.
+    const [problem] = drawingProblemsOf([spare(1e30)]);
+    expect(problem).toMatchObject({ code: 'SPARE_CORES_MISMATCH', count: 2, items: [] });
+  });
+
+  it('salvages a malformed entry of a known code as blocking, at least 1', () => {
+    const totals = problemTotalsOf([
+      { code: 'BOX_NOT_REACHED', count: 'many', items: 'x' },
+      { code: 'WRONG_LAYER', severity: 'bogus', count: 3, items: [{ nope: true }] },
+    ]);
+    expect(totals).toEqual({ blocking: 4, warnings: 0, unreadable: 0 });
+    expect(drawingProblemsOf([{ code: 'WRONG_LAYER', count: 3, items: [{}] }])[0]?.severity).toBe(
+      'error',
+    );
+  });
+
+  it('counts an entry that cannot be read at all as one blocking place, and skips old ones', () => {
+    const totals = problemTotalsOf([
+      null,
+      'x',
+      { count: 3 },
+      { code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 },
+    ]);
+    expect(totals).toEqual({ blocking: 3, warnings: 0, unreadable: 3 });
+  });
+
+  it('keeps non-blocking codes as warnings even when malformed', () => {
+    expect(problemTotalsOf([{ code: 'CABLE_SLACK_TOO_LONG', count: 2 }])).toEqual({
+      blocking: 0,
+      warnings: 2,
+      unreadable: 0,
+    });
+  });
+
+  it('shows a reading with an out-of-range field instead of failing the revision', () => {
+    const totals = ReadingTotalsSchema.parse({
+      drawingKind: 'general',
+      bundles: [
+        { ways: 9999, ductSize: null, count: -1, writtenLengthM: '1.000', withoutLength: 0 },
+      ],
+      connectors: [],
+      spares: [],
+      cables: [],
+      handholes: [],
+    });
+    expect(totals.bundles[0]).toMatchObject({ ways: null, count: 0 });
+  });
+});
+
+describe('problems fail closed (ADR-041 review)', () => {
+  const spare = (mainCores: number) => ({
+    code: 'SPARE_CORES_MISMATCH',
+    severity: 'error',
+    count: 2,
+    items: [{ ...place, params: { mainCores } }],
+  });
+
+  it('keeps the count of a known code whose place does not parse', () => {
+    for (const mainCores of [Infinity, 1e30, -5, 1.5]) {
+      const warnings = [spare(mainCores)];
+      expect(problemTotals(drawingProblemsOf(warnings)).blocking).toBe(2);
+      expect(problemTotalsOf(warnings).blocking).toBe(2);
+    }
+    // The unreadable place is dropped from the display; its count stays.
+    const [problem] = drawingProblemsOf([spare(1e30)]);
+    expect(problem).toMatchObject({ code: 'SPARE_CORES_MISMATCH', count: 2, items: [] });
+  });
+
+  it('salvages a malformed entry of a known code as blocking, at least 1', () => {
+    const totals = problemTotalsOf([
+      { code: 'BOX_NOT_REACHED', count: 'many', items: 'x' },
+      { code: 'WRONG_LAYER', severity: 'bogus', count: 3, items: [{ nope: true }] },
+    ]);
+    expect(totals).toEqual({ blocking: 4, warnings: 0, unreadable: 0 });
+    expect(drawingProblemsOf([{ code: 'WRONG_LAYER', count: 3, items: [{}] }])[0]?.severity).toBe(
+      'error',
+    );
+  });
+
+  it('counts an entry that cannot be read at all as one blocking place, and skips old ones', () => {
+    const totals = problemTotalsOf([
+      null,
+      'x',
+      { count: 3 },
+      { code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 },
+    ]);
+    expect(totals).toEqual({ blocking: 3, warnings: 0, unreadable: 3 });
+  });
+
+  it('keeps non-blocking codes as warnings even when malformed', () => {
+    expect(problemTotalsOf([{ code: 'CABLE_SLACK_TOO_LONG', count: 2 }])).toEqual({
+      blocking: 0,
+      warnings: 2,
+      unreadable: 0,
+    });
+  });
+
+  it('shows a reading with an out-of-range field instead of failing the revision', () => {
+    const totals = ReadingTotalsSchema.parse({
+      drawingKind: 'general',
+      bundles: [
+        { ways: 9999, ductSize: null, count: -1, writtenLengthM: '1.000', withoutLength: 0 },
+      ],
+      connectors: [],
+      spares: [],
+      cables: [],
+      handholes: [],
+    });
+    expect(totals.bundles[0]).toMatchObject({ ways: null, count: 0 });
   });
 });
