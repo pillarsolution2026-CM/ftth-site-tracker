@@ -954,6 +954,8 @@
         "duplicateInGeneral": "En double dans le Général (non utilisées)",
         "unnamed": "Armoires sans nom : Secondaire {secondary} / Général {general}",
         "withoutDrawingPosition": "Armoires du Secondaire sans position dans le plan (reconstruisez le Secondaire) : {names}",
+        "unusable": "Armoires inutilisables comme point de calage (nom trop long ou position invalide)",
+        "listCapped": "Trop d’armoires : seules les 5000 premières de chaque dessin ont été lues.",
         "failed": "Impossible de récupérer les armoires du Général. Réessayez.",
         "refusal": {
           "NOT_SECONDARY": "Cette fonction concerne seulement le plan Secondaire.",

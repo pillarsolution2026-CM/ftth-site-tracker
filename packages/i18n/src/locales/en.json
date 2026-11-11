@@ -954,6 +954,8 @@
         "duplicateInGeneral": "Duplicated in the General (not used)",
         "unnamed": "Cabinets with no name: Secondary {secondary} / General {general}",
         "withoutDrawingPosition": "Secondary cabinets with no drawing position (rebuild the Secondary): {names}",
+        "unusable": "Cabinets that cannot become a control point (name too long or bad position)",
+        "listCapped": "Too many cabinets: only the first 5000 of each drawing were read.",
         "failed": "Could not fetch the General’s cabinets. Try again.",
         "refusal": {
           "NOT_SECONDARY": "This feature is for the Secondary drawing only.",

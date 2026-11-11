@@ -96,6 +96,7 @@ export function GeneralCabinetsSection({
               </p>
             ),
           )}
+          {report.unmatched.listCapped ? <p>{t('mapping.placement.cabinets.listCapped')}</p> : null}
           {report.unmatched.unnamedSecondary + report.unmatched.unnamedGeneral > 0 ? (
             <p>
               {t('mapping.placement.cabinets.unnamed', {

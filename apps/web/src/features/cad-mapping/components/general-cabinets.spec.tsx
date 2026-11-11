@@ -66,6 +66,8 @@ function suggestion(
       unnamedSecondary: 1,
       unnamedGeneral: 0,
       withoutDrawingPosition: [],
+      unusable: [],
+      listCapped: false,
     },
     ...overrides,
   };
@@ -162,6 +164,8 @@ describe('«من كبائن الرئيسي» on a Secondary (ADR-042 part G)', (
           unnamedSecondary: 1,
           unnamedGeneral: 2,
           withoutDrawingPosition: ['4-4'],
+          unusable: [],
+          listCapped: false,
         },
       }),
     );

@@ -909,6 +909,8 @@ export function handleGeneralCabinets(res: ServerResponse, cad: MockCadFile, h: 
         unnamedSecondary: 0,
         unnamedGeneral: 0,
         withoutDrawingPosition: [],
+        unusable: [],
+        listCapped: false,
       },
     }),
   );

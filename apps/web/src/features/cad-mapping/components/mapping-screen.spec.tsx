@@ -64,6 +64,8 @@ const suggestion: SecondaryPlacementSuggestion = {
     unnamedSecondary: 0,
     unnamedGeneral: 0,
     withoutDrawingPosition: [],
+    unusable: [],
+    listCapped: false,
   },
 };
 
