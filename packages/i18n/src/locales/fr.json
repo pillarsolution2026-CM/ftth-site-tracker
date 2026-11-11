@@ -506,7 +506,9 @@
     "upload": {
       "label": "Envoyer un fichier CAO",
       "hint": "Fichiers DWG ou DXF",
-      "uploading": "Envoi de"
+      "uploading": "Envoi de",
+      "kindLegend": "Type de plan",
+      "pickKindFirst": "Choisissez d'abord le type de plan (Général ou Secondaire), puis le fichier"
     },
     "fileName": "Nom du fichier",
     "format": "Format",
@@ -628,7 +630,34 @@
       "closed": "Fermé",
       "approximated": "Approché"
     },
-    "mappingLink": "Mapping"
+    "mappingLink": "Mapping",
+    "kindExists": {
+      "title": {
+        "general": "Est-ce une nouvelle version du Général ?",
+        "secondary": "Est-ce une nouvelle version du Secondaire ?"
+      },
+      "text": {
+        "general": "L'ordre de travail a déjà un Général :",
+        "secondary": "L'ordre de travail a déjà un Secondaire :"
+      },
+      "yes": "Oui, une nouvelle version",
+      "no": "Non",
+      "declined": {
+        "general": "Un ordre de travail n'a qu'un seul Général — le fichier n'a pas été envoyé",
+        "secondary": "Un ordre de travail n'a qu'un seul Secondaire — le fichier n'a pas été envoyé"
+      }
+    },
+    "section": {
+      "general": "Général (principal)",
+      "secondary": "Secondaire"
+    },
+    "sectionEmpty": {
+      "general": "Aucun Général n'a encore été envoyé",
+      "secondary": "Aucun Secondaire n'a encore été envoyé"
+    },
+    "superseded": "Ancienne version",
+    "supersededNotice": "Ce fichier est une ancienne version ; une version plus récente du même type existe.",
+    "openNewer": "Ouvrir la version plus récente"
   },
   "featureType": {
     "route": "Tracé",
@@ -741,7 +770,8 @@
       "NO_MAPPING": "Enregistrez le mapping avant de construire une révision",
       "MAPPING_VERSION_MISMATCH": "Le mapping a changé depuis votre ouverture. Rechargez puis reconstruisez.",
       "REVISION_IN_PROGRESS": "Une autre révision de ce projet est en construction ou en attente de relecture",
-      "reload": "Recharger"
+      "reload": "Recharger",
+      "NOT_CURRENT_VERSION": "Ce fichier est une ancienne version : rien ne peut en être construit. Construisez à partir de la version plus récente du même type."
     },
     "role": {
       "label": "Rôle de l’armoire",
@@ -898,7 +928,8 @@
         "scale": "Échelle",
         "reset": "Retirer l'ajustement manuel"
       }
-    }
+    },
+    "supersededNotice": "Ce fichier est une ancienne version : on ne peut pas en construire une révision. Ouvrez la version plus récente et construisez à partir d'elle."
   },
   "design": {
     "listTitle": "Révisions de conception",
@@ -984,18 +1015,24 @@
         "crs_known": "Coordonnées : CRS source choisi",
         "control_point": "Au moins un point de contrôle utilisé ({count})",
         "no_problems": "Aucune erreur de dessin ({count} restantes)",
-        "open_items": "Éléments ouverts revus ({count})"
+        "open_items": "Éléments ouverts revus ({count})",
+        "other_drawing": "L'autre plan ({drawing}) est prêt : zéro erreur, coordonnées calées"
       },
       "fixCoordinates": "Ouvrir l'écran des coordonnées",
-      "lockedHint": "La publication est verrouillée tant que les trois premières vérifications ne sont pas faites.",
+      "lockedHint": "La publication est verrouillée tant que toutes les vérifications, sauf les éléments ouverts, ne sont pas faites.",
       "openItemsText": "Des éléments restent ouverts. La publication verrouille la révision en l'état.",
       "acknowledge": "Je comprends et je veux publier avec des éléments ouverts",
       "blocked": {
-        "CRS_UNKNOWN": "Le système de coordonnées source du dessin n'a jamais été choisi. Choisissez-le d'abord sur l'écran des coordonnées.",
-        "PLACEMENT_MISSING": "Le placement n'a aucun point de contrôle utilisé. Ajoutez ou incluez d'abord un point de contrôle.",
-        "PROBLEMS_OPEN": "{count} erreurs de dessin restent. Corrigez-les toutes avant de publier.",
-        "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation."
-      }
+        "CRS_UNKNOWN": "Le système de coordonnées source du plan {drawing} n'a jamais été choisi. Choisissez-le d'abord sur l'écran des coordonnées.",
+        "PLACEMENT_MISSING": "Le plan {drawing} n'a aucun point de contrôle utilisé. Ajoutez ou incluez un point de contrôle d'abord.",
+        "PROBLEMS_OPEN": "Il reste {count} erreurs de dessin dans le plan {drawing}. Corrigez-les toutes avant de publier.",
+        "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation.",
+        "OTHER_DRAWING_MISSING": "Il n'y a pas de brouillon pour le {drawing}. Envoyez-le et construisez-le d'abord — les deux plans sont publiés ensemble."
+      },
+      "otherNoDraft": "Il n'y a pas encore de brouillon pour le {drawing}",
+      "otherErrors": "{count} erreurs dedans",
+      "openOther": "Ouvrir le brouillon du {drawing}",
+      "pairNote": "La publication concerne les deux plans ensemble ({first} + {second}) avec le même numéro de révision."
     },
     "error": {
       "NOT_DRAFT": "Seule une révision en brouillon peut être publiée",
@@ -1212,7 +1249,8 @@
         "VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez.",
         "MAPPING_VERSION_MISMATCH": "L'association a changé entre-temps. Elle a été rechargée ; réessayez."
       }
-    }
+    },
+    "kind": "Type"
   },
   "asbuilt": {
     "title": "As-Built",
@@ -1658,6 +1696,14 @@
       "commit": "Enregistrer les lignes",
       "committing": "Enregistrement…",
       "mappingNote": "Le périmètre est facultatif ; le type de travaux n’est pas utilisé."
+    }
+  },
+  "drawingKind": {
+    "general": "Général (principal)",
+    "secondary": "Secondaire",
+    "badge": {
+      "general": "Principal",
+      "secondary": "Secondaire"
     }
   }
 }

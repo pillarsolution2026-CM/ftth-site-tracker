@@ -28,7 +28,7 @@ export interface NewRevisionInput {
 
 /**
  * The rules of creating a revision, inside the caller's transaction (used by create and rebuild):
- * the file and its mapping exist and match, the file is processed, no other revision is open; the
+ * the file and its mapping exist and match, the file is processed, no other revision of the file's kind is open, the file is the current version of its kind; the
  * mapping, the placement and the file's corrections in force are frozen on the new revision.
  */
 export async function createRevisionInTx(tx: CadTx, input: NewRevisionInput): Promise<void> {
@@ -43,20 +43,26 @@ export async function createRevisionInTx(tx: CadTx, input: NewRevisionInput): Pr
       currentVersion: mapping.version,
     });
   }
+  if (file.supersededAt !== null) {
+    throw conflict('NOT_CURRENT_VERSION', 'A newer version of this drawing was uploaded', {
+      supersededById: file.supersededById,
+    });
+  }
   if (file.status !== 'processed') {
     throw conflict('NOT_PROCESSED', 'The CAD file is not processed yet', { status: file.status });
   }
-  if (await tx.revisions.hasOpen(projectId)) {
+  if (await tx.revisions.hasOpen(projectId, file.drawingKind)) {
     throw conflict('REVISION_IN_PROGRESS', 'The project already has an open design revision');
   }
 
-  const baseRevisionId = await tx.revisions.findLatestPublishedId(projectId);
+  const baseRevisionId = await tx.revisions.findLatestPublishedId(projectId, file.drawingKind);
   // The file row is locked above, so no correction can be added or withdrawn while this reads.
   const corrections = await tx.corrections.listActiveFrozen(projectId, cadFileId);
   await tx.revisions.insert({
     id: revisionId,
     projectId,
     cadFileId: file.id,
+    drawingKind: file.drawingKind,
     currentJobId: jobId,
     baseRevisionId,
     rules: mapping.rules,

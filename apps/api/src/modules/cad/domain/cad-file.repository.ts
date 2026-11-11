@@ -6,6 +6,7 @@ import type {
   CadLayer,
   CadTextListQuery,
   CadTextPage,
+  DrawingKind,
 } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { CadFile, DrawingViewRecord } from './cad-file.js';
@@ -25,6 +26,15 @@ export interface CadFileRepository {
   find(projectId: string, cadFileId: string, options?: { lock?: boolean }): Promise<CadFile | null>;
   /** Inserts a row in status `uploaded` (no job yet). */
   insertUploaded(file: CadFile): Promise<void>;
+  /**
+   * Serialises uploads of one kind (ADR-040): locks the project row, then the project's current
+   * (not superseded) files of the kind (SELECT … FOR UPDATE). Newest first.
+   */
+  lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]>;
+  /** The project's current (not superseded) files of the kind, newest first; no lock. */
+  listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]>;
+  /** Marks each file superseded by `byId` at `at` (files already superseded are untouched). */
+  supersede(projectId: string, fileIds: string[], byId: string, at: Date): Promise<void>;
   /**
    * uploaded | processed | failed | stale queued/processing → queued with a new job id; clears the
    * previous error and sets `queued_at`.

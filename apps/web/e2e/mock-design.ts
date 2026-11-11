@@ -31,6 +31,8 @@ import {
   suggestLayerTarget,
   suggestTextTarget,
   type MappingRule,
+  otherDrawingKind,
+  type DrawingKind,
 } from '@ftth/shared';
 
 export interface Helpers {
@@ -45,6 +47,9 @@ export interface MockCadFile {
   projectId: string;
   originalName: string;
   processed: boolean;
+  drawingKind: DrawingKind;
+  /** A newer version of the same kind exists: nothing can be built from it. */
+  superseded: boolean;
   userId: string;
   layers: { name: string; aciColor: number; counts: Record<string, number> }[];
   inserts: { blockName: string; layer: string }[];
@@ -304,6 +309,7 @@ function summary(rev: RevisionRecord) {
     projectId: rev.cad.projectId,
     cadFileId: rev.cad.id,
     cadFileName: rev.cad.originalName,
+    drawingKind: rev.cad.drawingKind,
     revNo: rev.publishedRevNo,
     status,
     crsEpsg: rev.mapping.crsEpsg,
@@ -412,13 +418,19 @@ export async function handleDesignRevisions(
       const cad = findCad(body.data.cadFileId);
       if (!cad) return h.sendError(res, 404, 'NOT_FOUND');
       if (!cad.processed) return h.sendError(res, 409, 'CONFLICT', { reason: 'NOT_PROCESSED' });
+      if (cad.superseded) {
+        return h.sendError(res, 409, 'CONFLICT', { reason: 'NOT_CURRENT_VERSION' });
+      }
       const mapping = mappings.get(cad.id);
       if (!mapping) return h.sendError(res, 409, 'CONFLICT', { reason: 'NO_MAPPING' });
       if (mapping.version !== body.data.mappingVersion) {
         return h.sendError(res, 409, 'CONFLICT', { reason: 'MAPPING_VERSION_MISMATCH' });
       }
-      const open = [...revisions.values()].some((rev) =>
-        ['queued', 'building', 'draft'].includes(statusOf(rev)),
+      // One open revision per kind (ADR-040): a General and a Secondary draft can exist together.
+      const open = [...revisions.values()].some(
+        (rev) =>
+          rev.cad.drawingKind === cad.drawingKind &&
+          ['queued', 'building', 'draft'].includes(statusOf(rev)),
       );
       if (open) return h.sendError(res, 409, 'CONFLICT', { reason: 'REVISION_IN_PROGRESS' });
       const rev: RevisionRecord = {
@@ -517,9 +529,16 @@ export async function handleDesignRevisions(
     return h.send(res, 200, DrawingProblemListSchema.parse({ items: [], total: 0 }));
   }
 
+  // ADR-040: publishing is a PAIR. The mock revisions are all placed (CRS chosen, one control
+  // point) with no drawing errors, so the pair only needs both drafts and the open items.
+  const otherDraft = [...revisions.values()].find(
+    (candidate) =>
+      candidate.cad.drawingKind !== rev.cad.drawingKind && statusOf(candidate) === 'draft',
+  );
+  const openOf = (r: RevisionRecord) => r.links.filter((link) => link.status === 'review').length;
+  const openItems = openOf(rev) + (otherDraft ? openOf(otherDraft) : 0);
+
   if (sub === 'publish-readiness' && method === 'GET') {
-    // The mock revision counts as placed (CRS chosen, one control point) with no drawing errors.
-    const open = rev.links.filter((link) => link.status === 'review').length;
     return h.send(
       res,
       200,
@@ -528,10 +547,13 @@ export async function handleDesignRevisions(
           { key: 'crs_known', ok: true, count: null },
           { key: 'control_point', ok: true, count: 1 },
           { key: 'no_problems', ok: true, count: 0 },
-          { key: 'open_items', ok: open === 0, count: open },
+          { key: 'open_items', ok: openItems === 0, count: openItems },
+          { key: 'other_drawing', ok: otherDraft !== undefined, count: otherDraft ? 0 : null },
         ],
-        canPublish: status === 'draft',
-        needsAcknowledgement: open > 0,
+        canPublish: status === 'draft' && otherDraft !== undefined,
+        drawingKind: rev.cad.drawingKind,
+        otherRevisionId: otherDraft?.id ?? null,
+        needsAcknowledgement: openItems > 0,
       }),
     );
   }
@@ -540,22 +562,35 @@ export async function handleDesignRevisions(
     const body = PublishDesignRevisionRequestSchema.safeParse(await h.readJson(req));
     if (!body.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
     if (status !== 'draft') return h.sendError(res, 409, 'CONFLICT', { reason: 'NOT_DRAFT' });
-    const textLinksToReview = rev.links.filter((link) => link.status === 'review').length;
-    if (textLinksToReview > 0 && !body.data.acknowledgeOpenItems) {
+    if (!otherDraft) {
+      return h.sendError(
+        res,
+        409,
+        'CONFLICT',
+        PublishBlockedDetailsSchema.parse({
+          reason: 'OTHER_DRAWING_MISSING',
+          drawingKind: otherDrawingKind(rev.cad.drawingKind),
+        }),
+      );
+    }
+    if (openItems > 0 && !body.data.acknowledgeOpenItems) {
       return h.sendError(
         res,
         409,
         'CONFLICT',
         PublishBlockedDetailsSchema.parse({
           reason: 'OPEN_ITEMS',
-          textLinksToReview,
+          textLinksToReview: openItems,
           diffConflicts: 0,
         }),
       );
     }
-    rev.publishedRevNo =
-      [...revisions.values()].filter((r) => r.publishedRevNo !== null).length + 1;
-    rev.publishedAt = new Date().toISOString();
+    const revNo = Math.max(0, ...[...revisions.values()].map((r) => r.publishedRevNo ?? 0)) + 1;
+    const publishedAt = new Date().toISOString();
+    for (const published of [rev, otherDraft]) {
+      published.publishedRevNo = revNo;
+      published.publishedAt = publishedAt;
+    }
     return h.send(res, 200, detail(rev));
   }
 

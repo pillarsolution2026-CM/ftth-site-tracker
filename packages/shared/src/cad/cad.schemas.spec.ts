@@ -7,6 +7,7 @@ import {
   canTransition,
 } from './cad-file.schemas.js';
 import { CAD_JOB_MAX_ATTEMPTS, CadImportJobSchema, CadJobSchema } from './cad-job.schemas.js';
+import { otherDrawingKind, UploadCadFileQuerySchema } from './drawing-kind.schemas.js';
 
 const FILE_ID = '0b8f6a4e-3c1d-4a8e-9f7b-2d5c6e7f8a90';
 const PROJECT_ID = '1c9f7b5e-4d2e-4b9f-8a6c-3e6d7f8a9b01';
@@ -52,6 +53,9 @@ describe('CadFileSummarySchema', () => {
       sizeBytes: 5_242_880,
       sha256: 'f'.repeat(64),
       status: 'queued',
+      drawingKind: 'general',
+      supersededAt: null,
+      supersededById: null,
       uploadedById: null,
       counts: null,
       warningCount: 0,
@@ -62,6 +66,29 @@ describe('CadFileSummarySchema', () => {
     };
     expect(CadFileSummarySchema.safeParse(summary).success).toBe(true);
     expect(CadFileSummarySchema.safeParse({ ...summary, status: 'done' }).success).toBe(false);
+    expect(CadFileSummarySchema.safeParse({ ...summary, drawingKind: 'area' }).success).toBe(false);
+  });
+});
+
+describe('drawing kinds (ADR-040)', () => {
+  it('reads the upload query: kind required, newVersion only when "true"', () => {
+    expect(UploadCadFileQuerySchema.parse({ kind: 'secondary' })).toEqual({
+      kind: 'secondary',
+      newVersion: false,
+    });
+    expect(UploadCadFileQuerySchema.parse({ kind: 'general', newVersion: 'true' })).toEqual({
+      kind: 'general',
+      newVersion: true,
+    });
+    expect(UploadCadFileQuerySchema.safeParse({}).success).toBe(false);
+    expect(UploadCadFileQuerySchema.safeParse({ kind: 'general', newVersion: 'yes' }).success).toBe(
+      false,
+    );
+  });
+
+  it('pairs each kind with the other', () => {
+    expect(otherDrawingKind('general')).toBe('secondary');
+    expect(otherDrawingKind('secondary')).toBe('general');
   });
 });
 

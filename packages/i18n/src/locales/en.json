@@ -506,7 +506,9 @@
     "upload": {
       "label": "Upload a CAD file",
       "hint": "DWG or DXF files",
-      "uploading": "Uploading"
+      "uploading": "Uploading",
+      "kindLegend": "Drawing kind",
+      "pickKindFirst": "Choose the drawing kind first (General or Secondary), then the file"
     },
     "fileName": "File name",
     "format": "Format",
@@ -628,7 +630,34 @@
       "closed": "Closed",
       "approximated": "Approximated"
     },
-    "mappingLink": "Mapping"
+    "mappingLink": "Mapping",
+    "kindExists": {
+      "title": {
+        "general": "Is this a new version of the General?",
+        "secondary": "Is this a new version of the Secondary?"
+      },
+      "text": {
+        "general": "This work order already has a General:",
+        "secondary": "This work order already has a Secondary:"
+      },
+      "yes": "Yes, a new version",
+      "no": "No",
+      "declined": {
+        "general": "A work order has only one General — the file was not uploaded",
+        "secondary": "A work order has only one Secondary — the file was not uploaded"
+      }
+    },
+    "section": {
+      "general": "General (main)",
+      "secondary": "Secondary"
+    },
+    "sectionEmpty": {
+      "general": "No General has been uploaded yet",
+      "secondary": "No Secondary has been uploaded yet"
+    },
+    "superseded": "Old version",
+    "supersededNotice": "This file is an old version; a newer one of the same kind exists.",
+    "openNewer": "Open the newer version"
   },
   "featureType": {
     "route": "Route",
@@ -741,7 +770,8 @@
       "NO_MAPPING": "Save the mapping before building a revision",
       "MAPPING_VERSION_MISMATCH": "The mapping changed since you opened it. Reload and build again.",
       "REVISION_IN_PROGRESS": "Another revision of this project is still being built or waiting for review",
-      "reload": "Reload"
+      "reload": "Reload",
+      "NOT_CURRENT_VERSION": "This file is an old version, so nothing can be built from it. Build from the newer version of the same kind."
     },
     "role": {
       "label": "Cabinet role",
@@ -898,7 +928,8 @@
         "scale": "Scale",
         "reset": "Remove hand adjustment"
       }
-    }
+    },
+    "supersededNotice": "This file is an old version, so a revision cannot be built from it. Open the newer version and build from that."
   },
   "design": {
     "listTitle": "Design revisions",
@@ -984,18 +1015,24 @@
         "crs_known": "Coordinates: source CRS chosen",
         "control_point": "At least one control point in use ({count})",
         "no_problems": "No drawing errors ({count} left)",
-        "open_items": "Open items reviewed ({count})"
+        "open_items": "Open items reviewed ({count})",
+        "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set"
       },
       "fixCoordinates": "Open the coordinates screen",
-      "lockedHint": "Publishing is locked until the first three checks are done.",
+      "lockedHint": "Publishing is locked until all checks except open items are done.",
       "openItemsText": "Open items remain. Publishing locks the revision as it is.",
       "acknowledge": "I understand and want to publish with open items",
       "blocked": {
-        "CRS_UNKNOWN": "The source coordinate system of the drawing was never chosen. Choose it on the coordinates screen first.",
-        "PLACEMENT_MISSING": "The placement has no control point in use. Add or include a control point first.",
-        "PROBLEMS_OPEN": "{count} drawing errors are left. Fix them all before publishing.",
-        "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first."
-      }
+        "CRS_UNKNOWN": "The source coordinate system of the {drawing} drawing was never chosen. Choose it first on the coordinates screen.",
+        "PLACEMENT_MISSING": "The {drawing} drawing has no control point in use. Add or include a control point first.",
+        "PROBLEMS_OPEN": "{count} drawing errors are left in the {drawing} drawing. Fix all of them before publishing.",
+        "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
+        "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together."
+      },
+      "otherNoDraft": "There is no draft for the {drawing} yet",
+      "otherErrors": "{count} errors in it",
+      "openOther": "Open the {drawing} draft",
+      "pairNote": "Publishing covers both drawings together ({first} + {second}) with the same revision number."
     },
     "error": {
       "NOT_DRAFT": "Only a draft revision can be published",
@@ -1212,7 +1249,8 @@
         "VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again.",
         "MAPPING_VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again."
       }
-    }
+    },
+    "kind": "Kind"
   },
   "asbuilt": {
     "title": "As-Built",
@@ -1658,6 +1696,14 @@
       "commit": "Register the lines",
       "committing": "Saving…",
       "mappingNote": "Scope of work is optional; work type is not used."
+    }
+  },
+  "drawingKind": {
+    "general": "General (main)",
+    "secondary": "Secondary",
+    "badge": {
+      "general": "Main",
+      "secondary": "Secondary"
     }
   }
 }

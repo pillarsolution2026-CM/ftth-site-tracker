@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DrawingUnitSchema } from '../cad/drawing-units.js';
+import { DrawingKindSchema } from '../cad/drawing-kind.schemas.js';
 import { MappingRuleSchema } from '../cad/cad-mapping.schemas.js';
 import { PlacementSchema } from '../cad/placement.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
@@ -115,6 +116,8 @@ export const DesignRevisionSummarySchema = z.object({
   projectId: z.uuid(),
   cadFileId: z.uuid(),
   cadFileName: z.string(),
+  /** Kind of the source file (ADR-040): one open revision and one published line per kind. */
+  drawingKind: DrawingKindSchema,
   /** Assigned on publish (1, 2, …); null before. */
   revNo: z.number().int().min(1).nullable(),
   status: DesignRevisionStatusSchema,
@@ -164,28 +167,39 @@ export const CreateDesignRevisionRequestSchema = z.object({
 });
 export type CreateDesignRevisionRequest = z.infer<typeof CreateDesignRevisionRequestSchema>;
 
-/** POST …/design-revisions/:revisionId/publish */
+/**
+ * POST …/design-revisions/:revisionId/publish — publishes the PAIR (ADR-040): this draft and the
+ * open draft of the other kind, together, with the same `revNo`. Both must pass every check.
+ */
 export const PublishDesignRevisionRequestSchema = z.object({
   /**
-   * Required when text links still need review or the diff has conflicts. After publishing they
-   * stay as they are (the revision is locked).
+   * Required when text links still need review or the diff has conflicts, in either drawing.
+   * After publishing they stay as they are (the revisions are locked).
    */
   acknowledgeOpenItems: z.boolean().default(false),
 });
 export type PublishDesignRevisionRequest = z.infer<typeof PublishDesignRevisionRequestSchema>;
 
 /**
- * 409 details when publishing is refused (ADR-038). Checked in this order: coordinates
- * (`CRS_UNKNOWN`, `PLACEMENT_MISSING`), drawing errors (`PROBLEMS_OPEN`), then open items without
- * acknowledgement (`OPEN_ITEMS`).
+ * 409 details when publishing is refused (ADR-038, ADR-040). Checked in this order: the other
+ * drawing has an open draft (`OTHER_DRAWING_MISSING`); then for this drawing, then the other:
+ * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`) and drawing errors (`PROBLEMS_OPEN`); last, open
+ * items of both without acknowledgement (`OPEN_ITEMS`, summed). `drawingKind` names the drawing
+ * that blocks.
  */
 export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
+  /** The other kind has no draft to publish with this one (ADR-040: both are published together). */
+  z.object({ reason: z.literal('OTHER_DRAWING_MISSING'), drawingKind: DrawingKindSchema }),
   /** No placement frozen on the revision: its source CRS was never chosen (ADR-032 / ADR-035). */
-  z.object({ reason: z.literal('CRS_UNKNOWN') }),
+  z.object({ reason: z.literal('CRS_UNKNOWN'), drawingKind: DrawingKindSchema }),
   /** The frozen placement has no control point in use (all excluded or none). */
-  z.object({ reason: z.literal('PLACEMENT_MISSING') }),
+  z.object({ reason: z.literal('PLACEMENT_MISSING'), drawingKind: DrawingKindSchema }),
   /** Drawing problems are left; every one must be fixed first (ADR-038). */
-  z.object({ reason: z.literal('PROBLEMS_OPEN'), problemCount: z.number().int().min(1) }),
+  z.object({
+    reason: z.literal('PROBLEMS_OPEN'),
+    drawingKind: DrawingKindSchema,
+    problemCount: z.number().int().min(1),
+  }),
   z.object({
     reason: z.literal('OPEN_ITEMS'),
     textLinksToReview: z.number().int().min(0),
@@ -204,6 +218,8 @@ export const PUBLISH_CHECK_KEYS = [
   'control_point',
   'no_problems',
   'open_items',
+  /** ADR-040: the other drawing has a draft that passes its own first three checks. */
+  'other_drawing',
 ] as const;
 export const PublishCheckKeySchema = z.enum(PUBLISH_CHECK_KEYS);
 export type PublishCheckKey = z.infer<typeof PublishCheckKeySchema>;
@@ -211,16 +227,22 @@ export type PublishCheckKey = z.infer<typeof PublishCheckKeySchema>;
 export const PublishCheckSchema = z.object({
   key: PublishCheckKeySchema,
   ok: z.boolean(),
-  /** crs_known: null; control_point: points in use; no_problems: problems left; open_items: open. */
+  /**
+   * crs_known: null; control_point: points in use; no_problems: problems left; open_items: open
+   * (both drawings); other_drawing: problems left in the other drawing's draft (null: no draft).
+   */
   count: z.number().int().min(0).nullable(),
 });
 export type PublishCheck = z.infer<typeof PublishCheckSchema>;
 
 export const PublishReadinessSchema = z.object({
-  /** Always the four keys, in PUBLISH_CHECK_KEYS order. */
+  /** Always every key, in PUBLISH_CHECK_KEYS order. */
   checks: z.array(PublishCheckSchema).length(PUBLISH_CHECK_KEYS.length),
-  /** The first three checks are ok and the revision is a draft. */
+  /** Every check except open_items is ok and the revision is a draft. */
   canPublish: z.boolean(),
+  /** Kind of this revision and the other drawing's open draft published with it (null: none). */
+  drawingKind: DrawingKindSchema,
+  otherRevisionId: z.uuid().nullable(),
   /** Open items exist: publishing needs `acknowledgeOpenItems: true`. */
   needsAcknowledgement: z.boolean(),
 });

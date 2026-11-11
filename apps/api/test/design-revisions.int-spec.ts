@@ -114,12 +114,14 @@ async function insertCadFile(
   status: 'processed' | 'uploaded',
   project = projectA,
   name = `plan-${randomUUID().slice(0, 8)}.dxf`,
+  kind: 'general' | 'secondary' = 'general',
 ): Promise<string> {
   const id = randomUUID();
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, crs_detection, processed_at)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8)`,
+                            status, current_job_id, ins_units, crs_detection, processed_at,
+                            drawing_kind)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9)`,
     [
       id,
       project,
@@ -129,6 +131,7 @@ async function insertCadFile(
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? JSON.stringify(DETECTION) : null,
       status === 'processed' ? new Date() : null,
+      kind,
     ],
   );
   return id;
@@ -414,6 +417,32 @@ async function saveMapping(fileId: string, version: number | null, unit: string 
     drawingUnit: unit,
     version,
   });
+}
+
+const USED_PLACEMENT = JSON.stringify({
+  sourceCrs: 'project',
+  points: [{ id: 'p1', drawing: { x: 1, y: 1 }, lat: 30.9, lon: 32.7, source: 'typed' }],
+});
+
+let secondary: { fileId: string; mappingVersion: number } | null = null;
+
+/**
+ * The partner every publish needs (ADR-040: both drawings are published together): a built
+ * Secondary draft of the Secondary file, placed, with no problems and no open items.
+ */
+async function secondaryDraft(): Promise<string> {
+  if (!secondary) {
+    const id = await insertCadFile('processed', projectA, undefined, 'secondary');
+    const saved = await saveMapping(id, null);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    secondary = { fileId: id, mappingVersion: saved.body.version };
+  }
+  const created = await createRevision(secondary.fileId, secondary.mappingVersion);
+  expect(created.status, JSON.stringify(created.body)).toBe(202);
+  const id = created.body.id as string;
+  await simulateBuild(id, false);
+  await setRevisionPlacement(id, USED_PLACEMENT);
+  return id;
 }
 
 const createRevision = (fileId: string, mappingVersion: number, token = pm, context = ctx) =>
@@ -1282,26 +1311,39 @@ describe('a built draft revision', () => {
     );
     expect(stranger.status).toBe(404);
 
+    // Both drawings are published together: without a Secondary draft nothing else is checked.
+    await setPlacement(place(false));
+    await refused({ reason: 'OTHER_DRAWING_MISSING', drawingKind: 'secondary' });
+    expect(await readiness()).toMatchObject({
+      drawingKind: 'general',
+      otherRevisionId: null,
+      canPublish: false,
+    });
+    const secondaryId = await secondaryDraft();
+
     // Warnings from the problems test above are still stored: 3 problem places.
     await setPlacement(null);
-    await refused({ reason: 'CRS_UNKNOWN' });
+    await refused({ reason: 'CRS_UNKNOWN', drawingKind: 'general' });
     expect(await readiness()).toEqual({
       checks: [
         { key: 'crs_known', ok: false, count: null },
         { key: 'control_point', ok: false, count: 0 },
         { key: 'no_problems', ok: false, count: 3 },
         { key: 'open_items', ok: false, count: 2 },
+        { key: 'other_drawing', ok: true, count: 0 },
       ],
       canPublish: false,
+      drawingKind: 'general',
+      otherRevisionId: secondaryId,
       needsAcknowledgement: true,
     });
 
     await setPlacement(place(true));
-    await refused({ reason: 'PLACEMENT_MISSING' });
+    await refused({ reason: 'PLACEMENT_MISSING', drawingKind: 'general' });
     expect((await readiness()).checks[1]).toEqual({ key: 'control_point', ok: false, count: 0 });
 
     await setPlacement(place(false));
-    await refused({ reason: 'PROBLEMS_OPEN', problemCount: 3 });
+    await refused({ reason: 'PROBLEMS_OPEN', drawingKind: 'general', problemCount: 3 });
     expect(await readiness()).toMatchObject({ canPublish: false, needsAcknowledgement: true });
 
     await setWarnings(revisionId, []);
@@ -1311,6 +1353,7 @@ describe('a built draft revision', () => {
       { key: 'control_point', ok: true, count: 1 },
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: false, count: 2 },
+      { key: 'other_drawing', ok: true, count: 0 },
     ]);
     expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });
@@ -1335,6 +1378,16 @@ describe('a built draft revision', () => {
       'design_revision.queued',
       'design_revision.published',
     ]);
+    // The pair: the Secondary draft was published with it, with the same number.
+    const pairRows = await ctx.pool.query(
+      'SELECT status, rev_no, published_at FROM design_revisions WHERE id = ANY($1)',
+      [[revisionId, secondaryId]],
+    );
+    expect(pairRows.rows.map((r) => [r.status, r.rev_no])).toEqual([
+      ['published', 1],
+      ['published', 1],
+    ]);
+    expect(pairRows.rows[0].published_at).toEqual(pairRows.rows[1].published_at);
     const event = await ctx.pool.query(
       `SELECT payload FROM events WHERE entity_id = $1 AND type = 'design_revision.published'`,
       [revisionId],
@@ -1344,6 +1397,8 @@ describe('a built draft revision', () => {
       acknowledgedOpenItems: true,
       textLinksToReview: 1,
       diffConflicts: 1,
+      drawingKind: 'general',
+      pairRevisionId: secondaryId,
     });
     expect((await readiness()).canPublish).toBe(false);
   });
@@ -1379,13 +1434,8 @@ describe('further revisions', () => {
     const second = DesignRevisionSummarySchema.parse(created.body);
     expect(second.baseRevisionId).toBe(revisionId);
     await simulateBuild(second.id, false);
-    await setRevisionPlacement(
-      second.id,
-      JSON.stringify({
-        sourceCrs: 'project',
-        points: [{ id: 'p1', drawing: { x: 1, y: 1 }, lat: 30.9, lon: 32.7, source: 'typed' }],
-      }),
-    );
+    await setRevisionPlacement(second.id, USED_PLACEMENT);
+    const secondarySecond = await secondaryDraft();
 
     const published = await as(pm)(
       http().post(`${revisionsUrl(projectA)}/${second.id}/publish`),
@@ -1396,7 +1446,15 @@ describe('further revisions', () => {
     const list = DesignRevisionListResponseSchema.parse(
       (await as(pm)(http().get(revisionsUrl(projectA)))).body,
     );
-    expect(list.items.map((item) => item.revNo)).toEqual([2, 1]);
+    expect(list.items.filter((item) => item.drawingKind === 'general').map((i) => i.revNo)).toEqual(
+      [2, 1],
+    );
+    // The Secondary went out with the second General under the same number.
+    expect(list.items.find((item) => item.id === secondarySecond)).toMatchObject({
+      drawingKind: 'secondary',
+      status: 'published',
+      revNo: 2,
+    });
     // The first revision is untouched.
     const first = await ctx.pool.query(
       'SELECT status, rev_no FROM design_revisions WHERE id = $1',

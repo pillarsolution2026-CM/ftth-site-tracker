@@ -1,4 +1,4 @@
-import { ltr, type MessageKey } from '@ftth/i18n';
+import { ltr, translate, type Locale, type MessageKey } from '@ftth/i18n';
 import { PublishBlockedDetailsSchema, type PublishBlockedDetails } from '@ftth/shared';
 import { ApiClientError, type ClientErrorCode } from '@/shared/api/bff-client';
 
@@ -35,19 +35,29 @@ export interface ErrorMessage {
   params: Record<string, string | number>;
 }
 
-/** The clear message for each 409 refusal reason of publish (ADR-038). */
-export function publishBlockedMessage(details: PublishBlockedDetails): ErrorMessage {
+/**
+ * The clear message for each 409 refusal reason of publish (ADR-038, ADR-040). `drawing` names the
+ * drawing that blocks («الجينيرال (رئيسي)» / «الثانوي»).
+ */
+export function publishBlockedMessage(
+  details: PublishBlockedDetails,
+  locale: Locale,
+): ErrorMessage {
+  if (details.reason === 'OPEN_ITEMS') {
+    return { key: 'design.publish.blocked.OPEN_ITEMS', params: {} };
+  }
+  const drawing = translate(locale, `drawingKind.${details.drawingKind}`);
   switch (details.reason) {
+    case 'OTHER_DRAWING_MISSING':
+      return { key: 'design.publish.blocked.OTHER_DRAWING_MISSING', params: { drawing } };
     case 'CRS_UNKNOWN':
-      return { key: 'design.publish.blocked.CRS_UNKNOWN', params: {} };
+      return { key: 'design.publish.blocked.CRS_UNKNOWN', params: { drawing } };
     case 'PLACEMENT_MISSING':
-      return { key: 'design.publish.blocked.PLACEMENT_MISSING', params: {} };
+      return { key: 'design.publish.blocked.PLACEMENT_MISSING', params: { drawing } };
     case 'PROBLEMS_OPEN':
       return {
         key: 'design.publish.blocked.PROBLEMS_OPEN',
-        params: { count: ltr(details.problemCount) },
+        params: { drawing, count: ltr(details.problemCount) },
       };
-    case 'OPEN_ITEMS':
-      return { key: 'design.publish.blocked.OPEN_ITEMS', params: {} };
   }
 }

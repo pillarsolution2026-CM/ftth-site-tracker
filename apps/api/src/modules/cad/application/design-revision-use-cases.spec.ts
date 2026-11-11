@@ -10,6 +10,7 @@ import { AppError } from '../../../common/app-error.js';
 import type { IdGenerator } from '../../../common/clock.js';
 import { InMemoryObjectStorage } from '../../../common/testing/in-memory-object-storage.js';
 import type { CadFile } from '../domain/cad-file.js';
+import type { DesignRevision } from '../domain/design-revision.js';
 import {
   FakeClock,
   InMemoryCadUnitOfWork,
@@ -28,6 +29,7 @@ import {
   GetPublishReadinessUseCase,
   PublishDesignRevisionUseCase,
 } from './publish-design-revision.use-case.js';
+import { RebuildDesignRevisionUseCase } from './rebuild-design-revision.use-case.js';
 import { ReprocessCadFileUseCase } from './reprocess-cad-file.use-case.js';
 import { ReviewTextLinkUseCase } from './review-text-link.use-case.js';
 import {
@@ -79,6 +81,9 @@ function processedFile(overrides: Partial<CadFile> = {}): CadFile {
     storageKey: `projects/${PROJECT}/cad/${FILE}/original.dxf`,
     convertedStorageKey: null,
     status: 'processed',
+    drawingKind: 'general',
+    supersededAt: null,
+    supersededById: null,
     currentJobId: '44444444-4444-4444-8444-444444444444',
     converter: 'none',
     converterVersion: null,
@@ -133,6 +138,39 @@ const create = (mappingVersion = 1, project = PROJECT) =>
     actorId: ACTOR,
     request: { cadFileId: FILE, mappingVersion },
   });
+
+const SEC_FILE = '55555555-5555-4555-8555-555555555555';
+
+/** A built Secondary draft with a used control point and no problems: the pair partner (ADR-040). */
+async function addSecondaryDraft(patch: Partial<DesignRevision> = {}): Promise<DesignRevision> {
+  const existing = await uow.revisions.findOpen(PROJECT, 'secondary');
+  if (existing) {
+    const updated = { ...existing, ...patch };
+    uow.revisions.rows.set(existing.id, updated);
+    return updated;
+  }
+  uow.files.rows.set(
+    SEC_FILE,
+    processedFile({ id: SEC_FILE, originalName: 'secondary.dxf', drawingKind: 'secondary' }),
+  );
+  if (!(await uow.mappings.find(PROJECT, SEC_FILE))) {
+    await new SaveCadMappingUseCase(uow, clock).execute({
+      projectId: PROJECT,
+      cadFileId: SEC_FILE,
+      actorId: ACTOR,
+      mapping: MAPPING,
+    });
+  }
+  const revision = await new CreateDesignRevisionUseCase(uow, queue, clock, ids).execute({
+    projectId: PROJECT,
+    actorId: ACTOR,
+    request: { cadFileId: SEC_FILE, mappingVersion: 1 },
+  });
+  const draft: DesignRevision = { ...revision, status: 'draft', placement: USED_POINT, ...patch };
+  uow.revisions.rows.set(revision.id, draft);
+  uow.links.diffConflictsByRevision.set(revision.id, 0);
+  return draft;
+}
 
 /** Narrowing helper that fails the test with a clear message instead of a non-null assertion. */
 function must<T>(value: T | undefined | null): T {
@@ -368,13 +406,15 @@ describe('review, publish and discard', () => {
       actorId: ACTOR,
       review,
     });
-  const publish = (acknowledgeOpenItems = false) =>
-    new PublishDesignRevisionUseCase(uow, clock).execute({
+  const publish = async (acknowledgeOpenItems = false) => {
+    if (!(await uow.revisions.hasOpen(PROJECT, 'secondary'))) await addSecondaryDraft();
+    return new PublishDesignRevisionUseCase(uow, clock).execute({
       projectId: PROJECT,
       revisionId,
       actorId: ACTOR,
       request: { acknowledgeOpenItems },
     });
+  };
 
   // The read side is SQL-only; for orchestration tests a stub that returns the stored link is enough.
   const reads = {
@@ -497,8 +537,13 @@ describe('review, publish and discard', () => {
     });
     const published = await publish(true);
     expect(published).toMatchObject({ status: 'published', revNo: 1, publishedById: ACTOR });
-    expect(uow.events.types()).toEqual(['design_revision.published']);
-    expect(uow.events.events[0]?.payload).toMatchObject({ revNo: 1, acknowledgedOpenItems: true });
+    const events = uow.events.events.filter((e) => e.type === 'design_revision.published');
+    expect(events).toHaveLength(2);
+    expect(events[0]?.payload).toMatchObject({
+      revNo: 1,
+      acknowledgedOpenItems: true,
+      drawingKind: 'general',
+    });
   });
 
   it('publishes without acknowledgement when nothing is open and numbers revisions per project', async () => {
@@ -512,6 +557,7 @@ describe('review, publish and discard', () => {
 
     const next = await create();
     uow.revisions.rows.set(next.id, { ...next, status: 'draft', placement: USED_POINT });
+    await addSecondaryDraft();
     const second = await new PublishDesignRevisionUseCase(uow, clock).execute({
       projectId: PROJECT,
       revisionId: next.id,
@@ -755,7 +801,7 @@ describe('drawing problems (ADR-038)', () => {
   });
 });
 
-describe('publish readiness and gate (ADR-038)', () => {
+describe('publish readiness and gate (ADR-038, ADR-040)', () => {
   let revisionId: string;
   const placement = (excluded: boolean[]) =>
     PlacementSchema.parse({
@@ -784,12 +830,31 @@ describe('publish readiness and gate (ADR-038)', () => {
       actorId: ACTOR,
       request: { acknowledgeOpenItems },
     });
+  let secondary: DesignRevision;
 
   beforeEach(async () => {
     await save();
     const revision = await create();
     revisionId = revision.id;
     uow.revisions.rows.set(revisionId, { ...revision, status: 'draft', placement: null });
+    secondary = await addSecondaryDraft();
+  });
+
+  it('refuses OTHER_DRAWING_MISSING first, when the other kind has no open draft', async () => {
+    uow.revisions.rows.delete(secondary.id);
+    expect(await reason(publish())).toMatchObject({
+      code: 'CONFLICT',
+      status: 409,
+      details: { reason: 'OTHER_DRAWING_MISSING', drawingKind: 'secondary' },
+    });
+  });
+
+  it('refuses OTHER_DRAWING_MISSING while the other kind is still building', async () => {
+    setRevision({ placement: placement([false]) });
+    uow.revisions.rows.set(secondary.id, { ...secondary, status: 'building' });
+    expect(await reason(publish())).toMatchObject({
+      details: { reason: 'OTHER_DRAWING_MISSING', drawingKind: 'secondary' },
+    });
   });
 
   it('refuses CRS_UNKNOWN for a revision without a placement, before anything else', async () => {
@@ -798,14 +863,16 @@ describe('publish readiness and gate (ADR-038)', () => {
     expect(await reason(publish())).toMatchObject({
       code: 'CONFLICT',
       status: 409,
-      details: { reason: 'CRS_UNKNOWN' },
+      details: { reason: 'CRS_UNKNOWN', drawingKind: 'general' },
     });
   });
 
   it('refuses PLACEMENT_MISSING when no point is in use (none, or all excluded)', async () => {
     for (const excluded of [[], [true, true]]) {
       setRevision({ placement: placement(excluded) });
-      expect(await reason(publish())).toMatchObject({ details: { reason: 'PLACEMENT_MISSING' } });
+      expect(await reason(publish())).toMatchObject({
+        details: { reason: 'PLACEMENT_MISSING', drawingKind: 'general' },
+      });
     }
   });
 
@@ -814,46 +881,92 @@ describe('publish readiness and gate (ADR-038)', () => {
     uow.problems.stored.set(revisionId, [problem(2), problem(3)]);
     uow.links.diffConflicts = 4;
     expect(await reason(publish(false))).toMatchObject({
-      details: { reason: 'PROBLEMS_OPEN', problemCount: 5 },
+      details: { reason: 'PROBLEMS_OPEN', drawingKind: 'general', problemCount: 5 },
     });
   });
 
-  it('then asks for acknowledgement of open items, then publishes (excluded points ignored)', async () => {
-    setRevision({ placement: placement([true, false]) });
-    uow.links.diffConflicts = 2;
-    expect(await reason(publish(false))).toMatchObject({
-      details: { reason: 'OPEN_ITEMS', textLinksToReview: 0, diffConflicts: 2 },
+  it("reports a blocker of the other drawing with that drawing's kind, after this one's own", async () => {
+    setRevision({ placement: placement([false]) });
+    uow.problems.stored.set(secondary.id, [problem(7)]);
+    expect(await reason(publish())).toMatchObject({
+      details: { reason: 'PROBLEMS_OPEN', drawingKind: 'secondary', problemCount: 7 },
     });
-    expect(await publish(true)).toMatchObject({ status: 'published', revNo: 1 });
+    uow.revisions.rows.set(secondary.id, { ...secondary, placement: null });
+    expect(await reason(publish())).toMatchObject({
+      details: { reason: 'CRS_UNKNOWN', drawingKind: 'secondary' },
+    });
+    uow.problems.stored.set(revisionId, [problem(1)]);
+    expect(await reason(publish())).toMatchObject({
+      details: { reason: 'PROBLEMS_OPEN', drawingKind: 'general', problemCount: 1 },
+    });
+  });
+
+  it('sums open items of both drawings, then publishes the pair with one revNo (excluded points ignored)', async () => {
+    setRevision({ placement: placement([true, false]) });
+    uow.links.diffConflictsByRevision.set(revisionId, 2);
+    uow.links.diffConflictsByRevision.set(secondary.id, 3);
+    expect(await reason(publish(false))).toMatchObject({
+      details: { reason: 'OPEN_ITEMS', textLinksToReview: 0, diffConflicts: 5 },
+    });
+    expect(await publish(true)).toMatchObject({
+      status: 'published',
+      revNo: 1,
+      drawingKind: 'general',
+    });
+    const other = must(uow.revisions.rows.get(secondary.id));
+    expect(other).toMatchObject({ status: 'published', revNo: 1, publishedById: ACTOR });
+    expect(other.publishedAt).toEqual(must(uow.revisions.rows.get(revisionId)).publishedAt);
+    const events = uow.events.events.filter((e) => e.type === 'design_revision.published');
+    expect(events.map((e) => e.entityId).sort()).toEqual([revisionId, secondary.id].sort());
+    expect(events.find((e) => e.entityId === secondary.id)?.payload).toMatchObject({
+      revNo: 1,
+      drawingKind: 'secondary',
+      pairRevisionId: revisionId,
+    });
   });
 
   it('reports the checklist in order', async () => {
+    uow.revisions.rows.set(secondary.id, { ...secondary, placement: null });
+    uow.problems.stored.set(secondary.id, [problem(6)]);
     expect(await readiness()).toEqual({
       checks: [
         { key: 'crs_known', ok: false, count: null },
         { key: 'control_point', ok: false, count: 0 },
         { key: 'no_problems', ok: true, count: 0 },
         { key: 'open_items', ok: true, count: 0 },
+        { key: 'other_drawing', ok: false, count: 6 },
       ],
       canPublish: false,
+      drawingKind: 'general',
+      otherRevisionId: secondary.id,
       needsAcknowledgement: false,
     });
     setRevision({ placement: placement([true, false, false]) });
     uow.problems.stored.set(revisionId, [problem(4)]);
-    uow.links.diffConflicts = 3;
+    uow.links.diffConflictsByRevision.set(revisionId, 3);
+    uow.links.diffConflictsByRevision.set(secondary.id, 2);
     const result = await readiness();
     expect(result.checks).toEqual([
       { key: 'crs_known', ok: true, count: null },
       { key: 'control_point', ok: true, count: 2 },
       { key: 'no_problems', ok: false, count: 4 },
-      { key: 'open_items', ok: false, count: 3 },
+      { key: 'open_items', ok: false, count: 5 },
+      { key: 'other_drawing', ok: false, count: 6 },
     ]);
     expect(result).toMatchObject({ canPublish: false, needsAcknowledgement: true });
   });
 
-  it('can publish when the first three are ok, even with open items; never when not a draft', async () => {
+  it('has no other draft: other_drawing is not ok with a null count and no otherRevisionId', async () => {
+    uow.revisions.rows.delete(secondary.id);
     setRevision({ placement: placement([false]) });
-    uow.links.diffConflicts = 1;
+    const result = await readiness();
+    expect(result.checks.at(-1)).toEqual({ key: 'other_drawing', ok: false, count: null });
+    expect(result).toMatchObject({ canPublish: false, otherRevisionId: null });
+  });
+
+  it('can publish when every check but open_items is ok, even with open items (either drawing); never when not a draft', async () => {
+    setRevision({ placement: placement([false]) });
+    uow.links.diffConflictsByRevision.set(secondary.id, 1);
     expect(await readiness()).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     setRevision({ status: 'published', revNo: 1 });
     expect(await readiness()).toMatchObject({ canPublish: false });
@@ -863,5 +976,57 @@ describe('publish readiness and gate (ADR-038)', () => {
     expect(
       (await reason(new GetPublishReadinessUseCase(uow).execute(OTHER_PROJECT, revisionId))).code,
     ).toBe('NOT_FOUND');
+  });
+});
+
+describe('drawing kinds on revisions (ADR-040)', () => {
+  it('refuses a superseded file with NOT_CURRENT_VERSION', async () => {
+    await save();
+    uow.files.rows.set(
+      FILE,
+      processedFile({ supersededAt: clock.now(), supersededById: SEC_FILE }),
+    );
+    expect(await reason(create())).toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'NOT_CURRENT_VERSION' },
+    });
+  });
+
+  it('refuses a rebuild when the file was superseded meanwhile', async () => {
+    await save();
+    const revision = await create();
+    uow.revisions.rows.set(revision.id, { ...revision, status: 'draft' });
+    uow.files.rows.set(
+      FILE,
+      processedFile({ supersededAt: clock.now(), supersededById: SEC_FILE }),
+    );
+    const rebuild = new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+      projectId: PROJECT,
+      revisionId: revision.id,
+      actorId: ACTOR,
+      request: { mappingVersion: 1 },
+    });
+    expect(await reason(rebuild)).toMatchObject({ details: { reason: 'NOT_CURRENT_VERSION' } });
+  });
+
+  it('allows one open revision per kind', async () => {
+    await save();
+    const general = await create();
+    const secondary = await addSecondaryDraft();
+    expect(general.drawingKind).toBe('general');
+    expect(secondary.drawingKind).toBe('secondary');
+    // A second open revision of the same kind is still refused.
+    expect(await reason(create())).toMatchObject({ details: { reason: 'REVISION_IN_PROGRESS' } });
+  });
+
+  it('bases a new revision on the latest published revision of its own kind', async () => {
+    await save();
+    const general = await create();
+    uow.revisions.rows.set(general.id, { ...general, status: 'published', revNo: 1 });
+    const secondary = await addSecondaryDraft();
+    uow.revisions.rows.set(secondary.id, { ...secondary, status: 'published', revNo: 1 });
+    expect(await uow.revisions.findLatestPublishedId(PROJECT, 'general')).toBe(general.id);
+    expect(await uow.revisions.findLatestPublishedId(PROJECT, 'secondary')).toBe(secondary.id);
+    expect((await create()).baseRevisionId).toBe(general.id);
   });
 });

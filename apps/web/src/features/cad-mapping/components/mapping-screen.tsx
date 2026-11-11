@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { PageHeader } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { useCadFile } from '@/features/cad-files/api/queries';
+import { Notice } from '@/shared/ui/notice';
 import { usePlacementDrawing } from '../api/queries';
 import { gpsProposalPhotoUrl } from '../api/proposals-api';
 import { useGpsProposalsPanel } from '../hooks/use-gps-proposals';
@@ -27,6 +29,9 @@ export function MappingScreen({
     cadFileId,
     screen.canRead && screen.view?.fileStatus === 'processed',
   );
+
+  const cadFile = useCadFile(projectId, cadFileId, screen.canRead);
+  const superseded = cadFile.data?.supersededAt != null;
 
   const proposals = useGpsProposalsPanel({
     projectId,
@@ -55,6 +60,11 @@ export function MappingScreen({
         <p role="status">{t('common.loading')}</p>
       ) : (
         <>
+          {superseded ? (
+            <Notice kind="info" className="mb-4">
+              {t('mapping.supersededNotice')}
+            </Notice>
+          ) : null}
           {screen.canWrite ? (
             <div className="mb-6">
               <GpsProposalsPanel
@@ -72,7 +82,7 @@ export function MappingScreen({
             view={screen.view}
             drawing={drawing.data ?? null}
             canWrite={screen.canWrite}
-            canBuild={screen.canBuild}
+            canBuild={screen.canBuild && !superseded}
             saving={screen.saving}
             building={screen.building}
             errorKey={screen.errorKey}

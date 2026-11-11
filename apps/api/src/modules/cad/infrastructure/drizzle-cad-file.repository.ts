@@ -1,7 +1,7 @@
-import { CrsDetectionSchema } from '@ftth/shared';
-import { and, desc, eq, inArray, lt, or } from 'drizzle-orm';
+import { CrsDetectionSchema, type DrawingKind } from '@ftth/shared';
+import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import type { DbHandle } from '../../../db/db.module.js';
-import { cadFiles } from '../../../db/schema.js';
+import { cadFiles, projects } from '../../../db/schema.js';
 import type { CadFile, DrawingViewRecord } from '../domain/cad-file.js';
 import type { CadFileRepository } from '../domain/cad-file.repository.js';
 
@@ -28,6 +28,9 @@ function toCadFile(row: Row): CadFile {
     storageKey: row.storageKey,
     convertedStorageKey: row.convertedStorageKey,
     status: row.status,
+    drawingKind: row.drawingKind,
+    supersededAt: row.supersededAt,
+    supersededById: row.supersededBy,
     currentJobId: row.currentJobId,
     converter: row.converter,
     converterVersion: row.converterVersion,
@@ -109,8 +112,60 @@ export class DrizzleCadFileRepository implements CadFileRepository {
       sha256: file.sha256,
       storageKey: file.storageKey,
       status: 'uploaded',
+      drawingKind: file.drawingKind,
       uploadedBy: file.uploadedById,
     });
+  }
+
+  async listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
+    const rows = await this.db
+      .select()
+      .from(cadFiles)
+      .where(
+        and(
+          eq(cadFiles.projectId, projectId),
+          eq(cadFiles.drawingKind, kind),
+          isNull(cadFiles.supersededAt),
+        ),
+      )
+      .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id));
+    return rows.map(toCadFile);
+  }
+
+  async lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
+    // NO KEY UPDATE: serialises two first uploads without blocking children's foreign-key checks.
+    await this.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .for('no key update');
+    const rows = await this.db
+      .select()
+      .from(cadFiles)
+      .where(
+        and(
+          eq(cadFiles.projectId, projectId),
+          eq(cadFiles.drawingKind, kind),
+          isNull(cadFiles.supersededAt),
+        ),
+      )
+      .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id))
+      .for('update');
+    return rows.map(toCadFile);
+  }
+
+  async supersede(projectId: string, fileIds: string[], byId: string, at: Date): Promise<void> {
+    if (fileIds.length === 0) return;
+    await this.db
+      .update(cadFiles)
+      .set({ supersededAt: at, supersededBy: byId })
+      .where(
+        and(
+          eq(cadFiles.projectId, projectId),
+          inArray(cadFiles.id, fileIds),
+          isNull(cadFiles.supersededAt),
+        ),
+      );
   }
 
   async markQueued(projectId: string, cadFileId: string, jobId: string, at: Date): Promise<void> {
