@@ -56,6 +56,7 @@ from cad_worker.domain.design_build import (
     parse_rules,
 )
 from cad_worker.domain.drawing_checks import check_drawing, problems_json
+from cad_worker.domain.kind_checks import check_kind
 from cad_worker.domain.placement import (
     PlacementInvalidError,
     Placer,
@@ -63,6 +64,7 @@ from cad_worker.domain.placement import (
     parse_placement,
 )
 from cad_worker.domain.revision_match import BaseFeature, diff_counts, match_revision
+from cad_worker.domain.role_reading import READING_ATTR_KEY, read_drawing, reading_totals
 from cad_worker.domain.text_links import (
     TextLinkDraft,
     box_codes,
@@ -70,6 +72,7 @@ from cad_worker.domain.text_links import (
     linked_texts_by_kind,
     status_counts,
 )
+from cad_worker.domain.text_roles import DRAWING_KINDS, DrawingKind
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +105,9 @@ class DesignBuild:
     # Totals per type / kind / role / status (ADR-033/034) and drawing problems (shared schemas).
     groups: list[dict[str, object]] = field(default_factory=list)
     problems: list[dict[str, object]] = field(default_factory=list)
+    # ADR-041 `counts.reading` (roles reading mode only) and a log line about the reading.
+    reading_totals: dict[str, object] | None = None
+    reading_log: str | None = None
 
 
 def run_build(job: CadBuildRevisionJob, deps: BuildDeps, worker_id: str) -> Outcome:
@@ -144,9 +150,12 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
             corrections = parse_corrections(inputs.corrections)
         except (MappingInvalidError, PlacementInvalidError, CorrectionInvalidError) as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
-        # Route layers for routes; point layers for their closed shapes (ADR-033); curves named by
-        # a correction wherever they are.
-        drawing = tx.load_drawing(rules.layers_with(*FEATURE_TYPES), curve_handles(corrections))
+        kind = inputs.drawing_kind
+        if kind not in DRAWING_KINDS:
+            raise BuildFailure("MAPPING_INVALID", f"unknown drawing kind {kind!r}")
+        # Route layers for routes; point layers for their closed shapes (ADR-033); zone layers
+        # (ADR-041); curves named by a correction wherever they are.
+        drawing = tx.load_drawing(rules.curve_layers(), curve_handles(corrections))
         # Corrections made on the program page (ADR-038), before classification and checks: every
         # feature, text link and problem sees the corrected drawing. The background tile layer is
         # rendered from the raw rows and does not show them.
@@ -160,7 +169,7 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
         except CorrectionInvalidError as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         base = tx.load_base()
-        design = compose_design(drawing, rules, place, base, deps.new_id)
+        design = compose_design(drawing, rules, place, base, deps.new_id, kind)
         route_length = tx.write(design.rows)
         built_s = time.monotonic() - started
         key, tiles_log = _tiles(job, tx, deps, design.background)
@@ -173,6 +182,7 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
                 key,
                 [
                     f"corrections: {len(corrections)} applied",
+                    *([f"reading: {design.reading_log}"] if design.reading_log else []),
                     f"build: {built_s:.1f}s",
                     tiles_log,
                     f"total: {time.monotonic() - started:.1f}s",
@@ -188,13 +198,36 @@ def compose_design(
     place: Placer,
     base: Sequence[BaseFeature],
     new_id: Callable[[], UUID],
+    drawing_kind: DrawingKind = "general",
 ) -> DesignBuild:
-    """Rules -> features -> text links -> box codes -> match against the base. Pure."""
+    """Rules -> features -> text links -> box codes -> match against the base. Pure.
+
+    In `roles` reading mode (ADR-041) the role texts are read by meaning: feature codes come
+    from them (box "cabinet/number", handhole number, cabinet name), each box / route / hhi /
+    cabinet keeps its reading in `attrs.reading`, the drawing kind's checks run and the totals
+    go to `counts.reading`. `legacy` mode is exactly Phase 1."""
     built = build_features(drawing, rules, place)
     links = link_texts(built.link_texts, built.features)
-    codes = box_codes(links, built.features)
     linked = linked_texts_by_kind(links)
-    features = [_with_links(f, codes.get(f.key), linked.get(f.key)) for f in built.features]
+    reading = None
+    if rules.reading_mode == "roles":
+        reading = read_drawing(
+            built.features,
+            drawing.texts,
+            drawing.curves,
+            rules,
+            place,
+            drawing_kind,
+            built.text_feature_handles,
+        )
+        codes = {k: c for k, c in reading.codes.items() if c is not None}
+        features = [
+            _with_links(f, codes.get(f.key), linked.get(f.key), reading.readings.get(f.key))
+            for f in built.features
+        ]
+    else:
+        codes = box_codes(links, built.features)
+        features = [_with_links(f, codes.get(f.key), linked.get(f.key)) for f in built.features]
     match = match_revision(features, base, new_id)
     types = {fid: f.feature_type for f in features if (fid := match.ids[f.key]) in match.new_ids}
     rows = RevisionRows(
@@ -216,6 +249,17 @@ def compose_design(
     )
     by_type = Counter(f.feature_type for f in features)
     found, names = check_drawing(features, drawing.texts, rules, place)
+    totals = None
+    reading_log = None
+    if reading is not None:
+        phase1_missing = frozenset(i.handle for i in found["LABEL_MISSING"])
+        for code, items in check_kind(features, reading, rules, phase1_missing).items():
+            found[code].extend(items)
+        totals = reading_totals(reading, features)
+        reading_log = (
+            f"roles ({drawing_kind}), {len(reading.texts)} role texts read, "
+            f"{len(reading.text_feature)} linked, {reading.unread_texts} unread"
+        )
     return DesignBuild(
         rows=rows,
         background=built.background,
@@ -225,6 +269,8 @@ def compose_design(
         zero_length_routes=built.zero_length_routes,
         groups=feature_groups(features),
         problems=problems_json(found, features, names, place),
+        reading_totals=totals,
+        reading_log=reading_log,
     )
 
 
@@ -263,9 +309,14 @@ def feature_groups(features: Sequence[DesignFeatureDraft]) -> list[dict[str, obj
 
 
 def _with_links(
-    feature: DesignFeatureDraft, code: str | None, texts: dict[str, list[str]] | None
+    feature: DesignFeatureDraft,
+    code: str | None,
+    texts: dict[str, list[str]] | None,
+    reading: dict[str, object] | None = None,
 ) -> DesignFeatureDraft:
     attrs = {**feature.attrs, "texts": texts} if texts else dict(feature.attrs)
+    if reading is not None:
+        attrs[READING_ATTR_KEY] = reading
     return dataclasses.replace(feature, code=code, attrs=attrs)
 
 
@@ -345,12 +396,15 @@ def _summary(
         "diff: " + " ".join(f"{c}={n}" for c, n in design.diff_counts.items()),
         *timings,
     ]
+    counts: dict[str, object] = {
+        "features": design.feature_counts,
+        "routeLengthM": f"{route_length:.3f}",
+        "groups": design.groups,
+    }
+    if design.reading_totals is not None:
+        counts["reading"] = design.reading_totals
     return BuildSummary(
-        counts={
-            "features": design.feature_counts,
-            "routeLengthM": f"{route_length:.3f}",
-            "groups": design.groups,
-        },
+        counts=counts,
         text_link_counts=design.text_link_counts,
         diff_counts=design.diff_counts,
         tiles_storage_key=tiles_key,

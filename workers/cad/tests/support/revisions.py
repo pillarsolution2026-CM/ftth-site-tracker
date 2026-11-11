@@ -76,7 +76,11 @@ def _line(*pts: tuple[float, float]) -> str:
 
 
 def seed_processed_file(
-    db: psycopg.Connection[Any], *, project_id: uuid.UUID | None = None, status: str = "processed"
+    db: psycopg.Connection[Any],
+    *,
+    project_id: uuid.UUID | None = None,
+    status: str = "processed",
+    drawing_kind: str = "general",
 ) -> SeededFile:
     """Two routes (+ one zero-length), two boxes, a joint, background, labels and a NEW-HHI."""
     if project_id is None:
@@ -89,10 +93,10 @@ def seed_processed_file(
     file_id = uuid.uuid4()
     db.execute(
         "INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, "
-        "storage_key, status, current_job_id, ins_units) "
-        "VALUES (%s, %s, 'd.dwg', 'dwg', 1, %s, %s, %s, %s, 1)",
+        "storage_key, status, current_job_id, ins_units, drawing_kind) "
+        "VALUES (%s, %s, 'd.dwg', 'dwg', 1, %s, %s, %s, %s, 1, %s)",
         (file_id, project_id, "c" * 64, f"projects/{project_id}/cad/{file_id}/original.dwg",
-         status, uuid.uuid4()),
+         status, uuid.uuid4(), drawing_kind),
     )  # fmt: skip
     ids = (project_id, file_id)
     curves = [
@@ -154,17 +158,19 @@ def queue_revision(
     base_revision_id: uuid.UUID | None = None,
     placement: object = None,
     corrections: Sequence[object] = (),
+    drawing_kind: str = "general",
 ) -> QueuedRevision:
     revision_id, job_id = uuid.uuid4(), uuid.uuid4()
     factor = {"m": Decimal("1"), "in": Decimal("0.0254")}[unit]
     db.execute(
         "INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, "
         "base_revision_id, rules, mapping_version, crs_epsg, drawing_unit, metres_per_unit, "
-        "placement, corrections, ins_units, units_conflict) "
-        "VALUES (%s, %s, %s, 'queued', %s, %s, %s, 1, 32636, %s, %s, %s, %s, 1, true)",
+        "placement, corrections, ins_units, units_conflict, drawing_kind) "
+        "VALUES (%s, %s, %s, 'queued', %s, %s, %s, 1, 32636, %s, %s, %s, %s, 1, true, %s)",
         (revision_id, seeded.project_id, seeded.cad_file_id, job_id, base_revision_id,
          json.dumps(RULES if rules is None else rules), unit, factor,
-         None if placement is None else json.dumps(placement), json.dumps(list(corrections))),
+         None if placement is None else json.dumps(placement), json.dumps(list(corrections)),
+         drawing_kind),
     )  # fmt: skip
     return QueuedRevision(seeded.project_id, seeded.cad_file_id, revision_id, job_id)
 

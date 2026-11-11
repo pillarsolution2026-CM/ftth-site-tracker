@@ -1,0 +1,242 @@
+{
+  "comment": "ADR-041 golden run: the Al-Fath (Rabaa) Secondary read by meaning, as drawn (no placement, no corrections). Layer names are this drawing's; the PM maps them per file.",
+  "file": "alfath/alfath_secondary.dxf",
+  "drawingKind": "secondary",
+  "crsEpsg": 32636,
+  "drawingUnit": "m",
+  "metresPerUnit": "1",
+  "rules": [
+    {
+      "source": "layer",
+      "layer": "BOX",
+      "target": "box"
+    },
+    {
+      "source": "layer",
+      "layer": "TXTNMPER",
+      "target": "label",
+      "textRoles": [
+        "box_number"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "TXTCAP",
+      "target": "label",
+      "textRoles": [
+        "box_cabinet"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "txtbox",
+      "target": "label",
+      "textRoles": [
+        "box_cable_type"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "TXTLINTH",
+      "target": "label",
+      "textRoles": [
+        "box_cable_length"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "1way",
+      "target": "route",
+      "kind": "1way",
+      "ways": 1
+    },
+    {
+      "source": "layer",
+      "layer": "7way",
+      "target": "route",
+      "kind": "7way",
+      "ways": 7
+    },
+    {
+      "source": "layer",
+      "layer": "12way",
+      "target": "route",
+      "kind": "12way",
+      "ways": 12
+    },
+    {
+      "source": "layer",
+      "layer": "24way",
+      "target": "route",
+      "kind": "24way",
+      "ways": 24
+    },
+    {
+      "source": "layer",
+      "layer": "txt ftth",
+      "target": "label",
+      "textRoles": [
+        "bundle_label"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "txt7way",
+      "target": "label",
+      "textRoles": [
+        "bundle_label"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "txt12way",
+      "target": "label",
+      "textRoles": [
+        "bundle_label"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "txt24way",
+      "target": "label",
+      "textRoles": [
+        "bundle_label"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "sp txt",
+      "target": "label",
+      "textRoles": [
+        "bundle_spare"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "sub",
+      "target": "cabinet",
+      "role": "sub"
+    },
+    {
+      "source": "layer",
+      "layer": "CABINA",
+      "target": "label",
+      "textRoles": [
+        "cabinet_info"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "ZOUN",
+      "target": "zone"
+    },
+    {
+      "source": "layer",
+      "layer": "sbir",
+      "target": "ignore"
+    },
+    {
+      "source": "layer",
+      "layer": "Bundle End",
+      "target": "ignore"
+    },
+    {
+      "source": "layer",
+      "layer": "Duct Connector",
+      "target": "ignore"
+    },
+    {
+      "source": "layer",
+      "layer": "frimbox",
+      "target": "ignore"
+    },
+    {
+      "source": "layer",
+      "layer": "PER",
+      "target": "ignore"
+    },
+    {
+      "source": "layer",
+      "layer": "Box Num",
+      "target": "ignore"
+    },
+    {
+      "source": "layer",
+      "layer": "txt",
+      "target": "background"
+    }
+  ],
+  "expected": {
+    "as_drawn": {
+      "features": {
+        "route": 237,
+        "box": 197,
+        "cabinet": 8
+      },
+      "problems": {
+        "ROUTE_SPLIT": 2,
+        "LABEL_TYPE_MISMATCH": 13
+      },
+      "reading": {
+        "drawingKind": "secondary",
+        "bundles": [
+          {
+            "ways": 1,
+            "ductSize": "7/3.5",
+            "count": 196,
+            "writtenLengthM": "4673.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 1,
+            "ductSize": null,
+            "count": 4,
+            "writtenLengthM": "0.000",
+            "withoutLength": 4
+          },
+          {
+            "ways": 7,
+            "ductSize": "7/3.5",
+            "count": 8,
+            "writtenLengthM": "1810.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 12,
+            "ductSize": "7/3.5",
+            "count": 23,
+            "writtenLengthM": "9195.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 24,
+            "ductSize": "7/3.5",
+            "count": 6,
+            "writtenLengthM": "2875.000",
+            "withoutLength": 0
+          }
+        ],
+        "connectors": [
+          {
+            "ductSize": "7/3.5",
+            "count": 184
+          },
+          {
+            "ductSize": null,
+            "count": 3
+          }
+        ],
+        "spares": [
+          {
+            "ductSize": "7/3.5",
+            "singles": 187,
+            "endCaps": 374
+          }
+        ],
+        "cables": [],
+        "handholes": []
+      },
+      "log": "roles (secondary), 1325 role texts read, 1323 linked, 0 unread"
+    }
+  }
+}
