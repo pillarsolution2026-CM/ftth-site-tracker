@@ -42,6 +42,9 @@ from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
+import numpy as np
+import shapely
+from numpy.typing import NDArray
 from shapely import STRtree
 from shapely.geometry import LineString, Point
 
@@ -51,6 +54,7 @@ from cad_worker.domain.drawing_checks import PROBLEM_CODES, ProblemCode, Problem
 from cad_worker.domain.role_reading import (
     BOX_REACH_M,
     CONNECTOR_TOUCH_M,
+    ROLE_LINK_MAX_CANDIDATES,
     FeatureTexts,
     Reading,
     RoleText,
@@ -75,6 +79,18 @@ _MILLI = Decimal("0.001")
 CABLE_TOUCH_M = CONNECTOR_TOUCH_M
 NODE_REACH_M = 6.0
 _NODE_TYPES = frozenset({"joint", "hhi", "mh"})
+# Technical bounds (security review of the owner answers), not business rules. A route end weighs
+# only its NETWORK_KEEP nearest routes and a node its NETWORK_KEEP nearest route ends (ties by
+# drawing order); more than NETWORK_MAX_HITS within reach (Al-Fath: at most 4) makes that network
+# unclear, and its «SP» texts fail closed (SPARE_CORES_MISMATCH with no `expected`). The pairs are
+# searched in chunks; past NETWORK_PAIR_BUDGET pairs in all, every «SP» of the drawing fails closed.
+NETWORK_KEEP = ROLE_LINK_MAX_CANDIDATES
+NETWORK_MAX_HITS = 64
+NETWORK_PAIR_BUDGET = 1_000_000
+_NETWORK_CHUNK = 64
+# BOX_NUMBER_DUPLICATE `found`: at most this many written forms, this many characters.
+MAX_FOUND_FORMS = 4
+MAX_FOUND_LENGTH = 128
 
 # A role text a feature needs: (role, cabinet_info field, the slot it fills on the feature).
 _Need = tuple[TextRole, CabinetInfoField | None, str]
@@ -334,30 +350,49 @@ def _spare_cores(
             spares.append((t, n))
     if not spares:
         return
-    neighbours = _cable_networks(routes, [f for f in features if f.feature_type in _NODE_TYPES])
+    network = _cable_networks(routes, [f for f in features if f.feature_type in _NODE_TYPES])
+    if network is None:  # too many pairs to read: nothing can be trusted
+        for t, n in spares:
+            problems["SPARE_CORES_MISMATCH"].append(_unclear_spare(t, routes[n], cores[n]))
+        return
+    neighbours, unclear = network
+    route_count = len(routes)
     mains = {cores[n] for _, n in spares}
     sources = sorted(
         (n for n, c in enumerate(cores) if c in mains), key=lambda n: routes[n].source_handle
     )
+    # 0-1 BFS over routes and nodes: entering a route costs one piece, entering a node nothing, so
+    # two pieces meeting at a node are as near as two pieces touching.
     owner: dict[int, int] = {n: n for n in sources}
+    pieces: dict[int, int] = {n: 0 for n in sources}
     queue = deque(sources)
     while queue:
         n = queue.popleft()
         for m in neighbours[n]:
-            if m not in owner:
-                owner[m] = owner[n]
-                queue.append(m)
+            cost = pieces[n] + (1 if m < route_count else 0)
+            if cost < pieces.get(m, cost + 1):
+                pieces[m], owner[m] = cost, owner[n]
+                if m < route_count:
+                    queue.append(m)
+                else:
+                    queue.appendleft(m)
     # Branch cores per (network, main cores): a main cable drawn in several pieces (one label per
     # piece) sums the branches of all its pieces.
     component = _components(neighbours)
+    unclear_networks = {component[v] for v in unclear}
     branch_cores: dict[tuple[int, int], int] = defaultdict(int)
     for m, source in owner.items():
+        if m >= route_count:
+            continue
         c, main_of = cores[m], cores[source]
         if c is not None and main_of is not None and c < main_of:
             branch_cores[(component[source], main_of)] += c
     for t, n in spares:
         main = cores[n]
         if main is None:
+            continue
+        if component[n] in unclear_networks:
+            problems["SPARE_CORES_MISMATCH"].append(_unclear_spare(t, routes[n], main))
             continue
         branches = branch_cores.get((component[n], main), 0)
         expected = main - branches
@@ -375,37 +410,127 @@ def _spare_cores(
             )
 
 
+def _unclear_spare(t: RoleText, route: DesignFeatureDraft, main: int | None) -> ProblemItem:
+    """Fail closed: the SP text's network could not be read, so no expected value is given."""
+    params: dict[str, object] = {
+        "found": str(t.reading.cores),
+        "featureHandle": route.source_handle,
+    }
+    if main is not None:
+        params["mainCores"] = main
+    return _text_item(t, params)
+
+
+class _PairBudget:
+    def __init__(self, pairs: int) -> None:
+        self.left = pairs
+
+    def spend(self, pairs: int) -> bool:
+        self.left -= pairs
+        return self.left >= 0
+
+
+def _nearest_hits(
+    tree: STRtree,
+    targets: NDArray[np.object_],
+    queries: NDArray[np.float64],
+    distance: float,
+    exclude: NDArray[np.intp] | None,
+    budget: _PairBudget,
+) -> tuple[list[list[int]], set[int], set[int]] | None:
+    """Per query: its NETWORK_KEEP nearest targets within `distance` (ties by target index); the
+    queries with more than NETWORK_MAX_HITS, and every target any of those reaches (so a crowded
+    place taints all it touches, not only what it kept). `exclude[q]` is a target query q never
+    hits (the route an end belongs to). None when the pairs exceed the budget.
+
+    `queries` are points (x, y). The budget is spent on box candidates, before any geometry is
+    tested, and distances are only measured for queries that are not crowded."""
+    hits: list[list[int]] = [[] for _ in range(len(queries))]
+    crowded: set[int] = set()
+    touched: set[int] = set()
+    for start in range(0, len(queries), _NETWORK_CHUNK):
+        xy = queries[start : start + _NETWORK_CHUNK]
+        boxes = shapely.box(
+            xy[:, 0] - distance, xy[:, 1] - distance, xy[:, 0] + distance, xy[:, 1] + distance
+        )
+        left, right = tree.query(boxes)
+        if not budget.spend(len(left)):
+            return None
+        if exclude is not None:
+            mine = right != exclude[start + left]
+            left, right = left[mine], right[mine]
+        chunk = shapely.points(xy)
+        near = shapely.dwithin(chunk[left], targets[right], distance)
+        left, right = left[near], right[near]
+        if not len(left):
+            continue
+        counts = np.bincount(left, minlength=len(chunk))
+        too_many = counts > NETWORK_MAX_HITS
+        if too_many.any():
+            crowded.update((start + np.flatnonzero(too_many)).tolist())
+            touched.update(right[too_many[left]].tolist())
+            calm = ~too_many[left]
+            left, right = left[calm], right[calm]
+        dists: NDArray[np.float64] = shapely.distance(chunk[left], targets[right])
+        order = np.lexsort((right, dists, left))
+        left, right = left[order], right[order]
+        firsts = np.flatnonzero(np.r_[True, left[1:] != left[:-1]])
+        run_start = np.repeat(firsts, np.diff(np.r_[firsts, len(left)]))
+        keep = np.arange(len(left)) - run_start < NETWORK_KEEP
+        for q, t in zip(left[keep].tolist(), right[keep].tolist(), strict=True):
+            hits[start + q].append(t)
+    return hits, crowded, touched
+
+
 def _cable_networks(
     routes: Sequence[DesignFeatureDraft], nodes: Sequence[DesignFeatureDraft]
-) -> list[list[int]]:
-    """Route -> the routes it meets (sorted): an end within CABLE_TOUCH_M of the other route, or
-    ends of both within NODE_REACH_M of one joint / handhole symbol."""
-    linked: list[set[int]] = [set() for _ in routes]
+) -> tuple[list[list[int]], set[int]] | None:
+    """The network graph: vertices are the routes (0…n-1) then the joint / handhole symbols. A
+    route meets another when one of its ends lies within CABLE_TOUCH_M of it, and a symbol when one
+    of its ends lies within NODE_REACH_M of it; each end and each symbol weighs its NETWORK_KEEP
+    nearest (O(hits), never a clique). Also returns the unclear vertices: those with more than
+    NETWORK_MAX_HITS within reach and all they reach (their networks fail closed); None past
+    NETWORK_PAIR_BUDGET pairs."""
+    n = len(routes)
+    neighbours: list[list[int]] = [[] for _ in range(n + len(nodes))]
+    unclear: set[int] = set()
     if not routes:
-        return []
-    tree = STRtree([LineString(f.coords) for f in routes])
-    ends = [Point(p) for f in routes for p in (f.coords[0], f.coords[-1])]
-    left, right = tree.query(ends, predicate="dwithin", distance=CABLE_TOUCH_M)
-    for e, j in zip(left.tolist(), right.tolist(), strict=True):
-        i = e // 2
-        if i != j:
-            linked[i].add(j)
-            linked[j].add(i)
+        return neighbours, unclear
+    budget = _PairBudget(NETWORK_PAIR_BUDGET)
+    lines: NDArray[np.object_] = np.empty(n, dtype=object)
+    lines[:] = [LineString(f.coords) for f in routes]
+    end_xy = np.asarray(
+        [p for f in routes for p in (f.coords[0], f.coords[-1])], dtype=np.float64
+    ).reshape(-1, 2)
+    owner_of_end: NDArray[np.intp] = np.repeat(np.arange(n, dtype=np.intp), 2)
+    found = _nearest_hits(STRtree(lines), lines, end_xy, CABLE_TOUCH_M, owner_of_end, budget)
+    if found is None:
+        return None
+    hits, crowded, touched = found
+    unclear.update(e // 2 for e in crowded)
+    unclear.update(touched)
+    for e, targets in enumerate(hits):
+        for j in targets:
+            neighbours[e // 2].append(j)
+            neighbours[j].append(e // 2)
     if nodes:
-        end_tree = STRtree(ends)
-        points = [Point(f.coords[0]) for f in nodes]
-        at, hit = end_tree.query(points, predicate="dwithin", distance=NODE_REACH_M)
-        meeting: dict[int, set[int]] = defaultdict(set)
-        for node, e in zip(at.tolist(), hit.tolist(), strict=True):
-            meeting[node].add(e // 2)
-        for members in meeting.values():
-            for i in members:
-                linked[i].update(members - {i})
-    return [sorted(s) for s in linked]
+        ends: NDArray[np.object_] = shapely.points(end_xy)
+        node_xy = np.asarray([f.coords[0] for f in nodes], dtype=np.float64).reshape(-1, 2)
+        found = _nearest_hits(STRtree(ends), ends, node_xy, NODE_REACH_M, None, budget)
+        if found is None:
+            return None
+        hits, crowded, touched = found
+        unclear.update(n + k for k in crowded)
+        unclear.update(e // 2 for e in touched)
+        for k, targets in enumerate(hits):
+            for e in targets:
+                neighbours[n + k].append(e // 2)
+                neighbours[e // 2].append(n + k)
+    return neighbours, unclear
 
 
 def _components(neighbours: Sequence[Sequence[int]]) -> list[int]:
-    """Route -> the smallest route index of its network."""
+    """Vertex -> the smallest vertex of its network."""
     out = [-1] * len(neighbours)
     for start in range(len(neighbours)):
         if out[start] >= 0:
@@ -476,7 +601,8 @@ def _boxes(features: Sequence[DesignFeatureDraft], reading: Reading, problems: P
     for (cabinet, number), same in sorted(by_identity.items()):
         if len(same) < 2:
             continue
-        written = ", ".join(sorted({w for _, w in same}))
+        forms = sorted({w for _, w in same})[:MAX_FOUND_FORMS]
+        written = ", ".join(forms)[:MAX_FOUND_LENGTH]
         for f, _ in same:
             text = reading.feature_texts[f.key].one("box_number")
             if text is not None:
