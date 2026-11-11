@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from cad_worker.domain.text_roles import (
+    MAX_DUCT_SIZE_LENGTH,
+    MAX_READ_CORES,
+    MAX_READ_COUNT,
+    MAX_ROLE_TEXT_LENGTH,
+    MAX_WRITTEN_LENGTH_M,
     TEXT_ROLES,
     TEXT_ROLES_BY_KIND,
     RoleReading,
@@ -154,3 +161,86 @@ def test_javascript_semantics_digits_case_and_spaces() -> None:
     assert read_role_text("12-core", ["cable_label"]) == RoleReading("cable_label", cores=12)
     # A trailing newline is not accepted by `fullmatch` (JS `$` without the m flag).
     assert read_role_text("9\nx", ["box_number"]) is None
+
+
+# ---------- security review (ADR-041): bounded reading ----------
+
+
+@pytest.mark.parametrize("role", ["cable_label", "bundle_label"])
+def test_a_long_run_of_spaces_cannot_backtrack(role: str) -> None:
+    """ReDoS: «1» + 1998 spaces + «Z» once took cubic time in the `\\s*-?\\s*` patterns."""
+    for evil in ("1" + " " * 1998 + "Z", "1" + " " * 60 + "Z"):
+        start = time.perf_counter()
+        assert read_role_text(evil, [role]) is None
+        assert time.perf_counter() - start < 0.005
+
+
+def test_ways_in_a_layer_name_cannot_backtrack() -> None:
+    start = time.perf_counter()
+    assert suggest_bundle_ways("1" + " " * 5000 + "Z") is None
+    assert time.perf_counter() - start < 0.05
+
+
+def test_an_optional_hyphen_between_spaces_still_reads() -> None:
+    assert read_role_text("12 - Cores", ["cable_label"]) == RoleReading("cable_label", cores=12)
+    assert read_role_text("12 -Core", ["cable_label"]) == RoleReading("cable_label", cores=12)
+    assert read_role_text("12- Core", ["cable_label"]) == RoleReading("cable_label", cores=12)
+    assert read_role_text("4 - way", ["bundle_label"]) == RoleReading("bundle_label", ways=4)
+    assert read_role_text("4 way", ["bundle_label"]) == RoleReading("bundle_label", ways=4)
+    assert read_role_text("4--way", ["bundle_label"]) is None
+    assert suggest_bundle_ways("1X12 - w Line") == 12
+
+
+def test_texts_longer_than_64_characters_are_not_read() -> None:
+    assert MAX_ROLE_TEXT_LENGTH == 64
+    fits = "520M/144Core " + "x" * (64 - 13)
+    assert len(fits) == 64
+    assert read_role_text(fits, ["cable_label"]) == RoleReading(
+        "cable_label", cores=144, length_m="520.000"
+    )
+    assert read_role_text(fits + "x", ["cable_label"]) is None
+    # Trimmed first: surrounding spaces do not count.
+    assert read_role_text("  " + fits + "  ", ["cable_label"]) is not None
+    # Counted as JavaScript does (UTF-16 code units): an astral character counts 2.
+    astral = "520M/144Core " + "x" * (64 - 14) + chr(0x1F600)
+    assert len(astral) == 64
+    assert read_role_text(astral, ["cable_label"]) is None
+
+
+def test_core_counts_and_counts_above_the_cap_are_not_read() -> None:
+    assert MAX_READ_CORES == 10_000
+    assert MAX_READ_COUNT == 10_000
+    assert read_role_text("SP 10000", ["cable_spare"]) == RoleReading("cable_spare", cores=10_000)
+    assert read_role_text("SP 10001", ["cable_spare"]) is None
+    assert read_role_text("10001Core", ["cable_label"]) is None
+    assert read_role_text("F10001C", ["box_cable_type"]) is None
+    assert read_role_text("F" + "9" * 60 + "C", ["box_cable_type"]) is None
+    assert read_role_text("SP10001(7/3.5)", ["bundle_spare"]) is None
+    assert read_role_text("10001B", ["cabinet_info"]) is None
+    assert read_role_text("10001P", ["cabinet_info"]) is None
+    assert read_role_text("10000P", ["cabinet_info"]) == RoleReading(
+        "cabinet_info", field="ports", value="10000"
+    )
+
+
+def test_duct_sizes_longer_than_32_characters_are_not_read() -> None:
+    assert MAX_DUCT_SIZE_LENGTH == 32
+    fits = "1" * 15 + "/" + "2" * 16
+    assert len(fits) == 32
+    reading = read_role_text("4way " + fits, ["bundle_label"])
+    assert reading is not None and reading.duct_size == fits
+    assert read_role_text("4way " + fits + "2", ["bundle_label"]) is None
+    assert read_role_text("SP3(" + fits + "2)", ["bundle_spare"]) is None
+
+
+def test_written_lengths_above_a_million_metres_are_not_read() -> None:
+    assert MAX_WRITTEN_LENGTH_M == 1_000_000
+    assert read_role_text("1000000M", ["box_cable_length"]) == RoleReading(
+        "box_cable_length", length_m="1000000.000"
+    )
+    assert read_role_text("1000000.0004M", ["box_cable_length"]) is not None
+    assert read_role_text("1000000.001M", ["box_cable_length"]) is None
+    assert read_role_text("1000001M", ["bundle_label"]) is None
+    assert read_role_text("1000001M/4way 16/12", ["bundle_label"]) is None
+    assert read_role_text("1000001M/144Core", ["cable_label"]) is None
+    assert read_role_text("9" * 40 + "." + "9" * 18 + "M", ["box_cable_length"]) is None

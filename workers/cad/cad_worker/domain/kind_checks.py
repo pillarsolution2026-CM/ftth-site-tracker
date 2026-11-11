@@ -20,9 +20,11 @@ A required role text is only asked for when the drawing kind reads that role
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
+from itertools import accumulate
 
 from shapely import STRtree
 from shapely.geometry import Point
@@ -223,6 +225,9 @@ def _spare_cores(
         cores = reading.reading_of(f.key).get("cableCores")
         if f.is_route and isinstance(cores, int):
             cores_by_route[f.key] = cores
+    # Σ cores below a value = prefix sum up to its first position in the sorted cores.
+    sorted_cores = sorted(cores_by_route.values())
+    below = [0, *accumulate(sorted_cores)]
     for t in reading.texts:
         if t.reading.role != "cable_spare" or t.reading.cores is None:
             continue
@@ -230,7 +235,7 @@ def _spare_cores(
         main = cores_by_route.get(route) if route is not None else None
         if route is None or main is None:
             continue
-        branches = sum(c for c in cores_by_route.values() if c < main)
+        branches = below[bisect_left(sorted_cores, main)]
         expected = main - branches
         if expected != t.reading.cores:
             problems["SPARE_CORES_MISMATCH"].append(

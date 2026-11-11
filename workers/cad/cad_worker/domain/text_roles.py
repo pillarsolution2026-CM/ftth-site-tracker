@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal
 
 from cad_worker.domain.design import FeatureType
@@ -85,6 +86,15 @@ TEXT_ROLES_BY_KIND: Mapping[DrawingKind, tuple[TextRole, ...]] = {
 }
 
 MAX_BUNDLE_WAYS = 288
+# Technical bounds (security review of ADR-041), not business rules. A role text longer than
+# MAX_ROLE_TEXT_LENGTH (UTF-16 code units, as JavaScript counts; mirrors `text-roles.ts`) is not
+# read at all, and a value read past its bound makes the text unread, so no unbounded number
+# reaches jsonb, problem params or Decimal arithmetic.
+MAX_ROLE_TEXT_LENGTH = 64
+MAX_READ_CORES = 10_000
+MAX_READ_COUNT = 10_000  # spare singles, cabinet box count and ports
+MAX_DUCT_SIZE_LENGTH = 32
+MAX_WRITTEN_LENGTH_M = 1_000_000
 
 
 def text_role_fits_target(role: TextRole, target: str) -> bool:
@@ -171,10 +181,11 @@ def _re(source: str) -> re.Pattern[str]:
 
 _P_CABLE_SPARE = _re(rf"SP{_S}([0-9]+)")
 _P_BUNDLE_SPARE = _re(rf"SP{_S}([0-9]+){_S}\({_S}{_DUCT}{_S}\)")
-_P_CABLE = _re(rf"(?:{_LEN}{_S}/{_S})?([0-9]+){_S}-?{_S}Cores?{_JS_WORD_END}.*")
+# `{_S}(?:-{_S})?`, never `{_S}-?{_S}`: two adjacent stars over the same spaces backtrack (ReDoS).
+_P_CABLE = _re(rf"(?:{_LEN}{_S}/{_S})?([0-9]+){_S}(?:-{_S})?Cores?{_JS_WORD_END}.*")
 # «4way 16/12», «500M/4way 16/12», «450m/1x4 way 16/12» (one bundle of 4 ways).
 _P_BUNDLE = _re(
-    rf"(?:{_LEN}{_S}/{_S})?(?:[0-9]+{_S}x{_S})?([0-9]+){_S}-?{_S}ways?(?:{_WS}+{_DUCT})?"
+    rf"(?:{_LEN}{_S}/{_S})?(?:[0-9]+{_S}x{_S})?([0-9]+){_S}(?:-{_S})?ways?(?:{_WS}+{_DUCT})?"
 )
 _P_LENGTH_ONLY = _re(_LEN)
 _P_BOX_CABLE_TYPE = _re(rf"F{_S}([0-9]+){_S}C")
@@ -200,8 +211,41 @@ def written_metres3(written: str) -> str:
     return f"{digits[:-3]}.{digits[-3:]}"
 
 
+class _Unread(Exception):
+    """A value past its technical bound: the whole text is unread."""
+
+
+def _cores(digits: str) -> int:
+    value = int(digits)
+    if value > MAX_READ_CORES:
+        raise _Unread
+    return value
+
+
+def _count(digits: str) -> int:
+    value = int(digits)
+    if value > MAX_READ_COUNT:
+        raise _Unread
+    return value
+
+
+def _count_text(digits: str) -> str:
+    _count(digits)
+    return digits
+
+
+def _length(written: str) -> str:
+    metres = written_metres3(written)
+    if Decimal(metres) > MAX_WRITTEN_LENGTH_M:
+        raise _Unread
+    return metres
+
+
 def _duct(outer: str, inner: str) -> str:
-    return f"{outer}/{inner}"
+    size = f"{outer}/{inner}"
+    if len(size) > MAX_DUCT_SIZE_LENGTH:
+        raise _Unread
+    return size
 
 
 def _cabinet_name(a: str, b: str) -> str:
@@ -211,15 +255,15 @@ def _cabinet_name(a: str, b: str) -> str:
 def _read_as(role: TextRole, value: str) -> RoleReading | None:
     if role == "cable_spare":
         m = _P_CABLE_SPARE.fullmatch(value)
-        return RoleReading(role, cores=int(m[1])) if m else None
+        return RoleReading(role, cores=_cores(m[1])) if m else None
     if role == "bundle_spare":
         m = _P_BUNDLE_SPARE.fullmatch(value)
-        return RoleReading(role, count=int(m[1]), duct_size=_duct(m[2], m[3])) if m else None
+        return RoleReading(role, count=_count(m[1]), duct_size=_duct(m[2], m[3])) if m else None
     if role == "cable_label":
         m = _P_CABLE.fullmatch(value)
         if not m:
             return None
-        return RoleReading(role, cores=int(m[2]), length_m=written_metres3(m[1]) if m[1] else None)
+        return RoleReading(role, cores=_cores(m[2]), length_m=_length(m[1]) if m[1] else None)
     if role == "bundle_label":
         m = _P_BUNDLE.fullmatch(value)
         if m:
@@ -227,17 +271,17 @@ def _read_as(role: TextRole, value: str) -> RoleReading | None:
                 role,
                 ways=int(m[2]),
                 duct_size=_duct(m[3], m[4]) if m[3] and m[4] else None,
-                length_m=written_metres3(m[1]) if m[1] else None,
+                length_m=_length(m[1]) if m[1] else None,
             )
         # Secondary: the length is a text of its own next to the type («10.0M»).
         m = _P_LENGTH_ONLY.fullmatch(value)
-        return RoleReading(role, length_m=written_metres3(m[1])) if m else None
+        return RoleReading(role, length_m=_length(m[1])) if m else None
     if role == "box_cable_type":
         m = _P_BOX_CABLE_TYPE.fullmatch(value)
-        return RoleReading(role, cores=int(m[1])) if m else None
+        return RoleReading(role, cores=_cores(m[1])) if m else None
     if role == "box_cable_length":
         m = _P_LENGTH_ONLY.fullmatch(value)
-        return RoleReading(role, length_m=written_metres3(m[1])) if m else None
+        return RoleReading(role, length_m=_length(m[1])) if m else None
     if role == "box_cabinet":
         m = _P_CABINET_NAME.fullmatch(value)
         return RoleReading(role, cabinet=_cabinet_name(m[1], m[2])) if m else None
@@ -261,9 +305,9 @@ def _read_as(role: TextRole, value: str) -> RoleReading | None:
     if m := _P_CABINET_TYPE.fullmatch(value):
         return RoleReading(role, field="type", value=f"{m[1]}U")
     if m := _P_CABINET_BOXES.fullmatch(value):
-        return RoleReading(role, field="box_count", value=m[1])
+        return RoleReading(role, field="box_count", value=_count_text(m[1]))
     if m := _P_CABINET_PORTS.fullmatch(value):
-        return RoleReading(role, field="ports", value=m[1])
+        return RoleReading(role, field="ports", value=_count_text(m[1]))
     return None
 
 
@@ -271,15 +315,23 @@ def read_role_text(text: str, roles: Collection[str]) -> RoleReading | None:
     """The first role (TEXT_ROLES order, among `roles`) whose pattern matches the whole trimmed
     text; None = the text means nothing for these roles."""
     value = js_trim(text)
-    if value == "":
+    if value == "" or _js_length(value) > MAX_ROLE_TEXT_LENGTH:
         return None
     for role in TEXT_ROLES:
         if role not in roles:
             continue
-        reading = _read_as(role, value)
+        try:
+            reading = _read_as(role, value)
+        except _Unread:
+            return None
         if reading is not None:
             return reading
     return None
+
+
+def _js_length(value: str) -> int:
+    """`String.prototype.length`: UTF-16 code units (an astral character counts 2)."""
+    return len(value) + sum(1 for ch in value if ord(ch) > 0xFFFF)
 
 
 # ---------- identities ----------
@@ -296,7 +348,7 @@ def box_code(cabinet: str, number: str) -> str:
 
 
 _P_WAYS_IN_NAME = re.compile(
-    rf"([0-9]+){_S}-?{_S}w(?:ays?)?{_JS_WORD_END}", re.IGNORECASE | re.ASCII
+    rf"([0-9]+){_S}(?:-{_S})?w(?:ays?)?{_JS_WORD_END}", re.IGNORECASE | re.ASCII
 )
 
 

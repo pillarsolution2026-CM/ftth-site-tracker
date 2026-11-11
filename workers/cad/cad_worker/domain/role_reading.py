@@ -28,11 +28,16 @@ before: a `set_text` / `add_text` / `move_layer` fixes role texts too). Mirror o
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
+from itertools import pairwise
 
+import numpy as np
+import shapely
+from numpy.typing import NDArray
 from shapely import STRtree
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 
@@ -49,6 +54,7 @@ from cad_worker.domain.text_roles import (
     TextRole,
     box_code,
     cabinet_name_key,
+    js_trim,
     read_role_text,
 )
 
@@ -61,6 +67,13 @@ END_CAPS_PER_SPARE = 2
 # cabinet. Role pairs are one-to-one and nearest first, so the wider radius cannot take a text that
 # is nearer to another free feature. Technical tuning, recorded for the architect's review.
 ROLE_LINK_RADIUS_TEXT_HEIGHTS = 20
+# Technical bounds (security review of ADR-041), not business rules. A text's reach never exceeds
+# ROLE_LINK_MAX_RADIUS_M, whatever its height (the Al-Fath General writes 7.5 m texts: 150 m), and a
+# text weighs only its ROLE_LINK_MAX_CANDIDATES nearest features of its type (ties by handle), so a
+# huge text height or stacked entities cannot make the linking quadratic. Pairs stay one-to-one and
+# nearest first; a text whose nearest few all went to nearer texts stays unlinked.
+ROLE_LINK_MAX_RADIUS_M = 250.0
+ROLE_LINK_MAX_CANDIDATES = 16
 # Technical tolerances (ADR-041), set on the Al-Fath Secondary golden run: 1way ends lie on the
 # bundle they leave (185 within 0.05 m, 187 within 0.5 m and still 187 at 1 m; 192 at 2 m), and
 # every box centre is 1.28-1.76 m from the end of its drop.
@@ -164,7 +177,12 @@ class Reading:
 
 
 def role_link_radius_m(height_m: float) -> float:
-    return max(ROLE_LINK_RADIUS_TEXT_HEIGHTS * height_m, LINK_MIN_RADIUS_M)
+    """Between LINK_MIN_RADIUS_M and ROLE_LINK_MAX_RADIUS_M (a height that is not a number
+    reaches the minimum)."""
+    radius = ROLE_LINK_RADIUS_TEXT_HEIGHTS * height_m
+    if math.isnan(radius):
+        return LINK_MIN_RADIUS_M
+    return min(max(radius, LINK_MIN_RADIUS_M), ROLE_LINK_MAX_RADIUS_M)
 
 
 def role_texts(
@@ -179,7 +197,7 @@ def role_texts(
             continue
         reading = read_role_text(t.text, roles)
         if reading is None:
-            unread += 1 if t.text.strip() else 0
+            unread += 1 if js_trim(t.text) else 0
             continue
         out.append(
             RoleText(
@@ -187,7 +205,7 @@ def role_texts(
                 t.layer,
                 place.to_project(t.position),
                 role_link_radius_m(abs(t.height) * place.unit_m),
-                t.text.strip(),
+                js_trim(t.text),
                 reading,
             )
         )
@@ -229,10 +247,11 @@ def read_drawing(
         elif f.is_route:
             readings[f.key] = _route(ft, rules.ways.get(f.layer), connectors.get(f.key, 0))
     secondary = drawing_kind == "secondary"
+    zone_index = _ZoneIndex(zones) if secondary else None
     for f in features:
         if f.feature_type == "cabinet":
             ft = by_feature.get(f.key, FeatureTexts())
-            zone = _zone_of(f.coords[0], zones) if secondary else None
+            zone = zone_index.of(f.coords[0]) if zone_index is not None else None
             readings[f.key], codes[f.key] = _cabinet(ft, boxes_by_cabinet, secondary, zone)
     return Reading(
         drawing_kind=drawing_kind,
@@ -251,36 +270,140 @@ def read_drawing(
 # ---------- linking ----------
 
 
+_QUERY_CHUNK = 1024
+# The nearest-features search starts within this reach and widens it by _REACH_GROWTH per round.
+_FIRST_REACH_M = 8.0
+_REACH_GROWTH = 4.0
+
+
+class _Near:
+    """Geometries with a tie rank; the nearest few within a radius."""
+
+    def __init__(self, geoms: Sequence[Point | LineString], ranks: Sequence[int]) -> None:
+        # Of stacked copies of one geometry (same distance to every text) only the lowest ranks
+        # can be among a text's nearest few: the others are left out of the tree.
+        stacked: dict[bytes, list[int]] = {}
+        for i, wkb in enumerate(shapely.to_wkb(list(geoms)).tolist()):
+            stacked.setdefault(wkb, []).append(i)
+        kept = sorted(
+            i
+            for same in stacked.values()
+            for i in sorted(same, key=ranks.__getitem__)[:ROLE_LINK_MAX_CANDIDATES]
+        )
+        self.local: NDArray[np.intp] = np.asarray(kept, dtype=np.intp)
+        self.geoms: NDArray[np.object_] = np.empty(len(kept), dtype=object)
+        self.geoms[:] = [geoms[i] for i in kept]
+        self.ranks: NDArray[np.int64] = np.asarray([ranks[i] for i in kept], dtype=np.int64)
+        self.tree = STRtree(self.geoms)
+
+    def nearest(
+        self, positions: Sequence[Xy], radii: Sequence[float]
+    ) -> list[list[tuple[float, int]]]:
+        """Per position: (distance, local index) of the ROLE_LINK_MAX_CANDIDATES nearest
+        geometries within its radius, nearest first, ties by rank.
+
+        Bulk queries in chunks, reach growing from `_FIRST_REACH_M` up to the radius: a position
+        with enough geometries within its current reach has its nearest few among them (all the
+        others are farther), so dense or stacked scenes are never searched to the full radius."""
+        out: list[list[tuple[float, int]]] = [[] for _ in positions]
+        if not positions:
+            return out
+        xy = np.asarray(positions, dtype=np.float64)
+        radius = np.asarray(radii, dtype=np.float64)
+        reach = np.minimum(radius, _FIRST_REACH_M)
+        pending: NDArray[np.intp] = np.arange(len(positions))
+        while len(pending):
+            unfinished: list[NDArray[np.intp]] = []
+            for start in range(0, len(pending), _QUERY_CHUNK):
+                chunk = pending[start : start + _QUERY_CHUNK]
+                unfinished.append(self._nearest_chunk(xy[chunk], radius, reach, chunk, out))
+            pending = np.concatenate(unfinished)
+            reach[pending] = np.minimum(reach[pending] * _REACH_GROWTH, radius[pending])
+        return out
+
+    def _nearest_chunk(
+        self,
+        xy: NDArray[np.float64],
+        radius: NDArray[np.float64],
+        reach: NDArray[np.float64],
+        chunk: NDArray[np.intp],
+        out: list[list[tuple[float, int]]],
+    ) -> NDArray[np.intp]:
+        """Fills `out` for the chunk's settled positions; returns the unsettled ones."""
+        points = shapely.points(xy)
+        left, right = self.tree.query(points, predicate="dwithin", distance=reach[chunk])
+        found = np.bincount(left, minlength=len(chunk))
+        settled = (found >= ROLE_LINK_MAX_CANDIDATES) | (reach[chunk] >= radius[chunk])
+        mine = settled[left]
+        left, right = left[mine], right[mine]
+        if len(left):
+            dists: NDArray[np.float64] = shapely.distance(points[left], self.geoms[right])
+            order = np.lexsort((self.ranks[right], dists, left))
+            left, right, dists = left[order], right[order], dists[order]
+            # Rank within each position's run; keep the first few.
+            firsts = np.flatnonzero(np.r_[True, left[1:] != left[:-1]])
+            run_start = np.repeat(firsts, np.diff(np.r_[firsts, len(left)]))
+            keep = np.arange(len(left)) - run_start < ROLE_LINK_MAX_CANDIDATES
+            for i, j, d in zip(
+                chunk[left[keep]].tolist(),
+                self.local[right[keep]].tolist(),
+                dists[keep].tolist(),
+                strict=True,
+            ):
+                out[i].append((d, j))
+        return chunk[~settled]
+
+
+def _ranks(keys: Sequence[str]) -> list[int]:
+    """Rank of each key in sorted order (ties between equal distances go to the smallest)."""
+    ranks = [0] * len(keys)
+    for rank, i in enumerate(sorted(range(len(keys)), key=keys.__getitem__)):
+        ranks[i] = rank
+    return ranks
+
+
 class _Index:
     def __init__(self, features: Sequence[DesignFeatureDraft]) -> None:
         self.features = list(features)
-        self.geoms: list[Point | LineString] = [
-            LineString(f.coords) if f.is_route else Point(f.coords[0]) for f in self.features
-        ]
-        self.tree = STRtree(self.geoms)
+        by_type: dict[FeatureType, list[int]] = {}
+        for n, f in enumerate(self.features):
+            by_type.setdefault(f.feature_type, []).append(n)
+        self._by_type: dict[FeatureType, tuple[list[int], _Near]] = {}
+        for feature_type, members in by_type.items():
+            geoms = [_feature_geom(self.features[n]) for n in members]
+            ranks = _ranks([self.features[n].source_handle for n in members])
+            self._by_type[feature_type] = (members, _Near(geoms, ranks))
 
     def within(
-        self, position: Xy, radius: float, feature_type: FeatureType
-    ) -> list[tuple[float, int]]:
-        if not self.features:
-            return []
-        point = Point(position)
-        out: list[tuple[float, int]] = []
-        for i in self.tree.query(point, predicate="dwithin", distance=radius):
-            n = int(i)
-            if self.features[n].feature_type == feature_type:
-                out.append((float(point.distance(self.geoms[n])), n))
-        return out
+        self, texts: Sequence[RoleText], feature_type: FeatureType
+    ) -> list[list[tuple[float, int]]]:
+        """Per text: (distance, feature index) of the nearest features of a type within the
+        text's radius (`_Near.nearest`)."""
+        entry = self._by_type.get(feature_type)
+        if entry is None or not texts:
+            return [[] for _ in texts]
+        members, near = entry
+        found = near.nearest([t.position for t in texts], [t.radius_m for t in texts])
+        return [[(d, members[k]) for d, k in hits] for hits in found]
+
+
+def _feature_geom(f: DesignFeatureDraft) -> Point | LineString:
+    return LineString(f.coords) if f.is_route else Point(f.coords[0])
 
 
 def _link(
     texts: Sequence[RoleText], index: _Index
 ) -> tuple[dict[FeatureKey, FeatureTexts], dict[str, FeatureKey]]:
     """One-to-one, nearest pairs first; a feature takes one text per slot (two spares)."""
-    pairs: list[tuple[float, str, str, int, int]] = []
+    by_type: dict[FeatureType, list[int]] = {}
     for j, t in enumerate(texts):
-        for d, n in index.within(t.position, t.radius_m, TEXT_ROLE_FEATURE[t.reading.role]):
-            pairs.append((d, index.features[n].source_handle, t.handle, n, j))
+        by_type.setdefault(TEXT_ROLE_FEATURE[t.reading.role], []).append(j)
+    pairs: list[tuple[float, str, str, int, int]] = []
+    for feature_type, members in by_type.items():
+        found = index.within([texts[j] for j in members], feature_type)
+        for j, hits in zip(members, found, strict=True):
+            for d, n in hits:
+                pairs.append((d, index.features[n].source_handle, texts[j].handle, n, j))
     pairs.sort()
     by_feature: dict[FeatureKey, FeatureTexts] = {}
     text_feature: dict[str, FeatureKey] = {}
@@ -300,12 +423,14 @@ def _link(
 def _pair_cables(cables: Sequence[RoleText], bundles: Sequence[RoleText]) -> dict[str, RoleText]:
     """Cable text handle -> the bundle type text written with it (nearest first, one-to-one,
     within the cable text's radius)."""
+    if not cables or not bundles:
+        return {}
+    near = _Near([Point(b.position) for b in bundles], _ranks([b.handle for b in bundles]))
     pairs: list[tuple[float, str, str, int, int]] = []
-    for i, c in enumerate(cables):
-        for j, b in enumerate(bundles):
-            d = Point(c.position).distance(Point(b.position))
-            if d <= c.radius_m:
-                pairs.append((d, c.handle, b.handle, i, j))
+    found = near.nearest([c.position for c in cables], [c.radius_m for c in cables])
+    for i, (c, hits) in enumerate(zip(cables, found, strict=True)):
+        for d, j in hits:
+            pairs.append((d, c.handle, bundles[j].handle, i, j))
     pairs.sort()
     used: set[int] = set()
     out: dict[str, RoleText] = {}
@@ -342,8 +467,8 @@ def _link_cables(
         else:
             rest.append(c)
     candidates: list[tuple[float, str, str, int, RoleText]] = []
-    for c in rest:
-        for d, n in index.within(c.position, c.radius_m, "route"):
+    for c, hits in zip(rest, index.within(rest, "route"), strict=True):
+        for d, n in hits:
             candidates.append((d, index.features[n].source_handle, c.handle, n, c))
     candidates.sort(key=lambda p: p[:4])
     for _, _, _, n, c in candidates:
@@ -505,9 +630,24 @@ def _zone_groups(
     ]
     if not items:
         return []
-    geoms = [LineString(pts) if len(pts) >= 2 else Point(pts[0]) for _, pts in items]
-    tree = STRtree(geoms)
-    parent = list(range(len(items)))
+    # Stacked copies of one curve are one shape (same group, same hull).
+    unique: dict[tuple[Xy, ...], int] = {}
+    shape_of = [unique.setdefault(tuple(pts), len(unique)) for _, pts in items]
+    shapes = list(unique)
+    # Two curves touch when two of their segments do; segments have small envelopes, so nested or
+    # overlapping zone lines are not compared all against all.
+    pieces: list[Point | LineString] = []
+    owner: list[int] = []
+    for n, pts in enumerate(shapes):
+        if len(pts) < 2:
+            pieces.append(Point(pts[0]))
+            owner.append(n)
+            continue
+        for p, q in pairwise(pts):
+            pieces.append(LineString((p, q)))
+            owner.append(n)
+    tree = STRtree(pieces)
+    parent = list(range(len(shapes)))
 
     def find(i: int) -> int:
         while parent[i] != i:
@@ -515,31 +655,58 @@ def _zone_groups(
             i = parent[i]
         return i
 
-    for i, g in enumerate(geoms):
-        for j in tree.query(g, predicate="dwithin", distance=ZONE_TOUCH_M):
-            if int(j) != i:
-                parent[find(int(j))] = find(i)
+    left, right = tree.query(pieces, predicate="dwithin", distance=ZONE_TOUCH_M)
+    owners = np.asarray(owner, dtype=np.int64)
+    first, second = owners[left], owners[right]
+    touching = np.unique(np.stack((first, second), axis=1)[first < second], axis=0)
+    for i, j in touching.tolist():
+        a, b = find(i), find(j)
+        if a != b:
+            parent[b] = a
+    handles: dict[int, str] = {}
+    for (handle, _), shape in zip(items, shape_of, strict=True):
+        root = find(shape)
+        if root not in handles or handle < handles[root]:
+            handles[root] = handle
     groups: dict[int, list[int]] = {}
-    for i in range(len(items)):
-        groups.setdefault(find(i), []).append(i)
+    for shape in range(len(shapes)):
+        groups.setdefault(find(shape), []).append(shape)
     out: list[ZoneGroup] = []
-    for members in groups.values():
-        hull = MultiPoint([p for i in members for p in items[i][1]]).convex_hull
+    for root, members in groups.items():
+        hull = MultiPoint([p for m in members for p in shapes[m]]).convex_hull
         polygon = hull if isinstance(hull, Polygon) and hull.area > 0 else None
-        out.append(
-            ZoneGroup(
-                min(items[i][0] for i in members),
-                polygon,
-                polygon.area if polygon is not None else 0.0,
-            )
-        )
+        out.append(ZoneGroup(handles[root], polygon, polygon.area if polygon is not None else 0.0))
     return sorted(out, key=lambda z: z.handle)
 
 
-def _zone_of(position: Xy, zones: Sequence[ZoneGroup]) -> ZoneGroup | None:
-    point = Point(position)
-    inside = [z for z in zones if z.hull is not None and z.hull.covers(point)]
-    return min(inside, key=lambda z: (z.area, z.handle)) if inside else None
+class _ZoneIndex:
+    """The zone hulls, smallest first (area, then handle), in an STRtree; `of` = the smallest
+    hull covering a point. Hulls are tried smallest first and the first covering one wins, so
+    nested zones are not all tested."""
+
+    def __init__(self, zones: Sequence[ZoneGroup]) -> None:
+        self.zones = sorted(
+            (z for z in zones if z.hull is not None), key=lambda z: (z.area, z.handle)
+        )
+        self.hulls: NDArray[np.object_] = np.empty(len(self.zones), dtype=object)
+        self.hulls[:] = [z.hull for z in self.zones]
+        shapely.prepare(self.hulls)
+        self.tree = STRtree(self.hulls) if self.zones else None
+
+    def of(self, position: Xy) -> ZoneGroup | None:
+        if self.tree is None:
+            return None
+        point = Point(position)
+        candidates: NDArray[np.intp] = np.sort(self.tree.query(point))
+        for start in range(0, len(candidates), _ZONE_BATCH):
+            batch = candidates[start : start + _ZONE_BATCH]
+            covered = np.flatnonzero(shapely.covers(self.hulls[batch], point))
+            if len(covered):
+                return self.zones[int(batch[covered[0]])]
+        return None
+
+
+_ZONE_BATCH = 32
 
 
 # ---------- totals (`counts.reading`) ----------
