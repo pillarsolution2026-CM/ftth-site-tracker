@@ -146,9 +146,9 @@ const re = (source: string) => new RegExp(`^${source}$`, 'i');
 const P = {
   cableSpare: re(String.raw`SP\s*(\d+)`),
   bundleSpare: re(String.raw`SP\s*(\d+)\s*\(\s*${DUCT}\s*\)`),
-  cable: re(String.raw`(?:${LEN}\s*\/\s*)?(\d+)\s*-?\s*Cores?\b.*`),
+  cable: re(String.raw`(?:${LEN}\s*\/\s*)?(\d+)\s*(?:-\s*)?Cores?\b.*`),
   /** «4way 16/12», «500M/4way 16/12», «450m/1x4 way 16/12» (one bundle of 4 ways). */
-  bundle: re(String.raw`(?:${LEN}\s*\/\s*)?(?:\d+\s*x\s*)?(\d+)\s*-?\s*ways?(?:\s+${DUCT})?`),
+  bundle: re(String.raw`(?:${LEN}\s*\/\s*)?(?:\d+\s*x\s*)?(\d+)\s*(?:-\s*)?ways?(?:\s+${DUCT})?`),
   lengthOnly: re(LEN),
   boxCableType: re(String.raw`F\s*(\d+)\s*C`),
   cabinetName: re(String.raw`(\d+)\s*-\s*(\d+)`),
@@ -240,6 +240,9 @@ function readAs(role: TextRole, value: string): RoleReading | null {
   }
 }
 
+/** Longer texts are never read as a role (also keeps the patterns away from hostile input). */
+export const MAX_ROLE_TEXT_LENGTH = 64;
+
 /**
  * Reads a text with the roles of its layer: the first role (in TEXT_ROLES order) whose pattern
  * matches the whole trimmed text. null = the text means nothing for these roles (it is kept as an
@@ -247,7 +250,7 @@ function readAs(role: TextRole, value: string): RoleReading | null {
  */
 export function readRoleText(text: string, roles: readonly TextRole[]): RoleReading | null {
   const value = text.trim();
-  if (value === '') return null;
+  if (value === '' || value.length > MAX_ROLE_TEXT_LENGTH) return null;
   for (const role of TEXT_ROLES) {
     if (!roles.includes(role)) continue;
     const reading = readAs(role, value);
@@ -304,7 +307,7 @@ export const MAX_BUNDLE_WAYS = 288;
  * PRIMARY» → 4, «Single 1w Line» → 1. null when the name says nothing.
  */
 export function suggestBundleWays(name: string): number | null {
-  const m = /(\d+)\s*-?\s*w(?:ays?)?\b/i.exec(name);
+  const m = /(\d+)\s*(?:-\s*)?w(?:ays?)?\b/i.exec(name.slice(0, 256));
   if (!m) return null;
   const ways = Number(m[1]);
   return ways >= 1 && ways <= MAX_BUNDLE_WAYS ? ways : null;

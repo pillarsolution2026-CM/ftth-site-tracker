@@ -269,6 +269,72 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     ]);
   });
 
+  it('still blocks publishing when a blocking problem has an out-of-range param', async () => {
+    const pair = await newPair();
+    await setWarnings(pair.general, [
+      {
+        ...problem('SPARE_CORES_MISMATCH', 1),
+        items: [
+          {
+            x: 1,
+            y: 1,
+            drawingX: 1,
+            drawingY: 1,
+            layer: 'L',
+            handle: 'H',
+            suggestedLayer: null,
+            text: null,
+            near: null,
+            params: { mainCores: 1e30 },
+          },
+        ],
+      },
+    ]);
+    const list = DrawingProblemListSchema.parse(
+      (await as(admin)(http().get(`${revisionsUrl(pair.project)}/${pair.general}/problems`))).body,
+    );
+    expect(list.total).toBe(1);
+    const ready = await readiness(pair, pair.general);
+    expect(ready.canPublish).toBe(false);
+    expect(ready.checks.find((c) => c.key === 'no_problems')).toMatchObject({
+      ok: false,
+      count: 1,
+    });
+  });
+
+  it('still blocks publishing when a blocking problem has an out-of-range param', async () => {
+    const pair = await newPair();
+    await setWarnings(pair.general, [
+      {
+        ...problem('SPARE_CORES_MISMATCH', 1),
+        items: [
+          {
+            x: 1,
+            y: 1,
+            drawingX: 1,
+            drawingY: 1,
+            layer: 'L',
+            handle: 'H',
+            suggestedLayer: null,
+            text: null,
+            near: null,
+            params: { mainCores: 1e30 },
+          },
+        ],
+      },
+    ]);
+    const list = DrawingProblemListSchema.parse(
+      (await as(admin)(http().get(`${revisionsUrl(pair.project)}/${pair.general}/problems`))).body,
+    );
+    expect(list.total).toBe(1);
+    const ready = await readiness(pair, pair.general);
+    expect(ready.canPublish).toBe(false);
+    expect(ready.checks.find((c) => c.key === 'no_problems')).toMatchObject({
+      ok: false,
+      count: 1,
+    });
+  });
+
   it('matches the sub cabinets by name: ok, and main cabinets are not compared', async () => {
     const pair = await newPair();
     await addCabinet(pair, pair.general, 'sub', '1-1', 'G1');
