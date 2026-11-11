@@ -862,7 +862,8 @@
       "from": {
         "typed": "Typed",
         "kml": "KML / KMZ",
-        "gps": "GPS point from supervisor"
+        "gps": "GPS point from supervisor",
+        "general_cabinet": "Cabinet from the General"
       },
       "outlier": "Far from the other points: check it or leave it out",
       "remove": "Remove {id}",
@@ -930,6 +931,42 @@
         "rotationDeg": "Rotation (°)",
         "scale": "Scale",
         "reset": "Remove hand adjustment"
+      },
+      "cabinets": {
+        "title": "From the General’s cabinets",
+        "hint": "Fetches control points from the cabinets shared by name with the placed General drawing. Points are only added here; save as usual afterwards.",
+        "button": "From the General’s cabinets",
+        "fetching": "Fetching the General’s cabinets…",
+        "applied": "{count} points added from the General’s cabinets. Not saved yet — check the errors and save.",
+        "dropped": "{count} points could not be added because the control point limit was exceeded.",
+        "truncated": "More shared cabinets than the point limit: only some were added ({matched} matched).",
+        "noMatch": "No cabinet is shared by name between the two drawings, so no point was added.",
+        "general": "General drawing: {state}{rev}",
+        "generalState": {
+          "draft": "draft",
+          "published": "published"
+        },
+        "readOnly": "Points from the General’s cabinets can only be left out or removed, not edited.",
+        "unmatchedTitle": "Cabinets that did not match",
+        "onlyInSecondary": "In the Secondary only",
+        "onlyInGeneral": "In the General only",
+        "duplicateInSecondary": "Duplicated in the Secondary (not used)",
+        "duplicateInGeneral": "Duplicated in the General (not used)",
+        "unnamed": "Cabinets with no name: Secondary {secondary} / General {general}",
+        "withoutDrawingPosition": "Secondary cabinets with no drawing position (rebuild the Secondary): {names}",
+        "unusable": "Cabinets that cannot become a control point (name too long or bad position)",
+        "listCapped": "Too many cabinets: only the first 5000 of each drawing were read.",
+        "failed": "Could not fetch the General’s cabinets. Try again.",
+        "refusal": {
+          "NOT_SECONDARY": "This feature is for the Secondary drawing only.",
+          "NOT_CURRENT": "A newer version of the Secondary exists. Open the newer one.",
+          "SECONDARY_BUILDING": "The Secondary is still being built. Wait until it finishes.",
+          "SECONDARY_NOT_BUILT": "The Secondary has not been built yet. Build it first so the cabinet names can be read.",
+          "SECONDARY_REBUILD_NEEDED": "The Secondary was built by an older version (no cabinet positions). Rebuild it.",
+          "GENERAL_BUILDING": "The General is still being built. Wait until it finishes.",
+          "GENERAL_NOT_BUILT": "There is no built General (draft or published). Upload and build it first.",
+          "GENERAL_NOT_PLACED": "The General has no control point in use. Place the General first."
+        }
       }
     },
     "supersededNotice": "This file is an old version, so a revision cannot be built from it. Open the newer version and build from that.",
@@ -1046,7 +1083,8 @@
         "no_problems": "No drawing errors ({count} left)",
         "open_items": "Open items reviewed ({count})",
         "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set",
-        "cabinets_match": "Cabinets match in both drawings (name and count)"
+        "cabinets_match": "Cabinets match in both drawings (name and count)",
+        "installation": "Installation method (pull / trench) is clear"
       },
       "fixCoordinates": "Open the coordinates screen",
       "lockedHint": "Publishing is locked until all checks except open items are done.",
@@ -1058,7 +1096,8 @@
         "PROBLEMS_OPEN": "{count} drawing errors are left in the {drawing} drawing. Fix all of them before publishing.",
         "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
         "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together.",
-        "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing."
+        "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing.",
+        "INSTALLATION_UNCLEAR": "The installation method of the {drawing} drawing is unclear ({count} issues): {issues}"
       },
       "otherNoDraft": "There is no draft for the {drawing} yet",
       "otherErrors": "{count} errors in it",
@@ -1301,7 +1340,8 @@
       "entityInfo": "Drawing item",
       "closePopover": "Close",
       "entityLayer": "Layer",
-      "entityKind": "Type"
+      "entityKind": "Type",
+      "trenchLegend": "Parts marked for trench are drawn with a dashed purple line and their length."
     },
     "fix": {
       "open": "Fix this place",
@@ -1403,6 +1443,72 @@
       "handholes": "Handholes by type",
       "handholeType": "Type",
       "untyped": "No type"
+    },
+    "installation": {
+      "title": "Installation method",
+      "question": "Is the whole route pulled through old pipes, or does part of it need digging and new pipes?",
+      "answer": {
+        "pull_only": "All pulled through old pipes",
+        "has_trench": "Part needs digging and new pipes"
+      },
+      "current": "Current answer: {answer}",
+      "unanswered": "This question is not answered yet — publishing stays locked until it is.",
+      "saving": "Saving…",
+      "hasTrenchHint": "Mark the trench parts in the drawing viewer with the «New trench» tool and type the length of each in metres.",
+      "rebuildNeeded": "Rebuild so the marks are applied",
+      "readOnly": "You can see the answer only. The project manager changes it.",
+      "error": {
+        "NOT_GENERAL_DRAWING": "This question is for the General drawing only. The Secondary is all trench.",
+        "FILE_SUPERSEDED": "A newer version of the General exists. Answer on the newer one.",
+        "NOT_PROCESSED": "The file is not processed yet. Wait until it finishes and try again.",
+        "ANSWER_NOT_TRENCH": "First choose «Part needs digging and new pipes» before marking trench.",
+        "TRENCH_MARKS_ACTIVE": "Trench marks are in force. Withdraw them all before choosing «All pulled».",
+        "ROUTE_NOT_FOUND": "That piece is not a route of the drawing. Pick the route line itself.",
+        "TOO_MANY_MARKS": "The maximum number of trench marks for this file is reached.",
+        "TOO_MANY_ANSWERS": "The maximum number of answer changes for this file is reached.",
+        "ALREADY_WITHDRAWN": "This mark was already withdrawn."
+      },
+      "marks": {
+        "heading": "Trench marks ({count})",
+        "hint": "Each mark is a route plus the length that needs digging. The rest of the route is pulled through old pipes.",
+        "none": "No trench marks yet.",
+        "total": "Total marked trench: {length} m",
+        "colRoute": "Route",
+        "colLength": "Length (m)",
+        "colMadeBy": "Made by",
+        "colState": "State",
+        "active": "In force",
+        "withdrawn": "Withdrawn",
+        "withdraw": "Withdraw mark",
+        "withdrawing": "Withdrawing…",
+        "withdrawLabel": "Withdraw the trench mark on route {route}",
+        "show": "Show on the drawing"
+      },
+      "tool": {
+        "button": "New trench",
+        "on": "«New trench» is on: click a piece of a route on the drawing.",
+        "off": "Stop the tool",
+        "unavailable": "The «New trench» tool appears when the answer is «Part needs digging and new pipes».",
+        "title": "New trench on the route",
+        "route": "Route",
+        "length": "Trench length (metres)",
+        "lengthHint": "Type the length in metres, for example 25.5",
+        "lengthInvalid": "Type a length in metres above 0 and up to 100000, with at most 3 decimals.",
+        "save": "Save the trench mark",
+        "saving": "Saving…",
+        "saved": "The trench mark is saved. Rebuild to apply it.",
+        "marked": "Trench: {length} m"
+      },
+      "issue": {
+        "QUESTION_UNANSWERED": "The installation question is not answered (or was answered after the build — rebuild).",
+        "TRENCH_NOT_MARKED": "You said there is digging but marked no part. Mark the trench parts.",
+        "MARKS_WITH_PULL_ONLY": "The answer is «All pulled» but there are trench marks. Withdraw the marks or change the answer.",
+        "MARK_ROUTE_MISSING": "The trench mark on route {route} has no route in the built drawing. Withdraw it and mark again.",
+        "ROUTE_LENGTH_UNKNOWN": "Route {route} has no written length, so the trench length cannot be compared. Write the route length in the drawing.",
+        "TRENCH_LONGER_THAN_ROUTE": "The trench marked on route {route} ({marked} m) is longer than the written route length ({length} m)."
+      },
+      "secondaryOk": "The Secondary is all trench — no question.",
+      "moreIssues": "… and {count} more issues not shown"
     }
   },
   "asbuilt": {

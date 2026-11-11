@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   METRES_PER_UNIT,
+  withGeneralCabinetPoints,
   type CadMappingInput,
   type CadMappingView,
   type ControlPoint,
@@ -35,6 +36,7 @@ import {
   NEUTRAL_ADJUST,
   nextPointId,
   solveState,
+  toPlacement,
   type PlacementFormState,
 } from '../model/placement-form';
 
@@ -103,6 +105,17 @@ export function useMappingForm(view: CadMappingView, drawingKind: DrawingKind | 
         for (const point of points) all.push({ ...point, id: nextPointId(all) });
         return { ...current, points: all };
       }),
+    /**
+     * ADR-042 part G: puts the Secondary's suggested points (ids kept, so a new suggestion replaces
+     * the old one) into the placement; the PM saves as usual. Resolves with the points left out
+     * because the limit was reached.
+     */
+    applyGeneralCabinets: (suggested: readonly ControlPoint[]): number => {
+      const current = stateRef.current.placement;
+      const result = withGeneralCabinetPoints(toPlacement(current), suggested, current.sourceCrs);
+      changePlacement((now) => ({ ...now, points: result.placement.points }));
+      return result.dropped;
+    },
     updatePoint: (id: string, patch: Partial<Omit<ControlPoint, 'id'>>) =>
       changePlacement((current) => ({
         ...current,

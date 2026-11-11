@@ -381,7 +381,10 @@ def test_add_item_is_counted_as_its_layers_type() -> None:
     design = compose_design(drawing, rules, unit_placer(1.0), (), uuid.uuid4)
     assert design.feature_counts["joint"] == 1
     [row] = design.rows.features
-    assert row.coords == ((50.0, 60.0),) and row.attrs == {"kind": "144"}
+    assert row.coords == ((50.0, 60.0),) and row.attrs == {
+        "kind": "144",
+        "drawingAt": {"x": 50.0, "y": 60.0},  # the corrected position, in drawing units
+    }
     assert row.source_kind == "insert" and row.source_handle == f"FIX-{uuid.UUID(int=1)}"
 
 

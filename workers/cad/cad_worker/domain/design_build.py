@@ -394,6 +394,20 @@ class BuiltFeatures:
     text_feature_handles: frozenset[str] = frozenset()
 
 
+DRAWING_AT_ATTR = "drawingAt"
+DRAWING_AT_DECIMALS = 3
+
+
+def drawing_at(p: Sequence[float]) -> dict[str, float]:
+    """`attrs.drawingAt` (ADR-042 part G): a point feature's drawn centre in DRAWING units, after
+    the drawing corrections and before placement, rounded to 3 decimals. The API matches a
+    Secondary's cabinet with the placed General's cabinet of the same name from it."""
+    return {
+        "x": round(float(p[0]), DRAWING_AT_DECIMALS),
+        "y": round(float(p[1]), DRAWING_AT_DECIMALS),
+    }
+
+
 def build_features(drawing: DrawingData, rules: MappingRules, place: Placer) -> BuiltFeatures:
     routes, zero_length = _routes(drawing.curves, rules, place)
     points, background_inserts = _insert_features(drawing.inserts, rules, place)
@@ -449,6 +463,7 @@ def _insert_features(
         attrs = rules.attrs_of(rules.insert_rule(insert.layer, insert.block_name)).to_attrs()
         if insert.attributes:
             attrs["attributes"] = _attributes(insert.attributes)
+        attrs[DRAWING_AT_ATTR] = drawing_at(insert.position)
         out.append(
             DesignFeatureDraft(
                 cast(FeatureType, target),
@@ -490,7 +505,9 @@ def _shape_features(
                 (min(b[0] for b in boxes) + max(b[2] for b in boxes)) / 2,
                 (min(b[1] for b in boxes) + max(b[3] for b in boxes)) / 2,
             )
-            extra = {"shapes": handles} if len(handles) > 1 else {}
+            drawn = (centre[0] / place.unit_m, centre[1] / place.unit_m)
+            extra: dict[str, object] = {"shapes": handles} if len(handles) > 1 else {}
+            extra[DRAWING_AT_ATTR] = drawing_at(drawn)
             out.append(
                 DesignFeatureDraft(
                     point_layers[layer],
@@ -498,7 +515,7 @@ def _shape_features(
                     None,
                     "curve",
                     handles[0],
-                    (place.to_project((centre[0] / place.unit_m, centre[1] / place.unit_m)),),
+                    (place.to_project(drawn),),
                     {**attrs, **extra},
                 )
             )
@@ -568,6 +585,11 @@ def _text_features(
                 {
                     **rules.attrs_of(("text", text.layer, text_rule_key(text.text))).to_attrs(),
                     "text": text.text.strip(),
+                    **(
+                        {DRAWING_AT_ATTR: drawing_at(text.position)}
+                        if target in POINT_FEATURE_TYPES
+                        else {}
+                    ),
                 },
             )
         )

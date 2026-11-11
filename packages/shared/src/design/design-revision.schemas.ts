@@ -4,6 +4,12 @@ import { DrawingKindSchema } from '../cad/drawing-kind.schemas.js';
 import { MappingRuleSchema } from '../cad/cad-mapping.schemas.js';
 import { cabinetNameKey } from '../cad/text-roles.js';
 import { PlacementSchema } from '../cad/placement.schemas.js';
+import {
+  FrozenInstallationSchema,
+  InstallationIssueSchema,
+  InstallationReportSchema,
+  MAX_INSTALLATION_ISSUES_LISTED,
+} from '../cad/installation.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { BooleanQuerySchema, PageQuerySchema, pageSchema } from '../common/pagination.js';
 import {
@@ -153,6 +159,11 @@ export const DesignRevisionDetailSchema = DesignRevisionSummarySchema.extend({
   rules: z.array(MappingRuleSchema),
   /** Frozen placement used for the build (ADR-035); null = as drawn. */
   placement: PlacementSchema.nullable().default(null),
+  /**
+   * Frozen installation answer and trench marks (ADR-042 part D); General only. null on a
+   * Secondary and on revisions built before migration 0022 (a General then reads as unanswered).
+   */
+  installation: FrozenInstallationSchema.nullable().default(null),
   errorMessage: z.string().nullable(),
   log: z.string().nullable(),
 });
@@ -210,8 +221,9 @@ export type CabinetsComparison = z.infer<typeof CabinetsComparisonSchema>;
 /**
  * 409 details when publishing is refused (ADR-038, ADR-040). Checked in this order: the other
  * drawing has an open draft (`OTHER_DRAWING_MISSING`); then for this drawing, then the other:
- * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`) and drawing errors (`PROBLEMS_OPEN`, blocking
- * problems only, ADR-041); then the shared cabinets of the pair (`CABINETS_MISMATCH`); last, open
+ * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`), drawing errors (`PROBLEMS_OPEN`, blocking
+ * problems only, ADR-041) and, for the General, the installation (`INSTALLATION_UNCLEAR`,
+ * ADR-042); then the shared cabinets of the pair (`CABINETS_MISMATCH`); last, open
  * items of both without acknowledgement (`OPEN_ITEMS`, summed). `drawingKind` names the drawing
  * that blocks.
  */
@@ -227,6 +239,16 @@ export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
     reason: z.literal('PROBLEMS_OPEN'),
     drawingKind: DrawingKindSchema,
     problemCount: z.number().int().min(1),
+  }),
+  /**
+   * ADR-042 part D, General only: the installation question is unanswered, `has_trench` has no
+   * mark, or a mark does not fit its route (`evaluateInstallation`). Anything unclear is an error.
+   */
+  z.object({
+    reason: z.literal('INSTALLATION_UNCLEAR'),
+    drawingKind: z.literal('general'),
+    issueCount: z.number().int().min(1),
+    issues: z.array(InstallationIssueSchema).max(MAX_INSTALLATION_ISSUES_LISTED),
   }),
   z.object({
     reason: z.literal('OPEN_ITEMS'),
@@ -305,6 +327,12 @@ export const PUBLISH_CHECK_KEYS = [
    * Not ok while the other draft is missing.
    */
   'cabinets_match',
+  /**
+   * ADR-042 part D: the General's installation is clear (`evaluateInstallation` ok) — on the
+   * General's readiness for itself; always ok (count null) on the Secondary's, where the General's
+   * installation is part of `other_drawing`.
+   */
+  'installation',
 ] as const;
 export const PublishCheckKeySchema = z.enum(PUBLISH_CHECK_KEYS);
 export type PublishCheckKey = z.infer<typeof PublishCheckKeySchema>;
@@ -315,8 +343,9 @@ export const PublishCheckSchema = z.object({
   /**
    * crs_known: null; control_point: points in use; no_problems: blocking problems left; open_items:
    * open (both drawings); other_drawing: blocking problems left in the other drawing's draft (null:
-   * no draft); cabinets_match: unmatched cabinets = unnamed + missingInOther of both sides (null:
-   * no other draft).
+   * no draft; ok also needs the other General's installation clear); cabinets_match: unmatched
+   * cabinets = unnamed + missingInOther of both sides (null: no other draft); installation: issues
+   * of the General's installation (null on a Secondary).
    */
   count: z.number().int().min(0).nullable(),
 });
@@ -336,6 +365,8 @@ export const PublishReadinessSchema = z.object({
   cabinets: CabinetsComparisonSchema.nullable().default(null),
   /** Non-blocking problems (warnings) of this drawing, shown next to the checklist. */
   warningCount: z.number().int().min(0).default(0),
+  /** ADR-042: the installation report behind `installation`; null on a Secondary. */
+  installation: InstallationReportSchema.nullable().default(null),
 });
 export type PublishReadiness = z.infer<typeof PublishReadinessSchema>;
 

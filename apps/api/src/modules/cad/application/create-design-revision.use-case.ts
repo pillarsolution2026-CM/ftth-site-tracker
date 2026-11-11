@@ -29,7 +29,7 @@ export interface NewRevisionInput {
 /**
  * The rules of creating a revision, inside the caller's transaction (used by create and rebuild):
  * the file and its mapping exist and match, the file is processed, no other revision of the file's kind is open, the file is the current version of its kind; the
- * mapping, the placement and the file's corrections in force are frozen on the new revision.
+ * mapping, the placement, the file's corrections in force and (General) its installation are frozen on the new revision.
  */
 export async function createRevisionInTx(tx: CadTx, input: NewRevisionInput): Promise<void> {
   const { projectId, actorId, cadFileId, mappingVersion, revisionId, jobId, now } = input;
@@ -58,6 +58,9 @@ export async function createRevisionInTx(tx: CadTx, input: NewRevisionInput): Pr
   const baseRevisionId = await tx.revisions.findLatestPublishedId(projectId, file.drawingKind);
   // The file row is locked above, so no correction can be added or withdrawn while this reads.
   const corrections = await tx.corrections.listActiveFrozen(projectId, cadFileId);
+  // Same lock: the General's installation answer and marks in force are frozen with them (ADR-042).
+  const installation =
+    file.drawingKind === 'general' ? await tx.installation.frozen(projectId, cadFileId) : null;
   await tx.revisions.insert({
     id: revisionId,
     projectId,
@@ -72,6 +75,7 @@ export async function createRevisionInTx(tx: CadTx, input: NewRevisionInput): Pr
     metresPerUnit: mapping.metresPerUnit,
     placement: mapping.placement,
     corrections,
+    installation,
     insUnits: file.insUnits,
     unitsConflict: file.crsDetection?.unitsConflict ?? false,
     createdById: actorId,

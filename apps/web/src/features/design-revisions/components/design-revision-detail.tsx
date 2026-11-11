@@ -9,6 +9,7 @@ import { DrawingKindBadge } from '@/shared/ui/drawing-kind-badge';
 import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader } from '@/shared/ui/table';
+import { InstallationQuestionCard } from '@/features/installation/components/installation-question-card';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { ShowPlace } from '../hooks/use-drawing-viewer';
 import { useDiffView } from '../hooks/use-diff-view';
@@ -79,6 +80,15 @@ export function DesignRevisionDetailScreen({
           </Button>
         ) : null}
       </div>
+      {revision.drawingKind === 'general' ? (
+        <InstallationQuestionCard
+          projectId={projectId}
+          cadFileId={revision.cadFileId}
+          enabled={state.canRead}
+          canWrite={state.canReview}
+          frozen={state.canReview ? revision.installation : undefined}
+        />
+      ) : null}
       {state.built ? (
         <Card>
           <DrawingViewer
@@ -88,6 +98,8 @@ export function DesignRevisionDetailScreen({
             enabled={state.canRead && state.built}
             canWrite={state.canWrite}
             canFix={state.canReview}
+            isGeneral={revision.drawingKind === 'general'}
+            onShowOnDrawing={showOnDrawing}
             focus={focus}
           />
         </Card>
@@ -111,6 +123,7 @@ export function DesignRevisionDetailScreen({
           }
           onAcknowledgedChange={state.setAcknowledged}
           onPublish={state.publish}
+          onShowRoute={(handle) => showOnDrawing({ code: null, handle, x: null, y: null })}
         />
       ) : null}
       {state.confirmingDiscard ? (

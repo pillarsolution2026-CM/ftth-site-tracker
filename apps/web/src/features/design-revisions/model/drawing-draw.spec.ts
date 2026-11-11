@@ -1,6 +1,6 @@
 import type { DrawingProblemView } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { drawBase, drawOverlay, PathCache, type DrawModel } from './drawing-draw';
+import { drawBase, drawOverlay, PathCache, TRENCH_COLOR, type DrawModel } from './drawing-draw';
 import { buildMarkers } from './drawing-hit';
 import { applyCorrections, EMPTY_PREVIEW } from './drawing-preview';
 import { buildScene } from './drawing-scene';
@@ -253,5 +253,32 @@ describe('drawOverlay', () => {
     expect(ctx.arc).toHaveBeenCalledTimes(1);
     expect(ctx.lineTo).toHaveBeenCalledTimes(2);
     expect(ctx.strokeStyle).toBe('#0000ff');
+  });
+});
+
+describe('drawOverlay trench marks (ADR-042)', () => {
+  it('strokes a marked route dashed in the trench colour and writes its length on it', () => {
+    const ctx = createMockContext();
+    drawOverlay(
+      asCtx(ctx),
+      model({ trench: new Map([[0, 'Trench: 25.000 m']]) }),
+      new PathCache(scene),
+      { cx: 50, cy: 25, scale: 4 },
+      vp,
+    );
+    expect(ctx.stroke).toHaveBeenCalled();
+    expect(ctx.setLineDash).toHaveBeenCalledWith(expect.any(Array));
+    expect(ctx.fillText).toHaveBeenCalledWith(
+      'Trench: 25.000 m',
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(ctx.fillStyle).toBe(TRENCH_COLOR);
+  });
+
+  it('draws nothing extra without marks', () => {
+    const ctx = createMockContext();
+    drawOverlay(asCtx(ctx), model(), new PathCache(scene), { cx: 50, cy: 25, scale: 4 }, vp);
+    expect(ctx.fillText).not.toHaveBeenCalled();
   });
 });

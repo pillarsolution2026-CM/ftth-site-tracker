@@ -10,6 +10,7 @@ import {
 import { AppError } from '../../../common/app-error.js';
 import type { Clock } from '../../../common/clock.js';
 import type { CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
+import { installationReportOf } from './installation.use-cases.js';
 import { assertPublishable, type DesignRevision } from '../domain/design-revision.js';
 import {
   pairOpenItems,
@@ -21,10 +22,11 @@ import {
 
 /** Gathers what the publish rules need for one drawing; used by the checklist and by publishing. */
 async function publishFacts(tx: CadTx, revision: DesignRevision): Promise<PublishFacts> {
-  const [warnings, open, subCabinets] = await Promise.all([
+  const [warnings, open, subCabinets, installation] = await Promise.all([
     tx.problems.warnings(revision.projectId, revision.id),
     tx.links.countOpenItems(revision.projectId, revision.id),
     tx.revisions.subCabinetCodes(revision.projectId, revision.id),
+    installationReportOf(tx, revision),
   ]);
   const totals = problemTotalsOf(warnings);
   return {
@@ -34,6 +36,7 @@ async function publishFacts(tx: CadTx, revision: DesignRevision): Promise<Publis
     problemTotal: totals.blocking,
     warningTotal: totals.warnings,
     subCabinets,
+    installation,
     open,
   };
 }
@@ -65,6 +68,8 @@ const BLOCKED_MESSAGE: Record<PublishBlockedDetails['reason'], string> = {
   CRS_UNKNOWN: 'The drawing coordinate system is not set; place the drawing first',
   PLACEMENT_MISSING: 'The placement has no control point in use',
   PROBLEMS_OPEN: 'The drawing still has errors; fix them before publishing',
+  INSTALLATION_UNCLEAR:
+    'The installation of the General is unclear; answer the question and mark the trench parts',
   CABINETS_MISMATCH:
     'The sub cabinets of the General and the Secondary do not match by name and count',
   OPEN_ITEMS: 'Open items must be acknowledged before publishing',

@@ -7,6 +7,8 @@ import type {
   DrawingUnit,
   FeatureType,
   FrozenDrawingCorrection,
+  FrozenInstallation,
+  InstallationRoute,
   MappingRule,
   Placement,
   PlacementDrawing,
@@ -36,6 +38,16 @@ export interface CadMappingRepository {
   ): Promise<CadMappingRecord | null>;
 }
 
+/** A sub cabinet feature of a revision (ADR-042 part G). */
+export interface SubCabinetPosition {
+  code: string | null;
+  sourceHandle: string;
+  /** Position in the revision CRS (metres). */
+  x: number;
+  y: number;
+  attrs: Record<string, unknown>;
+}
+
 export interface NewDesignRevision {
   id: string;
   projectId: string;
@@ -52,6 +64,8 @@ export interface NewDesignRevision {
   placement: Placement | null;
   /** The file's corrections in force, in creation order (ADR-038). */
   corrections: FrozenDrawingCorrection[];
+  /** The General's installation answer and marks in force (ADR-042); null for a Secondary. */
+  installation: FrozenInstallation | null;
   insUnits: number | null;
   unitsConflict: boolean;
   createdById: string;
@@ -77,6 +91,21 @@ export interface DesignRevisionRepository {
    * 'sub'), null when unnamed; ordered by source handle. ADR-041.
    */
   subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]>;
+  /** The route features of the revision as the installation check needs them (ADR-042). */
+  installationRoutes(projectId: string, revisionId: string): Promise<InstallationRoute[]>;
+  /** `handles` of the revision's frozen `merge_routes` corrections (ADR-038). */
+  frozenMergeHandles(projectId: string, revisionId: string): Promise<string[][]>;
+  /** The newest draft or published revision built from the file; null when there is none. */
+  findLatestBuiltOfFile(projectId: string, cadFileId: string): Promise<DesignRevision | null>;
+  /**
+   * The `sub` cabinet features of the revision with their position in the revision CRS (metres)
+   * and attrs, ordered by source handle. ADR-042 part G.
+   */
+  subCabinetPositions(
+    projectId: string,
+    revisionId: string,
+    limit: number,
+  ): Promise<SubCabinetPosition[]>;
   /** True while a revision built from this file is queued or building. */
   hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean>;
   /**

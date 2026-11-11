@@ -3,6 +3,8 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import {
   cadCurves,
+  cadFileInstallationAnswers,
+  cadFileTrenchMarks,
   cadFiles,
   cadInserts,
   cadLayers,
@@ -52,6 +54,8 @@ describe('Drizzle schema matches migrations 0003, 0005 and 0007', () => {
     textLinks,
     revisionDiffItems,
     gpsPointProposals,
+    cadFileInstallationAnswers,
+    cadFileTrenchMarks,
   ] as PgTable[])('table %#: same columns as the database', async (table) => {
     const config = getTableConfig(table);
     const { rows } = await pool.query<{ column_name: string }>(
