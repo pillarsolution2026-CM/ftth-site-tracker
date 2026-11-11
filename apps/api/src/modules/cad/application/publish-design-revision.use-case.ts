@@ -2,6 +2,7 @@ import {
   EVENT_ENTITIES,
   EVENT_TYPES,
   drawingProblemsOf,
+  problemTotals,
   otherDrawingKind,
   type PublishBlockedDetails,
   type PublishDesignRevisionRequest,
@@ -18,19 +19,22 @@ import {
   type OtherDraft,
   type PublishFacts,
 } from '../domain/publish-readiness.js';
-import { problemTotal } from './drawing-problems.use-cases.js';
 
 /** Gathers what the publish rules need for one drawing; used by the checklist and by publishing. */
 async function publishFacts(tx: CadTx, revision: DesignRevision): Promise<PublishFacts> {
-  const [warnings, open] = await Promise.all([
+  const [warnings, open, subCabinets] = await Promise.all([
     tx.problems.warnings(revision.projectId, revision.id),
     tx.links.countOpenItems(revision.projectId, revision.id),
+    tx.revisions.subCabinetCodes(revision.projectId, revision.id),
   ]);
+  const totals = problemTotals(drawingProblemsOf(warnings));
   return {
     status: revision.status,
     drawingKind: revision.drawingKind,
     placement: revision.placement,
-    problemTotal: problemTotal(drawingProblemsOf(warnings)),
+    problemTotal: totals.blocking,
+    warningTotal: totals.warnings,
+    subCabinets,
     open,
   };
 }
@@ -62,6 +66,8 @@ const BLOCKED_MESSAGE: Record<PublishBlockedDetails['reason'], string> = {
   CRS_UNKNOWN: 'The drawing coordinate system is not set; place the drawing first',
   PLACEMENT_MISSING: 'The placement has no control point in use',
   PROBLEMS_OPEN: 'The drawing still has errors; fix them before publishing',
+  CABINETS_MISMATCH:
+    'The sub cabinets of the General and the Secondary do not match by name and count',
   OPEN_ITEMS: 'Open items must be acknowledged before publishing',
 };
 

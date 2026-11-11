@@ -1331,11 +1331,18 @@ describe('a built draft revision', () => {
         { key: 'no_problems', ok: false, count: 3 },
         { key: 'open_items', ok: false, count: 2 },
         { key: 'other_drawing', ok: true, count: 0 },
+        { key: 'cabinets_match', ok: true, count: 0 },
       ],
       canPublish: false,
       drawingKind: 'general',
       otherRevisionId: secondaryId,
       needsAcknowledgement: true,
+      cabinets: {
+        ok: true,
+        general: { count: 0, unnamed: 0, missingInOther: [] },
+        secondary: { count: 0, unnamed: 0, missingInOther: [] },
+      },
+      warningCount: 0,
     });
 
     await setPlacement(place(true));
@@ -1354,6 +1361,7 @@ describe('a built draft revision', () => {
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: false, count: 2 },
       { key: 'other_drawing', ok: true, count: 0 },
+      { key: 'cabinets_match', ok: true, count: 0 },
     ]);
     expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });

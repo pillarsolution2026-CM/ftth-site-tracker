@@ -709,6 +709,7 @@ describe('publishing the pair', () => {
       ['no_problems', true, 0],
       ['open_items', true, 0],
       ['other_drawing', false, 4],
+      ['cabinets_match', true, 0],
     ]);
     expect(ready).toMatchObject({ canPublish: false, otherRevisionId: secondary.id });
 
