@@ -134,7 +134,13 @@ function FixFields({
             form={form}
           />
           {code === 'HANDHOLE_TYPE_UNKNOWN' && place.params?.found !== undefined ? (
-            <ConfirmType id={id} found={place.params.found} form={form} tools={tools} />
+            <ConfirmType
+              id={id}
+              layer={place.layer}
+              found={place.params.found}
+              form={form}
+              tools={tools}
+            />
           ) : null}
         </>
       );
@@ -236,17 +242,20 @@ function FixFields({
  */
 function ConfirmType({
   id,
+  layer,
   found,
   form,
   tools,
 }: {
   id: string;
+  /** The layer of the written text (the alias is kept on that layer's rule). */
+  layer: string;
   found: string;
   form: FixForm;
   tools: FixTools;
 }) {
   const { t } = useI18n();
-  if (!tools.canConfirmType) {
+  if (!tools.canConfirmType(layer)) {
     return <Notice kind="info">{t('design.fix.confirmTypeNoRule')}</Notice>;
   }
   return (

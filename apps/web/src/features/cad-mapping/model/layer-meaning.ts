@@ -156,12 +156,14 @@ export const hasAlias = (aliases: Readonly<Record<string, HandholeType>>, found:
 
 /**
  * The mapping to save when the PM confirms that the spelling `found` means `type` in this drawing:
- * the layer rule that reads `handhole_type` gets `handholeTypeAliases[found] = type` and nothing
- * else changes (version kept for optimistic concurrency). null when there is no saved mapping or no
- * layer rule reads `handhole_type` (then the alias cannot be kept).
+ * the layer rule of the TEXT's own layer (`layer`, the problem place's layer: the worker looks the
+ * alias up there) that reads `handhole_type` gets `handholeTypeAliases[found] = type` and nothing
+ * else changes (version kept for optimistic concurrency). null when there is no saved mapping or that
+ * layer has no rule reading `handhole_type` (then the alias cannot be kept).
  */
 export function mappingWithAlias(
   view: CadMappingView | undefined,
+  layer: string,
   found: string,
   type: HandholeType,
 ): CadMappingInput | null {
@@ -169,7 +171,8 @@ export function mappingWithAlias(
   const key = found.trim();
   if (!mapping || key === '') return null;
   const index = mapping.rules.findIndex(
-    (rule) => rule.source === 'layer' && rule.textRoles?.includes('handhole_type'),
+    (rule) =>
+      rule.source === 'layer' && rule.layer === layer && rule.textRoles?.includes('handhole_type'),
   );
   if (index < 0) return null;
   const rules = mapping.rules.map((rule, i) => {

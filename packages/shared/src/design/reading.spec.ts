@@ -225,6 +225,24 @@ describe('problems fail closed (ADR-041 review)', () => {
     expect(problem).toMatchObject({ code: 'SPARE_CORES_MISMATCH', count: 2, items: [] });
   });
 
+  it('bounds the free text params and still counts a place whose param is too long', () => {
+    const long = 'x'.repeat(129);
+    for (const key of ['found', 'cabinet', 'boxNumber', 'expected', 'featureHandle']) {
+      expect(DrawingProblemParamsSchema.safeParse({ [key]: long }).success).toBe(false);
+      expect(DrawingProblemParamsSchema.safeParse({ [key]: 'x'.repeat(128) }).success).toBe(true);
+    }
+    const warnings = [
+      {
+        code: 'BOX_CABINET_UNKNOWN',
+        severity: 'error',
+        count: 2,
+        items: [{ ...place, params: { cabinet: long } }],
+      },
+    ];
+    expect(problemTotalsOf(warnings).blocking).toBe(2);
+    expect(drawingProblemsOf(warnings)[0]).toMatchObject({ count: 2, items: [] });
+  });
+
   it('salvages a malformed entry of a known code as blocking, at least 1', () => {
     const totals = problemTotalsOf([
       { code: 'BOX_NOT_REACHED', count: 'many', items: 'x' },

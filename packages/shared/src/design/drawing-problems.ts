@@ -154,14 +154,17 @@ export const ProblemNearSchema = z.object({
 /** Technical bound on a written core count (largest cables are a few thousand cores). */
 export const MAX_PARAM_CORES = 100_000;
 
+/** Longest free text kept in a place's params (names and written texts are far shorter). */
+export const MAX_PARAM_TEXT = 128;
+
 const DrawingProblemParamsFields = z
   .object({
     role: TextRoleSchema,
     field: z.enum(CABINET_INFO_FIELDS),
-    cabinet: z.string(),
-    boxNumber: z.string(),
-    expected: z.string(),
-    found: z.string(),
+    cabinet: z.string().max(MAX_PARAM_TEXT),
+    boxNumber: z.string().max(MAX_PARAM_TEXT),
+    expected: z.string().max(MAX_PARAM_TEXT),
+    found: z.string().max(MAX_PARAM_TEXT),
     mainCores: z.number().finite().int().min(1).max(MAX_PARAM_CORES),
     cableLengthM: DecimalStringSchema,
     bundleLengthM: DecimalStringSchema,
@@ -169,7 +172,7 @@ const DrawingProblemParamsFields = z
     /** A value the system proposes (e.g. the boxes drawn under a cabinet with no «nB»). */
     suggested: z.string().max(64),
     /** The feature the place is about when `handle` is a text (so a fix can target either). */
-    featureHandle: z.string(),
+    featureHandle: z.string().max(MAX_PARAM_TEXT),
   })
   .partial();
 export const DrawingProblemParamsSchema = DrawingProblemParamsFields;
