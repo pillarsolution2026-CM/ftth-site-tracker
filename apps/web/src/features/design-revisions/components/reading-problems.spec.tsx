@@ -376,6 +376,7 @@ describe('owner answers (2026-11-11): messages and tools', () => {
   it('confirms a handhole type: the alias is kept in the mapping with its version', async () => {
     const user = await open('HANDHOLE_TYPE_UNKNOWN', {
       handle: 'H1',
+      layer: 'Notes',
       text: 'HH2',
       params: { found: 'HH2' },
     });
@@ -401,5 +402,16 @@ describe('owner answers (2026-11-11): messages and tools', () => {
       handholeTypeAliases: { HH2: 'HH-II' },
     });
     expect(await screen.findByText(/Confirmation saved/)).toBeInTheDocument();
+  });
+
+  it('does not offer to confirm a type for a text on a layer that does not read handhole_type', async () => {
+    await open('HANDHOLE_TYPE_UNKNOWN', {
+      handle: 'H1',
+      layer: 'TXT',
+      text: 'HH2',
+      params: { found: 'HH2' },
+    });
+    expect(screen.getByText(/No layer in the mapping reads the handhole type/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm and save in the mapping' })).toBeNull();
   });
 });

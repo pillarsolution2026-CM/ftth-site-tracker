@@ -43,9 +43,9 @@ export interface FixTools {
   loading: boolean;
   submit: (request: CreateDrawingCorrectionRequest) => Promise<void>;
   /** The mapping has a layer rule that reads `handhole_type` (where a confirmed type is kept). */
-  canConfirmType: boolean;
+  canConfirmType: (layer: string) => boolean;
   /** Keep «found means type» in the file's mapping (Q2); applies to every handhole so written. */
-  confirmType: (found: string, type: HandholeType) => Promise<void>;
+  confirmType: (layer: string, found: string, type: HandholeType) => Promise<void>;
 }
 
 /** What the fix tools of one problem list share: pending places, the file's layers, saving. */
@@ -67,9 +67,9 @@ export function useFixTools(projectId: string, cadFileId: string, enabled: boole
     submit: async (request) => {
       await create.mutateAsync(request);
     },
-    canConfirmType: mappingWithAlias(mapping.data, 'x', 'DH') !== null,
-    confirmType: async (found, type) => {
-      const input = mappingWithAlias(mapping.data, found, type);
+    canConfirmType: (layer) => mappingWithAlias(mapping.data, layer, 'x', 'DH') !== null,
+    confirmType: async (layer, found, type) => {
+      const input = mappingWithAlias(mapping.data, layer, found, type);
       if (input === null) return;
       await saveMapping.mutateAsync(input);
     },
@@ -182,7 +182,7 @@ export function useFixForm(
       setSaving(true);
       setError(null);
       tools
-        .confirmType(found, confirmChoice)
+        .confirmType(place.layer, found, confirmChoice)
         .then(() => setConfirmed(true))
         .catch((caught: unknown) =>
           setError(correctionError(errorCodeOf(caught), errorReasonOf(caught))),

@@ -308,7 +308,7 @@ describe('handhole type aliases (owner 2026-11-11)', () => {
 
   it('puts a confirmed type on the layer rule that reads handhole_type, version kept', () => {
     const view = secondaryView({ mapping: savedWith(hhRules) });
-    const input = mappingWithAlias(view, ' hh2 ', 'HH-II');
+    const input = mappingWithAlias(view, 'TXTNMPER', ' hh2 ', 'HH-II');
     expect(input?.version).toBe(view.mapping?.version);
     expect(input?.rules[0]).toMatchObject({ handholeTypeAliases: { hh2: 'HH-II' } });
     expect(input?.rules[1]).toEqual(route);
@@ -316,16 +316,38 @@ describe('handhole type aliases (owner 2026-11-11)', () => {
       secondaryView({
         mapping: savedWith([aliased({ HH2: 'HH-I' }), route]),
       }),
+      'TXTNMPER',
       'hh2',
       'HH-II',
     );
     expect(again?.rules[0]).toMatchObject({ handholeTypeAliases: { hh2: 'HH-II' } });
   });
 
+  it('keeps the alias on the rule of the own text layer when two layers read handhole_type', () => {
+    const other: MappingRule = {
+      source: 'layer',
+      layer: 'OTHERTXT',
+      target: 'label',
+      textRoles: ['handhole_type'],
+    };
+    const view = secondaryView({ mapping: savedWith([aliased({}), other, route]) });
+    const onOther = mappingWithAlias(view, 'OTHERTXT', 'HH2', 'HH-II');
+    expect(onOther?.rules[1]).toMatchObject({
+      layer: 'OTHERTXT',
+      handholeTypeAliases: { HH2: 'HH-II' },
+    });
+    expect(onOther?.rules[0]).not.toHaveProperty('handholeTypeAliases', { HH2: 'HH-II' });
+    const first = mappingWithAlias(view, 'TXTNMPER', 'HH2', 'HH-I');
+    expect(first?.rules[0]).toMatchObject({ handholeTypeAliases: { HH2: 'HH-I' } });
+    expect(first?.rules[1]).toEqual(other);
+    // A text on a layer with no such rule cannot be confirmed.
+    expect(mappingWithAlias(view, 'TXT', 'HH2', 'HH-I')).toBeNull();
+  });
+
   it('cannot keep an alias when no layer reads handhole_type', () => {
     expect(
-      mappingWithAlias(secondaryView({ mapping: savedWith([route]) }), 'HH2', 'DH'),
+      mappingWithAlias(secondaryView({ mapping: savedWith([route]) }), 'TXTNMPER', 'HH2', 'DH'),
     ).toBeNull();
-    expect(mappingWithAlias(secondaryView({ mapping: null }), 'HH2', 'DH')).toBeNull();
+    expect(mappingWithAlias(secondaryView({ mapping: null }), 'TXTNMPER', 'HH2', 'DH')).toBeNull();
   });
 });
