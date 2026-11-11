@@ -12,6 +12,7 @@ import type { EventLog } from '../../../common/event-log.port.js';
 import type { CadFile, DrawingViewRecord } from './cad-file.js';
 import type { DrawingCorrectionRepository } from './drawing-correction.js';
 import type { GpsProposalRepository } from './gps-proposal.js';
+import type { InstallationRepository } from './installation.js';
 import type {
   CadMappingRepository,
   DesignRevisionRepository,
@@ -85,6 +86,7 @@ export interface CadTx {
   problems: DrawingProblemRepository;
   proposals: GpsProposalRepository;
   corrections: DrawingCorrectionRepository;
+  installation: InstallationRepository;
   events: EventLog;
 }
 

@@ -44,6 +44,16 @@ import {
   WithdrawDrawingCorrectionUseCase,
 } from './application/drawing-correction.use-cases.js';
 import { DrawingCorrectionsController } from './interface/drawing-corrections.controller.js';
+import {
+  AddTrenchMarkUseCase,
+  GetInstallationUseCase,
+  GetRevisionInstallationUseCase,
+  SetInstallationAnswerUseCase,
+  WithdrawTrenchMarkUseCase,
+} from './application/installation.use-cases.js';
+import { GetSecondaryPlacementSuggestionUseCase } from './application/secondary-placement.use-case.js';
+import { InstallationController } from './interface/installation.controller.js';
+import { SecondaryPlacementController } from './interface/secondary-placement.controller.js';
 import type { JobQueue, ProjectEpsgLookup, TileConfig } from './application/ports.js';
 import {
   GetPublishReadinessUseCase,
@@ -381,6 +391,37 @@ const providers: Provider[] = [
     useFactory: (uow: CadUnitOfWork) => new WithdrawDrawingCorrectionUseCase(uow, systemClock),
   },
   {
+    provide: GetInstallationUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetInstallationUseCase(uow),
+  },
+  {
+    provide: SetInstallationAnswerUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) =>
+      new SetInstallationAnswerUseCase(uow, systemClock, uuidGenerator),
+  },
+  {
+    provide: AddTrenchMarkUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new AddTrenchMarkUseCase(uow, systemClock, uuidGenerator),
+  },
+  {
+    provide: WithdrawTrenchMarkUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new WithdrawTrenchMarkUseCase(uow, systemClock),
+  },
+  {
+    provide: GetRevisionInstallationUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetRevisionInstallationUseCase(uow),
+  },
+  {
+    provide: GetSecondaryPlacementSuggestionUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetSecondaryPlacementSuggestionUseCase(uow),
+  },
+  {
     provide: GetRevisionTilesUseCase,
     inject: [DESIGN_REVISION_REPOSITORY, OBJECT_STORAGE],
     useFactory: (revisions: DesignRevisionRepository, storage: ObjectStorage) =>
@@ -406,6 +447,8 @@ const providers: Provider[] = [
     CadExtractionController,
     CadMappingController,
     DrawingCorrectionsController,
+    InstallationController,
+    SecondaryPlacementController,
     DrawingViewController,
     GpsProposalsController,
     DesignRevisionsController,

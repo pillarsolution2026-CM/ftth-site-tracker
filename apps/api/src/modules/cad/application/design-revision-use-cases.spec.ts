@@ -122,6 +122,15 @@ beforeEach(() => {
   queue = new RecordingJobQueue();
   clock = new FakeClock(new Date('2026-10-28T10:00:00Z'));
   uow.files.rows.set(FILE, processedFile());
+  // ADR-042: a General is published only after its installation question is answered.
+  uow.installation.answers.set('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    projectId: PROJECT,
+    cadFileId: FILE,
+    answer: 'pull_only',
+    createdBy: { id: ACTOR, name: 'PM' },
+    createdAt: clock.now(),
+  });
 });
 
 const save = (mapping: Partial<CadMappingInput> = {}, project = PROJECT) =>
@@ -1063,7 +1072,7 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
   it('reports the checklist in order', async () => {
     uow.revisions.rows.set(secondary.id, { ...secondary, placement: null });
     uow.problems.stored.set(secondary.id, [problem(6)]);
-    expect(await readiness()).toEqual({
+    expect(await readiness()).toMatchObject({
       checks: [
         { key: 'crs_known', ok: false, count: null },
         { key: 'control_point', ok: false, count: 0 },
@@ -1071,6 +1080,7 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
         { key: 'open_items', ok: true, count: 0 },
         { key: 'other_drawing', ok: false, count: 6 },
         { key: 'cabinets_match', ok: true, count: 0 },
+        { key: 'installation', ok: true, count: 0 },
       ],
       canPublish: false,
       drawingKind: 'general',
@@ -1095,6 +1105,7 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       { key: 'open_items', ok: false, count: 5 },
       { key: 'other_drawing', ok: false, count: 6 },
       { key: 'cabinets_match', ok: true, count: 0 },
+      { key: 'installation', ok: true, count: 0 },
     ]);
     expect(result).toMatchObject({ canPublish: false, needsAcknowledgement: true });
   });
@@ -1108,7 +1119,11 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       uow.revisions.subCabinets.set(revisionId, ['1-1', '1-2']);
       uow.revisions.subCabinets.set(secondary.id, ['1 - 2', '1-1']);
       const result = await readiness();
-      expect(result.checks.at(-1)).toEqual({ key: 'cabinets_match', ok: true, count: 0 });
+      expect(result.checks.find((c) => c.key === 'cabinets_match')).toEqual({
+        key: 'cabinets_match',
+        ok: true,
+        count: 0,
+      });
       expect(result).toMatchObject({ canPublish: true, cabinets: { ok: true } });
       expect(await publish()).toMatchObject({ status: 'published' });
     });
@@ -1117,7 +1132,11 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       uow.revisions.subCabinets.set(revisionId, ['1-1', '1-2', null]);
       uow.revisions.subCabinets.set(secondary.id, ['1-1', '1-3']);
       const result = await readiness();
-      expect(result.checks.at(-1)).toEqual({ key: 'cabinets_match', ok: false, count: 3 });
+      expect(result.checks.find((c) => c.key === 'cabinets_match')).toEqual({
+        key: 'cabinets_match',
+        ok: false,
+        count: 3,
+      });
       expect(result.canPublish).toBe(false);
       expect(result.cabinets).toMatchObject({
         ok: false,
@@ -1157,7 +1176,11 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       uow.revisions.rows.delete(secondary.id);
       const result = await readiness();
       expect(result.cabinets).toBeNull();
-      expect(result.checks.at(-1)).toEqual({ key: 'cabinets_match', ok: false, count: null });
+      expect(result.checks.find((c) => c.key === 'cabinets_match')).toEqual({
+        key: 'cabinets_match',
+        ok: false,
+        count: null,
+      });
     });
 
     it('lets a pair with only warnings publish and counts them apart', async () => {
@@ -1199,6 +1222,137 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       (await reason(new GetPublishReadinessUseCase(uow).execute(OTHER_PROJECT, revisionId))).code,
     ).toBe('NOT_FOUND');
   });
+
+  describe('installation (ADR-042 part D)', () => {
+    const MARK = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const ROUTE = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const frozen = (
+      answer: 'pull_only' | 'has_trench' | null,
+      marks: { id: string; routeHandle: string; lengthM: string }[] = [],
+    ) => ({ answer, answerId: answer ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' : null, marks });
+    const route = (handle: string, writtenLengthM: string | null) => ({
+      featureId: ROUTE,
+      sourceHandle: handle,
+      writtenLengthM,
+    });
+    const installationCheck = async () =>
+      (await readiness()).checks.find((c) => c.key === 'installation');
+
+    beforeEach(() => {
+      setRevision({ placement: placement([false]) });
+    });
+
+    it('is ok and publishes when the answer is pull_only and nothing is marked', async () => {
+      setRevision({ installation: frozen('pull_only') });
+      expect(await installationCheck()).toEqual({ key: 'installation', ok: true, count: 0 });
+      expect((await readiness()).installation).toMatchObject({ applies: true, ok: true });
+      expect(await publish()).toMatchObject({ status: 'published' });
+    });
+
+    it('refuses an unanswered question, after PROBLEMS_OPEN and before CABINETS_MISMATCH', async () => {
+      setRevision({ installation: frozen(null) });
+      expect(await installationCheck()).toEqual({ key: 'installation', ok: false, count: 1 });
+      expect(await readiness()).toMatchObject({
+        canPublish: false,
+        installation: { ok: false, issues: [{ code: 'QUESTION_UNANSWERED' }] },
+      });
+      // Names that do not match would block too, but the installation comes first.
+      uow.revisions.subCabinets.set(revisionId, ['1-1']);
+      expect(await reason(publish())).toMatchObject({
+        details: { reason: 'INSTALLATION_UNCLEAR', drawingKind: 'general', issueCount: 1 },
+      });
+      uow.problems.stored.set(revisionId, [problem(2)]);
+      expect(await reason(publish())).toMatchObject({ details: { reason: 'PROBLEMS_OPEN' } });
+    });
+
+    it('treats a revision frozen before the migration (installation null) as unanswered', async () => {
+      setRevision({ installation: null });
+      expect(await reason(publish())).toMatchObject({
+        details: { reason: 'INSTALLATION_UNCLEAR', issues: [{ code: 'QUESTION_UNANSWERED' }] },
+      });
+    });
+
+    it('refuses has_trench with no mark', async () => {
+      setRevision({ installation: frozen('has_trench') });
+      expect(await reason(publish())).toMatchObject({
+        details: { reason: 'INSTALLATION_UNCLEAR', issues: [{ code: 'TRENCH_NOT_MARKED' }] },
+      });
+    });
+
+    it('refuses marks with pull_only (defence)', async () => {
+      setRevision({
+        installation: frozen('pull_only', [{ id: MARK, routeHandle: 'A1', lengthM: '1.000' }]),
+      });
+      uow.revisions.routes.set(revisionId, [route('A1', '10.000')]);
+      expect(await reason(publish())).toMatchObject({
+        details: { reason: 'INSTALLATION_UNCLEAR', issues: [{ code: 'MARKS_WITH_PULL_ONLY' }] },
+      });
+    });
+
+    it('refuses a mark whose route is not in the revision', async () => {
+      setRevision({
+        installation: frozen('has_trench', [{ id: MARK, routeHandle: 'ZZ', lengthM: '1.000' }]),
+      });
+      uow.revisions.routes.set(revisionId, [route('A1', '10.000')]);
+      expect(await reason(publish())).toMatchObject({
+        details: {
+          reason: 'INSTALLATION_UNCLEAR',
+          issues: [{ code: 'MARK_ROUTE_MISSING', routeHandle: 'ZZ', markIds: [MARK] }],
+        },
+      });
+    });
+
+    it('refuses a route without a written length, and a trench longer than the route', async () => {
+      setRevision({
+        installation: frozen('has_trench', [{ id: MARK, routeHandle: 'A1', lengthM: '10.001' }]),
+      });
+      uow.revisions.routes.set(revisionId, [route('A1', null)]);
+      expect(await reason(publish())).toMatchObject({
+        details: { issues: [{ code: 'ROUTE_LENGTH_UNKNOWN' }] },
+      });
+      uow.revisions.routes.set(revisionId, [route('A1', '10.000')]);
+      expect(await reason(publish())).toMatchObject({
+        details: { issues: [{ code: 'TRENCH_LONGER_THAN_ROUTE', markedM: '10.001' }] },
+      });
+    });
+
+    it('passes a trench equal to the route, resolving a mark through the frozen merge', async () => {
+      setRevision({
+        installation: frozen('has_trench', [{ id: MARK, routeHandle: 'B2', lengthM: '10.000' }]),
+      });
+      uow.revisions.routes.set(revisionId, [route('A1', '10.000')]);
+      uow.revisions.frozenCorrections.set(revisionId, [
+        {
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          correction: { kind: 'merge_routes', handles: ['A1', 'B2'] },
+        },
+      ]);
+      expect(await installationCheck()).toEqual({ key: 'installation', ok: true, count: 0 });
+      expect((await readiness()).installation?.totals).toMatchObject({
+        trenchM: '10.000',
+        pullM: '0.000',
+      });
+      expect(await publish()).toMatchObject({ status: 'published' });
+    });
+
+    it('is always ok on a Secondary, whose other_drawing needs the General installation clear', async () => {
+      uow.revisions.rows.set(secondary.id, { ...secondary, placement: placement([false]) });
+      setRevision({ installation: frozen(null) });
+      const asSecondary = await new GetPublishReadinessUseCase(uow).execute(PROJECT, secondary.id);
+      expect(asSecondary.checks.find((c) => c.key === 'installation')).toEqual({
+        key: 'installation',
+        ok: true,
+        count: null,
+      });
+      expect(asSecondary.installation).toBeNull();
+      expect(asSecondary.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(false);
+      expect(asSecondary.canPublish).toBe(false);
+      setRevision({ installation: frozen('pull_only') });
+      const clear = await new GetPublishReadinessUseCase(uow).execute(PROJECT, secondary.id);
+      expect(clear.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(true);
+      expect(clear.canPublish).toBe(true);
+    });
+  });
 });
 
 describe('drawing kinds on revisions (ADR-040)', () => {
@@ -1229,6 +1383,73 @@ describe('drawing kinds on revisions (ADR-040)', () => {
       request: { mappingVersion: 1 },
     });
     expect(await reason(rebuild)).toMatchObject({ details: { reason: 'NOT_CURRENT_VERSION' } });
+  });
+
+  it('freezes the General installation at creation and again at a rebuild (ADR-042)', async () => {
+    await save();
+    const first = await create();
+    expect(first.installation).toEqual({
+      answer: 'pull_only',
+      answerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      marks: [],
+    });
+    // A later answer and mark are not in the frozen revision until a rebuild.
+    uow.installation.curves.add('A1');
+    uow.installation.answers.set('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      projectId: PROJECT,
+      cadFileId: FILE,
+      answer: 'has_trench',
+      createdBy: { id: ACTOR, name: 'PM' },
+      createdAt: new Date(clock.now().getTime() + 60_000),
+    });
+    uow.installation.marks.set('cccccccc-cccc-4ccc-8ccc-cccccccccccc', {
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      projectId: PROJECT,
+      cadFileId: FILE,
+      routeHandle: 'A1',
+      lengthM: '5.000',
+      createdBy: null,
+      createdAt: new Date(clock.now().getTime() + 61_000),
+      withdrawnBy: null,
+      withdrawnAt: null,
+    });
+    expect(uow.revisions.rows.get(first.id)?.installation?.answer).toBe('pull_only');
+    uow.revisions.rows.set(first.id, { ...first, status: 'draft' });
+    const rebuilt = await new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+      projectId: PROJECT,
+      revisionId: first.id,
+      actorId: ACTOR,
+      request: { mappingVersion: 1 },
+    });
+    expect(rebuilt.installation).toEqual({
+      answer: 'has_trench',
+      answerId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      marks: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', routeHandle: 'A1', lengthM: '5.000' }],
+    });
+  });
+
+  it('freezes no installation on a Secondary', async () => {
+    const secondary = await addSecondaryDraft();
+    expect(secondary.installation).toBeNull();
+  });
+
+  it('refuses general_cabinet control points on a General, accepts them on a Secondary (ADR-042)', async () => {
+    const points = PlacementSchema.parse({
+      points: [
+        { id: 'a', drawing: { x: 0, y: 0 }, lat: 30, lon: 32, source: 'typed' },
+        { id: 'gc-1-1', drawing: { x: 1, y: 1 }, lat: 30, lon: 32, source: 'general_cabinet' },
+      ],
+    });
+    const error = await reason(save({ placement: points }));
+    expect(error.status).toBe(422);
+    expect(error.details).toMatchObject({
+      reason: 'POINT_SOURCE_NOT_FOR_KIND',
+      drawingKind: 'general',
+      pointIndexes: [1],
+    });
+    uow.files.rows.set(FILE, processedFile({ drawingKind: 'secondary' }));
+    expect(await save({ placement: points })).toMatchObject({ version: 1 });
   });
 
   it('allows one open revision per kind', async () => {

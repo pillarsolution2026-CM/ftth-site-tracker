@@ -3,6 +3,7 @@ import {
   compareCabinets,
   type CabinetsComparison,
   type DrawingKind,
+  type InstallationReport,
   type Placement,
   type PublishBlockedDetails,
   type PublishCheck,
@@ -21,6 +22,8 @@ export interface PublishFacts {
   warningTotal: number;
   /** `code` (name) of each SUB cabinet of the drawing, null when unnamed (ADR-041). */
   subCabinets: (string | null)[];
+  /** The installation check (ADR-042): `applies` false and ok on a Secondary. */
+  installation: InstallationReport;
   open: OpenItems;
 }
 
@@ -37,7 +40,10 @@ const openTotalOf = (open: OpenItems): number => open.textLinksToReview + open.d
 
 /** Coordinates and drawing errors of one drawing: the checks that need no acknowledgement. */
 const ownChecksOk = (facts: PublishFacts): boolean =>
-  facts.placement !== null && pointsInUse(facts.placement) >= 1 && facts.problemTotal === 0;
+  facts.placement !== null &&
+  pointsInUse(facts.placement) >= 1 &&
+  facts.problemTotal === 0 &&
+  facts.installation.ok;
 
 /** The sub cabinets of the pair compared by name, always as general vs secondary. */
 export function cabinetsOf(facts: PublishFacts, other: PublishFacts): CabinetsComparison {
@@ -76,6 +82,11 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
       ok: cabinets?.ok ?? false,
       count: cabinets ? unmatchedCabinets(cabinets) : null,
     },
+    installation: {
+      key: 'installation',
+      ok: facts.installation.ok,
+      count: facts.installation.applies ? facts.installation.issueCount : null,
+    },
   };
   const checks = PUBLISH_CHECK_KEYS.map((key) => byKey[key]);
   return {
@@ -86,6 +97,7 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
     needsAcknowledgement: openTotal > 0,
     cabinets,
     warningCount: facts.warningTotal,
+    installation: facts.installation.applies ? facts.installation : null,
   };
 }
 
@@ -96,6 +108,14 @@ export function drawingBlocker(facts: PublishFacts): PublishBlockedDetails | nul
   if (pointsInUse(facts.placement) < 1) return { reason: 'PLACEMENT_MISSING', drawingKind };
   if (facts.problemTotal > 0) {
     return { reason: 'PROBLEMS_OPEN', drawingKind, problemCount: facts.problemTotal };
+  }
+  if (!facts.installation.ok) {
+    return {
+      reason: 'INSTALLATION_UNCLEAR',
+      drawingKind: 'general',
+      issueCount: facts.installation.issueCount,
+      issues: facts.installation.issues,
+    };
   }
   return null;
 }

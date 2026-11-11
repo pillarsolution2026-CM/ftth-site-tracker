@@ -848,7 +848,7 @@ describe('GPS proposals for the PM', () => {
 
   it('refuses more control points than the contract allows (TOO_MANY_POINTS)', async () => {
     const current = await mappingOf();
-    const many = Array.from({ length: 50 }, (_, i) => ({
+    const many = Array.from({ length: 200 }, (_, i) => ({
       id: `t${i}`,
       drawing: { x: i, y: i },
       handle: null,

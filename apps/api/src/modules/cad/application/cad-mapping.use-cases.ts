@@ -4,6 +4,7 @@ import {
   MAPPING_TEXT_ROWS_LIMIT,
   PLACEMENT_DRAWING_MAX_LINES,
   mappingKindProblems,
+  placementKindProblems,
   METRES_PER_UNIT,
   suggestBlockTarget,
   suggestLayerTarget,
@@ -162,6 +163,21 @@ export class SaveCadMappingUseCase {
             reason: kindProblems[0]?.reason,
             drawingKind: file.drawingKind,
             problems: kindProblems,
+          },
+          422,
+        );
+      }
+
+      // ADR-042: `general_cabinet` points belong to a Secondary only.
+      const badPoints = placementKindProblems(mapping.placement, file.drawingKind);
+      if (badPoints.length > 0) {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'General cabinet points are only for a Secondary drawing',
+          {
+            reason: 'POINT_SOURCE_NOT_FOR_KIND',
+            drawingKind: file.drawingKind,
+            pointIndexes: badPoints,
           },
           422,
         );

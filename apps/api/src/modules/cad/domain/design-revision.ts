@@ -5,6 +5,7 @@ import {
   type DiffCounts,
   type DrawingKind,
   type DrawingUnit,
+  type FrozenInstallation,
   type MappingRule,
   type Placement,
   type TextLinkCounts,
@@ -33,6 +34,8 @@ export interface DesignRevision {
   metresPerUnit: string;
   /** Frozen copy of the mapping's placement (ADR-035); null = as drawn. */
   placement: Placement | null;
+  /** Frozen installation answer and trench marks (ADR-042); null on a Secondary / before 0022. */
+  installation: FrozenInstallation | null;
   insUnits: number | null;
   unitsConflict: boolean;
   counts: DesignRevisionCounts | null;

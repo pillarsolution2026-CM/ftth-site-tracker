@@ -66,6 +66,14 @@ async function insertFile(project: string, kind: DrawingKind): Promise<string> {
       kind,
     ],
   );
+  // ADR-042: a General is published only after its installation question is answered.
+  if (kind === 'general') {
+    await q(
+      `INSERT INTO cad_file_installation_answers (id, project_id, cad_file_id, answer)
+       VALUES ($1, $2, $3, 'pull_only')`,
+      [randomUUID(), project, id],
+    );
+  }
   return id;
 }
 
@@ -419,6 +427,8 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
         ['open_items', true, 0],
         ['other_drawing', true, 0],
         ['cabinets_match', true, 0],
+        // The Secondary is never asked: ok with no count.
+        ['installation', true, revision === pair.general ? 0 : null],
       ]);
       expect(ready).toMatchObject({
         canPublish: true,
