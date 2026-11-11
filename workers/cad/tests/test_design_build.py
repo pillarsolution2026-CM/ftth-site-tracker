@@ -114,7 +114,8 @@ def test_insert_attributes_are_decoded_and_unreadable_values_never_guessed() -> 
         "attributes": [
             {"tag": "NAME", "value": "S1", "rawValue": "S1", "readable": True},
             {"tag": "ST", "value": None, "rawValue": "ahvU", "readable": False},
-        ]
+        ],
+        "drawingAt": {"x": 0.0, "y": 0.0},
     }
 
 
@@ -135,7 +136,10 @@ def test_text_rules_create_point_features_and_are_not_linked() -> None:
     built = build_features(drawing, RULES, unit_placer(1.0))
     (hhi,) = built.features
     assert (hhi.feature_type, hhi.source_kind, hhi.source_handle) == ("hhi", "text", "T1")
-    assert hhi.coords == ((10, 20),) and hhi.attrs == {"text": "new-hhi"}
+    assert hhi.coords == ((10, 20),) and hhi.attrs == {
+        "text": "new-hhi",
+        "drawingAt": {"x": 10.0, "y": 20.0},
+    }
     assert [t.handle for t in built.link_texts] == ["T2", "T3", "T4", "T7"]
     unreadable = next(t for t in built.link_texts if t.handle == "T3")
     assert unreadable.text is None and unreadable.raw_text == "NEW-HHI"
@@ -174,3 +178,32 @@ def test_every_coordinate_is_scaled_by_the_revision_factor() -> None:
     assert inches.features[1].coords[0] == pytest.approx((25.4, 50.8))
     assert inches.link_texts[0].position == pytest.approx((2.54, 2.54))
     assert inches.link_texts[0].height_m == pytest.approx(2.5 * 0.0254)
+
+
+def test_point_features_keep_their_drawn_centre_before_placement() -> None:
+    """ADR-042 part G: `attrs.drawingAt` is in drawing units (not scaled or placed), rounded to
+    3 decimals, on inserts, closed shapes and text features of point types; never on routes."""
+    rules = parse_rules(
+        [
+            {"source": "layer", "layer": "N_DUC_CBL", "target": "route"},
+            {"source": "layer", "layer": "sub", "target": "box"},
+            {"source": "layer", "layer": "jont", "target": "joint"},
+            {"source": "layer", "layer": "RRR", "target": "label"},
+            {"source": "text", "layer": "RRR", "text": "NEW-HHI", "target": "hhi"},
+        ]
+    )
+    drawing = DrawingData(
+        curves=(
+            SourceCurve("C1", "N_DUC_CBL", ((0, 0), (300, 400))),
+            SourceCurve("S1", "jont", ((10, 10), (12, 10), (12, 14), (10, 14)), True),
+        ),
+        inserts=(SourceInsert("B", "sub", "sub", (1000.12345, 2000.98765)),),
+        texts=(text("T", "RRR", "NEW-HHI", (5.0004, 6.0006)),),
+    )
+    built = build_features(drawing, rules, unit_placer(float(INCH)))
+    by = {f.source_handle: f for f in built.features}
+    assert "drawingAt" not in by["C1"].attrs
+    assert by["B"].attrs["drawingAt"] == {"x": 1000.123, "y": 2000.988}
+    assert by["B"].coords[0] == pytest.approx((1000.12345 * 0.0254, 2000.98765 * 0.0254))
+    assert by["S1"].attrs["drawingAt"] == pytest.approx({"x": 11.0, "y": 12.0})
+    assert by["T"].attrs["drawingAt"] == {"x": 5.0, "y": 6.001}
