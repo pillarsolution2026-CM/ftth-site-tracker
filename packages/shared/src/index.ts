@@ -12,6 +12,7 @@ export * from './work-orders/work-order-import.schemas.js';
 export * from './contracts/contract.schemas.js';
 export * from './contractors/contractor.schemas.js';
 export * from './cad/cad-file.schemas.js';
+export * from './cad/drawing-kind.schemas.js';
 export * from './cad/cad-extraction.schemas.js';
 export * from './cad/cad-job.schemas.js';
 export * from './cad/drawing-units.js';

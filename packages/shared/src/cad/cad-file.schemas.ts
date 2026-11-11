@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CrsDetectionSchema } from './crs-detection.schemas.js';
+import { DrawingKindSchema } from './drawing-kind.schemas.js';
 
 export const CAD_FORMATS = ['dwg', 'dxf'] as const;
 export const CadFormatSchema = z.enum(CAD_FORMATS);
@@ -100,6 +101,11 @@ export const CadFileSummarySchema = z.object({
   sizeBytes: z.number().int().positive(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   status: CadFileStatusSchema,
+  /** General or Secondary (ADR-040), chosen at upload, never changes. */
+  drawingKind: DrawingKindSchema,
+  /** Set when a newer version of the same kind was uploaded; the file stays as history. */
+  supersededAt: z.iso.datetime().nullable(),
+  supersededById: z.uuid().nullable(),
   uploadedById: z.uuid().nullable(),
   /** null until processed. */
   counts: CadFileCountsSchema.nullable(),
