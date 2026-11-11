@@ -1,9 +1,10 @@
-import type { CadMapping, CadMappingView } from '@ftth/shared';
+import type { CadMapping, CadMappingView, MappingRule } from '@ftth/shared';
 import { describe, expect, it } from 'vitest';
 import {
   layerMeaningFields,
   layerTargetsFor,
   layersWithBadWays,
+  mappingWithAlias,
   parseWays,
   roleNotForKind,
   roleOptionsFor,
@@ -131,12 +132,12 @@ describe('suggestions', () => {
     const state = initialFormState(view, null);
     const chosen = {
       ...state,
-      meaning: { TXTNMPER: { roles: ['box_cable_type' as const], ways: '' } },
+      meaning: { TXTNMPER: { roles: ['box_cable_type' as const], ways: '', aliases: {} } },
     };
     const next = withSuggestedMeaning(view, chosen, 'secondary');
     expect(next.meaning['TXTNMPER']?.roles).toEqual(['box_cable_type']);
     expect(next.meaning['TXTCAP']?.roles).toEqual(['box_cabinet']);
-    expect(next.meaning['1X12w Line']).toEqual({ roles: [], ways: '12' });
+    expect(next.meaning['1X12w Line']).toEqual({ roles: [], ways: '12', aliases: {} });
   });
 });
 
@@ -154,16 +155,22 @@ describe('ways', () => {
   it('lists route layers with a typed but invalid ways (Save stays off)', () => {
     const view = secondaryView();
     const state = initialFormState(view, null);
-    const bad = { ...state, meaning: { '1X12w Line': { roles: [], ways: '300' } } };
+    const bad = { ...state, meaning: { '1X12w Line': { roles: [], ways: '300', aliases: {} } } };
     expect(layersWithBadWays(view, bad)).toEqual(['1X12w Line']);
     expect(layersWithBadWays(view, state)).toEqual([]);
   });
 
   it('sends ways only with a route target and roles only where they fit', () => {
-    expect(layerMeaningFields('route', { roles: [], ways: '12' })).toEqual({ ways: 12 });
-    expect(layerMeaningFields('label', { roles: [], ways: '12' })).toEqual({});
+    expect(layerMeaningFields('route', { roles: [], ways: '12', aliases: {} })).toEqual({
+      ways: 12,
+    });
+    expect(layerMeaningFields('label', { roles: [], ways: '12', aliases: {} })).toEqual({});
     expect(
-      layerMeaningFields('cabinet', { roles: ['cabinet_info', 'box_number'], ways: '' }),
+      layerMeaningFields('cabinet', {
+        roles: ['cabinet_info', 'box_number'],
+        ways: '',
+        aliases: {},
+      }),
     ).toEqual({ textRoles: ['cabinet_info'] });
   });
 });
@@ -184,8 +191,8 @@ describe('the form keeps roles and ways when it rebuilds the rules on save (ADR-
 
   it('loads the saved roles and ways into the form', () => {
     const state = initialFormState(secondaryView({ mapping: savedWith(rules) }), 'secondary');
-    expect(state.meaning['TXTNMPER']).toEqual({ roles: ['box_number'], ways: '' });
-    expect(state.meaning['1X12w Line']).toEqual({ roles: [], ways: '12' });
+    expect(state.meaning['TXTNMPER']).toEqual({ roles: ['box_number'], ways: '', aliases: {} });
+    expect(state.meaning['1X12w Line']).toEqual({ roles: [], ways: '12', aliases: {} });
   });
 
   it('sends them back unchanged', () => {
@@ -242,9 +249,83 @@ describe('the form keeps roles and ways when it rebuilds the rules on save (ADR-
       ...state,
       meaning: {
         ...state.meaning,
-        TXTNMPER: { roles: ['box_number' as const, 'box_cabinet' as const], ways: '' },
+        TXTNMPER: { roles: ['box_number' as const, 'box_cabinet' as const], ways: '', aliases: {} },
       },
     };
     expect(formSignature(changed)).not.toBe(formSignature(state));
+  });
+});
+
+describe('handhole type aliases (owner 2026-11-11)', () => {
+  const hhText: MappingRule = {
+    source: 'layer',
+    layer: 'TXTNMPER',
+    target: 'label',
+    textRoles: ['handhole_type'],
+  };
+  const route: MappingRule = { source: 'layer', layer: '1X12w Line', target: 'route', ways: 12 };
+  const cabinet: MappingRule = { source: 'layer', layer: 'CABINA', target: 'cabinet', role: 'sub' };
+  const hhRules: MappingRule[] = [hhText, route, cabinet];
+  const aliased = (handholeTypeAliases: Record<string, 'HH-I' | 'HH-II'>): MappingRule => ({
+    source: 'layer',
+    layer: 'TXTNMPER',
+    target: 'label',
+    textRoles: ['handhole_type'],
+    handholeTypeAliases,
+  });
+
+  it('keeps the saved aliases through the form and back into the rules', () => {
+    const withAliases: MappingRule[] = [aliased({ HH2: 'HH-II' }), route, cabinet];
+    const view = secondaryView({ mapping: savedWith(withAliases) });
+    const state = initialFormState(view, 'secondary');
+    expect(state.meaning['TXTNMPER']?.aliases).toEqual({ HH2: 'HH-II' });
+    const input = buildMappingInput(view, state, 3);
+    expect(input?.rules).toContainEqual({
+      source: 'layer',
+      layer: 'TXTNMPER',
+      target: 'label',
+      textRoles: ['handhole_type'],
+      handholeTypeAliases: { HH2: 'HH-II' },
+    });
+  });
+
+  it('counts an alias change as unsaved and drops aliases when the role is unticked', () => {
+    const withAliases = [aliased({ HH2: 'HH-II' })] as MappingRule[];
+    const view = secondaryView({ mapping: savedWith(withAliases) });
+    const state = initialFormState(view, 'secondary');
+    const removed = {
+      ...state,
+      meaning: {
+        ...state.meaning,
+        TXTNMPER: { roles: ['handhole_type' as const], ways: '', aliases: {} },
+      },
+    };
+    expect(formSignature(removed)).not.toBe(formSignature(state));
+    expect(layerMeaningFields('label', { roles: [], ways: '', aliases: { HH2: 'HH-II' } })).toEqual(
+      {},
+    );
+  });
+
+  it('puts a confirmed type on the layer rule that reads handhole_type, version kept', () => {
+    const view = secondaryView({ mapping: savedWith(hhRules) });
+    const input = mappingWithAlias(view, ' hh2 ', 'HH-II');
+    expect(input?.version).toBe(view.mapping?.version);
+    expect(input?.rules[0]).toMatchObject({ handholeTypeAliases: { hh2: 'HH-II' } });
+    expect(input?.rules[1]).toEqual(route);
+    const again = mappingWithAlias(
+      secondaryView({
+        mapping: savedWith([aliased({ HH2: 'HH-I' }), route]),
+      }),
+      'hh2',
+      'HH-II',
+    );
+    expect(again?.rules[0]).toMatchObject({ handholeTypeAliases: { hh2: 'HH-II' } });
+  });
+
+  it('cannot keep an alias when no layer reads handhole_type', () => {
+    expect(
+      mappingWithAlias(secondaryView({ mapping: savedWith([route]) }), 'HH2', 'DH'),
+    ).toBeNull();
+    expect(mappingWithAlias(secondaryView({ mapping: null }), 'HH2', 'DH')).toBeNull();
   });
 });

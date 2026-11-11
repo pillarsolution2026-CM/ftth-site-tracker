@@ -66,6 +66,7 @@ export function LayerRulesTable({
   onAttrsChange,
   onRolesChange,
   onWaysChange,
+  onAliasRemove,
   onSuggestMeaning,
 }: CommonProps & {
   /** The file's drawing kind (decides the roles and the zone target); null while unknown. */
@@ -73,6 +74,7 @@ export function LayerRulesTable({
   onChange: (layer: string, target: MappingTarget) => void;
   onRolesChange: (layer: string, roles: TextRole[]) => void;
   onWaysChange: (layer: string, ways: string) => void;
+  onAliasRemove: (layer: string, found: string) => void;
   onSuggestMeaning: () => void;
 }) {
   const { t } = useI18n();
@@ -157,6 +159,7 @@ export function LayerRulesTable({
                         disabled={disabled}
                         onRolesChange={(roles) => onRolesChange(layer.name, roles)}
                         onWaysChange={(ways) => onWaysChange(layer.name, ways)}
+                        onAliasRemove={(found) => onAliasRemove(layer.name, found)}
                       />
                       {isSuggestedLayer(view, layer.name, current) ? (
                         <span

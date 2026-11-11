@@ -133,6 +133,7 @@ export function MappingEditor({
         onAttrsChange={form.setRuleAttrs}
         onRolesChange={form.setLayerRoles}
         onWaysChange={form.setLayerWays}
+        onAliasRemove={form.removeLayerAlias}
         onSuggestMeaning={form.suggestMeaning}
       />
       <BlockRulesTable

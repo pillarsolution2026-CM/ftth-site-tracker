@@ -141,6 +141,49 @@ describe('mapping rules and the drawing kind (ADR-041)', () => {
   });
 });
 
+describe('handhole type aliases on the mapping (owner 2026-11-11)', () => {
+  const hh = {
+    source: 'layer',
+    layer: 'HHTXT',
+    target: 'label',
+    textRoles: ['handhole_number', 'handhole_type'],
+    handholeTypeAliases: { HH2: 'HH-II', CH: 'HH-II' },
+  };
+
+  it('stores and returns the aliases, and a re-save with the version keeps them', async () => {
+    const project = await newProject();
+    const file = await insertFile(project, 'general');
+    const saved = await putMapping(project, file, [hh]);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body.rules[0].handholeTypeAliases).toEqual({ HH2: 'HH-II', CH: 'HH-II' });
+    const read = await as(admin)(http().get(`${filesUrl(project)}/${file}/mapping`));
+    expect(read.body.mapping.rules[0].handholeTypeAliases).toEqual({ HH2: 'HH-II', CH: 'HH-II' });
+    const stored = await q('SELECT rules FROM cad_mappings WHERE cad_file_id = $1', [file]);
+    expect(stored.rows[0].rules[0].handholeTypeAliases).toEqual({ HH2: 'HH-II', CH: 'HH-II' });
+    const again = await putMapping(
+      project,
+      file,
+      [{ ...hh, handholeTypeAliases: { HH2: 'HH-II', CH: 'HH-II', X: 'DH' } }],
+      saved.body.version,
+    );
+    expect(again.status, JSON.stringify(again.body)).toBe(200);
+    expect(again.body.rules[0].handholeTypeAliases).toEqual({ HH2: 'HH-II', CH: 'HH-II', X: 'DH' });
+  });
+
+  it('refuses aliases on a rule without the handhole_type role, and an unknown type', async () => {
+    const project = await newProject();
+    const file = await insertFile(project, 'general');
+    const noRole = await putMapping(project, file, [{ ...hh, textRoles: ['handhole_number'] }]);
+    expect(noRole.status).toBe(400);
+    const badType = await putMapping(project, file, [
+      { ...hh, handholeTypeAliases: { HH2: 'HH-9' } },
+    ]);
+    expect(badType.status).toBe(400);
+    const rows = await q('SELECT 1 FROM cad_mappings WHERE cad_file_id = $1', [file]);
+    expect(rows.rowCount).toBe(0);
+  });
+});
+
 describe('corrections accept every problem code (migration 0020)', () => {
   it('takes all codes of DRAWING_PROBLEM_CODES and refuses an unknown one', async () => {
     const project = await newProject();
@@ -153,6 +196,31 @@ describe('corrections accept every problem code (migration 0020)', () => {
       );
     for (const code of DRAWING_PROBLEM_CODES) await expect(insert(code)).resolves.toBeDefined();
     await expect(insert('NOPE')).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('accepts the three codes of the owner answers (migration 0021)', async () => {
+    const project = await newProject();
+    const file = await insertFile(project, 'secondary');
+    for (const code of [
+      'BOX_CABINET_UNKNOWN',
+      'CABINET_NAME_DUPLICATE',
+      'CONNECTOR_SIZE_MISSING',
+    ]) {
+      await q(
+        `INSERT INTO cad_file_corrections (id, project_id, cad_file_id, correction, problem_code, problem_handle)
+         VALUES ($1, $2, $3, '{}'::jsonb, $4, 'H')`,
+        [randomUUID(), project, file, code],
+      );
+    }
+    const rows = await q(
+      `SELECT problem_code FROM cad_file_corrections WHERE cad_file_id = $1 ORDER BY problem_code`,
+      [file],
+    );
+    expect(rows.rows.map((r: { problem_code: string }) => r.problem_code)).toEqual([
+      'BOX_CABINET_UNKNOWN',
+      'CABINET_NAME_DUPLICATE',
+      'CONNECTOR_SIZE_MISSING',
+    ]);
   });
 });
 

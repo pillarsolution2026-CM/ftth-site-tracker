@@ -16,7 +16,7 @@ const api = vi.hoisted(() => ({
   createCorrection: vi.fn(),
 }));
 vi.mock('../api/design-revisions-api', () => api);
-const mappingApi = vi.hoisted(() => ({ getMapping: vi.fn() }));
+const mappingApi = vi.hoisted(() => ({ getMapping: vi.fn(), saveMapping: vi.fn() }));
 vi.mock('@/features/cad-mapping/api/mapping-api', () => mappingApi);
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
@@ -61,8 +61,11 @@ function mappingView() {
       version: 3,
       rules: [
         { source: 'layer', layer: 'HH', target: 'hhi' },
-        { source: 'layer', layer: 'Notes', target: 'label' },
+        { source: 'layer', layer: 'Notes', target: 'label', textRoles: ['handhole_type'] },
       ],
+      crsEpsg: 32636,
+      drawingUnit: 'm',
+      placement: null,
     },
   };
 }
@@ -82,6 +85,8 @@ function render(canFix = false) {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
   mappingApi.getMapping.mockReset();
+  mappingApi.saveMapping.mockReset();
+  mappingApi.saveMapping.mockResolvedValue({});
   api.listCorrections.mockResolvedValue({ items: [], activeCount: 0 });
   api.createCorrection.mockResolvedValue({});
   mappingApi.getMapping.mockResolvedValue(mappingView());
@@ -292,4 +297,109 @@ describe('fix tools of the reading problems', () => {
       expect(screen.queryByRole('button', { name: 'Fix this place' })).not.toBeInTheDocument();
     },
   );
+});
+
+describe('owner answers (2026-11-11): messages and tools', () => {
+  async function open(code: DrawingProblemCode, item: Partial<DrawingProblemItem> = {}) {
+    api.listDrawingProblems.mockResolvedValue(list([view(code, [item])], 1, 0));
+    render(true);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Fix this place' }));
+    return user;
+  }
+
+  it('says which cabinet a box names that is not in the drawing, and which name repeats', async () => {
+    api.listDrawingProblems.mockResolvedValue(
+      list(
+        [
+          view('BOX_CABINET_UNKNOWN', [{ handle: 'B1', params: { cabinet: '1-9' } }]),
+          view('CABINET_NAME_DUPLICATE', [{ handle: 'C1', params: { cabinet: '1-3' } }]),
+          view('CONNECTOR_SIZE_MISSING', [{ handle: 'R1', params: { featureHandle: 'R9' } }]),
+        ],
+        3,
+        0,
+      ),
+    );
+    render();
+    expect(await screen.findByText(/names cabinet .*1-9.*not in the drawing/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/name .*1-3.* is written on more than one cabinet/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/1way bundle without a duct size/)).toBeInTheDocument();
+  });
+
+  it('suggests the boxes drawn when a cabinet has no box count, and pre-fills «NB»', async () => {
+    const user = await open('LABEL_MISSING', {
+      handle: 'C1',
+      suggestedLayer: 'Notes',
+      params: { role: 'cabinet_info', field: 'box_count', suggested: '22' },
+    });
+    expect(
+      screen.getByText(/Suggestion: .*22.* boxes \(drawn under the cabinet\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Label text')).toHaveValue('22B');
+    await user.click(screen.getByRole('button', { name: 'Add the label' }));
+    expect(api.createCorrection.mock.calls[0]?.[2]).toMatchObject({
+      correction: { kind: 'add_text', layer: 'Notes', text: '22B' },
+    });
+  });
+
+  it('shows both forms of a number repeated as «09» and «9»', async () => {
+    api.listDrawingProblems.mockResolvedValue(
+      list(
+        [
+          view('BOX_NUMBER_DUPLICATE', [
+            { handle: 'N1', params: { boxNumber: '9', cabinet: '1-3', found: '09 / 9' } },
+          ]),
+        ],
+        1,
+        0,
+      ),
+    );
+    render();
+    expect(await screen.findByText(/more than one form: .*09 \/ 9/)).toBeInTheDocument();
+  });
+
+  it('edits the 1way label for CONNECTOR_SIZE_MISSING when the text is known', async () => {
+    const user = await open('CONNECTOR_SIZE_MISSING', {
+      handle: 'T7',
+      text: '1way 100',
+      params: { featureHandle: 'R9' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Save the label' }));
+    expect(api.createCorrection.mock.calls[0]?.[2]).toMatchObject({
+      correction: { kind: 'set_text', handle: 'T7' },
+      problem: { code: 'CONNECTOR_SIZE_MISSING', handle: 'T7' },
+    });
+  });
+
+  it('confirms a handhole type: the alias is kept in the mapping with its version', async () => {
+    const user = await open('HANDHOLE_TYPE_UNKNOWN', {
+      handle: 'H1',
+      text: 'HH2',
+      params: { found: 'HH2' },
+    });
+    expect(
+      screen.getByText(/applies to every handhole written .*HH2.* in this drawing/),
+    ).toBeInTheDocument();
+    const select = screen.getByLabelText(/The type meant by the written/);
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Choose the type', 'DH', 'HH-I', 'HH-II', 'MH-I', 'MH-II', 'MH-III', 'MH-IV']);
+    await user.selectOptions(select, 'HH-II');
+    await user.click(screen.getByRole('button', { name: 'Confirm and save in the mapping' }));
+    expect(mappingApi.saveMapping).toHaveBeenCalledTimes(1);
+    const [, , input] = mappingApi.saveMapping.mock.calls[0] ?? [];
+    expect(input).toMatchObject({ version: 3, crsEpsg: 32636, drawingUnit: 'm' });
+    expect(input.rules).toContainEqual({
+      source: 'layer',
+      layer: 'Notes',
+      target: 'label',
+      textRoles: ['handhole_type'],
+      handholeTypeAliases: { HH2: 'HH-II' },
+    });
+    expect(await screen.findByText(/Confirmation saved/)).toBeInTheDocument();
+  });
 });
