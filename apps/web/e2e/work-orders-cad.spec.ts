@@ -213,7 +213,9 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(checklist).toContainText('No drawing errors');
   await expect(checklist).toContainText('Open items reviewed');
   // The other drawing has no draft yet: publishing is locked and says so (ADR-040).
-  await expect(checklist.getByText('❌')).toHaveCount(2);
+  await expect(checklist.getByText('❌')).toHaveCount(3);
+  await expect(checklist).toContainText('Cabinets match in both drawings (name and count)');
+  await expect(checklist).toContainText('There is no draft for the Secondary to compare with');
   await expect(checklist).toContainText('There is no draft for the Secondary yet');
   await expect(checklist).toContainText('both drawings together');
   const publish = checklist.getByRole('button', { name: 'Publish', exact: true });
@@ -232,11 +234,23 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await secondaryRow.getByRole('link', { name: 'secondary-1.dxf' }).click();
   await page.getByRole('link', { name: 'Mapping', exact: true }).click();
   await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
+
+  // ADR-041: this is a Secondary, so the text layer can become a cabinet zone and take the
+  // Secondary text roles only; the route layer takes the number of ways.
+  const textLayer = page.getByLabel('Becomes: طبقة-النصوص');
+  await expect(textLayer.getByRole('option', { name: 'Cabinet zone' })).toHaveCount(1);
+  await textLayer.selectOption('label');
+  const textRow = page.getByRole('row', { name: /طبقة-النصوص/ });
+  await expect(textRow.getByRole('checkbox', { name: 'Handhole type' })).toHaveCount(0);
+  await textRow.getByRole('checkbox', { name: 'Box number' }).check();
+  await page.getByLabel(/Number of ways: ROUTE-MAIN/).fill('1');
   await page.getByRole('button', { name: 'Save mapping' }).click();
   await expect(page.getByText('Mapping saved (version 1)')).toBeVisible();
   await page.getByRole('button', { name: 'Build revision' }).click();
   await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
   await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  // The reading totals are shown because the mapping gave the texts a meaning.
+  await expect(page.getByRole('table', { name: 'Bundles by type' })).toContainText('361.500');
 
   // The Secondary draft sees the General draft as the other drawing, ready, and links to it.
   const pairChecklist = page.getByRole('region', { name: 'Before publishing' });

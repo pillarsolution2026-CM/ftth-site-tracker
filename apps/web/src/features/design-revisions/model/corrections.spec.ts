@@ -32,6 +32,27 @@ describe('corrections model', () => {
     expect(toolOf('RING_LABEL_MISMATCH')).toBe('none');
   });
 
+  it.each([
+    ['HANDHOLE_TYPE_MISSING', 'add_text'],
+    ['HANDHOLE_TYPE_UNKNOWN', 'set_text'],
+    ['HANDHOLE_NOT_DRAWN', 'add_item'],
+    ['BOX_NUMBER_DUPLICATE', 'set_text'],
+    ['BOX_NOT_REACHED', 'none'],
+    ['CABINET_BOX_COUNT_MISMATCH', 'set_text'],
+    ['CABINET_ZONE_MISSING', 'none'],
+    ['SPARE_CORES_MISMATCH', 'set_text'],
+    ['CABLE_SLACK_TOO_SHORT', 'set_text'],
+    ['CABLE_SLACK_TOO_LONG', 'set_text'],
+  ] as const)('ADR-041: %s uses the %s tool', (code, tool) => {
+    expect(toolOf(code)).toBe(tool);
+  });
+
+  it('a route LABEL_TYPE_MISMATCH (its place carries a role) edits the text, a point keeps the old tool', () => {
+    expect(toolOf('LABEL_TYPE_MISMATCH', { params: { role: 'bundle_label' } })).toBe('set_text');
+    expect(toolOf('LABEL_TYPE_MISMATCH', { params: undefined })).toBe('label_type_mismatch');
+    expect(toolOf('LABEL_TYPE_MISMATCH', {})).toBe('label_type_mismatch');
+  });
+
   it('splits a ROUTE_SPLIT handle into its pieces', () => {
     expect(routePieces('A/B')).toEqual(['A', 'B']);
     expect(routePieces('1F/2A/3C')).toEqual(['1F', '2A', '3C']);

@@ -44,6 +44,7 @@ function problems(
 ): DrawingProblemList {
   return {
     total: items.length,
+    warningTotal: 0,
     items: [
       {
         code,

@@ -5,6 +5,7 @@ import {
   MAPPING_TEXT_ROWS_LIMIT,
   type CadMappingInput,
   type CadMappingView,
+  type DrawingKind,
   type PlacementDrawing,
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
@@ -20,6 +21,8 @@ import { BlockRulesTable, LayerRulesTable, TextRulesTable } from './rules-tables
 
 export interface MappingEditorProps {
   view: CadMappingView;
+  /** The file's drawing kind (General / Secondary): decides the text roles and the zone target. */
+  drawingKind?: DrawingKind | null;
   /** Items and route lines in drawing units for placing the drawing (ADR-035); null while loading. */
   drawing: PlacementDrawing | null;
   /** `cad_files:write` */
@@ -49,9 +52,10 @@ export function MappingEditor({
   onSave,
   onBuild,
   onReload,
+  drawingKind = null,
 }: MappingEditorProps) {
   const { t } = useI18n();
-  const form = useMappingForm(view);
+  const form = useMappingForm(view, drawingKind);
   const processed = view.fileStatus === 'processed';
   const editable = canWrite && processed;
   const preview = useMemo(
@@ -123,9 +127,13 @@ export function MappingEditor({
       <LayerRulesTable
         view={view}
         state={form.state}
+        kind={drawingKind}
         disabled={!editable}
         onChange={form.setLayerTarget}
         onAttrsChange={form.setRuleAttrs}
+        onRolesChange={form.setLayerRoles}
+        onWaysChange={form.setLayerWays}
+        onSuggestMeaning={form.suggestMeaning}
       />
       <BlockRulesTable
         view={view}
@@ -178,6 +186,11 @@ export function MappingEditor({
           {canWrite && form.missingRoles.length > 0 ? (
             <span className="text-sm" role="status">
               {t('mapping.role.required', { names: form.missingRoles.join(', ') })}
+            </span>
+          ) : null}
+          {canWrite && form.badWays.length > 0 ? (
+            <span className="text-sm" role="status">
+              {t('mapping.meaning.waysRequired', { names: form.badWays.join(', ') })}
             </span>
           ) : null}
           {canBuild && form.savedVersion === null ? (

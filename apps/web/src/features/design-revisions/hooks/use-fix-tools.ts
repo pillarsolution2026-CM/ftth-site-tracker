@@ -94,7 +94,7 @@ export function useFixForm(
   tools: FixTools,
   initiallyOpen = false,
 ): FixForm {
-  const tool = toolOf(code);
+  const tool = toolOf(code, place);
   const [open, setOpen] = useState(initiallyOpen);
   const [text, setText] = useState(tool === 'add_text' ? '' : (place.text ?? ''));
   const [layer, setLayer] = useState('');

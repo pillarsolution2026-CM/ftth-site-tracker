@@ -16,6 +16,7 @@ function readiness(
     no_problems: 0,
     open_items: 0,
     other_drawing: 0,
+    cabinets_match: 0,
     ...counts,
   };
   const keys = [
@@ -24,6 +25,7 @@ function readiness(
     'no_problems',
     'open_items',
     'other_drawing',
+    'cabinets_match',
   ] as const;
   return {
     checks: keys.map((key) => ({ key, ok: !failing.includes(key), count: base[key] })),
@@ -31,6 +33,8 @@ function readiness(
     drawingKind: 'general',
     otherRevisionId: null,
     needsAcknowledgement: failing.includes('open_items'),
+    cabinets: null,
+    warningCount: 0,
   };
 }
 
@@ -59,27 +63,30 @@ function setup(
 }
 
 describe('PublishChecklist', () => {
-  it('lists the five checks with an icon and a word each, with counts', () => {
+  it('lists the six checks with an icon and a word each, with counts', () => {
     setup(readiness(['no_problems'], { no_problems: 5 }));
     expect(screen.getByText('Coordinates: source CRS chosen')).toBeInTheDocument();
     expect(screen.getByText(/At least one control point in use \(.*2.*\)/)).toBeInTheDocument();
     expect(screen.getByText(/No drawing errors \(.*5.* left\)/)).toBeInTheDocument();
     expect(screen.getByText(/Open items reviewed/)).toBeInTheDocument();
     expect(screen.getByText(/The other drawing \(Secondary\) is ready/)).toBeInTheDocument();
-    expect(screen.getAllByText('✅')).toHaveLength(4);
+    expect(screen.getAllByText('✅')).toHaveLength(5);
     expect(screen.getByText('❌')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getAllByText('(Done)')).toHaveLength(4);
+    expect(screen.getAllByText('(Done)')).toHaveLength(5);
     expect(screen.getByText('(Not done)')).toBeInTheDocument();
   });
 
-  it.each(['crs_known', 'control_point', 'no_problems', 'other_drawing'] as const)(
-    'locks Publish when %s fails',
-    (key) => {
-      setup(readiness([key]));
-      expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
-      expect(screen.getByText(/locked until all checks except open items/)).toBeInTheDocument();
-    },
-  );
+  it.each([
+    'crs_known',
+    'control_point',
+    'no_problems',
+    'other_drawing',
+    'cabinets_match',
+  ] as const)('locks Publish when %s fails', (key) => {
+    setup(readiness([key]));
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    expect(screen.getByText(/locked until all checks except open items/)).toBeInTheDocument();
+  });
 
   it('enables Publish when every check is ok and publishes on click', async () => {
     const user = userEvent.setup();
@@ -151,6 +158,54 @@ describe('PublishChecklist other drawing row (ADR-040)', () => {
     expect(
       screen.getByText(/both drawings together \(General \(main\) \+ Secondary\)/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('PublishChecklist cabinets row (ADR-041)', () => {
+  it('has the sixth row, done when the cabinets match', () => {
+    setup(readiness());
+    expect(
+      screen.getByText('Cabinets match in both drawings (name and count)'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('✅')),
+    ).toHaveLength(6);
+    expect(screen.queryByText(/Only in the General/)).not.toBeInTheDocument();
+  });
+
+  it('lists the names that exist in one drawing only, and the counts', () => {
+    const data: PublishReadiness = {
+      ...readiness(['cabinets_match'], { cabinets_match: 3 }),
+      cabinets: {
+        ok: false,
+        general: { count: 9, unnamed: 0, missingInOther: ['1-9', '2-1'] },
+        secondary: { count: 8, unnamed: 1, missingInOther: ['1-8'] },
+      },
+    };
+    setup(data);
+    expect(screen.getByText('❌')).toBeInTheDocument();
+    expect(screen.getByText(/Cabinets: General .*9.* \/ Secondary .*8/)).toBeInTheDocument();
+    const general = screen.getByText(/Only in the General/);
+    expect(general).toHaveTextContent('1-9');
+    expect(general).toHaveTextContent('2-1');
+    expect(screen.getByText(/Only in the Secondary/)).toHaveTextContent('1-8');
+    expect(screen.getByText(/Cabinets with no name: .*1/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+  });
+
+  it('says there is nothing to compare with while the other draft is missing', () => {
+    setup(
+      readiness(['cabinets_match', 'other_drawing'], { cabinets_match: null, other_drawing: null }),
+    );
+    expect(
+      screen.getByText('There is no draft for the Secondary to compare with'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the warning count without blocking', () => {
+    setup({ ...readiness(), warningCount: 3 });
+    expect(screen.getByText(/3.* warning\(s\) in this drawing/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
   });
 });
 

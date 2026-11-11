@@ -18,6 +18,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { useDrawingProblems } from '../api/queries';
 import { useFixTools, type FixTools } from '../hooks/use-fix-tools';
 import type { ShowPlace } from '../hooks/use-drawing-viewer';
+import { TYPE_ON_LAYER_CODES, placeDetail, splitProblems } from '../model/problem-detail';
 import { FixTool } from './fix-tool';
 
 /** Places shown per problem before "show all" (a problem keeps at most 500). */
@@ -56,8 +57,9 @@ export function ProblemsSection({
   const { t } = useI18n();
   const query = useDrawingProblems(projectId, revisionId, enabled);
   const tools = useFixTools(projectId, cadFileId, enabled && canFix);
-  const problems = query.data?.items ?? [];
+  const { blocking, warnings } = splitProblems(query.data?.items ?? []);
   const total = query.data?.total ?? 0;
+  const warningTotal = query.data?.warningTotal ?? 0;
   return (
     <section aria-labelledby="problems-title" className="flex flex-col gap-3">
       <h2 id="problems-title" className="text-lg font-semibold">
@@ -68,12 +70,30 @@ export function ProblemsSection({
       <p className="text-sm opacity-80">{t('design.problems.hint')}</p>
       {query.error ? <ErrorNotice code={errorCodeOf(query.error)} /> : null}
       {query.isLoading ? <p role="status">{t('common.loading')}</p> : null}
-      {query.isSuccess && problems.length === 0 ? (
+      {query.isSuccess && blocking.length === 0 ? (
         <Notice kind="success">{t('design.problems.none')}</Notice>
       ) : null}
-      {problems.map((problem) => (
+      {blocking.map((problem) => (
         <ProblemBlock key={problem.code} problem={problem} tools={tools} onShow={onShowOnDrawing} />
       ))}
+      {warnings.length > 0 ? (
+        <>
+          <h3 id="warnings-title" className="mt-2 text-base font-semibold">
+            <span aria-hidden="true">⚠ </span>
+            {t('design.problems.warningsHeading', { total: ltr(warningTotal) })}
+          </h3>
+          <p className="text-sm">{t('design.problems.warningNote')}</p>
+          {warnings.map((problem) => (
+            <ProblemBlock
+              key={problem.code}
+              problem={problem}
+              tools={tools}
+              onShow={onShowOnDrawing}
+              warning
+            />
+          ))}
+        </>
+      ) : null}
     </section>
   );
 }
@@ -84,10 +104,13 @@ function ProblemBlock({
   problem,
   tools,
   onShow,
+  warning = false,
 }: {
   problem: DrawingProblemView;
   tools: FixTools;
   onShow: OnShow;
+  /** A non-blocking problem (ADR-041): shown apart, with its own note. */
+  warning?: boolean;
 }) {
   const { t } = useI18n();
   const [showAll, setShowAll] = useState(false);
@@ -107,6 +130,12 @@ function ProblemBlock({
           {SEVERITY_ICON[problem.severity]}
         </span>
       </h3>
+      {warning ? (
+        <p className="text-sm font-semibold">
+          <span aria-hidden="true">⚠ </span>
+          {t('design.problems.warningNote')}
+        </p>
+      ) : null}
       <dl className="flex flex-col gap-1 text-sm">
         <div>
           <dt className="font-semibold">{t('design.problems.whatLabel')}</dt>
@@ -166,9 +195,11 @@ function PlaceRow({
 }) {
   const { t } = useI18n();
   const zoom = `ZOOM C ${round(item.drawingX)},${round(item.drawingY)}`;
+  const detail = placeDetail(code, item, t);
   return (
     <tr>
       <Td>
+        {detail ? <div className="text-sm font-semibold">{detail}</div> : null}
         <div className="text-sm">
           {t('design.problems.drawingXY')}:{' '}
           <Ltr>
@@ -209,7 +240,12 @@ function PlaceRow({
         ) : null}
         {item.suggestedLayer ? (
           <div className="text-sm">
-            {t('design.problems.moveTo')}: <Ltr className="break-all">{item.suggestedLayer}</Ltr>
+            {t(
+              TYPE_ON_LAYER_CODES.includes(code)
+                ? 'design.problems.typeOn'
+                : 'design.problems.moveTo',
+            )}
+            : <Ltr className="break-all">{item.suggestedLayer}</Ltr>
           </div>
         ) : null}
       </Td>

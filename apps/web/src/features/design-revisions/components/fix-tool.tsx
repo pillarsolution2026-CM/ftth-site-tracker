@@ -55,7 +55,7 @@ export function FixTool({
           id={`${id}-form`}
           className="flex flex-col gap-3 rounded-md border border-(--color-border) p-3"
         >
-          <FixFields id={id} place={place} form={form} tools={tools} />
+          <FixFields id={id} code={code} place={place} form={form} tools={tools} />
           {form.error ? <Notice kind="error">{t(form.error.key, form.error.params)}</Notice> : null}
         </div>
       ) : null}
@@ -64,11 +64,13 @@ export function FixTool({
 }
 
 function FixFields({
+  code,
   id,
   place,
   form,
   tools,
 }: {
+  code: DrawingProblemCode;
   id: string;
   place: DrawingProblemItem;
   form: FixForm;
@@ -120,11 +122,34 @@ function FixFields({
         <TextEditor
           id={id}
           label={t('design.fix.editLabel')}
-          hint={t('design.fix.lengthHint')}
+          {...(code === 'LABEL_LENGTH_MISSING' ? { hint: t('design.fix.lengthHint') } : {})}
           action={t('design.fix.saveLabel')}
           form={form}
         />
       );
+    case 'add_item': {
+      // HANDHOLE_NOT_DRAWN: put the handhole at the written name, on a handhole layer.
+      const layers = tools.pointLayers.filter((point) => point.type === 'hhi');
+      return layers.length === 0 ? (
+        <Notice kind="info">{t('design.fix.noHandholeLayers')}</Notice>
+      ) : (
+        <>
+          <LayerPicker
+            id={`${id}-item-layer`}
+            label={t('design.fix.itemLayer')}
+            value={form.layer}
+            onChange={form.setLayer}
+            options={layers.map((point) => ({
+              value: point.layer,
+              label: `${point.layer} — ${t(`featureType.${point.type}`)}`,
+            }))}
+          />
+          <Button onClick={form.placeItem} disabled={form.saving || !form.layer}>
+            {saveLabel ?? t('design.fix.placeItem')}
+          </Button>
+        </>
+      );
+    }
     case 'label_type_mismatch':
       return (
         <>
