@@ -3,6 +3,7 @@ import {
   type DesignRevisionCounts,
   type DesignRevisionStatus,
   type DiffCounts,
+  type DrawingKind,
   type DrawingUnit,
   type MappingRule,
   type Placement,
@@ -16,6 +17,8 @@ export interface DesignRevision {
   projectId: string;
   cadFileId: string;
   cadFileName: string;
+  /** Kind of the source file (ADR-040). */
+  drawingKind: DrawingKind;
   /** Assigned on publish. */
   revNo: number | null;
   status: DesignRevisionStatus;

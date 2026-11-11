@@ -1,5 +1,10 @@
 import type { Readable } from 'node:stream';
-import { EVENT_ENTITIES, EVENT_TYPES } from '@ftth/shared';
+import {
+  EVENT_ENTITIES,
+  EVENT_TYPES,
+  type DrawingKind,
+  type KindExistsDetails,
+} from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import { storageKeys, type ObjectStorage } from '../../../common/object-storage.port.js';
@@ -25,8 +30,12 @@ export class UploadCadFileUseCase {
     projectId: string;
     actorId: string;
     file: { fileName: string; stream: Readable };
+    /** General or Secondary (ADR-040). */
+    kind: DrawingKind;
+    /** «Yes, a new version of the current file of this kind»: it supersedes the current one. */
+    newVersion: boolean;
   }): Promise<CadFile> {
-    const { projectId, actorId, file } = input;
+    const { projectId, actorId, file, kind, newVersion } = input;
     const format = declaredFormat(file.fileName);
     const { head, stream } = await peekStream(file.stream, SNIFF_BYTES);
     verifyCadContent(format, head);
@@ -54,6 +63,9 @@ export class UploadCadFileUseCase {
       storageKey,
       convertedStorageKey: null,
       status: 'uploaded',
+      drawingKind: kind,
+      supersededAt: null,
+      supersededById: null,
       currentJobId: null,
       converter: null,
       converterVersion: null,
@@ -75,7 +87,25 @@ export class UploadCadFileUseCase {
 
     try {
       await this.uow.run(async (tx) => {
+        // Serialises uploads of this kind: the one-current-file-per-kind rule lives here.
+        const current = await tx.files.lockCurrentOfKind(projectId, kind);
+        const newest = current[0];
+        if (newest && !newVersion) {
+          const details: KindExistsDetails = {
+            reason: 'KIND_EXISTS',
+            kind,
+            currentFileId: newest.id,
+            currentFileName: newest.originalName,
+          };
+          throw new AppError(
+            'CONFLICT',
+            'This work order already has a drawing of this kind; confirm it is a new version',
+            details,
+          );
+        }
+        const supersededFileIds = current.map((f) => f.id);
         await tx.files.insertUploaded(uploaded);
+        await tx.files.supersede(projectId, supersededFileIds, id, now);
         await tx.events.append({
           projectId,
           entity: EVENT_ENTITIES.cadFile,
@@ -87,6 +117,8 @@ export class UploadCadFileUseCase {
             format,
             sizeBytes: uploaded.sizeBytes,
             sha256: uploaded.sha256,
+            drawingKind: kind,
+            supersededFileIds,
           },
         });
         await tx.files.markQueued(projectId, id, jobId, now);

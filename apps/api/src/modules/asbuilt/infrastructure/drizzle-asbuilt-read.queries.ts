@@ -43,6 +43,7 @@ export class DrizzleAsBuiltReadQueries
       this.db,
       sql`SELECT id FROM design_revisions
           WHERE project_id = ${projectId} AND status = 'published'
+            AND drawing_kind = 'general'
           ORDER BY rev_no DESC LIMIT 1`,
     );
     return row?.id ?? null;

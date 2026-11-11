@@ -29,6 +29,7 @@ import type {
   DiffChange,
   DiffCounts,
   DrawingCorrectionInput,
+  DrawingKind,
   DrawingProblemCode,
   DrawingUnit,
   FeatureType,
@@ -321,6 +322,11 @@ export const cadFiles = pgTable(
     viewRenderedAt: timestamp('view_rendered_at', { withTimezone: true }),
     /** Migration 0017: set when queued; a queued view older than the stale limit may be requeued. */
     viewQueuedAt: timestamp('view_queued_at', { withTimezone: true }),
+    /** Migration 0018 (ADR-040): General or Secondary, chosen at upload, never changes. */
+    drawingKind: text('drawing_kind').$type<DrawingKind>().notNull().default('general'),
+    /** Set together when a newer version of the same kind is uploaded; never reset. */
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    supersededBy: uuid('superseded_by'),
   },
   (table) => [
     unique('cad_files_project_id_id_key').on(table.projectId, table.id),
@@ -497,6 +503,8 @@ export const designRevisions = pgTable(
       .notNull()
       .references(() => projects.id),
     cadFileId: uuid('cad_file_id').notNull(),
+    /** Migration 0018: equals the source file's kind (trigger); one open revision per kind. */
+    drawingKind: text('drawing_kind').$type<DrawingKind>().notNull().default('general'),
     revNo: integer('rev_no'),
     status: text('status')
       .$type<'queued' | 'building' | 'draft' | 'failed' | 'published' | 'discarded'>()
@@ -533,7 +541,7 @@ export const designRevisions = pgTable(
   },
   (table) => [
     unique('design_revisions_project_id_id_key').on(table.projectId, table.id),
-    unique('design_revisions_rev_no_key').on(table.projectId, table.revNo),
+    unique('design_revisions_rev_no_key').on(table.projectId, table.drawingKind, table.revNo),
     foreignKey({
       name: 'design_revisions_file_fkey',
       columns: [table.projectId, table.cadFileId],

@@ -3,6 +3,7 @@ import {
   type CadBuildRevisionJob,
   type CadImportJob,
   type CadRenderViewJob,
+  type DrawingKind,
   type FeatureType,
   type FrozenDrawingCorrection,
   type GpsProposalListQuery,
@@ -71,6 +72,22 @@ export class InMemoryCadFiles implements CadFileRepository {
   }
   async insertUploaded(file: CadFile): Promise<void> {
     this.rows.set(file.id, { ...file, status: 'uploaded' });
+  }
+  async lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
+    return [...this.rows.values()]
+      .filter(
+        (file) =>
+          file.projectId === projectId && file.drawingKind === kind && file.supersededAt === null,
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((file) => ({ ...file }));
+  }
+  async supersede(projectId: string, fileIds: string[], byId: string, at: Date): Promise<void> {
+    for (const id of fileIds) {
+      const file = this.rows.get(id);
+      if (file?.projectId !== projectId || file.supersededAt !== null) continue;
+      this.rows.set(id, { ...file, supersededAt: at, supersededById: byId });
+    }
   }
   async markQueued(projectId: string, cadFileId: string, jobId: string, at: Date): Promise<void> {
     const file = this.rows.get(cadFileId);
@@ -200,16 +217,26 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
     const row = this.rows.get(revisionId);
     return row?.projectId === projectId ? { ...row } : null;
   }
-  async findLatestPublishedId(projectId: string): Promise<string | null> {
+  async findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null> {
     const published = [...this.rows.values()]
-      .filter((row) => row.projectId === projectId && row.status === 'published')
+      .filter(
+        (row) =>
+          row.projectId === projectId && row.drawingKind === kind && row.status === 'published',
+      )
       .sort((a, b) => (b.revNo ?? 0) - (a.revNo ?? 0));
     return published[0]?.id ?? null;
   }
-  async hasOpen(projectId: string): Promise<boolean> {
-    return [...this.rows.values()].some(
-      (row) => row.projectId === projectId && ['queued', 'building', 'draft'].includes(row.status),
+  async findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null> {
+    const open = [...this.rows.values()].find(
+      (row) =>
+        row.projectId === projectId &&
+        row.drawingKind === kind &&
+        ['queued', 'building', 'draft'].includes(row.status),
     );
+    return open ? { ...open } : null;
+  }
+  async hasOpen(projectId: string, kind: DrawingKind): Promise<boolean> {
+    return (await this.findOpen(projectId, kind)) !== null;
   }
   async hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean> {
     return [...this.rows.values()].some(
@@ -220,7 +247,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
     );
   }
   async insert(revision: NewDesignRevision): Promise<void> {
-    if (await this.hasOpen(revision.projectId)) {
+    if (await this.hasOpen(revision.projectId, revision.drawingKind)) {
       throw new AppError('CONFLICT', 'open revision', { reason: 'REVISION_IN_PROGRESS' });
     }
     this.sequence += 1;
@@ -229,6 +256,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       id: revision.id,
       projectId: revision.projectId,
       cadFileId: revision.cadFileId,
+      drawingKind: revision.drawingKind,
       cadFileName: this.fileNames.get(revision.cadFileId) ?? 'plan.dxf',
       revNo: null,
       status: 'queued',
@@ -277,9 +305,12 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
     });
     return true;
   }
-  async publish(projectId: string, revisionId: string, actorId: string, at: Date): Promise<number> {
-    const row = this.rows.get(revisionId);
-    if (row?.projectId !== projectId) throw new Error('unknown revision');
+  async publish(
+    projectId: string,
+    revisionIds: string[],
+    actorId: string,
+    at: Date,
+  ): Promise<number> {
     const revNo =
       Math.max(
         0,
@@ -287,13 +318,17 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
           .filter((other) => other.projectId === projectId)
           .map((other) => other.revNo ?? 0),
       ) + 1;
-    this.rows.set(revisionId, {
-      ...row,
-      status: 'published',
-      revNo,
-      publishedAt: at,
-      publishedById: actorId,
-    });
+    for (const revisionId of revisionIds) {
+      const row = this.rows.get(revisionId);
+      if (row?.projectId !== projectId) throw new Error('unknown revision');
+      this.rows.set(revisionId, {
+        ...row,
+        status: 'published',
+        revNo,
+        publishedAt: at,
+        publishedById: actorId,
+      });
+    }
     return revNo;
   }
   async discard(projectId: string, revisionId: string, supersedingJobId: string): Promise<void> {
@@ -329,7 +364,9 @@ export class InMemoryTextLinks implements TextLinkRepository {
   readonly links = new Map<string, FakeLink>();
   readonly features = new Map<string, FakeFeature>();
   readonly distances = new Map<string, number>();
+  /** Diff conflicts of every revision without an entry in `diffConflictsByRevision`. */
   diffConflicts = 0;
+  readonly diffConflictsByRevision = new Map<string, number>();
   counts: TextLinkCounts | null = null;
 
   async find(
@@ -401,7 +438,7 @@ export class InMemoryTextLinks implements TextLinkRepository {
       textLinksToReview: [...this.links.values()].filter(
         (link) => link.revisionId === revisionId && link.status === 'review',
       ).length,
-      diffConflicts: this.diffConflicts,
+      diffConflicts: this.diffConflictsByRevision.get(revisionId) ?? this.diffConflicts,
     };
   }
 }
