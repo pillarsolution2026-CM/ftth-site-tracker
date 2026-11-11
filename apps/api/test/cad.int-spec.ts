@@ -223,12 +223,23 @@ describe('CAD access control', () => {
 });
 
 describe('CAD reads', () => {
-  it('lists newest first, serves the original and an empty log', async () => {
+  it('lists current files newest first, hides older versions, serves the original and an empty log', async () => {
     const first = await upload(DXF, 'list-1.dxf');
-    const second = await upload(DXF, 'list-2.dxf');
+    // A Secondary is another current file; a new General version would hide `first` (ADR-040).
+    const second = await as(pm)(
+      http().post(`${base(projectA)}?kind=secondary&newVersion=true`),
+    ).attach('file', DXF, 'list-2.dxf');
     const list = await as(pm)(http().get(base(projectA)));
     const ids = list.body.items.map((f: { id: string }) => f.id);
+    expect(ids).toContain(first.body.id);
     expect(ids.indexOf(second.body.id)).toBeLessThan(ids.indexOf(first.body.id));
+
+    const third = await upload(DXF, 'list-3.dxf'); // a new General version supersedes `first`
+    const after = (await as(pm)(http().get(base(projectA)))).body.items.map(
+      (f: { id: string }) => f.id,
+    );
+    expect(after).toContain(third.body.id);
+    expect(after).not.toContain(first.body.id);
 
     const content = await as(pm)(http().get(`${base(projectA)}/${first.body.id}/content`))
       .buffer(true)

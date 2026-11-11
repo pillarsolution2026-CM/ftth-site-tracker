@@ -161,10 +161,8 @@ test('mapping to a published design revision: unit, save, build, review, publish
     buffer: dxf,
   });
   await page.getByRole('alertdialog').getByRole('button', { name: 'Yes, a new version' }).click();
-  // The older General stays as history, badged and still a link.
-  const old = page.getByRole('row', { name: /big\.dxf/ });
-  await expect(old.getByText('Old version')).toBeVisible();
-  await expect(old.getByRole('link', { name: 'big.dxf' })).toBeVisible();
+  // The older General stays as history in the system but is no longer listed (owner 2026-11-11).
+  await expect(page.getByRole('row', { name: /big\.dxf/ })).toHaveCount(0);
   const row = page.getByRole('row', { name: /mapping-1\.dxf/ });
   await expect(row.getByText('Processed')).toBeVisible({ timeout: 20_000 });
   await row.getByRole('link', { name: 'mapping-1.dxf' }).click();

@@ -116,6 +116,74 @@ async function sqlState(work: Promise<unknown>): Promise<string | null> {
 
 const q = (text: string, values: unknown[] = []) => ctx.pool.query(text, values);
 
+describe('migration 0019: one current file per kind for files uploaded before ADR-040', () => {
+  const current = async (project: string) =>
+    (
+      await q(
+        `SELECT id, drawing_kind, superseded_by FROM cad_files WHERE project_id = $1 ORDER BY id`,
+        [project],
+      )
+    ).rows as { id: string; drawing_kind: string; superseded_by: string | null }[];
+  const age = (id: string, minutes: number) =>
+    q(`UPDATE cad_files SET created_at = now() - make_interval(mins => $2) WHERE id = $1`, [
+      id,
+      minutes,
+    ]);
+
+  it('keeps the file of the open revision current and supersedes the others of that kind', async () => {
+    const project = await newProject();
+    const newest = await insertFile(project);
+    const withDraft = await insertFile(project);
+    const oldest = await insertFile(project);
+    await age(oldest, 300);
+    await age(withDraft, 200);
+    await age(newest, 100);
+    await insertRevision(project, newest, { status: 'discarded' });
+    await insertRevision(project, withDraft, { status: 'draft' });
+    const secondary = await insertFile(project, 'secondary');
+
+    await q('SELECT cad_files_supersede_legacy()');
+    const rows = new Map((await current(project)).map((r) => [r.id, r.superseded_by]));
+    expect(rows.get(withDraft)).toBeNull();
+    expect(rows.get(newest)).toBe(withDraft);
+    expect(rows.get(oldest)).toBe(withDraft);
+    expect(rows.get(secondary)).toBeNull();
+
+    // Running it again changes nothing.
+    await q('SELECT cad_files_supersede_legacy()');
+    expect(new Map((await current(project)).map((r) => [r.id, r.superseded_by]))).toEqual(rows);
+  });
+
+  it('without an open revision keeps the file of the latest revision, else the newest file', async () => {
+    const withRevision = await newProject();
+    const a = await insertFile(withRevision);
+    const b = await insertFile(withRevision);
+    await age(a, 50);
+    await age(b, 10);
+    await insertRevision(withRevision, a, { status: 'discarded' });
+    await q('SELECT cad_files_supersede_legacy()');
+    expect(new Map((await current(withRevision)).map((r) => [r.id, r.superseded_by]))).toEqual(
+      new Map([
+        [a, null],
+        [b, a],
+      ]),
+    );
+
+    const noRevision = await newProject();
+    const old = await insertFile(noRevision);
+    const fresh = await insertFile(noRevision);
+    await age(old, 50);
+    await age(fresh, 10);
+    await q('SELECT cad_files_supersede_legacy()');
+    expect(new Map((await current(noRevision)).map((r) => [r.id, r.superseded_by]))).toEqual(
+      new Map([
+        [fresh, null],
+        [old, fresh],
+      ]),
+    );
+  });
+});
+
 describe('migration 0018 constraints', () => {
   it('limits the kind to general | secondary and defaults existing-style inserts to general', async () => {
     const project = await newProject();
@@ -335,11 +403,14 @@ describe('uploading a drawing of a kind', () => {
     expect(next.status, JSON.stringify(next.body)).toBe(201);
     expect(next.body).toMatchObject({ drawingKind: 'general', supersededAt: null });
 
+    // The old version stays in the system (readable by id) but is not listed (owner 2026-11-11).
     const list = await as(admin)(http().get(filesUrl(project)));
     const byId = new Map(
       (list.body.items as { id: string }[]).map((item) => [item.id, item as never]),
     );
-    expect(byId.get(first.body.id)).toMatchObject({
+    expect(byId.has(first.body.id)).toBe(false);
+    const old = await as(admin)(http().get(`${filesUrl(project)}/${first.body.id}`)).expect(200);
+    expect(old.body).toMatchObject({
       supersededById: next.body.id,
       supersededAt: expect.any(String),
     });

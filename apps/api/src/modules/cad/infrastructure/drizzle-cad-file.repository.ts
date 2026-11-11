@@ -83,11 +83,12 @@ const inProject = (projectId: string, cadFileId: string) =>
 export class DrizzleCadFileRepository implements CadFileRepository {
   constructor(private readonly db: DbHandle) {}
 
+  /** Current files only: older versions stay as history but are not listed (owner 2026-11-11). */
   async list(projectId: string): Promise<CadFile[]> {
     const rows = await this.db
       .select()
       .from(cadFiles)
-      .where(eq(cadFiles.projectId, projectId))
+      .where(and(eq(cadFiles.projectId, projectId), isNull(cadFiles.supersededAt)))
       .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id));
     return rows.map(toCadFile);
   }
