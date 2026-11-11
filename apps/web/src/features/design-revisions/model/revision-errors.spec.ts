@@ -81,3 +81,45 @@ describe('CABINETS_MISMATCH refusal (ADR-041)', () => {
     expect(publishBlockedOf(new ApiClientError('CONFLICT', 409, details))).toEqual(details);
   });
 });
+
+describe('INSTALLATION_UNCLEAR refusal (ADR-042)', () => {
+  const details: PublishBlockedDetails = {
+    reason: 'INSTALLATION_UNCLEAR',
+    drawingKind: 'general',
+    issueCount: 2,
+    issues: [
+      {
+        code: 'QUESTION_UNANSWERED',
+        markIds: [],
+        routeHandle: null,
+        featureId: null,
+        markedM: null,
+        routeLengthM: null,
+      },
+      {
+        code: 'TRENCH_LONGER_THAN_ROUTE',
+        markIds: [],
+        routeHandle: 'A1F',
+        featureId: null,
+        markedM: '80.000',
+        routeLengthM: '60.000',
+      },
+    ],
+  };
+
+  it('lists every issue in the message, in each language', () => {
+    for (const locale of ['en', 'ar', 'fr'] as const) {
+      const { key, params } = publishBlockedMessage(details, locale);
+      const text = translate(locale, key, params);
+      expect(text).toContain('A1F');
+      expect(text).toContain('80.000');
+      expect(text).not.toBe(key);
+    }
+    const { key, params } = publishBlockedMessage(details, 'en');
+    expect(translate('en', key, params)).toMatch(/installation method .* unclear (.*2.* issues)/);
+  });
+
+  it('is read out of the 409 details', () => {
+    expect(publishBlockedOf(new ApiClientError('CONFLICT', 409, details))).toEqual(details);
+  });
+});

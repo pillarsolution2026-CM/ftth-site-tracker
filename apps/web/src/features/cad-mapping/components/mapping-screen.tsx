@@ -6,8 +6,10 @@ import { PageHeader } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useCadFile } from '@/features/cad-files/api/queries';
 import { Notice } from '@/shared/ui/notice';
+import { InstallationQuestionCard } from '@/features/installation/components/installation-question-card';
 import { usePlacementDrawing } from '../api/queries';
 import { gpsProposalPhotoUrl } from '../api/proposals-api';
+import { useGeneralCabinets } from '../hooks/use-general-cabinets';
 import { useGpsProposalsPanel } from '../hooks/use-gps-proposals';
 import { useMappingScreen } from '../hooks/use-mapping-screen';
 import { GpsProposalsPanel } from './gps-proposals-panel';
@@ -32,6 +34,16 @@ export function MappingScreen({
 
   const cadFile = useCadFile(projectId, cadFileId, screen.canRead);
   const superseded = cadFile.data?.supersededAt != null;
+
+  // «من كبائن الرئيسي»: a Secondary only; fetched by itself while its saved placement has no point.
+  const isSecondary = cadFile.data?.drawingKind === 'secondary';
+  const cabinets = useGeneralCabinets({
+    projectId,
+    cadFileId,
+    available:
+      isSecondary && screen.canWrite && !superseded && screen.view?.fileStatus === 'processed',
+    auto: (screen.view?.mapping?.placement?.points.length ?? 0) === 0,
+  });
 
   const proposals = useGpsProposalsPanel({
     projectId,
@@ -65,6 +77,16 @@ export function MappingScreen({
               {t('mapping.supersededNotice')}
             </Notice>
           ) : null}
+          {cadFile.data?.drawingKind === 'general' ? (
+            <div className="mb-6">
+              <InstallationQuestionCard
+                projectId={projectId}
+                cadFileId={cadFileId}
+                enabled
+                canWrite={screen.canBuild && !superseded}
+              />
+            </div>
+          ) : null}
           {screen.canWrite ? (
             <div className="mb-6">
               <GpsProposalsPanel
@@ -91,6 +113,7 @@ export function MappingScreen({
             onSave={screen.save}
             onBuild={(version) => void screen.build(version)}
             onReload={() => void screen.reload()}
+            cabinets={cabinets.available ? cabinets : null}
           />
         </>
       )}

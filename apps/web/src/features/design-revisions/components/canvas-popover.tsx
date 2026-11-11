@@ -6,9 +6,12 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { effectiveLayer } from '../model/drawing-preview';
 import { toScreen } from '../model/view-transform';
+import { TrenchForm } from '@/features/installation/components/trench-form';
 import { FixTool } from './fix-tool';
 
 const PANEL_WIDTH = 320;
+/** Entities that can be a route piece (texts, blocks and fills are never picked for trench). */
+const NOT_A_ROUTE = new Set(['INSERT', 'TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF', 'HATCH', 'POINT']);
 
 /**
  * The floating panel on the canvas: what the clicked entity is (handle, layer, kind) and, when a
@@ -28,6 +31,10 @@ export function CanvasPopover({ viewer }: { viewer: DrawingViewer }) {
   const left = Math.max(8, Math.min(anchor.x + 14, size.width - width - 8));
   const top = Math.max(8, Math.min(anchor.y + 14, size.height - 140));
   const marker = popover.marker;
+  const trenchRoute =
+    viewer.trench.mode && entity && entity.paths.length > 0 && !NOT_A_ROUTE.has(entity.kind)
+      ? entity.handle
+      : null;
   return (
     <div
       role="dialog"
@@ -89,6 +96,9 @@ export function CanvasPopover({ viewer }: { viewer: DrawingViewer }) {
           </>
         ) : null}
       </dl>
+      {trenchRoute !== null ? (
+        <TrenchForm key={trenchRoute} tool={viewer.trench} routeHandle={trenchRoute} />
+      ) : null}
       {marker ? (
         <div>
           {entity ? (

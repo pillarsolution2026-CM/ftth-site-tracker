@@ -862,7 +862,8 @@
       "from": {
         "typed": "Saisi",
         "kml": "KML / KMZ",
-        "gps": "Point GPS du superviseur"
+        "gps": "Point GPS du superviseur",
+        "general_cabinet": "Armoire du Général"
       },
       "outlier": "Loin des autres points : vérifiez-le ou écartez-le",
       "remove": "Supprimer {id}",
@@ -930,6 +931,40 @@
         "rotationDeg": "Rotation (°)",
         "scale": "Échelle",
         "reset": "Retirer l'ajustement manuel"
+      },
+      "cabinets": {
+        "title": "Depuis les armoires du Général",
+        "hint": "Récupère des points de contrôle depuis les armoires communes (par nom) avec le plan Général positionné. Les points sont seulement ajoutés ici ; enregistrez ensuite comme d’habitude.",
+        "button": "Depuis les armoires du Général",
+        "fetching": "Récupération des armoires du Général…",
+        "applied": "{count} points ajoutés depuis les armoires du Général. Pas encore enregistrés — vérifiez les erreurs puis enregistrez.",
+        "dropped": "{count} points n’ont pas pu être ajoutés : la limite de points de contrôle est dépassée.",
+        "truncated": "Plus d’armoires communes que la limite de points : une partie seulement a été ajoutée ({matched} correspondances).",
+        "noMatch": "Aucune armoire commune par nom entre les deux plans, aucun point ajouté.",
+        "general": "Plan Général : {state}{rev}",
+        "generalState": {
+          "draft": "brouillon",
+          "published": "publié"
+        },
+        "readOnly": "Les points issus des armoires du Général peuvent seulement être exclus ou supprimés, pas modifiés.",
+        "unmatchedTitle": "Armoires sans correspondance",
+        "onlyInSecondary": "Dans le Secondaire seulement",
+        "onlyInGeneral": "Dans le Général seulement",
+        "duplicateInSecondary": "En double dans le Secondaire (non utilisées)",
+        "duplicateInGeneral": "En double dans le Général (non utilisées)",
+        "unnamed": "Armoires sans nom : Secondaire {secondary} / Général {general}",
+        "withoutDrawingPosition": "Armoires du Secondaire sans position dans le plan (reconstruisez le Secondaire) : {names}",
+        "failed": "Impossible de récupérer les armoires du Général. Réessayez.",
+        "refusal": {
+          "NOT_SECONDARY": "Cette fonction concerne seulement le plan Secondaire.",
+          "NOT_CURRENT": "Une version plus récente du Secondaire existe. Ouvrez la plus récente.",
+          "SECONDARY_BUILDING": "Le Secondaire est encore en construction. Attendez la fin.",
+          "SECONDARY_NOT_BUILT": "Le Secondaire n’est pas encore construit. Construisez-le d’abord pour lire les noms des armoires.",
+          "SECONDARY_REBUILD_NEEDED": "Le Secondaire a été construit par une ancienne version (sans positions d’armoires). Reconstruisez-le.",
+          "GENERAL_BUILDING": "Le Général est encore en construction. Attendez la fin.",
+          "GENERAL_NOT_BUILT": "Aucun Général construit (brouillon ou publié). Téléversez-le et construisez-le d’abord.",
+          "GENERAL_NOT_PLACED": "Le Général n’a aucun point de contrôle utilisé. Positionnez d’abord le Général."
+        }
       }
     },
     "supersededNotice": "Ce fichier est une ancienne version : on ne peut pas en construire une révision. Ouvrez la version plus récente et construisez à partir d'elle.",
@@ -1046,7 +1081,8 @@
         "no_problems": "Aucune erreur de dessin ({count} restantes)",
         "open_items": "Éléments ouverts revus ({count})",
         "other_drawing": "L'autre plan ({drawing}) est prêt : zéro erreur, coordonnées calées",
-        "cabinets_match": "Les armoires correspondent dans les deux plans (nom et nombre)"
+        "cabinets_match": "Les armoires correspondent dans les deux plans (nom et nombre)",
+        "installation": "Le mode de pose (tirage / tranchée) est clair"
       },
       "fixCoordinates": "Ouvrir l'écran des coordonnées",
       "lockedHint": "La publication est verrouillée tant que toutes les vérifications, sauf les éléments ouverts, ne sont pas faites.",
@@ -1058,7 +1094,8 @@
         "PROBLEMS_OPEN": "Il reste {count} erreurs de dessin dans le plan {drawing}. Corrigez-les toutes avant de publier.",
         "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation.",
         "OTHER_DRAWING_MISSING": "Il n'y a pas de brouillon pour le {drawing}. Envoyez-le et construisez-le d'abord — les deux plans sont publiés ensemble.",
-        "CABINETS_MISMATCH": "Les armoires ne correspondent pas entre les plans : Général {generalCount} / Secondaire {secondaryCount}. Seulement dans le Général : {onlyGeneral}. Seulement dans le Secondaire : {onlySecondary}. Armoires sans nom : {unnamed}. Rendez les noms et le nombre identiques dans les deux plans avant de publier."
+        "CABINETS_MISMATCH": "Les armoires ne correspondent pas entre les plans : Général {generalCount} / Secondaire {secondaryCount}. Seulement dans le Général : {onlyGeneral}. Seulement dans le Secondaire : {onlySecondary}. Armoires sans nom : {unnamed}. Rendez les noms et le nombre identiques dans les deux plans avant de publier.",
+        "INSTALLATION_UNCLEAR": "Le mode de pose du plan {drawing} n’est pas clair ({count} problèmes) : {issues}"
       },
       "otherNoDraft": "Il n'y a pas encore de brouillon pour le {drawing}",
       "otherErrors": "{count} erreurs dedans",
@@ -1301,7 +1338,8 @@
       "entityInfo": "Élément du dessin",
       "closePopover": "Fermer",
       "entityLayer": "Calque",
-      "entityKind": "Type"
+      "entityKind": "Type",
+      "trenchLegend": "Les parties marquées en tranchée sont tracées en violet pointillé avec leur longueur."
     },
     "fix": {
       "open": "Corriger cet endroit",
@@ -1403,6 +1441,72 @@
       "handholes": "Chambres par type",
       "handholeType": "Type",
       "untyped": "Sans type"
+    },
+    "installation": {
+      "title": "Mode de pose",
+      "question": "Tout le tracé est-il tiré dans d’anciens tuyaux, ou une partie demande-t-elle une tranchée et de nouveaux tuyaux ?",
+      "answer": {
+        "pull_only": "Tout tiré dans d’anciens tuyaux",
+        "has_trench": "Une partie demande tranchée et nouveaux tuyaux"
+      },
+      "current": "Réponse actuelle : {answer}",
+      "unanswered": "Cette question n’a pas encore de réponse — la publication reste bloquée tant qu’elle n’en a pas.",
+      "saving": "Enregistrement…",
+      "hasTrenchHint": "Marquez les parties en tranchée dans le visualiseur de plans avec l’outil « Nouvelle tranchée » et saisissez la longueur de chacune en mètres.",
+      "rebuildNeeded": "Reconstruisez pour appliquer les marques",
+      "readOnly": "Vous voyez la réponse seulement. Le chef de projet la modifie.",
+      "error": {
+        "NOT_GENERAL_DRAWING": "Cette question concerne seulement le plan Général. Le Secondaire est entièrement en tranchée.",
+        "FILE_SUPERSEDED": "Une version plus récente du Général existe. Répondez sur la plus récente.",
+        "NOT_PROCESSED": "Le fichier n’est pas encore traité. Attendez la fin puis réessayez.",
+        "ANSWER_NOT_TRENCH": "Choisissez d’abord « Une partie demande tranchée et nouveaux tuyaux » avant de marquer une tranchée.",
+        "TRENCH_MARKS_ACTIVE": "Des marques de tranchée sont en vigueur. Retirez-les toutes avant de choisir « Tout tiré ».",
+        "ROUTE_NOT_FOUND": "Cet élément n’est pas un tracé du plan. Choisissez la ligne du tracé elle-même.",
+        "TOO_MANY_MARKS": "Le nombre maximal de marques de tranchée pour ce fichier est atteint.",
+        "TOO_MANY_ANSWERS": "Le nombre maximal de changements de réponse pour ce fichier est atteint.",
+        "ALREADY_WITHDRAWN": "Cette marque a déjà été retirée."
+      },
+      "marks": {
+        "heading": "Marques de tranchée ({count})",
+        "hint": "Chaque marque = un tracé + la longueur à creuser. Le reste du tracé est tiré dans d’anciens tuyaux.",
+        "none": "Aucune marque de tranchée pour le moment.",
+        "total": "Total de tranchée marquée : {length} m",
+        "colRoute": "Tracé",
+        "colLength": "Longueur (m)",
+        "colMadeBy": "Faite par",
+        "colState": "État",
+        "active": "En vigueur",
+        "withdrawn": "Retirée",
+        "withdraw": "Retirer la marque",
+        "withdrawing": "Retrait…",
+        "withdrawLabel": "Retirer la marque de tranchée du tracé {route}",
+        "show": "Afficher sur le plan"
+      },
+      "tool": {
+        "button": "Nouvelle tranchée",
+        "on": "« Nouvelle tranchée » est active : cliquez sur une partie d’un tracé du plan.",
+        "off": "Arrêter l’outil",
+        "unavailable": "L’outil « Nouvelle tranchée » apparaît quand la réponse est « Une partie demande tranchée et nouveaux tuyaux ».",
+        "title": "Nouvelle tranchée sur le tracé",
+        "route": "Tracé",
+        "length": "Longueur de la tranchée (mètres)",
+        "lengthHint": "Saisissez la longueur en mètres, par exemple 25.5",
+        "lengthInvalid": "Saisissez une longueur en mètres supérieure à 0 et au plus 100000, avec 3 décimales au maximum.",
+        "save": "Enregistrer la marque de tranchée",
+        "saving": "Enregistrement…",
+        "saved": "La marque de tranchée est enregistrée. Reconstruisez pour l’appliquer.",
+        "marked": "Tranchée : {length} m"
+      },
+      "issue": {
+        "QUESTION_UNANSWERED": "La question du mode de pose n’a pas de réponse (ou a reçu sa réponse après la construction — reconstruisez).",
+        "TRENCH_NOT_MARKED": "Vous avez indiqué une tranchée mais n’avez marqué aucune partie. Marquez les parties en tranchée.",
+        "MARKS_WITH_PULL_ONLY": "La réponse est « Tout tiré » mais des marques de tranchée existent. Retirez les marques ou changez la réponse.",
+        "MARK_ROUTE_MISSING": "La marque de tranchée du tracé {route} n’a pas de tracé dans le plan construit. Retirez-la et marquez à nouveau.",
+        "ROUTE_LENGTH_UNKNOWN": "Le tracé {route} n’a pas de longueur écrite, la longueur de tranchée ne peut pas être comparée. Écrivez la longueur du tracé dans le plan.",
+        "TRENCH_LONGER_THAN_ROUTE": "La tranchée marquée sur le tracé {route} ({marked} m) dépasse la longueur écrite du tracé ({length} m)."
+      },
+      "secondaryOk": "Le Secondaire est entièrement en tranchée — pas de question.",
+      "moreIssues": "… et {count} autres problèmes non affichés"
     }
   },
   "asbuilt": {

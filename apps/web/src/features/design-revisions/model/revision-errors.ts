@@ -1,5 +1,6 @@
 import { ltr, translate, type Locale, type MessageKey } from '@ftth/i18n';
 import { PublishBlockedDetailsSchema, type PublishBlockedDetails } from '@ftth/shared';
+import { issueMessage } from '@/features/installation/model/installation-model';
 import { ApiClientError, type ClientErrorCode } from '@/shared/api/bff-client';
 
 const REASONS = [
@@ -61,6 +62,18 @@ export function publishBlockedMessage(
     };
   }
   const drawing = translate(locale, `drawingKind.${details.drawingKind}`);
+  if (details.reason === 'INSTALLATION_UNCLEAR') {
+    const issues = details.issues
+      .map((issue) => {
+        const message = issueMessage(issue);
+        return translate(locale, message.key, message.params);
+      })
+      .join(' ');
+    return {
+      key: 'design.publish.blocked.INSTALLATION_UNCLEAR',
+      params: { drawing, count: ltr(details.issueCount), issues },
+    };
+  }
   switch (details.reason) {
     case 'OTHER_DRAWING_MISSING':
       return { key: 'design.publish.blocked.OTHER_DRAWING_MISSING', params: { drawing } };

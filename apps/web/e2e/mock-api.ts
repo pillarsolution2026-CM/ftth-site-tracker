@@ -68,6 +68,8 @@ import {
 import {
   MOCK_DETECTION,
   handleDesignRevisions,
+  handleGeneralCabinets,
+  handleInstallation,
   handleMapping,
   type Helpers,
   type MockCadFile,
@@ -869,7 +871,7 @@ async function handleProject(
   url: URL,
   segments: string[],
 ): Promise<void> {
-  const [, projectId, resource, id, sub, subId, subSub] = segments;
+  const [, projectId, resource, id, sub, subId, subSub, subSubSub] = segments;
   if (projectId === undefined || !(projectId in PROJECT_CONTRACTS)) {
     return sendError(res, 404, 'NOT_FOUND');
   }
@@ -886,7 +888,8 @@ async function handleProject(
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
-  if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub, subId]);
+  if (resource === 'cad-files')
+    return handleCad(req, res, url, method, [id, sub, subId, subSub, subSubSub]);
   if (resource === 'design-revisions') {
     return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {
       const record = cadFiles.get(cadId);
@@ -1181,7 +1184,7 @@ async function handleCad(
   res: ServerResponse,
   url: URL,
   method: string,
-  [id, sub, subId]: (string | undefined)[],
+  [id, sub, subId, subSub, subSubSub]: (string | undefined)[],
 ): Promise<void> {
   if (id === undefined) {
     if (method === 'GET') {
@@ -1254,6 +1257,13 @@ async function handleCad(
     return void res.end(file.data ?? Buffer.alloc(0));
   }
   if (sub === 'mapping') return handleMapping(req, res, method, mockCad(file), helpers);
+  // ADR-042: the General's installation question and trench marks; the Secondary's points.
+  if (sub === 'installation') {
+    return handleInstallation(req, res, method, mockCad(file), [subId, subSub, subSubSub], helpers);
+  }
+  if (sub === 'placement' && subId === 'general-cabinets' && method === 'GET') {
+    return handleGeneralCabinets(res, mockCad(file), helpers);
+  }
   if (sub === 'corrections' && method === 'GET')
     return send(res, 200, { items: [], activeCount: 0 });
   // Drawing viewer (ADR-039): the mock has no rendered view; the page offers «Prepare the view».

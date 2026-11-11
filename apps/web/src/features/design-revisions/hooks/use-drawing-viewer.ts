@@ -1,7 +1,10 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { ltr } from '@ftth/i18n';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
+import { useI18n } from '@/shared/i18n/locale-provider';
+import { useTrenchTool, type TrenchTool } from '@/features/installation/hooks/use-trench-tool';
 import {
   useCorrections,
   useDrawingProblems,
@@ -13,7 +16,7 @@ import { pendingPlaces, routePieces } from '../model/corrections';
 import { PathCache, type DrawModel } from '../model/drawing-draw';
 import { buildMarkers, hitEntity, hitMarker, type ProblemMarker } from '../model/drawing-hit';
 import { applyCorrections, defaultTextHeight, effectiveLayer } from '../model/drawing-preview';
-import { buildScene, type DrawingScene } from '../model/drawing-scene';
+import { boxOf, buildScene, type DrawingScene } from '../model/drawing-scene';
 import {
   fitTransform,
   panBy,
@@ -29,10 +32,11 @@ import { useFixTools, type FixTools } from './use-fix-tools';
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {
-  code: ProblemMarker['code'];
+  code: ProblemMarker['code'] | null;
   handle: string;
-  x: number;
-  y: number;
+  /** null: the viewer centres on the drawing entity of the handle (trench marks, checklist). */
+  x: number | null;
+  y: number | null;
   /** Changes on every request, so asking for the same place again zooms again. */
   nonce: number;
 }
@@ -73,6 +77,8 @@ export interface DrawingViewer {
   cache: PathCache | null;
   scene: DrawingScene | null;
   tools: FixTools;
+  /** «حفر جديد» and the trench marks of a General (ADR-042). */
+  trench: TrenchTool;
   // Layers
   layerRows: LayerRow[];
   layerQuery: string;
@@ -106,14 +112,34 @@ interface Input {
   /** design:write: may request the view, and the fix tools are offered. */
   canWrite: boolean;
   canFix: boolean;
+  /** The drawing is a General: its trench marks are read and drawn. */
+  isGeneral?: boolean;
   focus: ShowPlace | null;
 }
 
 const NO_ENTITIES: ReadonlySet<number> = new Set();
 
+/** Where to look for a place: its own point, else the middle of the entities of its handle. */
+function focusCentre(scene: DrawingScene, focus: ShowPlace): { x: number; y: number } | null {
+  if (focus.x !== null && focus.y !== null) return { x: focus.x, y: focus.y };
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const index of scene.byHandle.get(focus.handle) ?? []) {
+    const box = boxOf(scene, index);
+    minX = Math.min(minX, box.minX);
+    minY = Math.min(minY, box.minY);
+    maxX = Math.max(maxX, box.maxX);
+    maxY = Math.max(maxY, box.maxY);
+  }
+  return minX === Infinity ? null : { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
 /** State of the drawing viewer: status and data, layers, view transform, selection, preview. */
 export function useDrawingViewer(input: Input): DrawingViewer {
   const { projectId, revisionId, cadFileId, enabled, canWrite, canFix, focus } = input;
+  const { t } = useI18n();
   const stateQuery = useDrawingViewState(projectId, cadFileId, enabled);
   const status = stateQuery.data?.status;
   const viewQuery = useDrawingView(projectId, cadFileId, enabled && status === 'ready');
@@ -121,6 +147,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const problems = useDrawingProblems(projectId, revisionId, enabled);
   const corrections = useCorrections(projectId, cadFileId, enabled);
   const tools = useFixTools(projectId, cadFileId, enabled && canFix);
+  const trench = useTrenchTool({
+    projectId,
+    cadFileId,
+    enabled: enabled && input.isGeneral === true,
+    canEdit: canFix,
+  });
 
   const scene = useMemo(
     () => (viewQuery.data ? buildScene(viewQuery.data) : null),
@@ -213,7 +245,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         : FOCUS_WINDOW_UNITS / 2;
     setAppliedNonce(focus.nonce);
     setHighlightNonce(focus.nonce);
-    setCustom(windowTransform(focus.x, focus.y, half, size));
+    const at = focusCentre(scene, focus);
+    if (at) setCustom(windowTransform(at.x, at.y, half, size));
     setSelected(null);
     setPopover(null);
   }
@@ -230,6 +263,18 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     return found;
   }, [scene, focus, highlightNonce]);
 
+  // Routes marked for trench: entity → «Trench: 25.000 m» (the sum of the marks in force).
+  const trenchLabels = useMemo(() => {
+    const labels = new Map<number, string>();
+    if (!scene) return labels;
+    for (const [handle, metres] of trench.byRoute) {
+      for (const index of scene.byHandle.get(handle) ?? []) {
+        labels.set(index, t('design.installation.tool.marked', { length: ltr(metres) }));
+      }
+    }
+    return labels;
+  }, [scene, trench.byRoute, t]);
+
   const model = useMemo<DrawModel | null>(
     () =>
       scene && preview
@@ -240,9 +285,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             markers,
             highlighted,
             selected,
+            trench: trenchLabels,
           }
         : null,
-    [scene, preview, isShown, markers, highlighted, selected],
+    [scene, preview, isShown, markers, highlighted, selected, trenchLabels],
   );
 
   const click = (sx: number, sy: number) => {
@@ -303,6 +349,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     cache,
     scene,
     tools,
+    trench,
     layerRows,
     layerQuery,
     setLayerQuery,

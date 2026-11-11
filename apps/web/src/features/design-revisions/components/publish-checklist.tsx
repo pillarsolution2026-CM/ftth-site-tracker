@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type {
   CabinetsComparison,
+  InstallationReport,
   PublishCheck,
   PublishCheckKey,
   PublishReadiness,
@@ -13,6 +14,7 @@ import { Button } from '@/shared/ui/button';
 import { Ltr } from '@/shared/ui/ltr';
 import { Checkbox } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { issueMessage } from '@/features/installation/model/installation-model';
 
 interface PublishChecklistProps {
   readiness: PublishReadiness | null;
@@ -28,6 +30,8 @@ interface PublishChecklistProps {
   otherRevisionHref: string | null;
   onAcknowledgedChange: (value: boolean) => void;
   onPublish: () => void;
+  /** Zoom the drawing to a route (the installation issues); omitted when there is no viewer. */
+  onShowRoute?: (routeHandle: string) => void;
 }
 
 const COORDINATE_CHECKS: readonly PublishCheckKey[] = ['crs_known', 'control_point'];
@@ -48,6 +52,7 @@ export function PublishChecklist({
   otherRevisionHref,
   onAcknowledgedChange,
   onPublish,
+  onShowRoute,
 }: PublishChecklistProps) {
   const { t } = useI18n();
   return (
@@ -67,6 +72,9 @@ export function PublishChecklist({
               key={check.key}
               check={check}
               cabinets={readiness.cabinets}
+              installation={readiness.installation}
+              drawingKind={readiness.drawingKind}
+              onShowRoute={onShowRoute}
               mappingHref={mappingHref}
               otherRevisionHref={otherRevisionHref}
               otherKind={otherDrawingKind(readiness.drawingKind)}
@@ -153,15 +161,61 @@ function CabinetsDetail({ cabinets }: { cabinets: CabinetsComparison }) {
   );
 }
 
+/** The General's installation issues, each with the route it is about (ADR-042 part D). */
+function InstallationDetail({
+  report,
+  onShowRoute,
+}: {
+  report: InstallationReport;
+  onShowRoute: ((routeHandle: string) => void) | undefined;
+}) {
+  const { t } = useI18n();
+  return (
+    <ul className="ms-7 flex w-full flex-col gap-1 text-sm">
+      {report.issues.map((issue, index) => {
+        const message = issueMessage(issue);
+        return (
+          <li
+            key={`${issue.code}-${issue.routeHandle ?? ''}-${index}`}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{t(message.key, message.params)}</span>
+            {issue.routeHandle !== null && onShowRoute ? (
+              <Button variant="outline" onClick={() => onShowRoute(issue.routeHandle as string)}>
+                {t('design.viewer.showOnDrawing')}
+              </Button>
+            ) : null}
+          </li>
+        );
+      })}
+      {report.issueCount > report.issues.length ? (
+        <li>
+          …{' '}
+          {t('design.installation.moreIssues', {
+            count: ltr(report.issueCount - report.issues.length),
+          })}
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
 function CheckRow({
   check,
   cabinets,
+  installation,
+  drawingKind,
+  onShowRoute,
   mappingHref,
   otherRevisionHref,
   otherKind,
 }: {
   check: PublishCheck;
   cabinets: CabinetsComparison | null;
+  installation: InstallationReport | null;
+  drawingKind: DrawingKind;
+  onShowRoute: ((routeHandle: string) => void) | undefined;
   mappingHref: string | null;
   otherRevisionHref: string | null;
   otherKind: DrawingKind;
@@ -199,6 +253,12 @@ function CheckRow({
         <Link href={otherRevisionHref} className={linkClass}>
           {t('design.publish.openOther', { drawing })}
         </Link>
+      ) : null}
+      {check.key === 'installation' && drawingKind === 'secondary' ? (
+        <span className="text-sm">{t('design.installation.secondaryOk')}</span>
+      ) : null}
+      {check.key === 'installation' && !check.ok && installation ? (
+        <InstallationDetail report={installation} onShowRoute={onShowRoute} />
       ) : null}
       {check.key === 'cabinets_match' && !check.ok ? (
         cabinets ? (

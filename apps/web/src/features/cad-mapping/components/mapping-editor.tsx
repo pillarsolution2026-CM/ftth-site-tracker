@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   MAPPING_TEXT_ROWS_LIMIT,
   type CadMappingInput,
@@ -12,6 +12,7 @@ import type { MessageKey } from '@ftth/i18n';
 import { Button } from '@/shared/ui/button';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import type { GeneralCabinetsState } from '../hooks/use-general-cabinets';
 import { useMappingForm } from '../hooks/use-mapping-form';
 import { placementPreview } from '../model/placement-preview';
 import { CrsPanel } from './crs-panel';
@@ -37,6 +38,8 @@ export interface MappingEditorProps {
   onSave: (input: CadMappingInput) => Promise<number | null>;
   onBuild: (mappingVersion: number) => void;
   onReload: () => void;
+  /** «من كبائن الرئيسي» of a Secondary (ADR-042 part G); omitted for a General. */
+  cabinets?: GeneralCabinetsState | null;
 }
 
 /** The mapping form: CRS panel, placement, rule tables, Save and Build revision. */
@@ -53,6 +56,7 @@ export function MappingEditor({
   onBuild,
   onReload,
   drawingKind = null,
+  cabinets = null,
 }: MappingEditorProps) {
   const { t } = useI18n();
   const form = useMappingForm(view, drawingKind);
@@ -70,6 +74,16 @@ export function MappingEditor({
         : null,
     [drawing, form.state.placement.points, form.solved, form.projectEpsg],
   );
+
+  // The suggested points go into the form once; the PM saves as usual.
+  const pending = cabinets?.pending ?? null;
+  const consume = cabinets?.consume;
+  const applyGeneralCabinets = form.applyGeneralCabinets;
+  useEffect(() => {
+    if (!pending || !consume) return;
+    const dropped = applyGeneralCabinets(pending.points);
+    consume({ added: Math.max(0, pending.points.length - dropped), dropped });
+  }, [pending, consume, applyGeneralCabinets]);
 
   const save = async () => {
     const prepared = form.prepareSave();
@@ -111,6 +125,7 @@ export function MappingEditor({
           onUpdatePoint={form.updatePoint}
           onRemovePoint={form.removePoint}
           onFitScaleChange={form.setFitScaleWithTwoPoints}
+          cabinets={cabinets}
         />
       ) : null}
       {processed && preview ? (
