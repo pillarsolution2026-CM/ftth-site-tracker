@@ -73,6 +73,9 @@ export class InMemoryCadFiles implements CadFileRepository {
   async insertUploaded(file: CadFile): Promise<void> {
     this.rows.set(file.id, { ...file, status: 'uploaded' });
   }
+  async listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
+    return this.lockCurrentOfKind(projectId, kind);
+  }
   async lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
     return [...this.rows.values()]
       .filter(

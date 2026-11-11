@@ -129,7 +129,8 @@ export class DrizzleExecutionTx implements ExecutionTx {
           FROM design_features df
           JOIN design_revisions r ON r.project_id = df.project_id AND r.id = df.revision_id
           WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
-            AND df.feature_id = ${featureId} AND r.status = 'published'`,
+            AND df.feature_id = ${featureId} AND r.status = 'published'
+            AND r.drawing_kind = 'general'`,
     );
     return row
       ? { featureType: row.feature_type, revisionPublishedAt: new Date(row.published_at) }
@@ -285,7 +286,8 @@ export class DrizzleExecutionTx implements ExecutionTx {
     const [row] = await rowsOf<{ published_at: Date; crs_epsg: number }>(
       this.db,
       sql`SELECT published_at, crs_epsg FROM design_revisions
-          WHERE project_id = ${projectId} AND id = ${revisionId} AND status = 'published'`,
+          WHERE project_id = ${projectId} AND id = ${revisionId} AND status = 'published'
+            AND drawing_kind = 'general'`,
     );
     return row ? { publishedAt: new Date(row.published_at), crsEpsg: row.crs_epsg } : null;
   }
@@ -426,7 +428,8 @@ export class DrizzleExecutionTx implements ExecutionTx {
           FROM design_features df
           JOIN design_revisions r ON r.project_id = df.project_id AND r.id = df.revision_id
           WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
-            AND df.feature_id = ${featureId} AND r.status = 'published'`,
+            AND df.feature_id = ${featureId} AND r.status = 'published'
+            AND r.drawing_kind = 'general'`,
     );
     return row
       ? {

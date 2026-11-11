@@ -31,6 +31,8 @@ export interface CadFileRepository {
    * (not superseded) files of the kind (SELECT … FOR UPDATE). Newest first.
    */
   lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]>;
+  /** The project's current (not superseded) files of the kind, newest first; no lock. */
+  listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]>;
   /** Marks each file superseded by `byId` at `at` (files already superseded are untouched). */
   supersede(projectId: string, fileIds: string[], byId: string, at: Date): Promise<void>;
   /**
