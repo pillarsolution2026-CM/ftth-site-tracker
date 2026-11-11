@@ -447,6 +447,16 @@ Section headings (rows without unit, quantity and price), empty quantities and t
 7. Box numbers «09» and «9»: the same box? (Now: compared as written.) Display of a box identity: «1-3/9»?
 8. Connector and end-cap size: the 1way's duct size from its label — confirm. (Now: from the label; null when the 1way has no size.)
 **Consequences:** shared contracts (this change): `cad/text-roles.ts`, mapping `textRoles` / `ways` / `zone`, `design/feature-reading.schemas.ts`, ten new problem codes with params and blocking flags, `counts.reading`, check key `cabinets_match`, blocker `CABINETS_MISMATCH`, readiness `cabinets` / `warningCount`, list `warningTotal`. Worker: `text_roles.py`, role linking, readings, codes, counts and checks per kind. API: kind validation of the mapping, blocking totals, the cabinets comparison in readiness and publish. Web: roles / ways / zone on the mapping screen, fix tools and messages for the new codes, warnings shown apart, the cabinets row of the checklist; i18n ar/en/fr. Next ADR: 042, next migration: 0021.
+**Owner answers to the open questions (2026-11-11) — principle: anything unclear is an error and is flagged:**
+1. Only **sub** cabinets are compared between the drawings (as built).
+2. A handhole type written another way («HH2», «MH1», «HH I») stays HANDHOLE_TYPE_UNKNOWN until the PM confirms which list type it is; the confirmation (`handholeTypeAliases` on the handhole_type layer rule) applies to every handhole with that spelling in that drawing.
+3. A route with no bundle label, and a General segment with no cable label: LABEL_MISSING (error).
+4. Several main cables: each main cable's spare cores are computed from the branch cables leaving that cable only.
+5. A box naming a cabinet that is not in the drawing: BOX_CABINET_UNKNOWN; a cabinet with no written box count: LABEL_MISSING (`field` box_count) with the boxes drawn under it as `suggested`; a box with no cable type or length: LABEL_MISSING.
+6. Two cabinets with the same name in one drawing: CABINET_NAME_DUPLICATE.
+7. Box numbers equal once leading zeros are dropped («09» and «9») under one cabinet: BOX_NUMBER_DUPLICATE.
+8. Connector and end-cap size = the 1way's duct size from its label; a 1way label with no size: CONNECTOR_SIZE_MISSING.
+Migration `0021` widens the correction problem codes.
 **Implementation notes (2026-11-11, tested on the Al-Fath fixtures):**
 - Role texts link within **20 text heights** (not ADR-019's 15): on the Al-Fath Secondary some box numbers, cabinet names and cable lengths stand 15.1–18.4 heights from their own box while the next box is at least 17.8 away; pairing stays one-to-one, nearest first.
 - A **cable label follows its bundle label**: each cable text is paired with the nearest bundle text and goes to that bundle's route, so the slack check compares the right pair when one drawn line carries two segments.

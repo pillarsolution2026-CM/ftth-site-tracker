@@ -44,6 +44,13 @@ export const DRAWING_PROBLEM_CODES = [
   'CABLE_SLACK_TOO_SHORT',
   /** General: spare (cable − bundle) above 30 m. WARNING: does not block publishing. */
   'CABLE_SLACK_TOO_LONG',
+  // ---- owner answers to the ADR-041 questions (2026-11-11): anything unclear is an error ----
+  /** Secondary: a box names a cabinet (box_cabinet) that is not a cabinet of the drawing (typo?). */
+  'BOX_CABINET_UNKNOWN',
+  /** Either drawing: two cabinets with the same name (one place per cabinet). */
+  'CABINET_NAME_DUPLICATE',
+  /** Secondary: a 1way bundle whose label has no duct size, so its connector / end-cap size is unknown. */
+  'CONNECTOR_SIZE_MISSING',
 ] as const;
 export const DrawingProblemCodeSchema = z.enum(DRAWING_PROBLEM_CODES);
 export type DrawingProblemCode = z.infer<typeof DrawingProblemCodeSchema>;
@@ -70,6 +77,9 @@ export const DRAWING_PROBLEM_SEVERITY: Readonly<Record<DrawingProblemCode, Probl
   SPARE_CORES_MISMATCH: 'error',
   CABLE_SLACK_TOO_SHORT: 'error',
   CABLE_SLACK_TOO_LONG: 'warning',
+  BOX_CABINET_UNKNOWN: 'error',
+  CABINET_NAME_DUPLICATE: 'error',
+  CONNECTOR_SIZE_MISSING: 'error',
 };
 
 /**
@@ -94,6 +104,9 @@ export const DRAWING_PROBLEM_BLOCKS: Readonly<Record<DrawingProblemCode, boolean
   SPARE_CORES_MISMATCH: true,
   CABLE_SLACK_TOO_SHORT: true,
   CABLE_SLACK_TOO_LONG: false,
+  BOX_CABINET_UNKNOWN: true,
+  CABINET_NAME_DUPLICATE: true,
+  CONNECTOR_SIZE_MISSING: true,
 };
 
 export const blocksPublishing = (code: DrawingProblemCode): boolean => DRAWING_PROBLEM_BLOCKS[code];
@@ -125,6 +138,17 @@ export const ProblemNearSchema = z.object({
  * - CABINET_BOX_COUNT_MISMATCH: `cabinet`, `expected` written count, `found` boxes drawn;
  * - SPARE_CORES_MISMATCH: `expected` main − Σ branches, `found` written, `mainCores`;
  * - CABLE_SLACK_*: `cableLengthM`, `bundleLengthM`, `slackM` (decimal strings), `featureHandle`.
+ * Owner answers (2026-11-11):
+ * - LABEL_MISSING also for: a route with no bundle label (`role` bundle_label), a General segment
+ *   with no cable label (`role` cable_label), a cabinet with no written box count (`role`
+ *   cabinet_info, `field` box_count, `suggested` = boxes drawn under it), a box with no cable type /
+ *   length (`role` box_cable_type / box_cable_length);
+ * - BOX_NUMBER_DUPLICATE also when two numbers are equal once leading zeros are dropped («09» and
+ *   «9»): `found` lists the written forms;
+ * - HANDHOLE_TYPE_UNKNOWN: confirmed by the PM through the rule's `handholeTypeAliases`;
+ * - BOX_CABINET_UNKNOWN: `cabinet` the written name, `featureHandle` the box;
+ * - CABINET_NAME_DUPLICATE: `cabinet` the name, `featureHandle` the cabinet;
+ * - CONNECTOR_SIZE_MISSING: `featureHandle` the 1way route.
  * Absent on problems stored before ADR-041.
  */
 /** Technical bound on a written core count (largest cables are a few thousand cores). */
@@ -142,6 +166,8 @@ const DrawingProblemParamsFields = z
     cableLengthM: DecimalStringSchema,
     bundleLengthM: DecimalStringSchema,
     slackM: DecimalStringSchema,
+    /** A value the system proposes (e.g. the boxes drawn under a cabinet with no «nB»). */
+    suggested: z.string().max(64),
     /** The feature the place is about when `handle` is a text (so a fix can target either). */
     featureHandle: z.string(),
   })

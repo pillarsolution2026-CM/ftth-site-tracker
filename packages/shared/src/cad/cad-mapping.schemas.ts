@@ -15,6 +15,7 @@ import { DrawingUnitSchema } from './drawing-units.js';
 import { PlacementSchema } from './placement.schemas.js';
 import type { DrawingKind } from './drawing-kind.schemas.js';
 import {
+  HandholeTypeSchema,
   MAX_BUNDLE_WAYS,
   TEXT_ROLES,
   TEXT_ROLES_BY_KIND,
@@ -69,8 +70,12 @@ const FeatureAttrs = {
  *   A layer may carry several roles (Al-Fath EXCH = bundle_label + cable_label + cable_spare).
  * - `ways`: the bundle type of a `route` layer (1 = 1way … 24 = 24way); labels are compared with
  *   it (LABEL_TYPE_MISMATCH) and 1way routes give connectors. Suggested by `suggestBundleWays`.
+ * - `handholeTypeAliases`: on a layer that reads `handhole_type`, the PM's confirmation of a type
+ *   written another way in THIS drawing (owner 2026-11-11: «HH2» → HH-II); until confirmed such a
+ *   text is HANDHOLE_TYPE_UNKNOWN. Keys are compared trimmed, case-insensitively.
  * Rules without them read exactly as before (Phase 1, see `readingModeOf`).
  */
+export const MAX_HANDHOLE_TYPE_ALIASES = 50;
 const LayerMeaning = {
   textRoles: z
     .array(TextRoleSchema)
@@ -79,6 +84,10 @@ const LayerMeaning = {
     .refine((roles) => new Set(roles).size === roles.length, 'Duplicate text role')
     .optional(),
   ways: z.number().int().min(1).max(MAX_BUNDLE_WAYS).optional(),
+  handholeTypeAliases: z
+    .record(z.string().trim().min(1).max(16), HandholeTypeSchema)
+    .refine((m) => Object.keys(m).length <= MAX_HANDHOLE_TYPE_ALIASES, 'Too many type aliases')
+    .optional(),
 };
 
 export const MappingRuleSchema = z
@@ -129,6 +138,13 @@ export const MappingRuleSchema = z
     });
     if (rule.ways !== undefined && rule.target !== 'route') {
       ctx.addIssue({ code: 'custom', path: ['ways'], message: 'Only route rules have ways' });
+    }
+    if (rule.handholeTypeAliases !== undefined && !rule.textRoles?.includes('handhole_type')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['handholeTypeAliases'],
+        message: 'Type aliases need the handhole_type text role',
+      });
     }
   });
 export type MappingRule = z.infer<typeof MappingRuleSchema>;

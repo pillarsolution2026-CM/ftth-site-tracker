@@ -11,13 +11,16 @@ import {
   blocksPublishing,
   DRAWING_PROBLEM_CODES,
   DRAWING_PROBLEM_SEVERITY,
+  DrawingProblemCodeSchema,
   DrawingProblemListSchema,
+  DrawingProblemParamsSchema,
   DrawingProblemSchema,
   drawingProblemsOf,
   problemTotals,
   problemTotalsOf,
 } from './drawing-problems.js';
 import { readingOf, ReadingTotalsSchema } from './feature-reading.schemas.js';
+import { MappingRuleSchema } from '../cad/cad-mapping.schemas.js';
 
 const place = {
   x: 1,
@@ -326,5 +329,44 @@ describe('problems fail closed (ADR-041 review)', () => {
       handholes: [],
     });
     expect(totals.bundles[0]).toMatchObject({ ways: null, count: 0 });
+  });
+});
+
+describe('owner answers to the ADR-041 questions (2026-11-11)', () => {
+  it('adds three blocking codes and a suggested value on places', () => {
+    for (const code of [
+      'BOX_CABINET_UNKNOWN',
+      'CABINET_NAME_DUPLICATE',
+      'CONNECTOR_SIZE_MISSING',
+    ] as const) {
+      expect(DrawingProblemCodeSchema.parse(code)).toBe(code);
+      expect(blocksPublishing(code)).toBe(true);
+    }
+    expect(DrawingProblemParamsSchema.parse({ suggested: '22' })).toEqual({ suggested: '22' });
+  });
+
+  it('accepts handhole type aliases only on a layer that reads handhole_type', () => {
+    const base = { source: 'layer', layer: 'HH TEXT', target: 'label' } as const;
+    expect(
+      MappingRuleSchema.safeParse({
+        ...base,
+        textRoles: ['handhole_number', 'handhole_type'],
+        handholeTypeAliases: { HH2: 'HH-II' },
+      }).success,
+    ).toBe(true);
+    expect(
+      MappingRuleSchema.safeParse({
+        ...base,
+        textRoles: ['handhole_number'],
+        handholeTypeAliases: { HH2: 'HH-II' },
+      }).success,
+    ).toBe(false);
+    expect(
+      MappingRuleSchema.safeParse({
+        ...base,
+        textRoles: ['handhole_type'],
+        handholeTypeAliases: { HH2: 'HH-9' },
+      }).success,
+    ).toBe(false);
   });
 });
