@@ -39,6 +39,9 @@ import {
   WorkOrderImportPreviewResponseSchema,
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
+  KindExistsDetailsSchema,
+  UploadCadFileQuerySchema,
+  type DrawingKind,
 } from '@ftth/shared';
 import {
   ADMIN_ACCESS,
@@ -680,6 +683,9 @@ interface CadRecord {
   sizeBytes: number;
   sha256: string;
   data: Buffer | null;
+  drawingKind: DrawingKind;
+  supersededAt: string | null;
+  supersededById: string | null;
   createdAt: string;
   queuedAt: number;
 }
@@ -712,6 +718,9 @@ function cadSummary(file: CadRecord) {
     sizeBytes: Math.max(1, file.sizeBytes),
     sha256: file.sha256,
     status,
+    drawingKind: file.drawingKind,
+    supersededAt: file.supersededAt,
+    supersededById: file.supersededById,
     uploadedById: ME.id,
     counts: processed ? { layers: LAYERS.length, inserts: 2, texts: 3, curves: 4 } : null,
     warningCount: processed ? 1 : 0,
@@ -833,6 +842,8 @@ function mockCad(file: CadRecord): MockCadFile {
     projectId: PROJECT_ID,
     originalName: file.originalName,
     processed: cadStatus(file) === 'processed',
+    drawingKind: file.drawingKind,
+    superseded: file.supersededAt !== null,
     userId: ME.id,
     layers: LAYERS.map((layer) => ({
       name: layer.name,
@@ -1180,7 +1191,29 @@ async function handleCad(
     if (method === 'POST') {
       const file = (await readMultipart(req)).find((part) => part.name === 'file');
       const name = file?.filename ?? '';
+      // ADR-040: the kind is required; a second current file of a kind needs newVersion=true.
+      const query = UploadCadFileQuerySchema.safeParse({
+        kind: url.searchParams.get('kind') ?? undefined,
+        newVersion: url.searchParams.get('newVersion') ?? undefined,
+      });
+      if (!query.success) return sendError(res, 422, 'VALIDATION_FAILED');
       if (!file || !/\.(dxf|dwg)$/i.test(name)) return sendError(res, 415, 'UNSUPPORTED_FILE');
+      const current = [...cadFiles.values()].find(
+        (candidate) => candidate.drawingKind === query.data.kind && candidate.supersededAt === null,
+      );
+      if (current && !query.data.newVersion) {
+        return sendError(
+          res,
+          409,
+          'CONFLICT',
+          KindExistsDetailsSchema.parse({
+            reason: 'KIND_EXISTS',
+            kind: query.data.kind,
+            currentFileId: current.id,
+            currentFileName: current.originalName,
+          }),
+        );
+      }
       const record: CadRecord = {
         id: randomUUID(),
         originalName: name,
@@ -1189,9 +1222,16 @@ async function handleCad(
         sizeBytes: file.data.length,
         sha256: createHash('sha256').update(file.data).digest('hex'),
         data: file.data.length < 1_000_000 ? file.data : null,
+        drawingKind: query.data.kind,
+        supersededAt: null,
+        supersededById: null,
         createdAt: new Date().toISOString(),
         queuedAt: Date.now(),
       };
+      if (current) {
+        current.supersededAt = record.createdAt;
+        current.supersededById = record.id;
+      }
       cadFiles.set(record.id, record);
       return send(res, 201, CadFileSummarySchema.parse(cadSummary(record)));
     }

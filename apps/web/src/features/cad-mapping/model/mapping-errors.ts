@@ -7,6 +7,7 @@ const CONFLICT_REASONS = [
   'NO_MAPPING',
   'MAPPING_VERSION_MISMATCH',
   'REVISION_IN_PROGRESS',
+  'NOT_CURRENT_VERSION',
 ] as const;
 type ConflictReason = (typeof CONFLICT_REASONS)[number];
 

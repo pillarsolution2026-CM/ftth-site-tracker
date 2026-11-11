@@ -24,8 +24,12 @@ test('upload a DXF and watch it go queued, processing, processed; inspect layers
 }) => {
   await login(page);
   await openProject(page, 'CAD files');
-  await expect(page.getByText('No CAD files yet')).toBeVisible();
+  await expect(page.getByText('No General has been uploaded yet')).toBeVisible();
+  await expect(page.getByText('No Secondary has been uploaded yet')).toBeVisible();
 
+  // The kind comes first: the file input stays locked until General or Secondary is chosen.
+  await expect(page.locator('#cad-file-input')).toBeDisabled();
+  await page.getByRole('radio', { name: 'General (main)' }).check();
   await page.locator('#cad-file-input').setInputFiles({
     name: 'route-14.dxf',
     mimeType: 'application/octet-stream',
@@ -65,18 +69,44 @@ test('the proxy streams a 20 MB upload, rejects CSRF and unknown paths', async (
   await login(page);
   const size = 20 * 1024 * 1024;
 
-  const upload = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files`, {
-    headers: { origin: BASE },
-    multipart: {
-      file: {
-        name: 'big.dxf',
-        mimeType: 'application/octet-stream',
-        buffer: Buffer.alloc(size, 0x41),
+  const upload = await page.request.post(
+    `/api/projects/${PROJECT_ID}/cad-files?kind=general&newVersion=true`,
+    {
+      headers: { origin: BASE },
+      multipart: {
+        file: {
+          name: 'big.dxf',
+          mimeType: 'application/octet-stream',
+          buffer: Buffer.alloc(size, 0x41),
+        },
       },
     },
-  });
+  );
   expect(upload.status()).toBe(201);
   expect((await upload.json()).sizeBytes).toBe(size); // the whole file reached the API
+  expect((await upload.json()).drawingKind).toBe('general'); // the query string reached the API
+
+  // The kind is required, and a kind that already has a current file asks first (ADR-040).
+  const small = {
+    name: 'x.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('0\nEOF\n'),
+  };
+  const noKind = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files`, {
+    headers: { origin: BASE },
+    multipart: { file: small },
+  });
+  expect(noKind.status()).toBe(422);
+  const exists = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files?kind=general`, {
+    headers: { origin: BASE },
+    multipart: { file: small },
+  });
+  expect(exists.status()).toBe(409);
+  expect((await exists.json()).details).toMatchObject({
+    reason: 'KIND_EXISTS',
+    kind: 'general',
+    currentFileName: 'big.dxf',
+  });
 
   const noOrigin = await page.request.post(`/api/projects/${PROJECT_ID}/work-orders`, {
     data: { number: 'X' },
@@ -108,11 +138,33 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await login(page);
   await openProject(page, 'CAD files');
 
+  // The work order already has a General (big.dxf): the PM is asked if this is a new version.
+  const dxf = Buffer.from('0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n');
+  await page.getByRole('radio', { name: 'General (main)' }).check();
   await page.locator('#cad-file-input').setInputFiles({
     name: 'mapping-1.dxf',
     mimeType: 'application/octet-stream',
-    buffer: Buffer.from('0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n'),
+    buffer: dxf,
   });
+  const question = page.getByRole('alertdialog');
+  await expect(question).toContainText('Is this a new version of the General?');
+  await expect(question).toContainText('big.dxf');
+  await question.getByRole('button', { name: 'No' }).click();
+  await expect(
+    page.getByText('A work order has only one General — the file was not uploaded'),
+  ).toBeVisible();
+  await expect(page.getByRole('row', { name: /mapping-1\.dxf/ })).toHaveCount(0);
+
+  await page.locator('#cad-file-input').setInputFiles({
+    name: 'mapping-1.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: dxf,
+  });
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Yes, a new version' }).click();
+  // The older General stays as history, badged and still a link.
+  const old = page.getByRole('row', { name: /big\.dxf/ });
+  await expect(old.getByText('Old version')).toBeVisible();
+  await expect(old.getByRole('link', { name: 'big.dxf' })).toBeVisible();
   const row = page.getByRole('row', { name: /mapping-1\.dxf/ });
   await expect(row.getByText('Processed')).toBeVisible({ timeout: 20_000 });
   await row.getByRole('link', { name: 'mapping-1.dxf' }).click();
@@ -162,16 +214,52 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(checklist).toContainText('Coordinates: source CRS chosen');
   await expect(checklist).toContainText('No drawing errors');
   await expect(checklist).toContainText('Open items reviewed');
-  await expect(checklist.getByText('❌')).toHaveCount(1);
+  // The other drawing has no draft yet: publishing is locked and says so (ADR-040).
+  await expect(checklist.getByText('❌')).toHaveCount(2);
+  await expect(checklist).toContainText('There is no draft for the Secondary yet');
+  await expect(checklist).toContainText('both drawings together');
   const publish = checklist.getByRole('button', { name: 'Publish', exact: true });
   await expect(publish).toBeDisabled();
-  await checklist.getByLabel(/I understand/).check();
-  await expect(publish).toBeEnabled();
-  await publish.click();
+
+  // Upload the Secondary, map it and build its draft.
+  await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page.getByRole('radio', { name: 'Secondary', exact: true }).check();
+  await page.locator('#cad-file-input').setInputFiles({
+    name: 'secondary-1.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: dxf,
+  });
+  const secondaryRow = page.getByRole('row', { name: /secondary-1\.dxf/ });
+  await expect(secondaryRow.getByText('Processed')).toBeVisible({ timeout: 20_000 });
+  await secondaryRow.getByRole('link', { name: 'secondary-1.dxf' }).click();
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
+  await page.getByRole('button', { name: 'Save mapping' }).click();
+  await expect(page.getByText('Mapping saved (version 1)')).toBeVisible();
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+
+  // The Secondary draft sees the General draft as the other drawing, ready, and links to it.
+  const pairChecklist = page.getByRole('region', { name: 'Before publishing' });
+  await expect(pairChecklist).toContainText('The other drawing (General (main)) is ready');
+  await expect(
+    pairChecklist.getByRole('link', { name: 'Open the General (main) draft' }),
+  ).toBeVisible();
+  const pairPublish = pairChecklist.getByRole('button', { name: 'Publish', exact: true });
+  await expect(pairPublish).toBeDisabled(); // open items of both drawings need the acknowledgement
+  await pairChecklist.getByLabel(/I understand/).check();
+  await expect(pairPublish).toBeEnabled();
+  await pairPublish.click();
 
   await expect(page.getByRole('heading', { name: /Design revision\s+#1/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
 
   await page.getByRole('link', { name: 'Design revisions', exact: true }).first().click();
-  await expect(page.getByRole('table', { name: 'Design revisions' })).toContainText('Published');
+  const revisionTable = page.getByRole('table', { name: 'Design revisions' });
+  await expect(revisionTable).toContainText('Published');
+  // Both drawings were published together and each row names its kind.
+  await expect(revisionTable.getByRole('row')).toHaveCount(3);
+  await expect(revisionTable.locator('[data-kind="general"]')).toContainText('Main');
+  await expect(revisionTable.locator('[data-kind="secondary"]')).toContainText('Secondary');
 });

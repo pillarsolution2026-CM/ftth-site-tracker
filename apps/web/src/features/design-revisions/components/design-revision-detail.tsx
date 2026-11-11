@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
+import { DrawingKindBadge } from '@/shared/ui/drawing-kind-badge';
 import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader } from '@/shared/ui/table';
@@ -63,6 +64,7 @@ export function DesignRevisionDetailScreen({
         </Link>
       </PageHeader>
       <div className="flex flex-wrap items-center gap-3">
+        <DrawingKindBadge kind={revision.drawingKind} />
         <RevisionStatusBadge status={revision.status} />
         {isBuilding(revision.status) ? (
           <span aria-live="polite">{t('design.autoRefresh')}</span>
@@ -102,6 +104,11 @@ export function DesignRevisionDetailScreen({
           publishing={state.publishing}
           allowed={state.publishAllowed}
           mappingHref={`${cadFilesPath}/${revision.cadFileId}/mapping`}
+          otherRevisionHref={
+            state.readiness?.otherRevisionId
+              ? `${listPath}/${state.readiness.otherRevisionId}`
+              : null
+          }
           onAcknowledgedChange={state.setAcknowledged}
           onPublish={state.publish}
         />

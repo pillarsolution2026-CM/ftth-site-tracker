@@ -18,6 +18,7 @@ import {
   type CadLayerListResponse,
   type CadTextListQuery,
   type CadTextPage,
+  type DrawingKind,
 } from '@ftth/shared';
 import { bffJson, bffUpload, projectApiPath, type UploadOptions } from '@/shared/api/bff-client';
 
@@ -83,14 +84,21 @@ export function reprocessCadFile(projectId: string, id: string): Promise<CadFile
   return bffJson(`${one(projectId, id)}/reprocess`, CadFileSummarySchema, { method: 'POST' });
 }
 
+/**
+ * Upload a CAD file as the General or the Secondary of the work order (ADR-040). Without
+ * `newVersion` the API refuses (409 KIND_EXISTS) when the kind already has a current file.
+ */
 export function uploadCadFile(
   projectId: string,
   file: File,
+  kind: DrawingKind,
+  newVersion: boolean,
   options?: UploadOptions,
 ): Promise<CadFileSummary> {
   const form = new FormData();
   form.append('file', file);
-  return bffUpload(root(projectId), form, CadFileSummarySchema, options);
+  const query = toQueryString({ kind, newVersion: newVersion ? 'true' : undefined });
+  return bffUpload(`${root(projectId)}${query}`, form, CadFileSummarySchema, options);
 }
 
 /** Plain link to the original file; the browser sends its session cookie to the proxy. */
