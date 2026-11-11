@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { PublishCheck, PublishCheckKey, PublishReadiness } from '@ftth/shared';
 import { ltr } from '@ftth/i18n';
+import { otherDrawingKind, type DrawingKind } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -17,6 +18,8 @@ interface PublishChecklistProps {
   allowed: boolean;
   /** Where the CAD file's coordinate mapping (placement panel) lives; null when unknown. */
   mappingHref: string | null;
+  /** The other drawing's open draft (published together with this one); null when there is none. */
+  otherRevisionHref: string | null;
   onAcknowledgedChange: (value: boolean) => void;
   onPublish: () => void;
 }
@@ -36,6 +39,7 @@ export function PublishChecklist({
   publishing,
   allowed,
   mappingHref,
+  otherRevisionHref,
   onAcknowledgedChange,
   onPublish,
 }: PublishChecklistProps) {
@@ -53,7 +57,13 @@ export function PublishChecklist({
       {readiness ? (
         <ul className="flex flex-col gap-2">
           {readiness.checks.map((check) => (
-            <CheckRow key={check.key} check={check} mappingHref={mappingHref} />
+            <CheckRow
+              key={check.key}
+              check={check}
+              mappingHref={mappingHref}
+              otherRevisionHref={otherRevisionHref}
+              otherKind={otherDrawingKind(readiness.drawingKind)}
+            />
           ))}
         </ul>
       ) : null}
@@ -68,13 +78,25 @@ export function PublishChecklist({
           />
         </>
       ) : null}
+      {readiness ? (
+        <p id="publish-pair" className="text-sm font-semibold">
+          {t('design.publish.pairNote', {
+            first: t(`drawingKind.${readiness.drawingKind}`),
+            second: t(`drawingKind.${otherDrawingKind(readiness.drawingKind)}`),
+          })}
+        </p>
+      ) : null}
       {readiness && !readiness.canPublish ? (
         <p id="publish-locked" className="text-sm">
           {t('design.publish.lockedHint')}
         </p>
       ) : null}
       <div>
-        <Button onClick={onPublish} disabled={!allowed}>
+        <Button
+          onClick={onPublish}
+          disabled={!allowed}
+          aria-describedby={readiness ? 'publish-pair' : undefined}
+        >
           {publishing ? t('design.actions.publishing') : t('design.actions.publish')}
         </Button>
       </div>
@@ -82,11 +104,33 @@ export function PublishChecklist({
   );
 }
 
-function CheckRow({ check, mappingHref }: { check: PublishCheck; mappingHref: string | null }) {
+function CheckRow({
+  check,
+  mappingHref,
+  otherRevisionHref,
+  otherKind,
+}: {
+  check: PublishCheck;
+  mappingHref: string | null;
+  otherRevisionHref: string | null;
+  otherKind: DrawingKind;
+}) {
   const { t } = useI18n();
+  const drawing = t(`drawingKind.${otherKind}`);
+  const isOther = check.key === 'other_drawing';
   const label = t(`design.publish.checks.${check.key}`, {
     count: check.count === null ? '' : ltr(check.count),
+    drawing,
   });
+  // The other drawing: say why it is not ready (no draft yet, or N errors left in it).
+  const otherReason =
+    isOther && !check.ok
+      ? check.count === null
+        ? t('design.publish.otherNoDraft', { drawing })
+        : t('design.publish.otherErrors', { count: ltr(check.count) })
+      : null;
+  const linkClass =
+    'inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span aria-hidden="true">{check.ok ? '✅' : '❌'}</span>
@@ -94,12 +138,15 @@ function CheckRow({ check, mappingHref }: { check: PublishCheck; mappingHref: st
       <span className="text-sm opacity-80">
         ({check.ok ? t('design.publish.done') : t('design.publish.notDone')})
       </span>
+      {otherReason ? <span className="text-sm">{otherReason}</span> : null}
       {!check.ok && mappingHref && COORDINATE_CHECKS.includes(check.key) ? (
-        <Link
-          href={mappingHref}
-          className="inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)"
-        >
+        <Link href={mappingHref} className={linkClass}>
           {t('design.publish.fixCoordinates')}
+        </Link>
+      ) : null}
+      {isOther && otherRevisionHref ? (
+        <Link href={otherRevisionHref} className={linkClass}>
+          {t('design.publish.openOther', { drawing })}
         </Link>
       ) : null}
     </li>

@@ -34,6 +34,7 @@ function CountGrid({ title, rows }: { title: string; rows: [string, React.ReactN
 export function RevisionSummary({ revision }: { revision: DesignRevisionDetail }) {
   const { t, locale } = useI18n();
   const facts: [string, React.ReactNode][] = [
+    [t('design.kind'), t(`drawingKind.${revision.drawingKind}`)],
     [t('design.crs'), <Ltr key="crs">{revision.crsEpsg}</Ltr>],
     [t('design.unit'), <Ltr key="unit">{revision.drawingUnit}</Ltr>],
     [t('design.factor'), <Ltr key="factor">{revision.metresPerUnit}</Ltr>],

@@ -181,6 +181,7 @@ export function CadFileDetailScreen({
         </Link>
       </PageHeader>
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <span className="font-semibold">{t(`drawingKind.${file.drawingKind}`)}</span>
         <CadStatusBadge status={file.status} />
         {inFlight ? <span aria-live="polite">{t('cad.autoRefresh')}</span> : null}
         <a
@@ -210,6 +211,19 @@ export function CadFileDetailScreen({
           </Button>
         ) : null}
       </div>
+      {file.supersededAt !== null ? (
+        <Notice kind="info" className="mb-3">
+          <p>{t('cad.supersededNotice')}</p>
+          {file.supersededById ? (
+            <Link
+              href={`${listPath}/${file.supersededById}`}
+              className="inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)"
+            >
+              {t('cad.openNewer')}
+            </Link>
+          ) : null}
+        </Notice>
+      ) : null}
       {state.reprocessErrorCode ? (
         <ErrorNotice code={state.reprocessErrorCode} className="mb-3" />
       ) : null}

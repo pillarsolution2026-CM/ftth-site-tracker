@@ -15,12 +15,21 @@ function readiness(
     control_point: 2,
     no_problems: 0,
     open_items: 0,
+    other_drawing: 0,
     ...counts,
   };
-  const keys = ['crs_known', 'control_point', 'no_problems', 'open_items'] as const;
+  const keys = [
+    'crs_known',
+    'control_point',
+    'no_problems',
+    'open_items',
+    'other_drawing',
+  ] as const;
   return {
     checks: keys.map((key) => ({ key, ok: !failing.includes(key), count: base[key] })),
     canPublish: !failing.some((key) => key !== 'open_items'),
+    drawingKind: 'general',
+    otherRevisionId: null,
     needsAcknowledgement: failing.includes('open_items'),
   };
 }
@@ -40,6 +49,7 @@ function setup(
       publishing={false}
       allowed={data?.canPublish === true && !data.needsAcknowledgement}
       mappingHref="/en/projects/p/cad-files/f/mapping"
+      otherRevisionHref={null}
       onAcknowledgedChange={onAcknowledgedChange}
       onPublish={onPublish}
       {...props}
@@ -49,24 +59,25 @@ function setup(
 }
 
 describe('PublishChecklist', () => {
-  it('lists the four checks with an icon and a word each, with counts', () => {
+  it('lists the five checks with an icon and a word each, with counts', () => {
     setup(readiness(['no_problems'], { no_problems: 5 }));
     expect(screen.getByText('Coordinates: source CRS chosen')).toBeInTheDocument();
     expect(screen.getByText(/At least one control point in use \(.*2.*\)/)).toBeInTheDocument();
     expect(screen.getByText(/No drawing errors \(.*5.* left\)/)).toBeInTheDocument();
     expect(screen.getByText(/Open items reviewed/)).toBeInTheDocument();
-    expect(screen.getAllByText('✅')).toHaveLength(3);
+    expect(screen.getByText(/The other drawing \(Secondary\) is ready/)).toBeInTheDocument();
+    expect(screen.getAllByText('✅')).toHaveLength(4);
     expect(screen.getByText('❌')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getAllByText('(Done)')).toHaveLength(3);
+    expect(screen.getAllByText('(Done)')).toHaveLength(4);
     expect(screen.getByText('(Not done)')).toBeInTheDocument();
   });
 
-  it.each(['crs_known', 'control_point', 'no_problems'] as const)(
+  it.each(['crs_known', 'control_point', 'no_problems', 'other_drawing'] as const)(
     'locks Publish when %s fails',
     (key) => {
       setup(readiness([key]));
       expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
-      expect(screen.getByText(/locked until the first three checks/)).toBeInTheDocument();
+      expect(screen.getByText(/locked until all checks except open items/)).toBeInTheDocument();
     },
   );
 
@@ -103,6 +114,43 @@ describe('PublishChecklist', () => {
     setup(null, { loading: true, allowed: false });
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+  });
+});
+
+describe('PublishChecklist other drawing row (ADR-040)', () => {
+  it('says there is no draft yet when the other drawing has none', () => {
+    setup(readiness(['other_drawing'], { other_drawing: null }));
+    expect(screen.getByText('There is no draft for the Secondary yet')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: /Open the Secondary draft/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the errors left in the other drawing and links to its draft', () => {
+    setup(readiness(['other_drawing'], { other_drawing: 4 }), {
+      otherRevisionHref: '/en/projects/p/design-revisions/o',
+    });
+    expect(screen.getByText(/4.* errors in it/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open the Secondary draft' })).toHaveAttribute(
+      'href',
+      '/en/projects/p/design-revisions/o',
+    );
+  });
+
+  it('names the General when this is the Secondary draft', () => {
+    const data = {
+      ...readiness(['other_drawing'], { other_drawing: null }),
+      drawingKind: 'secondary' as const,
+    };
+    setup(data);
+    expect(screen.getByText(/The other drawing \(General \(main\)\) is ready/)).toBeInTheDocument();
+  });
+
+  it('says both drawings are published together', () => {
+    setup(readiness());
+    expect(
+      screen.getByText(/both drawings together \(General \(main\) \+ Secondary\)/),
+    ).toBeInTheDocument();
   });
 });
 

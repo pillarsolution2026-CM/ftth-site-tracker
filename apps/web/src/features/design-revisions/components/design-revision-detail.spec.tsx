@@ -31,6 +31,7 @@ const CAD_FILE = '33333333-3333-4333-8333-333333333333';
 const revision = {
   id: '22222222-2222-4222-8222-222222222222',
   cadFileId: CAD_FILE,
+  drawingKind: 'general',
   revNo: null,
   status: 'draft',
 };
@@ -42,8 +43,11 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
       { key: 'control_point', ok: true, count: 1 },
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: true, count: 0 },
+      { key: 'other_drawing', ok: true, count: 0 },
     ],
     canPublish: true,
+    drawingKind: 'general',
+    otherRevisionId: null,
     needsAcknowledgement: false,
     ...overrides,
   };
@@ -123,14 +127,43 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     const user = userEvent.setup();
     api.getPublishReadiness.mockResolvedValue(readiness());
     api.publishDesignRevision.mockRejectedValue(
-      new ApiClientError('CONFLICT', 409, { reason: 'PROBLEMS_OPEN', problemCount: 4 }),
+      new ApiClientError('CONFLICT', 409, {
+        reason: 'PROBLEMS_OPEN',
+        drawingKind: 'secondary',
+        problemCount: 4,
+      }),
     );
     renderDetail();
     const button = await screen.findByRole('button', { name: 'Publish' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
-    expect(await screen.findByText(/4.* drawing errors are left/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/4.* drawing errors are left in the Secondary drawing/),
+    ).toBeInTheDocument();
     await waitFor(() => expect(api.getPublishReadiness).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('DesignRevisionDetailScreen pair publishing', () => {
+  it('explains the other drawing and links to its draft', async () => {
+    const other = '44444444-4444-4444-8444-444444444444';
+    api.getPublishReadiness.mockResolvedValue(
+      readiness({
+        checks: [
+          { key: 'crs_known', ok: true, count: null },
+          { key: 'control_point', ok: true, count: 1 },
+          { key: 'no_problems', ok: true, count: 0 },
+          { key: 'open_items', ok: true, count: 0 },
+          { key: 'other_drawing', ok: false, count: 3 },
+        ],
+        canPublish: false,
+        otherRevisionId: other,
+      }),
+    );
+    renderDetail();
+    const link = await screen.findByRole('link', { name: 'Open the Secondary draft' });
+    expect(link).toHaveAttribute('href', `/en/projects/p/design-revisions/${other}`);
+    expect(screen.getByText(/3.* errors in it/)).toBeInTheDocument();
   });
 });
 

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { DesignRevisionSummary } from '@ftth/shared';
+import { DrawingKindBadge } from '@/shared/ui/drawing-kind-badge';
 import { Ltr } from '@/shared/ui/ltr';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { PageHeader, Table, Td, Th } from '@/shared/ui/table';
@@ -37,6 +38,7 @@ export function DesignRevisionListView({
           <thead>
             <tr>
               <Th>{t('design.revision')}</Th>
+              <Th>{t('design.kind')}</Th>
               <Th>{t('cad.statusLabel')}</Th>
               <Th>{t('design.file')}</Th>
               <Th>{t('design.crs')}</Th>
@@ -58,6 +60,9 @@ export function DesignRevisionListView({
                       t('design.draftLabel')
                     )}
                   </Link>
+                </Td>
+                <Td>
+                  <DrawingKindBadge kind={revision.drawingKind} />
                 </Td>
                 <Td>
                   <RevisionStatusBadge status={revision.status} />
