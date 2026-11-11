@@ -254,9 +254,15 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return built[0] ? { ...built[0] } : null;
   }
-  async subCabinetPositions(projectId: string, revisionId: string): Promise<SubCabinetPosition[]> {
+  async subCabinetPositions(
+    projectId: string,
+    revisionId: string,
+    limit: number,
+  ): Promise<SubCabinetPosition[]> {
     const row = this.rows.get(revisionId);
-    return row?.projectId === projectId ? [...(this.cabinetPositions.get(revisionId) ?? [])] : [];
+    return row?.projectId === projectId
+      ? (this.cabinetPositions.get(revisionId) ?? []).slice(0, limit)
+      : [];
   }
 
   async subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]> {
@@ -648,14 +654,15 @@ export class InMemoryInstallation implements InstallationRepository {
   readonly curves = new Set<string>();
 
   private answersOf(projectId: string, cadFileId: string): InstallationAnswerRow[] {
-    return [...this.answers.values()]
-      .filter((row) => row.projectId === projectId && row.cadFileId === cadFileId)
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+    // Insertion order stands for the database `seq`: never clocks or ids.
+    return [...this.answers.values()].filter(
+      (row) => row.projectId === projectId && row.cadFileId === cadFileId,
+    );
   }
   private marksOf(projectId: string, cadFileId: string): TrenchMarkRecord[] {
-    return [...this.marks.values()]
-      .filter((row) => row.projectId === projectId && row.cadFileId === cadFileId)
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+    return [...this.marks.values()].filter(
+      (row) => row.projectId === projectId && row.cadFileId === cadFileId,
+    );
   }
 
   async listAnswers(projectId: string, cadFileId: string): Promise<InstallationAnswerRow[]> {

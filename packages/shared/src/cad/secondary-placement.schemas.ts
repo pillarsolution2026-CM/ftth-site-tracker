@@ -74,6 +74,10 @@ export const SharedCabinetsUnmatchedSchema = z.object({
   unnamedGeneral: z.number().int().min(0),
   /** Secondary cabinets with no `drawingAt` (built before ADR-042): rebuild the Secondary. */
   withoutDrawingPosition: Names,
+  /** Matched names whose point could not be built (bad position or a name too long): not used. */
+  unusable: Names.default([]),
+  /** More cabinets than the API reads per drawing: the lists above are partial. */
+  listCapped: z.boolean().default(false),
 });
 export type SharedCabinetsUnmatched = z.infer<typeof SharedCabinetsUnmatchedSchema>;
 
@@ -81,7 +85,24 @@ export const GENERAL_CABINET_POINT_ID_PREFIX = 'gc-';
 
 /** Stable id of a cabinet's point, so a new suggestion replaces the old one (≤ 64 chars). */
 export function generalCabinetPointId(name: string): string {
-  return `${GENERAL_CABINET_POINT_ID_PREFIX}${cabinetNameKey(name)}`.slice(0, 64);
+  const key = cabinetNameKey(name);
+  const id = `${GENERAL_CABINET_POINT_ID_PREFIX}${key}`;
+  if (id.length <= 64) return id;
+  // Long names: a readable prefix plus a hash of the whole key, so two long names that share a
+  // prefix never collide (PlacementSchema rejects duplicate ids).
+  return `${id.slice(0, 47)}~${hash64(key)}`;
+}
+
+/** Two 32-bit FNV-1a lanes as 16 hex digits (deterministic, no crypto needed). */
+function hash64(text: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ text.length;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ (c + i), 0x85ebca6b) >>> 0;
+  }
+  return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
 }
 
 const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -95,7 +116,9 @@ function groupByName<T extends { name: string | null }>(items: readonly T[]) {
       continue;
     }
     const key = cabinetNameKey(item.name);
-    groups.set(key, [...(groups.get(key) ?? []), item]);
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
   }
   return { groups, unnamed };
 }
@@ -123,6 +146,8 @@ export function matchSharedCabinets(
     unnamedSecondary: s.unnamed,
     unnamedGeneral: g.unnamed,
     withoutDrawingPosition: [],
+    unusable: [],
+    listCapped: false,
   };
   const points: ControlPoint[] = [];
   const keys = [...new Set([...g.groups.keys(), ...s.groups.keys()])].sort(byKey);
@@ -147,18 +172,18 @@ export function matchSharedCabinets(
       unmatched.withoutDrawingPosition.push(name);
       continue;
     }
-    points.push(
-      ControlPointSchema.parse({
-        id: generalCabinetPointId(name),
-        drawing: sc.drawingAt,
-        handle: sc.handle,
-        label: name,
-        lat: gc.lat,
-        lon: gc.lon,
-        source: 'general_cabinet',
-        excluded: false,
-      }),
-    );
+    const point = ControlPointSchema.safeParse({
+      id: generalCabinetPointId(name),
+      drawing: sc.drawingAt,
+      handle: sc.handle,
+      label: name,
+      lat: gc.lat,
+      lon: gc.lon,
+      source: 'general_cabinet',
+      excluded: false,
+    });
+    if (point.success) points.push(point.data);
+    else unmatched.unusable.push(name.slice(0, 200));
   }
   const cap = (list: string[]) => list.slice(0, MAX_SUGGESTION_NAMES_LISTED);
   return {
@@ -172,6 +197,7 @@ export function matchSharedCabinets(
       duplicateInSecondary: cap(unmatched.duplicateInSecondary),
       duplicateInGeneral: cap(unmatched.duplicateInGeneral),
       withoutDrawingPosition: cap(unmatched.withoutDrawingPosition),
+      unusable: cap(unmatched.unusable),
     },
   };
 }

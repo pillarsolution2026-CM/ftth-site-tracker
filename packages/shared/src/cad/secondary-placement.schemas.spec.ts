@@ -52,6 +52,14 @@ describe('general_cabinet control points (ADR-042 part G)', () => {
     expect(generalCabinetPointId(' 1 - 7 ')).toBe('gc-1-7');
     expect(generalCabinetPointId('x'.repeat(100))).toHaveLength(64);
   });
+
+  it('long names that share a prefix still get distinct ids (L2)', () => {
+    const a = generalCabinetPointId('x'.repeat(80) + 'a');
+    const b = generalCabinetPointId('x'.repeat(80) + 'b');
+    expect(a).not.toBe(b);
+    expect(a.length).toBeLessThanOrEqual(64);
+    expect(generalCabinetPointId('x'.repeat(80) + 'a')).toBe(a);
+  });
 });
 
 describe('matchSharedCabinets', () => {
@@ -79,7 +87,35 @@ describe('matchSharedCabinets', () => {
       unnamedSecondary: 1,
       unnamedGeneral: 1,
       withoutDrawingPosition: [' 1 - 2 '],
+      unusable: [],
+      listCapped: false,
     });
+  });
+
+  it('lists a cabinet whose point cannot be built instead of throwing (L2)', () => {
+    const long = 'n'.repeat(300);
+    const result = matchSharedCabinets(
+      [
+        { name: long, lat: 1, lon: 1 },
+        { name: 'ok', lat: Number.NaN, lon: Number.NaN },
+        { name: 'fine', lat: 30, lon: 31 },
+      ],
+      [
+        { name: long, handle: 'H1', drawingAt: { x: 0, y: 0 } },
+        { name: 'ok', handle: 'H2', drawingAt: { x: 0, y: 0 } },
+        { name: 'fine', handle: 'H3', drawingAt: { x: 1, y: 1 } },
+      ],
+    );
+    expect(result.points.map((p) => p.label)).toEqual(['fine']);
+    expect(result.unmatched.unusable).toEqual([long.slice(0, 200), 'ok']);
+  });
+
+  it('groups many cabinets of one name in linear time (L1)', () => {
+    const many = Array.from({ length: 50_000 }, () => ({ name: 'same', lat: 1, lon: 1 }));
+    const started = Date.now();
+    const result = matchSharedCabinets(many, []);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(result.unmatched.duplicateInGeneral).toEqual(['same']);
   });
 
   it('gives nothing without names (no guess)', () => {

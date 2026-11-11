@@ -595,6 +595,8 @@ export const cadFileInstallationAnswers = pgTable(
     answer: text('answer').$type<InstallationAnswer>().notNull(),
     createdBy: uuid('created_by').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Order of the rows of a file, independent of clocks and ids (L4). */
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
   },
   (table) => [
     foreignKey({
@@ -602,12 +604,7 @@ export const cadFileInstallationAnswers = pgTable(
       columns: [table.projectId, table.cadFileId],
       foreignColumns: [cadFiles.projectId, cadFiles.id],
     }),
-    index('cad_file_installation_answers_file_idx').on(
-      table.projectId,
-      table.cadFileId,
-      table.createdAt,
-      table.id,
-    ),
+    index('cad_file_installation_answers_file_idx').on(table.projectId, table.cadFileId, table.seq),
   ],
 );
 
@@ -622,6 +619,8 @@ export const cadFileTrenchMarks = pgTable(
     lengthM: numeric('length_m', { precision: 9, scale: 3 }).notNull(),
     createdBy: uuid('created_by').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Order of the rows of a file, independent of clocks and ids (L4). */
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
     withdrawnBy: uuid('withdrawn_by').references(() => users.id),
     withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
   },
@@ -631,12 +630,7 @@ export const cadFileTrenchMarks = pgTable(
       columns: [table.projectId, table.cadFileId],
       foreignColumns: [cadFiles.projectId, cadFiles.id],
     }),
-    index('cad_file_trench_marks_file_idx').on(
-      table.projectId,
-      table.cadFileId,
-      table.createdAt,
-      table.id,
-    ),
+    index('cad_file_trench_marks_file_idx').on(table.projectId, table.cadFileId, table.seq),
   ],
 );
 

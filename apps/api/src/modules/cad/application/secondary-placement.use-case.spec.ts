@@ -5,7 +5,10 @@ import { AppError } from '../../../common/app-error.js';
 import type { CadFile } from '../domain/cad-file.js';
 import type { DesignRevision } from '../domain/design-revision.js';
 import { FakeClock, InMemoryCadUnitOfWork } from '../testing/in-memory.js';
-import { GetSecondaryPlacementSuggestionUseCase } from './secondary-placement.use-case.js';
+import {
+  GetSecondaryPlacementSuggestionUseCase,
+  MAX_CABINETS_READ,
+} from './secondary-placement.use-case.js';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const GENERAL_FILE = '33333333-3333-4333-8333-333333333333';
@@ -198,6 +201,34 @@ describe('automatic Secondary placement from the General cabinets (ADR-042 part 
       withoutDrawingPosition: ['3-1'],
       onlyInSecondary: ['4-1'],
     });
+  });
+
+  it('lists a cabinet that cannot be converted or named instead of failing (L2)', async () => {
+    const long = 'n'.repeat(300);
+    uow.revisions.cabinetPositions.set(GENERAL_REV, [
+      generalCabinet('1-1', 330000, 3330000),
+      generalCabinet('2-2', Number.NaN, 3330000),
+      generalCabinet(long, 330000, 3330000),
+    ]);
+    uow.revisions.cabinetPositions.set(SECONDARY_REV, [
+      secondaryCabinet('1-1', { x: 1, y: 1 }),
+      secondaryCabinet('2-2', { x: 2, y: 2 }),
+      secondaryCabinet(long, { x: 3, y: 3 }),
+    ]);
+    const result = await suggest();
+    expect(result.points.map((p) => p.label)).toEqual(['1-1']);
+    expect(result.unmatched.unusable).toEqual(['2-2', long.slice(0, 200)]);
+    expect(result.unmatched.listCapped).toBe(false);
+  });
+
+  it('flags a capped read (L1)', async () => {
+    uow.revisions.cabinetPositions.set(
+      SECONDARY_REV,
+      Array.from({ length: MAX_CABINETS_READ + 1 }, (_, i) =>
+        secondaryCabinet(`c${i}`, { x: i, y: i }),
+      ),
+    );
+    expect((await suggest()).unmatched.listCapped).toBe(true);
   });
 
   it('uses the latest published General when it is the built one', async () => {

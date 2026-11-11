@@ -126,7 +126,7 @@ export class InstallationController {
   }
 
   @Get('design-revisions/:revisionId/installation')
-  @RequirePermission('cad_files:read')
+  @RequirePermission('design:read')
   @ApiOkResponse({ schema: openApiSchema(InstallationReportSchema) })
   report(
     @ProjectIdParam() projectId: string,
