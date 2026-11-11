@@ -73,6 +73,13 @@ describe('reading role texts (ADR-041, Al-Fath examples)', () => {
     });
     expect(readRoleText('SP 48', exch)).toEqual({ role: 'cable_spare', cores: 48 });
     expect(readRoleText('street name', exch)).toBeNull();
+    // Al-Fath General writes one bundle as «1x4 way» (one bundle of 4 ways).
+    expect(readRoleText('450m/1x4 way 16/12', exch)).toEqual({
+      role: 'bundle_label',
+      ways: 4,
+      ductSize: '16/12',
+      lengthM: '450.000',
+    });
   });
 
   it('reads handholes: type list first, then the number', () => {

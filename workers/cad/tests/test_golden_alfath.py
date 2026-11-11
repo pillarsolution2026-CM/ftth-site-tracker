@@ -222,9 +222,12 @@ def test_general_as_drawn(drawings: dict[str, DrawingData]) -> None:
     joints = [i["text"] for i in problems["LABEL_TYPE_MISMATCH"]]
     assert joints == ["Joint 144"] * 3
     assert [i["text"] for i in problems["WRONG_LAYER"]] == ["Joint 144"]
-    # «450m/1x4 way 16/12» is not a bundle label for the shared reading ("1x4 way" is not read):
-    # its pair with «670M/144Core» is not checked until the PM corrects the text.
-    assert not {"CABLE_SLACK_TOO_LONG", "CABLE_SLACK_TOO_SHORT"} & set(problems)
+    # «450m/1x4 way 16/12» (one bundle of 4 ways) is read as drawn: its cable «670M/144Core» is
+    # 220 m longer, more than 30 m → one warning (owner 2026-11-11), no TOO_SHORT.
+    assert [(i["text"], i["params"]["slackM"]) for i in problems["CABLE_SLACK_TOO_LONG"]] == [
+        ("670M/144Core F.O(el fath)", "220.000")
+    ]
+    assert "CABLE_SLACK_TOO_SHORT" not in problems
     assert "SPARE_CORES_MISMATCH" not in problems  # «SP 48» sits on the joint layer: not read
     _pin(GENERAL, "as_drawn", _summary(build))
 

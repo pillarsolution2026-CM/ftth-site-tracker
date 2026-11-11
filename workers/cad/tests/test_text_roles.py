@@ -57,6 +57,10 @@ def test_reads_the_general_segment_labels_on_one_layer_with_several_roles() -> N
     )
     assert read_role_text("SP 48", exch) == RoleReading("cable_spare", cores=48)
     assert read_role_text("street name", exch) is None
+    # Al-Fath General writes one bundle as «1x4 way» (one bundle of 4 ways).
+    assert read_role_text("450m/1x4 way 16/12", exch) == RoleReading(
+        "bundle_label", ways=4, duct_size="16/12", length_m="450.000"
+    )
 
 
 def test_reads_handholes_type_list_first_then_the_number() -> None:

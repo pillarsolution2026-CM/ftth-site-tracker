@@ -147,7 +147,8 @@ const P = {
   cableSpare: re(String.raw`SP\s*(\d+)`),
   bundleSpare: re(String.raw`SP\s*(\d+)\s*\(\s*${DUCT}\s*\)`),
   cable: re(String.raw`(?:${LEN}\s*\/\s*)?(\d+)\s*-?\s*Cores?\b.*`),
-  bundle: re(String.raw`(?:${LEN}\s*\/\s*)?(\d+)\s*-?\s*ways?(?:\s+${DUCT})?`),
+  /** «4way 16/12», «500M/4way 16/12», «450m/1x4 way 16/12» (one bundle of 4 ways). */
+  bundle: re(String.raw`(?:${LEN}\s*\/\s*)?(?:\d+\s*x\s*)?(\d+)\s*-?\s*ways?(?:\s+${DUCT})?`),
   lengthOnly: re(LEN),
   boxCableType: re(String.raw`F\s*(\d+)\s*C`),
   cabinetName: re(String.raw`(\d+)\s*-\s*(\d+)`),

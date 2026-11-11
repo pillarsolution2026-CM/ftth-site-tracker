@@ -1,5 +1,5 @@
 {
-  "comment": "ADR-041 golden run: the Al-Fath (Rabaa) General read by meaning, as drawn (no placement). OOOOOO carries every duct of the drawing (all labelled 4way), so its rule says ways 4. Two variants: `as_drawn` (no corrections) and `corrected`, the PM's corrections of the program page: the «SP 48» text written on the joint layer moved onto the label layer EXCH, and the 450 bundle label «450m/1x4 way 16/12» (a spelling the reading does not know) rewritten «450M/4way 16/12». P_CAB_TEXTB (the cabinet circles' texts) is not mapped in `as_drawn`; `named_cabinets` adds it with the cabinet_info role.",
+  "comment": "ADR-041 golden run: the Al-Fath (Rabaa) General read by meaning, as drawn (no placement). OOOOOO carries every duct of the drawing (all labelled 4way), so its rule says ways 4. Two variants: `as_drawn` (no corrections) and `corrected`, the PM's corrections of the program page: the «SP 48» text written on the joint layer moved onto the label layer EXCH, and the 450 bundle label «450m/1x4 way 16/12» rewritten «450M/4way 16/12» (no longer needed since «1x4 way» is read; kept to show a set_text on a role text). P_CAB_TEXTB (the cabinet circles' texts) is not mapped in `as_drawn`; `named_cabinets` adds it with the cabinet_info role.",
   "file": "alfath/alfath_general.dxf",
   "drawingKind": "general",
   "crsEpsg": 32636,
@@ -116,7 +116,8 @@
         "WRONG_LAYER": 1,
         "LABEL_MISSING": 8,
         "LABEL_TYPE_MISMATCH": 3,
-        "HANDHOLE_NOT_DRAWN": 1
+        "HANDHOLE_NOT_DRAWN": 1,
+        "CABLE_SLACK_TOO_LONG": 1
       },
       "reading": {
         "drawingKind": "general",
@@ -124,8 +125,8 @@
           {
             "ways": 4,
             "ductSize": "16/12",
-            "count": 3,
-            "writtenLengthM": "1270.000",
+            "count": 4,
+            "writtenLengthM": "1720.000",
             "withoutLength": 0
           },
           {
@@ -138,9 +139,9 @@
           {
             "ways": 4,
             "ductSize": null,
-            "count": 8,
+            "count": 7,
             "writtenLengthM": "0.000",
-            "withoutLength": 8
+            "withoutLength": 7
           }
         ],
         "connectors": [],
@@ -168,7 +169,7 @@
           }
         ]
       },
-      "log": "roles (general), 40 role texts read, 37 linked, 1 unread"
+      "log": "roles (general), 41 role texts read, 38 linked, 0 unread"
     },
     "corrected": {
       "features": {

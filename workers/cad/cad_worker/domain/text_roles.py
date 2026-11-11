@@ -172,7 +172,10 @@ def _re(source: str) -> re.Pattern[str]:
 _P_CABLE_SPARE = _re(rf"SP{_S}([0-9]+)")
 _P_BUNDLE_SPARE = _re(rf"SP{_S}([0-9]+){_S}\({_S}{_DUCT}{_S}\)")
 _P_CABLE = _re(rf"(?:{_LEN}{_S}/{_S})?([0-9]+){_S}-?{_S}Cores?{_JS_WORD_END}.*")
-_P_BUNDLE = _re(rf"(?:{_LEN}{_S}/{_S})?([0-9]+){_S}-?{_S}ways?(?:{_WS}+{_DUCT})?")
+# «4way 16/12», «500M/4way 16/12», «450m/1x4 way 16/12» (one bundle of 4 ways).
+_P_BUNDLE = _re(
+    rf"(?:{_LEN}{_S}/{_S})?(?:[0-9]+{_S}x{_S})?([0-9]+){_S}-?{_S}ways?(?:{_WS}+{_DUCT})?"
+)
 _P_LENGTH_ONLY = _re(_LEN)
 _P_BOX_CABLE_TYPE = _re(rf"F{_S}([0-9]+){_S}C")
 _P_CABINET_NAME = _re(rf"([0-9]+){_S}-{_S}([0-9]+)")
