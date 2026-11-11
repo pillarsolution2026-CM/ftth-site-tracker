@@ -175,6 +175,7 @@
       },
       "problems": {
         "ROUTE_SPLIT": 2,
+        "LABEL_MISSING": 4,
         "LABEL_TYPE_MISMATCH": 13
       },
       "reading": {

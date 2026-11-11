@@ -52,6 +52,9 @@ BOXES_PER_CABINET = {
     "1-7": 22,
     "1-8": 23,
 }
+# Owner answer Q3 (2026-11-11): the seven short drops from the main to the cabinets (5.5-42.7 m
+# drawn) carry no bundle label (the 4way bundles with no duct size of the totals): LABEL_MISSING.
+UNLABELLED_GENERAL_ROUTES = sorted(["169DF", "16948", "16949", "1698B", "1694A", "16990", "1694B"])
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -201,6 +204,21 @@ def test_secondary_owner_facts(drawings: dict[str, DrawingData]) -> None:
     # Recorded on the first run (ADR-041): no duplicate box numbers, every cabinet in a zone.
     assert "BOX_NUMBER_DUPLICATE" not in problems
     assert "CABINET_ZONE_MISSING" not in problems
+    # Owner answers (2026-11-11): four 1way pieces carry no bundle label (56.4 m with 1 connector,
+    # 0.1 m with 2, 3.7 m and 3.5 m with none) — the 3 connectors of unknown size; every labelled
+    # 1way has its duct size; every box names a cabinet of the drawing and has its cable type and
+    # length; every cabinet has its «nB» and its own name.
+    assert sorted(
+        (i["handle"], i["layer"], i["params"]["role"]) for i in problems["LABEL_MISSING"]
+    ) == [
+        ("2062", "1way", "bundle_label"),
+        ("2081", "1way", "bundle_label"),
+        ("220D", "1way", "bundle_label"),
+        ("244D", "1way", "bundle_label"),
+    ]
+    assert not {"CONNECTOR_SIZE_MISSING", "BOX_CABINET_UNKNOWN", "CABINET_NAME_DUPLICATE"} & set(
+        problems
+    )
     assert build.rows.text_links == ()  # every text layer of this mapping has roles
     _pin(SECONDARY, "as_drawn", _summary(build))
 
@@ -213,9 +231,12 @@ def test_general_as_drawn(drawings: dict[str, DrawingData]) -> None:
     assert not {"HANDHOLE_TYPE_MISSING", "HANDHOLE_TYPE_UNKNOWN"} & set(problems)
     assert [i["text"] for i in problems["HANDHOLE_NOT_DRAWN"]] == ["CH01"]
     missing = problems["LABEL_MISSING"]
-    assert len(missing) == 8
-    assert {i["layer"] for i in missing} == {"Sap"}
-    assert all(i["params"] == {"role": "cabinet_info", "field": "name"} for i in missing)
+    cabinets = [i for i in missing if i["layer"] == "Sap"]
+    assert len(cabinets) == 8
+    assert all(i["params"] == {"role": "cabinet_info", "field": "name"} for i in cabinets)
+    assert sorted(i["handle"] for i in missing if i["layer"] != "Sap") == UNLABELLED_GENERAL_ROUTES
+    assert all(i["params"] == {"role": "bundle_label"} for i in missing if i["layer"] == "OOOOOO")
+    assert "CABINET_NAME_DUPLICATE" not in problems
     # The four «Joint 144» texts on layer jont 36: three are paired with a JONT 36 symbol (type
     # mismatch); the fourth is nearest the joint drawn on layer jont 144 at 04A, so Phase 1 says
     # WRONG_LAYER for it (right text, wrong layer).
@@ -273,7 +294,8 @@ def test_general_corrected_by_the_pm(drawings: dict[str, DrawingData]) -> None:
         ("670M/144Core F.O(el fath)", "220.000")
     ]
     assert "CABLE_SLACK_TOO_SHORT" not in problems
-    # SP 48 = 144 - 8 x 12 (read once moved onto EXCH).
+    # SP 48 = 144 - 8 x 12 (read once moved onto EXCH). Owner Q4: counted on its own main cable,
+    # whose pieces meet at handhole 04B (one network with the eight 12-core branches).
     spare_routes = [r for r in _readings(build, "route") if r["spareCores"] is not None]
     assert [(r["spareCores"], r["cableCores"]) for r in spare_routes] == [(48, 144)]
     assert "SPARE_CORES_MISMATCH" not in problems
@@ -300,5 +322,8 @@ def test_cabinets_of_both_drawings_match_once_the_general_names_them(
         }
 
     assert sub_cabinets(named) == sub_cabinets(secondary) == BOXES_PER_CABINET
-    assert "LABEL_MISSING" not in _problems(named)
+    # Named, the cabinets ask for nothing more; the seven unlabelled drops remain.
+    missing = _problems(named)["LABEL_MISSING"]
+    assert sorted(i["handle"] for i in missing) == UNLABELLED_GENERAL_ROUTES
+    assert "CABINET_NAME_DUPLICATE" not in _problems(named)
     _pin(GENERAL, "named_cabinets", _summary(named))
