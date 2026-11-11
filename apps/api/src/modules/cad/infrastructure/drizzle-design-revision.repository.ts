@@ -9,7 +9,7 @@ import { AppError } from '../../../common/app-error.js';
 import { toDecimalText } from '../../../common/decimal-text.js';
 import type { DbHandle } from '../../../db/db.module.js';
 import { lockNotAvailable, uniqueViolation } from '../../../db/pg-errors.js';
-import { cadFiles, designRevisions } from '../../../db/schema.js';
+import { cadFiles, designFeatures, designRevisions } from '../../../db/schema.js';
 import type { DesignRevision } from '../domain/design-revision.js';
 import type {
   DesignRevisionRepository,
@@ -149,6 +149,22 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
       )
       .limit(1);
     return row ? toRevision(row) : null;
+  }
+
+  async subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]> {
+    const rows = await this.db
+      .select({ code: designFeatures.code })
+      .from(designFeatures)
+      .where(
+        and(
+          eq(designFeatures.projectId, projectId),
+          eq(designFeatures.revisionId, revisionId),
+          eq(designFeatures.featureType, 'cabinet'),
+          sql`${designFeatures.attrs} ->> 'role' = 'sub'`,
+        ),
+      )
+      .orderBy(designFeatures.sourceHandle, designFeatures.featureId);
+    return rows.map((row) => row.code);
   }
 
   async hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean> {

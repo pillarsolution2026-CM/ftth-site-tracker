@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { DrawingUnitSchema } from '../cad/drawing-units.js';
 import { DrawingKindSchema } from '../cad/drawing-kind.schemas.js';
 import { MappingRuleSchema } from '../cad/cad-mapping.schemas.js';
+import { cabinetNameKey } from '../cad/text-roles.js';
 import { PlacementSchema } from '../cad/placement.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { BooleanQuerySchema, PageQuerySchema, pageSchema } from '../common/pagination.js';
@@ -11,6 +12,7 @@ import {
   FEATURE_TYPES,
   ItemStatusSchema,
 } from './feature-types.js';
+import { ReadingTotalsSchema } from './feature-reading.schemas.js';
 import { TextLinkKindSchema, TextLinkStatusSchema } from './text-link.js';
 
 /**
@@ -93,6 +95,8 @@ export const DesignRevisionCountsSchema = z.object({
   /** Σ route lengths in metres (through the revision's drawing unit), 3 decimals. */
   routeLengthM: DecimalStringSchema,
   groups: z.array(FeatureGroupCountSchema).optional(),
+  /** ADR-041: roles reading mode only; absent in legacy mode and on older revisions. */
+  reading: ReadingTotalsSchema.optional(),
 });
 export type DesignRevisionCounts = z.infer<typeof DesignRevisionCountsSchema>;
 
@@ -180,10 +184,34 @@ export const PublishDesignRevisionRequestSchema = z.object({
 });
 export type PublishDesignRevisionRequest = z.infer<typeof PublishDesignRevisionRequestSchema>;
 
+/** Most names listed per side; `count`s stay exact. */
+export const MAX_CABINET_NAMES_LISTED = 200;
+
+const CabinetSideSchema = z.object({
+  /** `sub` cabinets of the drawing's revision (main cabinets are not shared; ADR-041). */
+  count: z.number().int().min(0),
+  /** Cabinets with no name (feature `code` null): they cannot be matched. */
+  unnamed: z.number().int().min(0),
+  /** Names (as in this drawing) missing from the other drawing, sorted by cabinetNameKey. */
+  missingInOther: z.array(z.string()).max(MAX_CABINET_NAMES_LISTED),
+});
+
+/**
+ * Shared cabinets of the pair (ADR-040): matched by name (cabinetNameKey of the feature `code`);
+ * ok when both counts are equal, no cabinet is unnamed and every name is in both drawings.
+ */
+export const CabinetsComparisonSchema = z.object({
+  ok: z.boolean(),
+  general: CabinetSideSchema,
+  secondary: CabinetSideSchema,
+});
+export type CabinetsComparison = z.infer<typeof CabinetsComparisonSchema>;
+
 /**
  * 409 details when publishing is refused (ADR-038, ADR-040). Checked in this order: the other
  * drawing has an open draft (`OTHER_DRAWING_MISSING`); then for this drawing, then the other:
- * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`) and drawing errors (`PROBLEMS_OPEN`); last, open
+ * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`) and drawing errors (`PROBLEMS_OPEN`, blocking
+ * problems only, ADR-041); then the shared cabinets of the pair (`CABINETS_MISMATCH`); last, open
  * items of both without acknowledgement (`OPEN_ITEMS`, summed). `drawingKind` names the drawing
  * that blocks.
  */
@@ -205,8 +233,60 @@ export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
     textLinksToReview: z.number().int().min(0),
     diffConflicts: z.number().int().min(0),
   }),
+  /**
+   * ADR-040/041 cross-drawing check, computed by the API from both drafts (the worker sees one
+   * drawing): checked after both drawings' own blockers, before OPEN_ITEMS.
+   */
+  z.object({
+    reason: z.literal('CABINETS_MISMATCH'),
+    cabinets: CabinetsComparisonSchema,
+  }),
 ]);
 export type PublishBlockedDetails = z.infer<typeof PublishBlockedDetailsSchema>;
+
+/** One drawing's sub cabinets: their names (feature `code`), null when unnamed. */
+export function compareCabinets(
+  general: readonly (string | null)[],
+  secondary: readonly (string | null)[],
+): CabinetsComparison {
+  const byKey = (names: readonly (string | null)[]) => {
+    const out = new Map<string, { name: string; n: number }>();
+    for (const name of names) {
+      if (name === null) continue;
+      const key = cabinetNameKey(name);
+      const seen = out.get(key);
+      if (seen) seen.n += 1;
+      else out.set(key, { name, n: 1 });
+    }
+    return out;
+  };
+  const g = byKey(general);
+  const s = byKey(secondary);
+  /** Names the other side lacks, or has fewer times (a name drawn twice must be drawn twice). */
+  const missingIn = (
+    from: Map<string, { name: string; n: number }>,
+    other: Map<string, { name: string; n: number }>,
+  ) =>
+    [...from.entries()]
+      .filter(([key, v]) => (other.get(key)?.n ?? 0) < v.n)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, v]) => v.name);
+  const gMissing = missingIn(g, s);
+  const sMissing = missingIn(s, g);
+  const unnamed = (names: readonly (string | null)[]) => names.filter((n) => n === null).length;
+  const side = (names: readonly (string | null)[], missing: string[]) => ({
+    count: names.length,
+    unnamed: unnamed(names),
+    missingInOther: missing.slice(0, MAX_CABINET_NAMES_LISTED),
+  });
+  const ok =
+    general.length === secondary.length &&
+    unnamed(general) === 0 &&
+    unnamed(secondary) === 0 &&
+    gMissing.length === 0 &&
+    sMissing.length === 0;
+  return { ok, general: side(general, gMissing), secondary: side(secondary, sMissing) };
+}
 
 /**
  * GET …/design-revisions/:revisionId/publish-readiness — the checklist shown before «نشر»
@@ -220,6 +300,11 @@ export const PUBLISH_CHECK_KEYS = [
   'open_items',
   /** ADR-040: the other drawing has a draft that passes its own first three checks. */
   'other_drawing',
+  /**
+   * ADR-040/041: shared cabinets match by name and count in both drafts (CabinetsComparison).
+   * Not ok while the other draft is missing.
+   */
+  'cabinets_match',
 ] as const;
 export const PublishCheckKeySchema = z.enum(PUBLISH_CHECK_KEYS);
 export type PublishCheckKey = z.infer<typeof PublishCheckKeySchema>;
@@ -228,8 +313,10 @@ export const PublishCheckSchema = z.object({
   key: PublishCheckKeySchema,
   ok: z.boolean(),
   /**
-   * crs_known: null; control_point: points in use; no_problems: problems left; open_items: open
-   * (both drawings); other_drawing: problems left in the other drawing's draft (null: no draft).
+   * crs_known: null; control_point: points in use; no_problems: blocking problems left; open_items:
+   * open (both drawings); other_drawing: blocking problems left in the other drawing's draft (null:
+   * no draft); cabinets_match: unmatched cabinets = unnamed + missingInOther of both sides (null:
+   * no other draft).
    */
   count: z.number().int().min(0).nullable(),
 });
@@ -245,6 +332,10 @@ export const PublishReadinessSchema = z.object({
   otherRevisionId: z.uuid().nullable(),
   /** Open items exist: publishing needs `acknowledgeOpenItems: true`. */
   needsAcknowledgement: z.boolean(),
+  /** The cabinets comparison behind `cabinets_match`; null without the other draft. */
+  cabinets: CabinetsComparisonSchema.nullable().default(null),
+  /** Non-blocking problems (warnings) of this drawing, shown next to the checklist. */
+  warningCount: z.number().int().min(0).default(0),
 });
 export type PublishReadiness = z.infer<typeof PublishReadinessSchema>;
 

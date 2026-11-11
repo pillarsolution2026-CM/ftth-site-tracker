@@ -56,7 +56,7 @@ export function MappingScreen({
         <ErrorNotice code="FORBIDDEN" />
       ) : screen.loadErrorCode ? (
         <ErrorNotice code={screen.loadErrorCode} />
-      ) : !screen.view ? (
+      ) : !screen.view || cadFile.isLoading ? (
         <p role="status">{t('common.loading')}</p>
       ) : (
         <>
@@ -80,6 +80,7 @@ export function MappingScreen({
           <MappingEditor
             key={screen.reloadCount}
             view={screen.view}
+            drawingKind={cadFile.data?.drawingKind ?? null}
             drawing={drawing.data ?? null}
             canWrite={screen.canWrite}
             canBuild={screen.canBuild && !superseded}

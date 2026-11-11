@@ -215,6 +215,8 @@ class RevisionInputs:
     placement: object = None  # frozen PlacementSchema JSON; None = as drawn (ADR-035)
     # Frozen FrozenDrawingCorrectionSchema[] JSON, in the order to apply (ADR-038); None = none.
     corrections: object = None
+    # `design_revisions.drawing_kind` (ADR-040): which reading and checks apply (ADR-041).
+    drawing_kind: str = "general"
 
 
 @dataclass(frozen=True, slots=True)

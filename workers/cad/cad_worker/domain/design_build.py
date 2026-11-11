@@ -13,6 +13,12 @@ Items added by a drawing correction (block `FIX_BLOCK`, ADR-038) follow their la
 Layers without a rule are ignored. A rule to a feature type may carry `kind`, `status` and (cabinet
 only, required) `role`; the feature keeps them in `attrs` (ADR-033/034).
 
+ADR-041 (reading by meaning), `layer` rules only: `textRoles` (what the layer's texts mean, see
+`text_roles.py`; target `label` or the roles' feature type), `ways` (route rules: the bundle type)
+and the target `zone` (curves around a cabinet and its boxes; never a feature). Reading mode
+`legacy` (no rule with `textRoles`, none to `zone`) builds exactly as Phase 1; `roles` adds the
+reading of `role_reading.py` (mirror of `readingModeOf`).
+
 Every coordinate is multiplied by the revision's `metres_per_unit` (ADR-018): no unit is assumed.
 """
 
@@ -34,11 +40,30 @@ from cad_worker.domain.design import (
     polyline_length,
 )
 from cad_worker.domain.placement import Placer
+from cad_worker.domain.text_roles import (
+    MAX_BUNDLE_WAYS,
+    TEXT_ROLES,
+    TextRole,
+    text_role_fits_target,
+)
 
 Target = Literal[
-    "route", "box", "hhi", "joint", "mh", "cabinet", "ring", "label", "background", "ignore"
+    "route",
+    "box",
+    "hhi",
+    "joint",
+    "mh",
+    "cabinet",
+    "ring",
+    "label",
+    "zone",
+    "background",
+    "ignore",
 ]
-MAPPING_TARGETS: frozenset[str] = frozenset({*FEATURE_TYPES, "label", "background", "ignore"})
+MAPPING_TARGETS: frozenset[str] = frozenset(
+    {*FEATURE_TYPES, "label", "zone", "background", "ignore"}
+)
+ReadingMode = Literal["legacy", "roles"]
 BLOCK_TARGETS: frozenset[str] = frozenset({*POINT_FEATURE_TYPES, "background", "ignore"})
 MAX_NAME_LENGTH = 255
 MAX_RULES = 2000
@@ -81,6 +106,20 @@ class MappingRules:
     texts: Mapping[tuple[str, str], FeatureType]
     # Attributes per rule key: ("layer", name) | ("block", name) | ("text", layer, text key)
     attrs: Mapping[tuple[str, ...], RuleAttrs] = field(default_factory=dict)
+    # ADR-041: layer -> its text roles (TEXT_ROLES order); route layer -> bundle ways.
+    text_roles: Mapping[str, tuple[TextRole, ...]] = field(default_factory=dict)
+    ways: Mapping[str, int] = field(default_factory=dict)
+
+    @property
+    def reading_mode(self) -> ReadingMode:
+        """`roles` when a rule carries text roles or targets `zone` (`readingModeOf`)."""
+        if self.text_roles or any(t == "zone" for t in self.layers.values()):
+            return "roles"
+        return "legacy"
+
+    def curve_layers(self) -> frozenset[str]:
+        """Layers whose curves the build reads: feature layers, and zone layers (ADR-041)."""
+        return self.layers_with(*FEATURE_TYPES, "zone")
 
     def layers_with(self, *targets: str) -> frozenset[str]:
         return frozenset(name for name, target in self.layers.items() if target in targets)
@@ -123,6 +162,8 @@ def parse_rules(raw: object) -> MappingRules:
     blocks: dict[str, Target] = {}
     texts: dict[tuple[str, str], FeatureType] = {}
     attrs: dict[tuple[str, ...], RuleAttrs] = {}
+    text_roles: dict[str, tuple[TextRole, ...]] = {}
+    ways: dict[str, int] = {}
     for item in raw:
         if not isinstance(item, dict):
             raise MappingInvalidError(f"rule {item!r} is not an object")
@@ -133,6 +174,12 @@ def parse_rules(raw: object) -> MappingRules:
             name = _name(rule, "layer")
             _put(layers, name, cast(Target, target), rule)
             key = ("layer", name)
+            roles = _text_roles(rule, str(target))
+            if roles:
+                text_roles[name] = roles
+            rule_ways = _ways(rule, str(target))
+            if rule_ways is not None:
+                ways[name] = rule_ways
         elif source == "block" and target in BLOCK_TARGETS:
             name = _name(rule, "block")
             _put(blocks, name, cast(Target, target), rule)
@@ -149,7 +196,38 @@ def parse_rules(raw: object) -> MappingRules:
         rule_attrs = _rule_attrs(rule, str(target))
         if rule_attrs != NO_ATTRS:
             attrs[key] = rule_attrs
-    return MappingRules(layers, blocks, texts, attrs)
+    return MappingRules(layers, blocks, texts, attrs, text_roles, ways)
+
+
+def _text_roles(rule: Mapping[str, object], target: str) -> tuple[TextRole, ...]:
+    """`textRoles`: 1+ unique known roles, each fitting the target; returned in TEXT_ROLES order."""
+    raw = rule.get("textRoles")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not 1 <= len(raw) <= len(TEXT_ROLES):
+        raise MappingInvalidError(f"rule {dict(rule)!r}: invalid textRoles")
+    if len(set(map(str, raw))) != len(raw) or any(r not in TEXT_ROLES for r in raw):
+        raise MappingInvalidError(f"rule {dict(rule)!r}: unknown or duplicate text role")
+    for role in raw:
+        if not text_role_fits_target(cast(TextRole, role), target):
+            raise MappingInvalidError(
+                f"rule {dict(rule)!r}: text role {role} does not fit target {target}"
+            )
+    return tuple(r for r in TEXT_ROLES if r in raw)
+
+
+def _ways(rule: Mapping[str, object], target: str) -> int | None:
+    raw = rule.get("ways")
+    if raw is None:
+        return None
+    if (
+        isinstance(raw, bool)
+        or not isinstance(raw, int)
+        or not 1 <= raw <= MAX_BUNDLE_WAYS
+        or target != "route"
+    ):
+        raise MappingInvalidError(f"rule {dict(rule)!r}: ways must be 1-288 on a route rule")
+    return raw
 
 
 def _rule_attrs(rule: Mapping[str, object], target: str) -> RuleAttrs:
@@ -257,6 +335,8 @@ class BuiltFeatures:
     link_texts: tuple[LinkText, ...]
     background: BackgroundSelection
     zero_length_routes: int
+    # Texts that became features through a `text` rule (never read as labels).
+    text_feature_handles: frozenset[str] = frozenset()
 
 
 def build_features(drawing: DrawingData, rules: MappingRules, place: Placer) -> BuiltFeatures:
@@ -264,7 +344,8 @@ def build_features(drawing: DrawingData, rules: MappingRules, place: Placer) -> 
     points, background_inserts = _insert_features(drawing.inserts, rules, place)
     shapes = _shape_features(drawing.curves, rules, place)
     text_features, consumed = _text_features(drawing.texts, rules, place)
-    candidate_layers = rules.layers_with(*FEATURE_TYPES, "label")
+    # Texts on role layers are read by meaning (ADR-041), never text-linked (no review items).
+    candidate_layers = rules.layers_with(*FEATURE_TYPES, "label") - rules.text_roles.keys()
     link_texts = tuple(
         _link_text(t, place)
         for t in drawing.texts
@@ -275,6 +356,7 @@ def build_features(drawing: DrawingData, rules: MappingRules, place: Placer) -> 
         link_texts=link_texts,
         background=BackgroundSelection(rules.layers_with("background"), background_inserts),
         zero_length_routes=zero_length,
+        text_feature_handles=consumed,
     )
 
 

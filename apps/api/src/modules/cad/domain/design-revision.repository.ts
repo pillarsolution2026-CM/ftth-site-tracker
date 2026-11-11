@@ -72,6 +72,11 @@ export interface DesignRevisionRepository {
   hasOpen(projectId: string, kind: DrawingKind): Promise<boolean>;
   /** The open (queued, building or draft) revision of the kind, if any. */
   findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null>;
+  /**
+   * `code` of each `sub` cabinet feature of the revision (feature_type 'cabinet', attrs.role
+   * 'sub'), null when unnamed; ordered by source handle. ADR-041.
+   */
+  subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]>;
   /** True while a revision built from this file is queued or building. */
   hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean>;
   /**

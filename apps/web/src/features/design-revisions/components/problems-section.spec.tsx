@@ -33,6 +33,7 @@ const place = {
 function list(): DrawingProblemList {
   return {
     total: 3,
+    warningTotal: 0,
     items: [
       { code: 'WRONG_LAYER', severity: 'warning', count: 1, items: [place] },
       {

@@ -2,11 +2,13 @@
 
 import {
   POINT_FEATURE_TYPES,
-  MAPPING_TARGETS,
   MAPPING_TEXT_ROWS_LIMIT,
   type CadMappingView,
+  type DrawingKind,
   type MappingTarget,
+  type TextRole,
 } from '@ftth/shared';
+import { Button } from '@/shared/ui/button';
 import { Ltr } from '@/shared/ui/ltr';
 import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -22,7 +24,9 @@ import {
   type TextChoice,
   type TextRuleRow,
 } from '../model/mapping-form';
+import { layerTargetsFor } from '../model/layer-meaning';
 import { RuleAttrsEditor } from './rule-attrs';
+import { RuleMeaningEditor } from './rule-meaning';
 import { RuleSelect } from './rule-select';
 
 type AttrsChange = (key: string, patch: Partial<RuleAttrsForm>) => void;
@@ -56,17 +60,39 @@ function Section({
 export function LayerRulesTable({
   view,
   state,
+  kind,
   disabled,
   onChange,
   onAttrsChange,
-}: CommonProps & { onChange: (layer: string, target: MappingTarget) => void }) {
+  onRolesChange,
+  onWaysChange,
+  onSuggestMeaning,
+}: CommonProps & {
+  /** The file's drawing kind (decides the roles and the zone target); null while unknown. */
+  kind: DrawingKind | null;
+  onChange: (layer: string, target: MappingTarget) => void;
+  onRolesChange: (layer: string, roles: TextRole[]) => void;
+  onWaysChange: (layer: string, ways: string) => void;
+  onSuggestMeaning: () => void;
+}) {
   const { t } = useI18n();
-  const options = MAPPING_TARGETS.map((target) => ({
-    value: target,
-    label: t(targetLabelKey(target)),
-  }));
+  const optionsFor = (current: MappingTarget) =>
+    layerTargetsFor(kind, current).map((target) => ({
+      value: target,
+      label: t(targetLabelKey(target)),
+    }));
   return (
     <Section id="mapping-layers" title={t('mapping.layers.title')}>
+      {kind !== null && view.layers.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm">{t('mapping.meaning.intro')}</p>
+          {!disabled ? (
+            <Button variant="outline" onClick={onSuggestMeaning}>
+              {t('mapping.meaning.suggest')}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {view.layers.length === 0 ? (
         <p>{t('mapping.layers.none')}</p>
       ) : (
@@ -110,7 +136,7 @@ export function LayerRulesTable({
                         id={`layer-target-${index}`}
                         label={`${t('mapping.layers.target')}: ${layer.name}`}
                         value={current}
-                        options={options}
+                        options={optionsFor(current)}
                         disabled={disabled}
                         onChange={(target) => onChange(layer.name, target)}
                       />
@@ -121,6 +147,16 @@ export function LayerRulesTable({
                         value={state.attrs[attrsKey.layer(layer.name)]}
                         disabled={disabled}
                         onChange={(patch) => onAttrsChange(attrsKey.layer(layer.name), patch)}
+                      />
+                      <RuleMeaningEditor
+                        id={`layer-meaning-${index}`}
+                        rowLabel={layer.name}
+                        target={current}
+                        kind={kind}
+                        value={state.meaning[layer.name]}
+                        disabled={disabled}
+                        onRolesChange={(roles) => onRolesChange(layer.name, roles)}
+                        onWaysChange={(ways) => onWaysChange(layer.name, ways)}
                       />
                       {isSuggestedLayer(view, layer.name, current) ? (
                         <span

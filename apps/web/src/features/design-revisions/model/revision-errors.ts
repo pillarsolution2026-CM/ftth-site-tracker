@@ -46,6 +46,20 @@ export function publishBlockedMessage(
   if (details.reason === 'OPEN_ITEMS') {
     return { key: 'design.publish.blocked.OPEN_ITEMS', params: {} };
   }
+  if (details.reason === 'CABINETS_MISMATCH') {
+    const { general, secondary } = details.cabinets;
+    const names = (list: readonly string[]) => (list.length > 0 ? list.map(ltr).join('، ') : '—');
+    return {
+      key: 'design.publish.blocked.CABINETS_MISMATCH',
+      params: {
+        generalCount: ltr(general.count),
+        secondaryCount: ltr(secondary.count),
+        onlyGeneral: names(general.missingInOther),
+        onlySecondary: names(secondary.missingInOther),
+        unnamed: ltr(general.unnamed + secondary.unnamed),
+      },
+    };
+  }
   const drawing = translate(locale, `drawingKind.${details.drawingKind}`);
   switch (details.reason) {
     case 'OTHER_DRAWING_MISSING':

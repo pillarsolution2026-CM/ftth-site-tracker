@@ -1,3 +1,4 @@
+import type { PublishBlockedDetails } from '@ftth/shared';
 import { translate } from '@ftth/i18n';
 import { describe, expect, it } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
@@ -52,5 +53,31 @@ describe('publish refusal messages', () => {
       problemCount: 3,
     });
     expect(publishBlockedOf(new Error('x'))).toBeNull();
+  });
+});
+
+describe('CABINETS_MISMATCH refusal (ADR-041)', () => {
+  const details: PublishBlockedDetails = {
+    reason: 'CABINETS_MISMATCH',
+    cabinets: {
+      ok: false,
+      general: { count: 9, unnamed: 0, missingInOther: ['1-9'] },
+      secondary: { count: 8, unnamed: 1, missingInOther: [] },
+    },
+  };
+
+  it('names both counts and the cabinets that exist in one drawing only', () => {
+    const { key, params } = publishBlockedMessage(details, 'en');
+    const text = translate('en', key, params);
+    expect(text).toMatch(/General .*9.* \/ Secondary .*8/);
+    expect(text).toMatch(/Only in the General: .*1-9/);
+    expect(text).toMatch(/Only in the Secondary: —/);
+    expect(text).toMatch(/with no name: .*1/);
+    expect(translate('ar', key, params)).toMatch(/الكباين مش متطابقة/);
+    expect(translate('fr', key, params)).not.toBe(key);
+  });
+
+  it('is read out of a 409', () => {
+    expect(publishBlockedOf(new ApiClientError('CONFLICT', 409, details))).toEqual(details);
   });
 });

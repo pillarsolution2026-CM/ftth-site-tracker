@@ -27,6 +27,8 @@ import {
   TEXT_LINK_TARGETS,
   TextLinkPageSchema,
   TextLinkSchema,
+  mappingKindProblems,
+  readingModeOf,
   suggestBlockTarget,
   suggestLayerTarget,
   suggestTextTarget,
@@ -161,6 +163,11 @@ export async function handleMapping(
   if (method !== 'PUT') return h.sendError(res, 404, 'NOT_FOUND');
   const parsed = CadMappingInputSchema.safeParse(await h.readJson(req));
   if (!parsed.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
+  // Like the API (ADR-041): a text role or zone layer the file's drawing kind does not read.
+  const kindProblem = mappingKindProblems(parsed.data.rules, cad.drawingKind)[0];
+  if (kindProblem) {
+    return h.sendError(res, 422, 'VALIDATION_FAILED', { reason: kindProblem.reason });
+  }
   if (!cad.processed) return h.sendError(res, 409, 'CONFLICT', { reason: 'NOT_PROCESSED' });
   const current = mappings.get(cad.id);
   if (parsed.data.version !== (current?.version ?? null)) {
@@ -322,6 +329,27 @@ function summary(rev: RevisionRecord) {
       ? {
           features: { route: 2, box: 2, hhi: 1, joint: 0, mh: 0 },
           routeLengthM: '361.5',
+          // ADR-041: the reading totals exist only when the mapping gives texts a meaning.
+          ...(readingModeOf(rev.mapping.rules) === 'roles'
+            ? {
+                reading: {
+                  drawingKind: rev.cad.drawingKind,
+                  bundles: [
+                    {
+                      ways: 1,
+                      ductSize: '7/3.5',
+                      count: 2,
+                      writtenLengthM: '361.500',
+                      withoutLength: 0,
+                    },
+                  ],
+                  connectors: [{ ductSize: '7/3.5', count: 2 }],
+                  spares: [{ ductSize: '7/3.5', singles: 2, endCaps: 4 }],
+                  cables: [],
+                  handholes: [],
+                },
+              }
+            : {}),
         }
       : null,
     textLinkCounts: built
@@ -526,7 +554,11 @@ export async function handleDesignRevisions(
   }
 
   if (sub === 'problems' && method === 'GET') {
-    return h.send(res, 200, DrawingProblemListSchema.parse({ items: [], total: 0 }));
+    return h.send(
+      res,
+      200,
+      DrawingProblemListSchema.parse({ items: [], total: 0, warningTotal: 0 }),
+    );
   }
 
   // ADR-040: publishing is a PAIR. The mock revisions are all placed (CRS chosen, one control
@@ -549,11 +581,21 @@ export async function handleDesignRevisions(
           { key: 'no_problems', ok: true, count: 0 },
           { key: 'open_items', ok: openItems === 0, count: openItems },
           { key: 'other_drawing', ok: otherDraft !== undefined, count: otherDraft ? 0 : null },
+          // ADR-041: the mock drawings carry the same (sub) cabinets, so the pair matches.
+          { key: 'cabinets_match', ok: otherDraft !== undefined, count: otherDraft ? 0 : null },
         ],
         canPublish: status === 'draft' && otherDraft !== undefined,
         drawingKind: rev.cad.drawingKind,
         otherRevisionId: otherDraft?.id ?? null,
         needsAcknowledgement: openItems > 0,
+        cabinets: otherDraft
+          ? {
+              ok: true,
+              general: { count: 2, unnamed: 0, missingInOther: [] },
+              secondary: { count: 2, unnamed: 0, missingInOther: [] },
+            }
+          : null,
+        warningCount: 0,
       }),
     );
   }

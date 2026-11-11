@@ -1,0 +1,308 @@
+{
+  "comment": "ADR-041 golden run: the Al-Fath (Rabaa) General read by meaning, as drawn (no placement). OOOOOO carries every duct of the drawing (all labelled 4way), so its rule says ways 4. Two variants: `as_drawn` (no corrections) and `corrected`, the PM's corrections of the program page: the «SP 48» text written on the joint layer moved onto the label layer EXCH, and the 450 bundle label «450m/1x4 way 16/12» rewritten «450M/4way 16/12» (no longer needed since «1x4 way» is read; kept to show a set_text on a role text). P_CAB_TEXTB (the cabinet circles' texts) is not mapped in `as_drawn`; `named_cabinets` adds it with the cabinet_info role.",
+  "file": "alfath/alfath_general.dxf",
+  "drawingKind": "general",
+  "crsEpsg": 32636,
+  "drawingUnit": "m",
+  "metresPerUnit": "1",
+  "rules": [
+    {
+      "source": "layer",
+      "layer": "OOOOOO",
+      "target": "route",
+      "kind": "4way",
+      "ways": 4
+    },
+    {
+      "source": "layer",
+      "layer": "HANDHOLES NEW",
+      "target": "hhi"
+    },
+    {
+      "source": "layer",
+      "layer": "HANDHOLES NEW TEXT",
+      "target": "label",
+      "textRoles": [
+        "handhole_number",
+        "handhole_type"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "jont 36",
+      "target": "joint",
+      "kind": "36"
+    },
+    {
+      "source": "layer",
+      "layer": "jont 144",
+      "target": "joint",
+      "kind": "144"
+    },
+    {
+      "source": "layer",
+      "layer": "EXCH",
+      "target": "label",
+      "textRoles": [
+        "bundle_label",
+        "cable_label",
+        "cable_spare"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "OUTER DUCT 4 WAY PRIMARY DATA",
+      "target": "label",
+      "textRoles": [
+        "bundle_label"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "CRO",
+      "target": "label",
+      "textRoles": [
+        "handhole_number"
+      ]
+    },
+    {
+      "source": "layer",
+      "layer": "Sap",
+      "target": "cabinet",
+      "role": "sub"
+    },
+    {
+      "source": "layer",
+      "layer": "ROADS",
+      "target": "background"
+    }
+  ],
+  "namedCabinetsRule": {
+    "source": "layer",
+    "layer": "P_CAB_TEXTB",
+    "target": "label",
+    "textRoles": [
+      "cabinet_info"
+    ]
+  },
+  "corrections": [
+    {
+      "id": "00000000-0000-4000-8000-000000000041",
+      "correction": {
+        "kind": "move_layer",
+        "handle": "16A5A",
+        "toLayer": "EXCH"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000042",
+      "correction": {
+        "kind": "set_text",
+        "handle": "168A7",
+        "text": "450M/4way 16/12"
+      }
+    }
+  ],
+  "expected": {
+    "as_drawn": {
+      "features": {
+        "route": 19,
+        "hhi": 7,
+        "joint": 4,
+        "cabinet": 8
+      },
+      "problems": {
+        "ROUTE_SPLIT": 3,
+        "WRONG_LAYER": 1,
+        "LABEL_MISSING": 8,
+        "LABEL_TYPE_MISMATCH": 3,
+        "HANDHOLE_NOT_DRAWN": 1,
+        "CABLE_SLACK_TOO_LONG": 1
+      },
+      "reading": {
+        "drawingKind": "general",
+        "bundles": [
+          {
+            "ways": 4,
+            "ductSize": "16/12",
+            "count": 4,
+            "writtenLengthM": "1720.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 4,
+            "ductSize": "7/3.5",
+            "count": 8,
+            "writtenLengthM": "2700.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 4,
+            "ductSize": null,
+            "count": 7,
+            "writtenLengthM": "0.000",
+            "withoutLength": 7
+          }
+        ],
+        "connectors": [],
+        "spares": [],
+        "cables": [
+          {
+            "cores": 12,
+            "count": 8,
+            "writtenLengthM": "2890.000"
+          },
+          {
+            "cores": 144,
+            "count": 4,
+            "writtenLengthM": "2000.000"
+          }
+        ],
+        "handholes": [
+          {
+            "type": "DH",
+            "count": 4
+          },
+          {
+            "type": "HH-I",
+            "count": 3
+          }
+        ]
+      },
+      "log": "roles (general), 41 role texts read, 38 linked, 0 unread"
+    },
+    "corrected": {
+      "features": {
+        "route": 19,
+        "hhi": 7,
+        "joint": 4,
+        "cabinet": 8
+      },
+      "problems": {
+        "ROUTE_SPLIT": 3,
+        "WRONG_LAYER": 1,
+        "LABEL_MISSING": 8,
+        "LABEL_TYPE_MISMATCH": 3,
+        "HANDHOLE_NOT_DRAWN": 1,
+        "CABLE_SLACK_TOO_LONG": 1
+      },
+      "reading": {
+        "drawingKind": "general",
+        "bundles": [
+          {
+            "ways": 4,
+            "ductSize": "16/12",
+            "count": 4,
+            "writtenLengthM": "1720.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 4,
+            "ductSize": "7/3.5",
+            "count": 8,
+            "writtenLengthM": "2700.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 4,
+            "ductSize": null,
+            "count": 7,
+            "writtenLengthM": "0.000",
+            "withoutLength": 7
+          }
+        ],
+        "connectors": [],
+        "spares": [],
+        "cables": [
+          {
+            "cores": 12,
+            "count": 8,
+            "writtenLengthM": "2890.000"
+          },
+          {
+            "cores": 144,
+            "count": 4,
+            "writtenLengthM": "2000.000"
+          }
+        ],
+        "handholes": [
+          {
+            "type": "DH",
+            "count": 4
+          },
+          {
+            "type": "HH-I",
+            "count": 3
+          }
+        ]
+      },
+      "log": "roles (general), 42 role texts read, 39 linked, 0 unread"
+    },
+    "named_cabinets": {
+      "features": {
+        "route": 19,
+        "hhi": 7,
+        "joint": 4,
+        "cabinet": 8
+      },
+      "problems": {
+        "ROUTE_SPLIT": 3,
+        "WRONG_LAYER": 1,
+        "LABEL_TYPE_MISMATCH": 3,
+        "HANDHOLE_NOT_DRAWN": 1,
+        "CABLE_SLACK_TOO_LONG": 1
+      },
+      "reading": {
+        "drawingKind": "general",
+        "bundles": [
+          {
+            "ways": 4,
+            "ductSize": "16/12",
+            "count": 4,
+            "writtenLengthM": "1720.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 4,
+            "ductSize": "7/3.5",
+            "count": 8,
+            "writtenLengthM": "2700.000",
+            "withoutLength": 0
+          },
+          {
+            "ways": 4,
+            "ductSize": null,
+            "count": 7,
+            "writtenLengthM": "0.000",
+            "withoutLength": 7
+          }
+        ],
+        "connectors": [],
+        "spares": [],
+        "cables": [
+          {
+            "cores": 12,
+            "count": 8,
+            "writtenLengthM": "2890.000"
+          },
+          {
+            "cores": 144,
+            "count": 4,
+            "writtenLengthM": "2000.000"
+          }
+        ],
+        "handholes": [
+          {
+            "type": "DH",
+            "count": 4
+          },
+          {
+            "type": "HH-I",
+            "count": 3
+          }
+        ]
+      },
+      "log": "roles (general), 74 role texts read, 71 linked, 0 unread"
+    }
+  }
+}
