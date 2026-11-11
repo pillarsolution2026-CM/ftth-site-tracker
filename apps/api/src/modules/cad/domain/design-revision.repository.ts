@@ -3,6 +3,7 @@ import type {
   DesignFeaturePage,
   DiffListQuery,
   DiffPage,
+  DrawingKind,
   DrawingUnit,
   FeatureType,
   FrozenDrawingCorrection,
@@ -39,6 +40,8 @@ export interface NewDesignRevision {
   id: string;
   projectId: string;
   cadFileId: string;
+  /** Kind of the source file (ADR-040); the database checks it matches. */
+  drawingKind: DrawingKind;
   currentJobId: string;
   baseRevisionId: string | null;
   rules: MappingRule[];
@@ -63,10 +66,12 @@ export interface DesignRevisionRepository {
     revisionId: string,
     options?: { lock?: boolean },
   ): Promise<DesignRevision | null>;
-  /** Id of the project's latest `published` revision (highest rev_no), if any. */
-  findLatestPublishedId(projectId: string): Promise<string | null>;
-  /** True while the project has a queued, building or draft revision (at most one may exist). */
-  hasOpen(projectId: string): Promise<boolean>;
+  /** Id of the latest `published` revision of the kind (highest rev_no), if any. */
+  findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null>;
+  /** True while the project has a queued, building or draft revision of the kind (at most one). */
+  hasOpen(projectId: string, kind: DrawingKind): Promise<boolean>;
+  /** The open (queued, building or draft) revision of the kind, if any. */
+  findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null>;
   /** True while a revision built from this file is queued or building. */
   hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean>;
   /**
@@ -81,8 +86,11 @@ export interface DesignRevisionRepository {
     jobId: string,
     message: string,
   ): Promise<boolean>;
-  /** draft → published with rev_no = highest rev_no of the project + 1; returns that number. */
-  publish(projectId: string, revisionId: string, actorId: string, at: Date): Promise<number>;
+  /**
+   * draft → published for every given revision (the pair, ADR-040) with the SAME rev_no = highest
+   * rev_no of the project over both kinds + 1; returns that number.
+   */
+  publish(projectId: string, revisionIds: string[], actorId: string, at: Date): Promise<number>;
   /** → discarded; also replaces the job id so a still-running worker is superseded. */
   discard(projectId: string, revisionId: string, supersedingJobId: string): Promise<void>;
 }

@@ -16,6 +16,7 @@ export function toRevisionSummaryDto(revision: DesignRevision): DesignRevisionSu
     projectId: revision.projectId,
     cadFileId: revision.cadFileId,
     cadFileName: revision.cadFileName,
+    drawingKind: revision.drawingKind,
     revNo: revision.revNo,
     status: revision.status,
     crsEpsg: revision.crsEpsg,

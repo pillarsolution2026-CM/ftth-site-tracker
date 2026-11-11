@@ -1,4 +1,9 @@
-import { DesignRevisionCountsSchema, DiffCountsSchema, TextLinkCountsSchema } from '@ftth/shared';
+import {
+  DesignRevisionCountsSchema,
+  DiffCountsSchema,
+  TextLinkCountsSchema,
+  type DrawingKind,
+} from '@ftth/shared';
 import { and, desc, eq, inArray, max, sql } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import { toDecimalText } from '../../../common/decimal-text.js';
@@ -31,6 +36,7 @@ function toRevision({ row, cadFileName }: Joined): DesignRevision {
     projectId: row.projectId,
     cadFileId: row.cadFileId,
     cadFileName,
+    drawingKind: row.drawingKind,
     revNo: row.revNo,
     status: row.status,
     currentJobId: row.currentJobId,
@@ -112,28 +118,37 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
     return row ? toRevision(row) : null;
   }
 
-  async findLatestPublishedId(projectId: string): Promise<string | null> {
+  async findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null> {
     const [row] = await this.db
-      .select({ id: designRevisions.id })
-      .from(designRevisions)
-      .where(and(eq(designRevisions.projectId, projectId), eq(designRevisions.status, 'published')))
-      .orderBy(desc(designRevisions.revNo))
-      .limit(1);
-    return row?.id ?? null;
-  }
-
-  async hasOpen(projectId: string): Promise<boolean> {
-    const rows = await this.db
       .select({ id: designRevisions.id })
       .from(designRevisions)
       .where(
         and(
           eq(designRevisions.projectId, projectId),
+          eq(designRevisions.drawingKind, kind),
+          eq(designRevisions.status, 'published'),
+        ),
+      )
+      .orderBy(desc(designRevisions.revNo))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  async hasOpen(projectId: string, kind: DrawingKind): Promise<boolean> {
+    return (await this.findOpen(projectId, kind)) !== null;
+  }
+
+  async findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null> {
+    const [row] = await this.selectJoined()
+      .where(
+        and(
+          eq(designRevisions.projectId, projectId),
+          eq(designRevisions.drawingKind, kind),
           inArray(designRevisions.status, ['queued', 'building', 'draft']),
         ),
       )
       .limit(1);
-    return rows.length > 0;
+    return row ? toRevision(row) : null;
   }
 
   async hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean> {
@@ -157,6 +172,7 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
         id: revision.id,
         projectId: revision.projectId,
         cadFileId: revision.cadFileId,
+        drawingKind: revision.drawingKind,
         status: 'queued',
         currentJobId: revision.currentJobId,
         baseRevisionId: revision.baseRevisionId,
@@ -203,7 +219,13 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
     return updated.length > 0;
   }
 
-  async publish(projectId: string, revisionId: string, actorId: string, at: Date): Promise<number> {
+  async publish(
+    projectId: string,
+    revisionIds: string[],
+    actorId: string,
+    at: Date,
+  ): Promise<number> {
+    // rev_no counts over both kinds: the pair shares one number (unique per kind).
     const [latest] = await this.db
       .select({ value: max(designRevisions.revNo) })
       .from(designRevisions)
@@ -212,7 +234,13 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
     await this.db
       .update(designRevisions)
       .set({ status: 'published', revNo, publishedAt: at, publishedBy: actorId })
-      .where(and(inProject(projectId, revisionId), eq(designRevisions.status, 'draft')));
+      .where(
+        and(
+          eq(designRevisions.projectId, projectId),
+          inArray(designRevisions.id, revisionIds),
+          eq(designRevisions.status, 'draft'),
+        ),
+      );
     return revNo;
   }
 

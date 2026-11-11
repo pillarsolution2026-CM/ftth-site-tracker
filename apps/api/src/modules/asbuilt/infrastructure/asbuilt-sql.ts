@@ -31,10 +31,14 @@ export function parseGeometry(geojson: string): AsBuiltGeometry {
   };
 }
 
-/** The latest published revision of the project (subquery text, project id bound). */
+/**
+ * The latest published revision of the project's General drawing (subquery text, project id
+ * bound). ADR-040: the supervisor's choice of drawing comes later; until then the General is read.
+ */
 export const latestRevisionIdSql = (projectId: string): SQL =>
   sql`(SELECT r.id FROM design_revisions r
         WHERE r.project_id = ${projectId} AND r.status = 'published'
+          AND r.drawing_kind = 'general'
         ORDER BY r.rev_no DESC LIMIT 1)`;
 
 /**

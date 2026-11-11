@@ -73,7 +73,11 @@ const base = (project: string) => `/projects/${project}/cad-files`;
 const as = (token: string) => (req: request.Test) => req.set('Authorization', `Bearer ${token}`);
 
 const upload = (content: Buffer, name: string, token = pm, project = projectA, context = ctx) =>
-  as(token)(http(context).post(base(project))).attach('file', content, name);
+  as(token)(http(context).post(`${base(project)}?kind=general&newVersion=true`)).attach(
+    'file',
+    content,
+    name,
+  );
 
 async function queuedJobs() {
   const raw = await redis.lrange(CAD_QUEUE_KEYS.jobs, 0, -1);

@@ -483,7 +483,7 @@ export async function latestPublished(
   }>(
     db,
     sql`SELECT id, rev_no, published_at, tiles_storage_key FROM design_revisions
-        WHERE project_id = ${projectId} AND status = 'published'
+        WHERE project_id = ${projectId} AND status = 'published' AND drawing_kind = 'general'
         ORDER BY rev_no DESC LIMIT 1`,
   );
   return row
