@@ -75,7 +75,7 @@ export class DrizzleInstallationRepository implements InstallationRepository {
       .select()
       .from(cadFileInstallationAnswers)
       .where(answersOf(projectId, cadFileId))
-      .orderBy(desc(cadFileInstallationAnswers.createdAt), desc(cadFileInstallationAnswers.id));
+      .orderBy(desc(cadFileInstallationAnswers.seq));
     const names = await this.names(rows.map((row) => row.createdBy));
     return rows.map((row) => this.toAnswer(row, names));
   }
@@ -104,7 +104,7 @@ export class DrizzleInstallationRepository implements InstallationRepository {
       .select()
       .from(cadFileTrenchMarks)
       .where(marksOf(projectId, cadFileId))
-      .orderBy(desc(cadFileTrenchMarks.createdAt), desc(cadFileTrenchMarks.id));
+      .orderBy(desc(cadFileTrenchMarks.seq));
     const names = await this.names(rows.flatMap((row) => [row.createdBy, row.withdrawnBy]));
     return rows.map((row) => this.toMark(row, names));
   }
@@ -193,7 +193,7 @@ export class DrizzleInstallationRepository implements InstallationRepository {
       .select({ id: cadFileInstallationAnswers.id, answer: cadFileInstallationAnswers.answer })
       .from(cadFileInstallationAnswers)
       .where(answersOf(projectId, cadFileId))
-      .orderBy(desc(cadFileInstallationAnswers.createdAt), desc(cadFileInstallationAnswers.id))
+      .orderBy(desc(cadFileInstallationAnswers.seq))
       .limit(1);
     const marks = await this.db
       .select({
@@ -203,7 +203,7 @@ export class DrizzleInstallationRepository implements InstallationRepository {
       })
       .from(cadFileTrenchMarks)
       .where(and(marksOf(projectId, cadFileId), isNull(cadFileTrenchMarks.withdrawnAt)))
-      .orderBy(asc(cadFileTrenchMarks.createdAt), asc(cadFileTrenchMarks.id));
+      .orderBy(asc(cadFileTrenchMarks.seq));
     return {
       answer: latest?.answer ?? null,
       answerId: latest?.id ?? null,

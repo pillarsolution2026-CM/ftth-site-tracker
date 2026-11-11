@@ -593,6 +593,34 @@ describe('answer and trench marks lifecycle', () => {
     expect(res.body.details).toMatchObject({ reason: 'NOT_PROCESSED' });
   });
 
+  it('orders answers and marks by the database sequence, not by clock or id (L4)', async () => {
+    const file = await generalWithCurves();
+    // Same timestamp, and the ids sort the opposite way to the insertion order.
+    await q(
+      `INSERT INTO cad_file_installation_answers (id, project_id, cad_file_id, answer, created_at)
+       VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff', $1, $2, 'has_trench', '2026-01-01T00:00:00Z'),
+              ('00000000-0000-4000-8000-000000000000', $1, $2, 'pull_only', '2026-01-01T00:00:00Z')`,
+      [project, file],
+    );
+    const state = InstallationStateSchema.parse((await getState(file)).body);
+    expect(state.answer?.answer).toBe('pull_only');
+    expect(state.answerHistory.map((a) => a.answer)).toEqual(['pull_only', 'has_trench']);
+  });
+
+  it('refuses to withdraw a mark of a superseded General (L3)', async () => {
+    const file = await generalWithCurves();
+    await answer(file, 'has_trench');
+    const mark = (await addMark(file, 'C1', '3')).body.id as string;
+    const replacement = await insertFile('general');
+    await q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
+      file,
+      replacement,
+    ]);
+    const res = await withdrawMark(file, mark);
+    expect(res.status).toBe(409);
+    expect(res.body.details).toMatchObject({ reason: 'FILE_SUPERSEDED' });
+  });
+
   it('stops at the technical caps', async () => {
     const file = await generalWithCurves();
     await answer(file, 'has_trench');
@@ -1077,6 +1105,22 @@ describe('automatic Secondary placement from the General cabinets (GET …/place
       (await q(`SELECT 1 FROM cad_mappings WHERE cad_file_id = $1`, [secondary.file])).rowCount,
     ).toBe(1); // the mapping the pair() helper saved is untouched
     expect(supervisor).toBeTruthy();
+  });
+
+  it('lists a too-long name and an unconvertible position instead of answering 500 (L2)', async () => {
+    const pr = await pair('pull_only');
+    const long = 'n'.repeat(300);
+    await cabinet(pr.general.revision, pr.project, long, 'GL');
+    await cabinet(pr.secondary.revision, pr.project, long, 'SL', { at: { x: 1, y: 1 } });
+    await cabinet(pr.general.revision, pr.project, '8-8', 'GB', { point: [1e300, 1e300] });
+    await cabinet(pr.secondary.revision, pr.project, '8-8', 'SB', { at: { x: 2, y: 2 } });
+    await cabinet(pr.general.revision, pr.project, '1-1', 'G1');
+    await cabinet(pr.secondary.revision, pr.project, '1-1', 'S1', { at: { x: 3, y: 3 } });
+    const res = await suggest(pr.secondary.file, pr.project);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = SecondaryPlacementSuggestionSchema.parse(res.body);
+    expect(body.points.map((p) => p.label)).toEqual(['1-1']);
+    expect(body.unmatched.unusable).toEqual(['8-8', long.slice(0, 200)]);
   });
 
   it('does not use a name drawn twice on either side', async () => {

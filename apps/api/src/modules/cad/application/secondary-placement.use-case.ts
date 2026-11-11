@@ -22,6 +22,17 @@ const MESSAGES: Record<SecondaryPlacementRefusal, string> = {
   GENERAL_NOT_PLACED: 'The General drawing has no placement with a control point in use',
 };
 
+/** Technical bound on the sub cabinets read per drawing (a real drawing has a few hundred). */
+export const MAX_CABINETS_READ = 5000;
+
+function safeCrs(epsg: number): ReturnType<typeof createProjectCrs> | null {
+  try {
+    return createProjectCrs(epsg);
+  } catch {
+    return null;
+  }
+}
+
 const refuse = (reason: SecondaryPlacementRefusal, revisionId: string | null = null): AppError =>
   new AppError('CONFLICT', MESSAGES[reason], { reason, revisionId });
 
@@ -47,7 +58,12 @@ export class GetSecondaryPlacementSuggestionUseCase {
       }
       const secondary = await tx.revisions.findLatestBuiltOfFile(projectId, file.id);
       if (!secondary) throw refuse('SECONDARY_NOT_BUILT');
-      const secondaryCabinets = await tx.revisions.subCabinetPositions(projectId, secondary.id);
+      const secondaryRead = await tx.revisions.subCabinetPositions(
+        projectId,
+        secondary.id,
+        MAX_CABINETS_READ + 1,
+      );
+      const secondaryCabinets = secondaryRead.slice(0, MAX_CABINETS_READ);
       if (
         secondaryCabinets.length > 0 &&
         secondaryCabinets.every((c) => drawingAtOf(c.attrs) === null)
@@ -72,13 +88,25 @@ export class GetSecondaryPlacementSuggestionUseCase {
       }
 
       // Project CRS (metres) -> Lat/Lon, through the one transform place (@ftth/geo).
-      const crs = createProjectCrs(general.crsEpsg);
-      const generalCabinets: GeneralCabinetPosition[] = (
-        await tx.revisions.subCabinetPositions(projectId, general.id)
-      ).map((c) => {
-        const { lat, lon } = crs.toWgs84({ x: c.x, y: c.y });
-        return { name: c.code, lat, lon };
-      });
+      // A cabinet that cannot be converted (bad coordinates) gets NaN, which the matcher lists as
+      // `unusable` instead of failing the whole suggestion.
+      const crs = safeCrs(general.crsEpsg);
+      const generalRead = await tx.revisions.subCabinetPositions(
+        projectId,
+        general.id,
+        MAX_CABINETS_READ + 1,
+      );
+      const generalCabinets: GeneralCabinetPosition[] = generalRead
+        .slice(0, MAX_CABINETS_READ)
+        .map((c) => {
+          try {
+            if (!crs) throw new Error('unsupported CRS');
+            const { lat, lon } = crs.toWgs84({ x: c.x, y: c.y });
+            return { name: c.code, lat, lon };
+          } catch {
+            return { name: c.code, lat: Number.NaN, lon: Number.NaN };
+          }
+        });
       const drawn: SecondaryCabinetDrawn[] = secondaryCabinets.map((c) => ({
         name: c.code,
         handle: c.sourceHandle,
@@ -98,7 +126,11 @@ export class GetSecondaryPlacementSuggestionUseCase {
         points: matched.points,
         matchedCount: matched.matchedCount,
         truncated: matched.truncated,
-        unmatched: matched.unmatched,
+        unmatched: {
+          ...matched.unmatched,
+          listCapped:
+            generalRead.length > MAX_CABINETS_READ || secondaryRead.length > MAX_CABINETS_READ,
+        },
       };
     });
   }

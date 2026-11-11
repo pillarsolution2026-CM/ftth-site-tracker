@@ -7,7 +7,7 @@
 -- length in metres; the rest stays pull. A Secondary is never asked (all trench).
 --
 -- Both are facts of the GENERAL CAD FILE, never deleted:
--- - an answer row never changes; the latest row (created_at, id) is the answer in force;
+-- - an answer row never changes; the latest row (seq) is the answer in force;
 -- - a trench mark only changes by its withdrawal, once (as cad_file_corrections, 0015).
 -- A design revision freezes the answer and the marks in force at creation in
 -- `design_revisions.installation` (FrozenInstallation), like the rules, placement and corrections.
@@ -32,11 +32,13 @@ CREATE TABLE cad_file_installation_answers (
   answer      text        NOT NULL CHECK (answer IN ('pull_only', 'has_trench')),
   created_by  uuid        REFERENCES users (id),
   created_at  timestamptz NOT NULL DEFAULT now(),
+  -- Order of the rows of a file: independent of clocks and ids (inserts run under the file lock).
+  seq         bigserial   NOT NULL,
   CONSTRAINT cad_file_installation_answers_file_fkey
     FOREIGN KEY (project_id, cad_file_id) REFERENCES cad_files (project_id, id)
 );
 CREATE INDEX cad_file_installation_answers_file_idx
-  ON cad_file_installation_answers (project_id, cad_file_id, created_at, id);
+  ON cad_file_installation_answers (project_id, cad_file_id, seq);
 
 CREATE TRIGGER cad_file_installation_answers_general BEFORE INSERT ON cad_file_installation_answers
   FOR EACH ROW EXECUTE FUNCTION cad_file_must_be_general();
@@ -59,6 +61,7 @@ CREATE TABLE cad_file_trench_marks (
   length_m     numeric(9, 3) NOT NULL CHECK (length_m > 0 AND length_m <= 100000),
   created_by   uuid          REFERENCES users (id),
   created_at   timestamptz   NOT NULL DEFAULT now(),
+  seq          bigserial     NOT NULL,
   withdrawn_by uuid          REFERENCES users (id),
   withdrawn_at timestamptz,
   CONSTRAINT cad_file_trench_marks_file_fkey
@@ -66,7 +69,7 @@ CREATE TABLE cad_file_trench_marks (
   CONSTRAINT cad_file_trench_marks_withdrawal_both CHECK ((withdrawn_at IS NULL) = (withdrawn_by IS NULL))
 );
 CREATE INDEX cad_file_trench_marks_file_idx
-  ON cad_file_trench_marks (project_id, cad_file_id, created_at, id);
+  ON cad_file_trench_marks (project_id, cad_file_id, seq);
 
 CREATE FUNCTION cad_file_trench_marks_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

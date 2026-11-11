@@ -247,6 +247,16 @@ describe('trench marks (ADR-042)', () => {
     ]);
   });
 
+  it('refuses to withdraw a mark of a superseded General (L3)', async () => {
+    await answer('has_trench');
+    const created = await mark();
+    uow.files.rows.set(GENERAL, file(GENERAL, { supersededAt: clock.now() }));
+    expect((await reason(withdraw(created.id))).details).toMatchObject({
+      reason: 'FILE_SUPERSEDED',
+    });
+    expect(uow.installation.marks.get(created.id)?.withdrawnAt).toBeNull();
+  });
+
   it('answers 404 for an unknown mark and for another project', async () => {
     await answer('has_trench');
     const created = await mark();

@@ -222,7 +222,11 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
     return row ? toRevision(row) : null;
   }
 
-  async subCabinetPositions(projectId: string, revisionId: string): Promise<SubCabinetPosition[]> {
+  async subCabinetPositions(
+    projectId: string,
+    revisionId: string,
+    limit: number,
+  ): Promise<SubCabinetPosition[]> {
     const rows = await this.db
       .select({
         code: designFeatures.code,
@@ -240,7 +244,8 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
           sql`${designFeatures.attrs} ->> 'role' = 'sub'`,
         ),
       )
-      .orderBy(asc(designFeatures.sourceHandle), asc(designFeatures.featureId));
+      .orderBy(asc(designFeatures.sourceHandle), asc(designFeatures.featureId))
+      .limit(limit);
     return rows;
   }
 

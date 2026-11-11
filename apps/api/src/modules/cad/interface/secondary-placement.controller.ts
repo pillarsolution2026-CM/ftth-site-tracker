@@ -24,7 +24,7 @@ export class SecondaryPlacementController {
   ) {}
 
   @Get('general-cabinets')
-  @RequirePermission('cad_files:read')
+  @RequirePermission('design:read')
   @ApiOkResponse({ schema: openApiSchema(SecondaryPlacementSuggestionSchema) })
   suggest(
     @ProjectIdParam() projectId: string,

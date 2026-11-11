@@ -225,9 +225,8 @@ export class WithdrawTrenchMarkUseCase {
     const { projectId, cadFileId, markId, actorId } = input;
     return this.uow.run(async (tx) => {
       // Same lock as creating a revision: a revision freezes either before or after, never between.
-      if (!(await tx.files.find(projectId, cadFileId, { lock: true }))) {
-        throw new AppError('NOT_FOUND', 'CAD file not found');
-      }
+      // The same rules as adding: a current General (L3).
+      await lockCurrentGeneral(tx, projectId, cadFileId);
       const current = await tx.installation.findMark(projectId, cadFileId, markId, { lock: true });
       if (!current) throw new AppError('NOT_FOUND', 'Trench mark not found');
       const done = await tx.installation.withdrawMark(

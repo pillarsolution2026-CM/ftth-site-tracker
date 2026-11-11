@@ -101,7 +101,11 @@ export interface DesignRevisionRepository {
    * The `sub` cabinet features of the revision with their position in the revision CRS (metres)
    * and attrs, ordered by source handle. ADR-042 part G.
    */
-  subCabinetPositions(projectId: string, revisionId: string): Promise<SubCabinetPosition[]>;
+  subCabinetPositions(
+    projectId: string,
+    revisionId: string,
+    limit: number,
+  ): Promise<SubCabinetPosition[]>;
   /** True while a revision built from this file is queued or building. */
   hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean>;
   /**
