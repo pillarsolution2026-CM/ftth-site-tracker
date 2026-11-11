@@ -327,3 +327,43 @@ def test_cabinets_of_both_drawings_match_once_the_general_names_them(
     assert sorted(i["handle"] for i in missing) == UNLABELLED_GENERAL_ROUTES
     assert "CABINET_NAME_DUPLICATE" not in _problems(named)
     _pin(GENERAL, "named_cabinets", _summary(named))
+
+
+def test_point_features_carry_their_drawn_centre_for_the_secondary_placement(
+    drawings: dict[str, DrawingData],
+) -> None:
+    """ADR-042 part G: every point feature keeps `attrs.drawingAt` (drawing units, after the
+    corrections, before placement); routes do not. The API matches a Secondary sub cabinet's
+    drawn centre with the placed General cabinet of the same name."""
+    general = _load(GENERAL)
+    named = _build(
+        drawings["general"],
+        "general",
+        [*general["rules"], general["namedCabinetsRule"]],
+        general["corrections"],
+    )
+    secondary = _build(drawings["secondary"], "secondary", _load(SECONDARY)["rules"])
+    for build in (named, secondary):
+        for f in build.rows.features:
+            if f.feature_type == "route":
+                assert "drawingAt" not in f.attrs
+            else:
+                at = f.attrs["drawingAt"]
+                assert isinstance(at, dict) and set(at) == {"x", "y"}
+                # Built with no placement, the drawn centre is the stored position.
+                assert (at["x"], at["y"]) == pytest.approx(f.coords[0], abs=0.001)
+
+    def sub_cabinet_at(build: DesignBuild, name: str) -> tuple[float, float]:
+        [at] = [
+            f.attrs["drawingAt"]
+            for f in build.rows.features
+            if f.feature_type == "cabinet"
+            and f.attrs.get("role") == "sub"
+            and f.code
+            and cabinet_name_key(f.code) == cabinet_name_key(name)
+        ]
+        return (at["x"], at["y"])  # type: ignore[index]
+
+    assert sub_cabinet_at(secondary, "1-7") == pytest.approx((1970.167, 708.955), abs=0.01)
+    # The centre of the drawn block (ADR-032), not its insertion point (7275.471, 4089.292).
+    assert sub_cabinet_at(named, "1-7") == pytest.approx((7284.286, 4091.719), abs=0.01)

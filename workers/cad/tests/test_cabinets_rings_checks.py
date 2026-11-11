@@ -89,10 +89,10 @@ def test_rule_attributes_land_on_features() -> None:
     built = build_features(drawing, RULES, unit_placer(1.0))
     attrs = {f.source_handle: (f.feature_type, dict(f.attrs)) for f in built.features}
     assert attrs["r1"] == ("route", {"kind": "4 way"})
-    assert attrs["m1"] == ("cabinet", {"role": "main"})
-    assert attrs["s1"] == ("cabinet", {"role": "sub"})
-    assert attrs["h1"] == ("hhi", {"status": "new"})
-    assert attrs["h2"] == ("hhi", {"status": "existing"})
+    assert attrs["m1"] == ("cabinet", {"role": "main", "drawingAt": {"x": 5.0, "y": 5.0}})
+    assert attrs["s1"] == ("cabinet", {"role": "sub", "drawingAt": {"x": 50.0, "y": 50.0}})
+    assert attrs["h1"] == ("hhi", {"status": "new", "drawingAt": {"x": 10.0, "y": 0.0}})
+    assert attrs["h2"] == ("hhi", {"status": "existing", "drawingAt": {"x": 20.0, "y": 0.0}})
     groups = {
         (g["type"], g["kind"], g["role"], g["status"]): (g["count"], g["lengthM"])
         for g in feature_groups(built.features)
@@ -120,7 +120,11 @@ def test_closed_shapes_on_a_point_layer_are_symbols_and_touching_ones_are_one() 
     assert [f.source_handle for f in joints] == ["a", "c"]
     assert joints[0].coords[0] == pytest.approx((2.015, 1.0))
     assert joints[1].coords[0] == pytest.approx((51.0, 51.0))
-    assert dict(joints[0].attrs) == {"kind": "144", "shapes": ["a", "b"]}
+    assert dict(joints[0].attrs) == {
+        "kind": "144",
+        "shapes": ["a", "b"],
+        "drawingAt": {"x": 2.015, "y": 1.0},
+    }
 
 
 def _problems(drawing: DrawingData) -> dict[str, list[tuple[str, str | None, str | None]]]:
