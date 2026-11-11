@@ -212,6 +212,13 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
   private sequence = 0;
   /** What each revision froze (the domain record does not carry it: the worker reads it). */
   readonly frozenCorrections = new Map<string, FrozenDrawingCorrection[]>();
+  /** revisionId -> `code` of each sub cabinet feature (null: unnamed); empty when not set. */
+  readonly subCabinets = new Map<string, (string | null)[]>();
+
+  async subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]> {
+    const row = this.rows.get(revisionId);
+    return row?.projectId === projectId ? [...(this.subCabinets.get(revisionId) ?? [])] : [];
+  }
 
   async list(projectId: string): Promise<DesignRevision[]> {
     return [...this.rows.values()]

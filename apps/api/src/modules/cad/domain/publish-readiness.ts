@@ -1,5 +1,7 @@
 import {
   PUBLISH_CHECK_KEYS,
+  compareCabinets,
+  type CabinetsComparison,
   type DrawingKind,
   type Placement,
   type PublishBlockedDetails,
@@ -13,8 +15,12 @@ export interface PublishFacts {
   status: string;
   drawingKind: DrawingKind;
   placement: Placement | null;
-  /** Sum of every problem's `count` (each place). */
+  /** Places of BLOCKING problems only (`problemTotals`, ADR-041). */
   problemTotal: number;
+  /** Places of non-blocking problems (warnings); shown, never block. */
+  warningTotal: number;
+  /** `code` (name) of each SUB cabinet of the drawing, null when unnamed (ADR-041). */
+  subCabinets: (string | null)[];
   open: OpenItems;
 }
 
@@ -33,6 +39,19 @@ const openTotalOf = (open: OpenItems): number => open.textLinksToReview + open.d
 const ownChecksOk = (facts: PublishFacts): boolean =>
   facts.placement !== null && pointsInUse(facts.placement) >= 1 && facts.problemTotal === 0;
 
+/** The sub cabinets of the pair compared by name, always as general vs secondary. */
+export function cabinetsOf(facts: PublishFacts, other: PublishFacts): CabinetsComparison {
+  return facts.drawingKind === 'general'
+    ? compareCabinets(facts.subCabinets, other.subCabinets)
+    : compareCabinets(other.subCabinets, facts.subCabinets);
+}
+
+const unmatchedCabinets = (c: CabinetsComparison): number =>
+  c.general.unnamed +
+  c.secondary.unnamed +
+  c.general.missingInOther.length +
+  c.secondary.missingInOther.length;
+
 /**
  * The checklist shown before publishing, in PUBLISH_CHECK_KEYS order. The first three checks are
  * this drawing's; `open_items` sums both drawings; `other_drawing` is ok when the other kind has a
@@ -41,6 +60,7 @@ const ownChecksOk = (facts: PublishFacts): boolean =>
 export function publishReadiness(facts: PublishFacts, other: OtherDraft | null): PublishReadiness {
   const inUse = pointsInUse(facts.placement);
   const openTotal = openTotalOf(facts.open) + (other ? openTotalOf(other.facts.open) : 0);
+  const cabinets = other ? cabinetsOf(facts, other.facts) : null;
   const byKey: Record<(typeof PUBLISH_CHECK_KEYS)[number], PublishCheck> = {
     crs_known: { key: 'crs_known', ok: facts.placement !== null, count: null },
     control_point: { key: 'control_point', ok: inUse >= 1, count: inUse },
@@ -51,6 +71,11 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
       ok: other !== null && ownChecksOk(other.facts),
       count: other ? other.facts.problemTotal : null,
     },
+    cabinets_match: {
+      key: 'cabinets_match',
+      ok: cabinets?.ok ?? false,
+      count: cabinets ? unmatchedCabinets(cabinets) : null,
+    },
   };
   const checks = PUBLISH_CHECK_KEYS.map((key) => byKey[key]);
   return {
@@ -59,6 +84,8 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
     drawingKind: facts.drawingKind,
     otherRevisionId: other?.revisionId ?? null,
     needsAcknowledgement: openTotal > 0,
+    cabinets,
+    warningCount: facts.warningTotal,
   };
 }
 
@@ -73,12 +100,18 @@ export function drawingBlocker(facts: PublishFacts): PublishBlockedDetails | nul
   return null;
 }
 
-/** The first hard blocker of the pair: this drawing's, then the other's. Open items are separate. */
+/**
+ * The first hard blocker of the pair: this drawing's, then the other's, then the shared cabinets
+ * (ADR-041). Open items are separate.
+ */
 export function publishBlocker(
   facts: PublishFacts,
   other: PublishFacts,
 ): PublishBlockedDetails | null {
-  return drawingBlocker(facts) ?? drawingBlocker(other);
+  const own = drawingBlocker(facts) ?? drawingBlocker(other);
+  if (own) return own;
+  const cabinets = cabinetsOf(facts, other);
+  return cabinets.ok ? null : { reason: 'CABINETS_MISMATCH', cabinets };
 }
 
 /** Open items of both drawings, summed. */

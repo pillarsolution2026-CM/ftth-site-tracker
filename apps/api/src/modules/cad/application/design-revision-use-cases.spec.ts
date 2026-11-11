@@ -228,6 +228,44 @@ describe('SaveCadMappingUseCase', () => {
     });
   });
 
+  describe('drawing kind rules (ADR-041)', () => {
+    const rolesRule = (target: 'label' | 'zone', textRoles?: ['handhole_type'] | ['box_number']) =>
+      ({ source: 'layer', layer: 'L1', target, ...(textRoles ? { textRoles } : {}) }) as const;
+
+    it('keeps textRoles, ways and zone rules of a kind that fits', async () => {
+      const rules = [
+        rolesRule('label', ['handhole_type']),
+        { source: 'layer', layer: 'R', target: 'route', ways: 12 },
+      ] as CadMappingInput['rules'];
+      const saved = await save({ rules });
+      expect(saved.rules).toEqual(rules);
+      uow.files.rows.set(FILE, processedFile({ drawingKind: 'secondary' }));
+      const zone = [rolesRule('zone'), rolesRule('label', ['box_number'])];
+      expect((await save({ rules: zone, version: 1 })).rules).toEqual(zone);
+    });
+
+    it('refuses a role of the other kind with ROLE_NOT_FOR_KIND (422), saving nothing', async () => {
+      uow.files.rows.set(FILE, processedFile({ drawingKind: 'secondary' }));
+      expect(await reason(save({ rules: [rolesRule('label', ['handhole_type'])] }))).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        status: 422,
+        details: {
+          reason: 'ROLE_NOT_FOR_KIND',
+          drawingKind: 'secondary',
+          problems: [{ index: 0, reason: 'ROLE_NOT_FOR_KIND', role: 'handhole_type' }],
+        },
+      });
+      expect(uow.mappings.rows.size).toBe(0);
+    });
+
+    it('refuses a zone layer in a General with ZONE_NOT_FOR_KIND (422)', async () => {
+      expect(await reason(save({ rules: [rolesRule('zone')] }))).toMatchObject({
+        status: 422,
+        details: { reason: 'ZONE_NOT_FOR_KIND', drawingKind: 'general' },
+      });
+    });
+  });
+
   it("treats another project's file as not found", async () => {
     expect(await reason(save({}, OTHER_PROJECT))).toMatchObject({ code: 'NOT_FOUND', status: 404 });
     expect(uow.mappings.rows.size).toBe(0);
@@ -791,12 +829,23 @@ describe('drawing problems (ADR-038)', () => {
     const result = await list();
     expect(result.items.map((p) => p.code)).toEqual(['WRONG_LAYER', 'LABEL_MISSING']);
     expect(result.total).toBe(5);
+    expect(result.warningTotal).toBe(0);
     expect(result.items[0]?.items[0]).not.toHaveProperty('ignored');
+  });
+
+  it('totals blocking places apart from warning places (CABLE_SLACK_TOO_LONG only warns)', async () => {
+    uow.problems.stored.set(revisionId, [
+      problem,
+      { ...problem, code: 'CABLE_SLACK_TOO_LONG', severity: 'warning', count: 4, items: [] },
+    ]);
+    const result = await list();
+    expect(result.total).toBe(3);
+    expect(result.warningTotal).toBe(4);
   });
 
   it('answers a zero total for a revision without problems and 404 for another project', async () => {
     uow.problems.stored.set(revisionId, []);
-    expect(await list()).toEqual({ items: [], total: 0 });
+    expect(await list()).toEqual({ items: [], total: 0, warningTotal: 0 });
     expect((await reason(list(OTHER_PROJECT))).code).toBe('NOT_FOUND');
   });
 });
@@ -935,11 +984,18 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
         { key: 'no_problems', ok: true, count: 0 },
         { key: 'open_items', ok: true, count: 0 },
         { key: 'other_drawing', ok: false, count: 6 },
+        { key: 'cabinets_match', ok: true, count: 0 },
       ],
       canPublish: false,
       drawingKind: 'general',
       otherRevisionId: secondary.id,
       needsAcknowledgement: false,
+      cabinets: {
+        ok: true,
+        general: { count: 0, unnamed: 0, missingInOther: [] },
+        secondary: { count: 0, unnamed: 0, missingInOther: [] },
+      },
+      warningCount: 0,
     });
     setRevision({ placement: placement([true, false, false]) });
     uow.problems.stored.set(revisionId, [problem(4)]);
@@ -952,15 +1008,95 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       { key: 'no_problems', ok: false, count: 4 },
       { key: 'open_items', ok: false, count: 5 },
       { key: 'other_drawing', ok: false, count: 6 },
+      { key: 'cabinets_match', ok: true, count: 0 },
     ]);
     expect(result).toMatchObject({ canPublish: false, needsAcknowledgement: true });
+  });
+
+  describe('shared cabinets and warnings (ADR-041)', () => {
+    beforeEach(() => {
+      setRevision({ placement: placement([false]) });
+    });
+
+    it('is ok when both drafts name the same sub cabinets (spelling aside)', async () => {
+      uow.revisions.subCabinets.set(revisionId, ['1-1', '1-2']);
+      uow.revisions.subCabinets.set(secondary.id, ['1 - 2', '1-1']);
+      const result = await readiness();
+      expect(result.checks.at(-1)).toEqual({ key: 'cabinets_match', ok: true, count: 0 });
+      expect(result).toMatchObject({ canPublish: true, cabinets: { ok: true } });
+      expect(await publish()).toMatchObject({ status: 'published' });
+    });
+
+    it('lists the unmatched names and refuses CABINETS_MISMATCH', async () => {
+      uow.revisions.subCabinets.set(revisionId, ['1-1', '1-2', null]);
+      uow.revisions.subCabinets.set(secondary.id, ['1-1', '1-3']);
+      const result = await readiness();
+      expect(result.checks.at(-1)).toEqual({ key: 'cabinets_match', ok: false, count: 3 });
+      expect(result.canPublish).toBe(false);
+      expect(result.cabinets).toMatchObject({
+        ok: false,
+        general: { count: 3, unnamed: 1, missingInOther: ['1-2'] },
+        secondary: { count: 2, unnamed: 0, missingInOther: ['1-3'] },
+      });
+      expect(await reason(publish())).toMatchObject({
+        code: 'CONFLICT',
+        status: 409,
+        details: { reason: 'CABINETS_MISMATCH', cabinets: { ok: false } },
+      });
+    });
+
+    it('compares as general vs secondary whichever draft is asked', async () => {
+      uow.revisions.subCabinets.set(revisionId, ['1-1']);
+      uow.revisions.subCabinets.set(secondary.id, []);
+      const asSecondary = await new GetPublishReadinessUseCase(uow).execute(PROJECT, secondary.id);
+      expect(asSecondary.cabinets).toMatchObject({
+        general: { count: 1, missingInOther: ['1-1'] },
+        secondary: { count: 0 },
+      });
+    });
+
+    it('checks the cabinets after both drawings own blockers and before open items', async () => {
+      uow.revisions.subCabinets.set(revisionId, ['1-1']);
+      uow.links.diffConflicts = 2;
+      expect(await reason(publish(false))).toMatchObject({
+        details: { reason: 'CABINETS_MISMATCH' },
+      });
+      uow.problems.stored.set(secondary.id, [problem(1)]);
+      expect(await reason(publish(false))).toMatchObject({
+        details: { reason: 'PROBLEMS_OPEN', drawingKind: 'secondary' },
+      });
+    });
+
+    it('is not ok and has no comparison without the other draft', async () => {
+      uow.revisions.rows.delete(secondary.id);
+      const result = await readiness();
+      expect(result.cabinets).toBeNull();
+      expect(result.checks.at(-1)).toEqual({ key: 'cabinets_match', ok: false, count: null });
+    });
+
+    it('lets a pair with only warnings publish and counts them apart', async () => {
+      const slack = { code: 'CABLE_SLACK_TOO_LONG', severity: 'warning', count: 2, items: [] };
+      uow.problems.stored.set(revisionId, [slack]);
+      const result = await readiness();
+      expect(result).toMatchObject({ canPublish: true, warningCount: 2 });
+      expect(result.checks.find((c) => c.key === 'no_problems')).toEqual({
+        key: 'no_problems',
+        ok: true,
+        count: 0,
+      });
+      expect(await publish()).toMatchObject({ status: 'published' });
+    });
   });
 
   it('has no other draft: other_drawing is not ok with a null count and no otherRevisionId', async () => {
     uow.revisions.rows.delete(secondary.id);
     setRevision({ placement: placement([false]) });
     const result = await readiness();
-    expect(result.checks.at(-1)).toEqual({ key: 'other_drawing', ok: false, count: null });
+    expect(result.checks.find((c) => c.key === 'other_drawing')).toEqual({
+      key: 'other_drawing',
+      ok: false,
+      count: null,
+    });
     expect(result).toMatchObject({ canPublish: false, otherRevisionId: null });
   });
 
