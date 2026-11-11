@@ -1,6 +1,8 @@
 import {
   CadMappingInputSchema,
   FEATURE_TYPES,
+  TEXT_ROLES,
+  type DrawingKind,
   type CabinetRole,
   type ItemStatus,
   POINT_FEATURE_TYPES,
@@ -14,6 +16,7 @@ import {
   type PointFeatureType,
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
+import { layerMeaningFields, withSuggestedMeaning, type LayerMeaningForm } from './layer-meaning';
 import { initialEpsgText, parseEpsg } from './epsg';
 import {
   initialPlacementState,
@@ -60,6 +63,8 @@ export interface MappingFormState {
   texts: Record<string, TextChoice>;
   /** By `attrsKey(…)`; absent = EMPTY_ATTRS. */
   attrs: Record<string, RuleAttrsForm>;
+  /** Text roles and ways of LAYER rules, by layer name; absent = EMPTY_MEANING. */
+  meaning: Record<string, LayerMeaningForm>;
   /** Where the drawing sits on the earth (ADR-035). */
   placement: PlacementFormState;
 }
@@ -102,7 +107,7 @@ export function targetLabelKey(target: MappingTarget): MessageKey {
   return (
     (FEATURE_TYPES as readonly string[]).includes(target)
       ? `featureType.${target as (typeof FEATURE_TYPES)[number]}`
-      : `mapping.target.${target as 'label' | 'background' | 'ignore'}`
+      : `mapping.target.${target as 'label' | 'zone' | 'background' | 'ignore'}`
   ) as MessageKey;
 }
 
@@ -157,9 +162,14 @@ export function textRuleRows(view: CadMappingView): TextRuleRow[] {
  * Starting values of the form. Layers: the saved rule, else the name-based suggestion (nothing is
  * stored until the PM saves). Blocks and texts: once a mapping exists, no rule means "follow the
  * layer"/"no rule"; before the first save the suggestion is prefilled. The drawing unit is metres
- * unless a saved mapping says otherwise (ADR-035).
+ * unless a saved mapping says otherwise (ADR-035). Text roles and ways come from the saved rule;
+ * before the first save they are suggested from the layer texts and name (ADR-041; the PM confirms
+ * by saving). A saved mapping is never changed by suggestions until the PM asks for them.
  */
-export function initialFormState(view: CadMappingView): MappingFormState {
+export function initialFormState(
+  view: CadMappingView,
+  kind: DrawingKind | null = null,
+): MappingFormState {
   const layerSaved = savedLayerTargets(view);
   const blockSaved = savedBlockTargets(view);
   const hasMapping = view.mapping !== null;
@@ -206,15 +216,27 @@ export function initialFormState(view: CadMappingView): MappingFormState {
     }
   }
 
-  return {
+  const meaning: Record<string, LayerMeaningForm> = {};
+  for (const rule of savedRules(view)) {
+    if (rule.source === 'layer' && (rule.textRoles !== undefined || rule.ways !== undefined)) {
+      meaning[rule.layer] = {
+        roles: [...(rule.textRoles ?? [])],
+        ways: rule.ways === undefined ? '' : String(rule.ways),
+      };
+    }
+  }
+
+  const state: MappingFormState = {
     epsg: initialEpsgText(view),
     unit: view.mapping?.drawingUnit ?? 'm',
     layers,
     blocks,
     texts,
     attrs,
+    meaning,
     placement: initialPlacementState(view),
   };
+  return hasMapping ? state : withSuggestedMeaning(view, state, kind);
 }
 
 /** Rule rows that point at `cabinet` without a chosen role (save stays off until chosen). */
@@ -265,6 +287,13 @@ export function formSignature(state: MappingFormState): string {
       .filter(([, a]) => a.kind.trim() !== '' || a.role !== '' || a.status !== 'new')
       .map(([key, a]): [string, string] => [key, `${a.kind.trim()}|${a.role}|${a.status}`])
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    Object.entries(state.meaning)
+      .map(([layer, m]): [string, string] => [
+        layer,
+        `${TEXT_ROLES.filter((role) => m.roles.includes(role)).join(',')}|${m.ways.trim()}`,
+      ])
+      .filter(([, value]) => value !== '|')
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     placementSignature(state.placement),
   ]);
 }
@@ -290,6 +319,7 @@ export function buildMappingInput(
       layer: layer.name,
       target,
       ...ruleAttrs(target, state.attrs[attrsKey.layer(layer.name)]),
+      ...layerMeaningFields(target, state.meaning[layer.name]),
     });
   }
   for (const block of view.blocks) {

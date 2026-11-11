@@ -44,11 +44,14 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: true, count: 0 },
       { key: 'other_drawing', ok: true, count: 0 },
+      { key: 'cabinets_match', ok: true, count: 0 },
     ],
     canPublish: true,
     drawingKind: 'general',
     otherRevisionId: null,
     needsAcknowledgement: false,
+    cabinets: null,
+    warningCount: 0,
     ...overrides,
   };
 }

@@ -676,7 +676,8 @@
     "target": {
       "label": "Label (text links)",
       "background": "Background",
-      "ignore": "Ignore"
+      "ignore": "Ignore",
+      "zone": "Cabinet zone"
     },
     "crs": {
       "title": "Coordinate system",
@@ -771,7 +772,9 @@
       "MAPPING_VERSION_MISMATCH": "The mapping changed since you opened it. Reload and build again.",
       "REVISION_IN_PROGRESS": "Another revision of this project is still being built or waiting for review",
       "reload": "Reload",
-      "NOT_CURRENT_VERSION": "This file is an old version, so nothing can be built from it. Build from the newer version of the same kind."
+      "NOT_CURRENT_VERSION": "This file is an old version, so nothing can be built from it. Build from the newer version of the same kind.",
+      "ROLE_NOT_FOR_KIND": "A layer has a text meaning that this kind of drawing (General or Secondary) does not read. Untick the one marked with a warning and save again.",
+      "ZONE_NOT_FOR_KIND": "The cabinet zone layer exists in the Secondary drawing only. Change the layer target and save again."
     },
     "role": {
       "label": "Cabinet role",
@@ -929,7 +932,30 @@
         "reset": "Remove hand adjustment"
       }
     },
-    "supersededNotice": "This file is an old version, so a revision cannot be built from it. Open the newer version and build from that."
+    "supersededNotice": "This file is an old version, so a revision cannot be built from it. Open the newer version and build from that.",
+    "meaning": {
+      "label": "What the texts mean",
+      "intro": "Say what the texts on each layer mean. The choices are suggested from the texts in the file; check them before saving. A layer with no meaning is read as before.",
+      "suggest": "Suggest meanings",
+      "notForKind": "not read in this drawing",
+      "ways": "Number of ways",
+      "waysPlaceholder": "e.g. 12",
+      "waysInvalid": "Enter a whole number from 1 to 288",
+      "waysRequired": "Number of ways must be a number from 1 to 288 on: {names}",
+      "role": {
+        "box_number": "Box number",
+        "box_cabinet": "Box cabinet",
+        "box_cable_type": "Box cable type (F4C)",
+        "box_cable_length": "Box cable length",
+        "bundle_label": "Bundle text (type / size / length)",
+        "bundle_spare": "Bundle spare SPn",
+        "cable_label": "Cable text (length / cores)",
+        "cable_spare": "Cable spare SP",
+        "handhole_number": "Handhole number",
+        "handhole_type": "Handhole type",
+        "cabinet_info": "Cabinet data (name / type / box count)"
+      }
+    }
   },
   "design": {
     "listTitle": "Design revisions",
@@ -1016,7 +1042,8 @@
         "control_point": "At least one control point in use ({count})",
         "no_problems": "No drawing errors ({count} left)",
         "open_items": "Open items reviewed ({count})",
-        "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set"
+        "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set",
+        "cabinets_match": "Cabinets match in both drawings (name and count)"
       },
       "fixCoordinates": "Open the coordinates screen",
       "lockedHint": "Publishing is locked until all checks except open items are done.",
@@ -1027,12 +1054,21 @@
         "PLACEMENT_MISSING": "The {drawing} drawing has no control point in use. Add or include a control point first.",
         "PROBLEMS_OPEN": "{count} drawing errors are left in the {drawing} drawing. Fix all of them before publishing.",
         "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
-        "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together."
+        "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together.",
+        "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing."
       },
       "otherNoDraft": "There is no draft for the {drawing} yet",
       "otherErrors": "{count} errors in it",
       "openOther": "Open the {drawing} draft",
-      "pairNote": "Publishing covers both drawings together ({first} + {second}) with the same revision number."
+      "pairNote": "Publishing covers both drawings together ({first} + {second}) with the same revision number.",
+      "warnings": "{count} warning(s) in this drawing — they do not block publishing.",
+      "cabinetsCounts": "Cabinets: General {general} / Secondary {secondary}",
+      "cabinetsOnly": {
+        "general": "Only in the General",
+        "secondary": "Only in the Secondary"
+      },
+      "cabinetsUnnamed": "Cabinets with no name: {count}",
+      "cabinetsNoOther": "There is no draft for the {drawing} to compare with"
     },
     "error": {
       "NOT_DRAFT": "Only a draft revision can be published",
@@ -1124,7 +1160,17 @@
         "WRONG_LAYER": "On the wrong layer",
         "LABEL_MISSING": "Symbol without a label",
         "LABEL_TYPE_MISMATCH": "Symbol and label disagree",
-        "LABEL_LENGTH_MISSING": "Cable label without a length"
+        "LABEL_LENGTH_MISSING": "Cable label without a length",
+        "HANDHOLE_TYPE_MISSING": "Handhole without a type",
+        "HANDHOLE_TYPE_UNKNOWN": "Unknown handhole type",
+        "HANDHOLE_NOT_DRAWN": "Handhole name with no drawing",
+        "BOX_NUMBER_DUPLICATE": "Duplicate box number",
+        "BOX_NOT_REACHED": "Box no bundle reaches",
+        "CABINET_BOX_COUNT_MISMATCH": "Box count differs from the written one",
+        "CABINET_ZONE_MISSING": "Cabinet without a zone",
+        "SPARE_CORES_MISMATCH": "Spare cores do not add up",
+        "CABLE_SLACK_TOO_SHORT": "Cable spare under 15 m",
+        "CABLE_SLACK_TOO_LONG": "Cable spare over 30 m"
       },
       "ROUTE_SPLIT": {
         "description": "A cable is drawn as separate pieces that meet end to end away from any item, so the system cannot read it as one route.",
@@ -1149,7 +1195,60 @@
       "LABEL_LENGTH_MISSING": {
         "description": "A cable label gives its type but no length.",
         "fix": "Write the length in the label."
-      }
+      },
+      "HANDHOLE_TYPE_MISSING": {
+        "description": "The handhole is drawn but no text next to it says its type (DH, HH-I, HH-II or MH-I to MH-IV).",
+        "fix": "Type the handhole type next to it."
+      },
+      "HANDHOLE_TYPE_UNKNOWN": {
+        "description": "The text next to the handhole is not an accepted type: DH, HH-I (HH1), HH-II (CH) or MH-I to MH-IV.",
+        "fix": "Correct the text to one of the accepted types."
+      },
+      "HANDHOLE_NOT_DRAWN": {
+        "description": "A handhole name is written (like 04A or CH01) but no handhole symbol is drawn at it.",
+        "fix": "Draw the handhole at the name (or add it with the tool here on a handhole layer), or delete the name if it is not needed."
+      },
+      "BOX_NUMBER_DUPLICATE": {
+        "description": "Two boxes in the same cabinet have the same number; a box number must be unique inside its cabinet.",
+        "fix": "Change the number of one of the two boxes to the right one."
+      },
+      "BOX_NOT_REACHED": {
+        "description": "No 1way bundle ends at this box, so it is not clear where it is connected from.",
+        "fix": "Fix the drawing in AutoCAD: connect a 1way bundle to the box."
+      },
+      "CABINET_BOX_COUNT_MISMATCH": {
+        "description": "The box count written on the cabinet (like 22B) differs from the number of boxes drawn under it.",
+        "fix": "Correct the number written on the cabinet, or fix the drawn boxes in AutoCAD."
+      },
+      "CABINET_ZONE_MISSING": {
+        "description": "There is no zone line (the cabinet area) around this cabinet.",
+        "fix": "Draw the zone line around the cabinet and its boxes in AutoCAD, or map the zone layer on the mapping screen."
+      },
+      "SPARE_CORES_MISMATCH": {
+        "description": "The spare «SP n» is not the main cable cores minus the sum of the branch cable cores.",
+        "fix": "Correct the spare number to the right result (written next to each place)."
+      },
+      "CABLE_SLACK_TOO_SHORT": {
+        "description": "The written cable is not at least 15 m longer than its bundle (or it is shorter than the bundle itself).",
+        "fix": "Correct the cable length in its label."
+      },
+      "CABLE_SLACK_TOO_LONG": {
+        "description": "The written cable is more than 30 m longer than its bundle. This is a warning only and does not block publishing.",
+        "fix": "Check the cable length if the number is wrong; if it is right, leave it as it is."
+      },
+      "detail": {
+        "LABEL_MISSING": "Missing text: {role}",
+        "LABEL_TYPE_MISMATCH": "The layer says {expected} ways but the text says {found} ways",
+        "HANDHOLE_TYPE_UNKNOWN": "Written «{found}» is not an accepted type",
+        "BOX_NUMBER_DUPLICATE": "Number {number} is repeated in cabinet {cabinet}",
+        "CABINET_BOX_COUNT_MISMATCH": "Cabinet {cabinet}: {written} boxes written, {drawn} drawn",
+        "SPARE_CORES_MISMATCH": "Should be SP {expected} (main cable {mainCores} cores) but {found} is written",
+        "CABLE_SLACK_TOO_SHORT": "Cable {cable} m, bundle {bundle} m, difference {slack} m (minimum 15 m)",
+        "CABLE_SLACK_TOO_LONG": "Cable {cable} m, bundle {bundle} m, difference {slack} m (over 30 m)"
+      },
+      "warningsHeading": "Warnings: {total}",
+      "warningNote": "Warning — does not block publishing",
+      "typeOn": "Type the text on layer"
     },
     "viewer": {
       "title": "Drawing viewer",
@@ -1202,7 +1301,8 @@
       "placeItem": "Place the item here",
       "noPointLayers": "No layer is mapped to an item type yet. Save the mapping first.",
       "mergePieces": "{count} pieces will be joined into one cable.",
-      "merge": "Merge the pieces into one cable"
+      "merge": "Merge the pieces into one cable",
+      "noHandholeLayers": "No layer is mapped to handholes. Map one on the mapping screen first."
     },
     "corrections": {
       "title": "Corrections",
@@ -1250,7 +1350,29 @@
         "MAPPING_VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again."
       }
     },
-    "kind": "Kind"
+    "kind": "Kind",
+    "reading": {
+      "title": "What was read from the drawing",
+      "hint": "Lengths are the WRITTEN ones, not measured. Shown when the mapping gives the texts a meaning.",
+      "bundles": "Bundles by type",
+      "type": "Type",
+      "ductSize": "Duct size",
+      "count": "Count",
+      "writtenLength": "Written length (m)",
+      "withoutLength": "Without a written length",
+      "ways": "{count} way",
+      "none": "—",
+      "fittings": "Connectors and spares",
+      "item": "Item",
+      "connectors": "Connectors",
+      "spares": "Spares (SPn)",
+      "endCaps": "End caps",
+      "cables": "Cables by cores",
+      "cores": "Cores",
+      "handholes": "Handholes by type",
+      "handholeType": "Type",
+      "untyped": "No type"
+    }
   },
   "asbuilt": {
     "title": "As-Built",

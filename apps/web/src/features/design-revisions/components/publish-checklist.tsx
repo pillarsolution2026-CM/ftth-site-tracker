@@ -1,10 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import type { PublishCheck, PublishCheckKey, PublishReadiness } from '@ftth/shared';
+import type {
+  CabinetsComparison,
+  PublishCheck,
+  PublishCheckKey,
+  PublishReadiness,
+} from '@ftth/shared';
 import { ltr } from '@ftth/i18n';
 import { otherDrawingKind, type DrawingKind } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
+import { Ltr } from '@/shared/ui/ltr';
 import { Checkbox } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
 
@@ -60,12 +66,19 @@ export function PublishChecklist({
             <CheckRow
               key={check.key}
               check={check}
+              cabinets={readiness.cabinets}
               mappingHref={mappingHref}
               otherRevisionHref={otherRevisionHref}
               otherKind={otherDrawingKind(readiness.drawingKind)}
             />
           ))}
         </ul>
+      ) : null}
+      {readiness && readiness.warningCount > 0 ? (
+        <p id="publish-warnings" className="text-sm">
+          <span aria-hidden="true">⚠ </span>
+          {t('design.publish.warnings', { count: ltr(readiness.warningCount) })}
+        </p>
       ) : null}
       {readiness?.needsAcknowledgement ? (
         <>
@@ -104,13 +117,51 @@ export function PublishChecklist({
   );
 }
 
+/** Cabinet names that exist in one drawing only, so the PM sees which one to fix (ADR-041). */
+function CabinetsDetail({ cabinets }: { cabinets: CabinetsComparison }) {
+  const { t } = useI18n();
+  const rows = [['general', cabinets.general] as const, ['secondary', cabinets.secondary] as const];
+  return (
+    <div className="ms-7 flex w-full flex-col gap-1 text-sm">
+      <p>
+        {t('design.publish.cabinetsCounts', {
+          general: ltr(cabinets.general.count),
+          secondary: ltr(cabinets.secondary.count),
+        })}
+      </p>
+      {rows.map(([kind, side]) =>
+        side.missingInOther.length > 0 ? (
+          <p key={kind}>
+            {t(`design.publish.cabinetsOnly.${kind}`)}:{' '}
+            {side.missingInOther.map((name, index) => (
+              <span key={name}>
+                {index > 0 ? '، ' : ''}
+                <Ltr>{name}</Ltr>
+              </span>
+            ))}
+          </p>
+        ) : null,
+      )}
+      {cabinets.general.unnamed + cabinets.secondary.unnamed > 0 ? (
+        <p>
+          {t('design.publish.cabinetsUnnamed', {
+            count: ltr(cabinets.general.unnamed + cabinets.secondary.unnamed),
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function CheckRow({
   check,
+  cabinets,
   mappingHref,
   otherRevisionHref,
   otherKind,
 }: {
   check: PublishCheck;
+  cabinets: CabinetsComparison | null;
   mappingHref: string | null;
   otherRevisionHref: string | null;
   otherKind: DrawingKind;
@@ -148,6 +199,13 @@ function CheckRow({
         <Link href={otherRevisionHref} className={linkClass}>
           {t('design.publish.openOther', { drawing })}
         </Link>
+      ) : null}
+      {check.key === 'cabinets_match' && !check.ok ? (
+        cabinets ? (
+          <CabinetsDetail cabinets={cabinets} />
+        ) : (
+          <span className="text-sm">{t('design.publish.cabinetsNoOther', { drawing })}</span>
+        )
       ) : null}
     </li>
   );

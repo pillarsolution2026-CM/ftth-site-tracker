@@ -19,22 +19,47 @@ const MAX_HANDLE = 64;
 const LABEL_OFFSET_M = 0.5;
 
 export type FixToolKind =
-  'move_layer' | 'add_text' | 'label_type_mismatch' | 'set_text' | 'merge_routes' | 'none';
+  | 'move_layer'
+  | 'add_text'
+  | 'label_type_mismatch'
+  | 'set_text'
+  | 'add_item'
+  | 'merge_routes'
+  | 'none';
 
-/** Which tool a problem code uses; `RING_LABEL_MISMATCH` is fixed in AutoCAD. */
-export function toolOf(code: DrawingProblemCode): FixToolKind {
+/**
+ * Which tool a problem code uses (ADR-038, ADR-041). `RING_LABEL_MISMATCH`, `BOX_NOT_REACHED` and
+ * `CABINET_ZONE_MISSING` are fixed in AutoCAD. A route's LABEL_TYPE_MISMATCH (its place carries
+ * `params.role`; its handle is the text) is fixed by editing that text; a point's by the older
+ * edit-or-place-an-item tool.
+ */
+export function toolOf(
+  code: DrawingProblemCode,
+  place?: Pick<DrawingProblemItem, 'params'>,
+): FixToolKind {
   switch (code) {
     case 'WRONG_LAYER':
       return 'move_layer';
     case 'LABEL_MISSING':
+    case 'HANDHOLE_TYPE_MISSING':
       return 'add_text';
     case 'LABEL_TYPE_MISMATCH':
-      return 'label_type_mismatch';
+      return place?.params?.role !== undefined ? 'set_text' : 'label_type_mismatch';
     case 'LABEL_LENGTH_MISSING':
+    case 'HANDHOLE_TYPE_UNKNOWN':
+    case 'BOX_NUMBER_DUPLICATE':
+    case 'CABINET_BOX_COUNT_MISMATCH':
+    case 'SPARE_CORES_MISMATCH':
+    case 'CABLE_SLACK_TOO_SHORT':
+    case 'CABLE_SLACK_TOO_LONG':
       return 'set_text';
+    case 'HANDHOLE_NOT_DRAWN':
+      return 'add_item';
     case 'ROUTE_SPLIT':
       return 'merge_routes';
     case 'RING_LABEL_MISMATCH':
+    case 'BOX_NOT_REACHED':
+    case 'CABINET_ZONE_MISSING':
       return 'none';
   }
 }
@@ -89,7 +114,8 @@ export function addTextRequest(
 ) {
   return request(code, place, {
     kind: 'add_text',
-    layer: place.layer,
+    // Type on the layer the checks suggest (one that carries the role), else on the symbol's own.
+    layer: place.suggestedLayer ?? place.layer,
     x: place.drawingX,
     y: place.drawingY + labelOffset(metresPerUnit),
     text: text.trim(),

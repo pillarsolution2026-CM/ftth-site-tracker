@@ -46,6 +46,7 @@ const problemItem = {
 
 const problems: DrawingProblemList = {
   total: 1,
+  warningTotal: 0,
   items: [{ code: 'LABEL_MISSING', severity: 'warning', count: 1, items: [problemItem] }],
 };
 
