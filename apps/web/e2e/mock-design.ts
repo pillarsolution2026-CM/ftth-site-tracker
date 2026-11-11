@@ -7,31 +7,43 @@
  * (queued -> building -> draft), there is no base revision (every feature is `added`), and the
  * features, text links and counts are fixed fixtures.
  */
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   CadMappingInputSchema,
   CadMappingSchema,
   CadMappingViewSchema,
   CreateDesignRevisionRequestSchema,
+  CreateTrenchMarkRequestSchema,
   DesignFeaturePageSchema,
   DesignRevisionDetailSchema,
   DesignRevisionListResponseSchema,
   DesignRevisionSummarySchema,
   DiffPageSchema,
   DrawingProblemListSchema,
+  InstallationAnswerRecordSchema,
+  InstallationReportSchema,
+  InstallationStateSchema,
   METRES_PER_UNIT,
   PublishBlockedDetailsSchema,
   PublishDesignRevisionRequestSchema,
   PublishReadinessSchema,
   ReviewTextLinkRequestSchema,
+  SecondaryPlacementSuggestionSchema,
+  SetInstallationAnswerRequestSchema,
   TEXT_LINK_TARGETS,
   TextLinkPageSchema,
   TextLinkSchema,
+  TrenchMarkSchema,
+  evaluateInstallation,
+  generalCabinetPointId,
+  installationQuestionApplies,
   mappingKindProblems,
   readingModeOf,
   suggestBlockTarget,
   suggestLayerTarget,
   suggestTextTarget,
+  type FrozenInstallation,
   type MappingRule,
   otherDrawingKind,
   type DrawingKind,
@@ -240,6 +252,8 @@ interface RevisionRecord {
   publishedRevNo: number | null;
   publishedAt: string | null;
   links: LinkRecord[];
+  /** ADR-042: the General's answer and marks frozen at creation (null on a Secondary). */
+  installation: FrozenInstallation | null;
 }
 
 const revisions = new Map<string, RevisionRecord>();
@@ -384,6 +398,7 @@ function detail(rev: RevisionRecord) {
     rules: rev.mapping.rules,
     errorMessage: null,
     log: null,
+    installation: rev.installation,
   });
 }
 
@@ -470,6 +485,7 @@ export async function handleDesignRevisions(
         publishedRevNo: null,
         publishedAt: null,
         links: initialLinks(),
+        installation: frozenInstallation(cad),
       };
       revisions.set(rev.id, rev);
       return h.send(res, 202, DesignRevisionSummarySchema.parse(summary(rev)));
@@ -567,6 +583,7 @@ export async function handleDesignRevisions(
     (candidate) =>
       candidate.cad.drawingKind !== rev.cad.drawingKind && statusOf(candidate) === 'draft',
   );
+  const ownInstallation = reportOf(rev);
   const openOf = (r: RevisionRecord) => r.links.filter((link) => link.status === 'review').length;
   const openItems = openOf(rev) + (otherDraft ? openOf(otherDraft) : 0);
 
@@ -580,11 +597,25 @@ export async function handleDesignRevisions(
           { key: 'control_point', ok: true, count: 1 },
           { key: 'no_problems', ok: true, count: 0 },
           { key: 'open_items', ok: openItems === 0, count: openItems },
-          { key: 'other_drawing', ok: otherDraft !== undefined, count: otherDraft ? 0 : null },
+          {
+            key: 'other_drawing',
+            ok: otherDraft !== undefined && reportOf(otherDraft).ok,
+            count: otherDraft ? 0 : null,
+          },
           // ADR-041: the mock drawings carry the same (sub) cabinets, so the pair matches.
           { key: 'cabinets_match', ok: otherDraft !== undefined, count: otherDraft ? 0 : null },
+          // ADR-042: the General's installation (always ok, no count, on a Secondary).
+          {
+            key: 'installation',
+            ok: ownInstallation.ok,
+            count: ownInstallation.applies ? ownInstallation.issueCount : null,
+          },
         ],
-        canPublish: status === 'draft' && otherDraft !== undefined,
+        canPublish:
+          status === 'draft' &&
+          otherDraft !== undefined &&
+          ownInstallation.ok &&
+          reportOf(otherDraft).ok,
         drawingKind: rev.cad.drawingKind,
         otherRevisionId: otherDraft?.id ?? null,
         needsAcknowledgement: openItems > 0,
@@ -596,8 +627,13 @@ export async function handleDesignRevisions(
             }
           : null,
         warningCount: 0,
+        installation: ownInstallation.applies ? ownInstallation : null,
       }),
     );
+  }
+
+  if (sub === 'installation' && method === 'GET') {
+    return h.send(res, 200, InstallationReportSchema.parse(reportOf(rev)));
   }
 
   if (sub === 'publish' && method === 'POST') {
@@ -614,6 +650,22 @@ export async function handleDesignRevisions(
           drawingKind: otherDrawingKind(rev.cad.drawingKind),
         }),
       );
+    }
+    for (const candidate of [rev, otherDraft]) {
+      const report = reportOf(candidate);
+      if (!report.ok) {
+        return h.sendError(
+          res,
+          409,
+          'CONFLICT',
+          PublishBlockedDetailsSchema.parse({
+            reason: 'INSTALLATION_UNCLEAR',
+            drawingKind: 'general',
+            issueCount: report.issueCount,
+            issues: report.issues,
+          }),
+        );
+      }
     }
     if (openItems > 0 && !body.data.acknowledgeOpenItems) {
       return h.sendError(
@@ -645,4 +697,219 @@ export async function handleDesignRevisions(
   }
 
   return h.sendError(res, 404, 'NOT_FOUND');
+}
+
+// ---------- installation question, trench marks, General-cabinet points (ADR-042) ----------
+
+interface AnswerRow {
+  id: string;
+  answer: 'pull_only' | 'has_trench';
+  answeredAt: string;
+}
+interface MarkRow {
+  id: string;
+  routeHandle: string;
+  lengthM: string;
+  createdAt: string;
+  withdrawnAt: string | null;
+}
+
+/** Append-only per General file, like the API: latest answer in force, withdrawn marks kept. */
+const installations = new Map<string, { answers: AnswerRow[]; marks: MarkRow[] }>();
+
+function storeOf(cadId: string) {
+  const existing = installations.get(cadId);
+  if (existing) return existing;
+  const created = { answers: [], marks: [] };
+  installations.set(cadId, created);
+  return created;
+}
+
+const MOCK_USER = (cad: MockCadFile) => ({ id: cad.userId, name: 'Mona' });
+
+function answerOut(cad: MockCadFile, row: AnswerRow) {
+  return InstallationAnswerRecordSchema.parse({
+    id: row.id,
+    cadFileId: cad.id,
+    answer: row.answer,
+    answeredBy: MOCK_USER(cad),
+    answeredAt: row.answeredAt,
+  });
+}
+
+function markOut(cad: MockCadFile, row: MarkRow) {
+  return TrenchMarkSchema.parse({
+    id: row.id,
+    cadFileId: cad.id,
+    routeHandle: row.routeHandle,
+    lengthM: row.lengthM,
+    createdBy: MOCK_USER(cad),
+    createdAt: row.createdAt,
+    withdrawnBy: row.withdrawnAt ? MOCK_USER(cad) : null,
+    withdrawnAt: row.withdrawnAt,
+  });
+}
+
+function installationState(cad: MockCadFile) {
+  const store = storeOf(cad.id);
+  const asked = installationQuestionApplies(cad.drawingKind);
+  const latest = asked ? store.answers.at(-1) : undefined;
+  const marks = asked ? [...store.marks].reverse() : [];
+  const inForce = marks.filter((mark) => mark.withdrawnAt === null);
+  const trenchMm = inForce.reduce((sum, mark) => sum + Math.round(Number(mark.lengthM) * 1000), 0);
+  return InstallationStateSchema.parse({
+    cadFileId: cad.id,
+    drawingKind: cad.drawingKind,
+    asked,
+    answer: latest ? answerOut(cad, latest) : null,
+    answerHistory: asked ? [...store.answers].reverse().map((row) => answerOut(cad, row)) : [],
+    marks: marks.map((mark) => markOut(cad, mark)),
+    activeMarkCount: inForce.length,
+    activeTrenchM: (trenchMm / 1000).toFixed(3),
+  });
+}
+
+/** What a build freezes: the answer and the marks in force (null on a Secondary). */
+function frozenInstallation(cad: MockCadFile): FrozenInstallation | null {
+  if (!installationQuestionApplies(cad.drawingKind)) return null;
+  const store = storeOf(cad.id);
+  const latest = store.answers.at(-1);
+  return {
+    answer: latest?.answer ?? null,
+    answerId: latest?.id ?? null,
+    marks: store.marks
+      .filter((mark) => mark.withdrawnAt === null)
+      .map((mark) => ({ id: mark.id, routeHandle: mark.routeHandle, lengthM: mark.lengthM })),
+  };
+}
+
+/** The shared evaluation, fed with the mock's fixed routes (A1 and A2 with written lengths). */
+function reportOf(rev: RevisionRecord) {
+  return evaluateInstallation({
+    drawingKind: rev.cad.drawingKind,
+    frozen: rev.installation,
+    routes: FEATURES.filter((feature) => feature.featureType === 'route').map((feature) => ({
+      featureId: feature.id,
+      sourceHandle: feature.handle,
+      writtenLengthM: feature.len,
+    })),
+    merges: [],
+  });
+}
+
+/** `…/cad-files/:f/installation[/answer | /trench-marks[/:markId/withdraw]]`. */
+export async function handleInstallation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  cad: MockCadFile,
+  [part, markId, action]: (string | undefined)[],
+  h: Helpers,
+): Promise<void> {
+  if (part === undefined && method === 'GET') {
+    return h.send(res, 200, installationState(cad));
+  }
+  const refuse = (status: number, reason: string) =>
+    h.sendError(res, status, status === 422 ? 'VALIDATION_FAILED' : 'CONFLICT', { reason });
+  if (!installationQuestionApplies(cad.drawingKind)) return refuse(409, 'NOT_GENERAL_DRAWING');
+  if (cad.superseded) return refuse(409, 'FILE_SUPERSEDED');
+  const store = storeOf(cad.id);
+  const inForce = () => store.marks.filter((mark) => mark.withdrawnAt === null);
+
+  if (part === 'answer' && method === 'PUT') {
+    const body = SetInstallationAnswerRequestSchema.safeParse(await h.readJson(req));
+    if (!body.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
+    if (body.data.answer === 'pull_only' && inForce().length > 0) {
+      return refuse(409, 'TRENCH_MARKS_ACTIVE');
+    }
+    const row: AnswerRow = {
+      id: randomUUID(),
+      answer: body.data.answer,
+      answeredAt: new Date().toISOString(),
+    };
+    store.answers.push(row);
+    return h.send(res, 200, answerOut(cad, row));
+  }
+
+  if (part === 'trench-marks' && markId === undefined && method === 'POST') {
+    const body = CreateTrenchMarkRequestSchema.safeParse(await h.readJson(req));
+    if (!body.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
+    if (store.answers.at(-1)?.answer !== 'has_trench') return refuse(409, 'ANSWER_NOT_TRENCH');
+    const row: MarkRow = {
+      id: randomUUID(),
+      routeHandle: body.data.routeHandle,
+      lengthM: body.data.lengthM,
+      createdAt: new Date().toISOString(),
+      withdrawnAt: null,
+    };
+    store.marks.push(row);
+    return h.send(res, 201, markOut(cad, row));
+  }
+
+  if (part === 'trench-marks' && action === 'withdraw' && method === 'POST') {
+    const row = store.marks.find((mark) => mark.id === markId);
+    if (!row) return h.sendError(res, 404, 'NOT_FOUND');
+    if (row.withdrawnAt !== null) return refuse(409, 'ALREADY_WITHDRAWN');
+    row.withdrawnAt = new Date().toISOString();
+    return h.send(res, 200, markOut(cad, row));
+  }
+  return h.sendError(res, 404, 'NOT_FOUND');
+}
+
+/**
+ * `GET …/cad-files/:f/placement/general-cabinets` (Secondary): two shared cabinets from the newest
+ * General draft or published revision, placed in the same spot as the mock drawing; otherwise the
+ * API's clear refusals.
+ */
+export function handleGeneralCabinets(res: ServerResponse, cad: MockCadFile, h: Helpers): void {
+  const refuse = (reason: string) =>
+    h.sendError(res, 409, 'CONFLICT', { reason, revisionId: null });
+  if (cad.drawingKind !== 'secondary') return refuse('NOT_SECONDARY');
+  if (cad.superseded) return refuse('NOT_CURRENT');
+  const general = [...revisions.values()]
+    .reverse()
+    .find(
+      (rev) => rev.cad.drawingKind === 'general' && ['draft', 'published'].includes(statusOf(rev)),
+    );
+  if (!general) return refuse('GENERAL_NOT_BUILT');
+  const point = (name: string, x: number, y: number, lat: number, lon: number) => ({
+    id: generalCabinetPointId(name),
+    drawing: { x, y },
+    handle: `C-${name}`,
+    label: name,
+    lat,
+    lon,
+    source: 'general_cabinet',
+    excluded: false,
+  });
+  return h.send(
+    res,
+    200,
+    SecondaryPlacementSuggestionSchema.parse({
+      cadFileId: cad.id,
+      secondaryRevisionId: randomUUID(),
+      general: {
+        cadFileId: general.cad.id,
+        revisionId: general.id,
+        status: statusOf(general) === 'published' ? 'published' : 'draft',
+        revNo: general.publishedRevNo,
+      },
+      // About 90 m apart on the ground, as far apart in the drawing, so the fit has no error.
+      points: [
+        point('1-1', 1000, 2000, 30.984507, 32.783249),
+        point('1-2', 1071.7, 2054.8, 30.985, 32.784),
+      ],
+      matchedCount: 2,
+      truncated: false,
+      unmatched: {
+        onlyInSecondary: ['9-9'],
+        onlyInGeneral: [],
+        duplicateInSecondary: [],
+        duplicateInGeneral: [],
+        unnamedSecondary: 0,
+        unnamedGeneral: 0,
+        withoutDrawingPosition: [],
+      },
+    }),
+  );
 }

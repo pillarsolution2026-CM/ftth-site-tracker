@@ -135,6 +135,8 @@ test('Arabic is right-to-left with the sidebar and navigation', async ({ page })
 test('mapping to a published design revision: unit, save, build, review, publish', async ({
   page,
 }) => {
+  // Two builds of the General (the first one is left unanswered, ADR-042) plus the Secondary.
+  test.setTimeout(90_000);
   await login(page);
   await openProject(page, 'CAD files');
 
@@ -180,6 +182,11 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(page.getByRole('heading', { name: 'Place the drawing on the map' })).toBeVisible();
   await expect(page.getByText(/No control points yet/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save mapping' })).toBeEnabled();
+  // ADR-042: the General is asked how its bundles are installed; «من كبائن الرئيسي» is a Secondary's.
+  await expect(page.getByRole('region', { name: 'Installation method' })).toContainText(
+    'Is the whole route pulled through old pipes, or does part of it need digging and new pipes?',
+  );
+  await expect(page.getByRole('button', { name: 'From the General’s cabinets' })).toHaveCount(0);
 
   await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
   await expect(page.getByRole('button', { name: 'Build revision' })).toBeDisabled();
@@ -189,6 +196,30 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await page.getByRole('button', { name: 'Build revision' }).click();
   await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
   await expect(page.getByText('Refreshing automatically every 3 seconds')).toBeVisible();
+
+  // ADR-042: the question was never answered, so this draft says the installation is unclear.
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  const unclear = page.getByRole('region', { name: 'Before publishing' });
+  await expect(unclear).toContainText('Installation method (pull / trench) is clear');
+  await expect(unclear).toContainText('The installation question is not answered');
+  await expect(unclear.getByRole('button', { name: 'Publish', exact: true })).toBeDisabled();
+  const installation = page.getByRole('region', { name: 'Installation method' });
+  await installation.getByRole('button', { name: 'All pulled through old pipes' }).click();
+  await expect(
+    installation.getByText('Current answer: All pulled through old pipes'),
+  ).toBeVisible();
+  // The draft froze no answer: it must be built again to apply it.
+  await expect(installation.getByText('Rebuild so the marks are applied')).toBeVisible();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard revision' }).click();
+  await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page
+    .getByRole('row', { name: /mapping-1\.dxf/ })
+    .getByRole('link', { name: 'mapping-1.dxf' })
+    .click();
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
 
   // Draft: counts, units warning, text review in "needs review", diff.
   await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
@@ -212,6 +243,8 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(checklist).toContainText('Coordinates: source CRS chosen');
   await expect(checklist).toContainText('No drawing errors');
   await expect(checklist).toContainText('Open items reviewed');
+  // The answer was frozen by the second build: the installation row is done.
+  await expect(checklist).toContainText('Installation method (pull / trench) is clear');
   // The other drawing has no draft yet: publishing is locked and says so (ADR-040).
   await expect(checklist.getByText('❌')).toHaveCount(3);
   await expect(checklist).toContainText('Cabinets match in both drawings (name and count)');
@@ -235,6 +268,12 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await page.getByRole('link', { name: 'Mapping', exact: true }).click();
   await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
 
+  // ADR-042: a Secondary is not asked; its placement is filled from the General’s cabinets.
+  await expect(page.getByRole('region', { name: 'Installation method' })).toHaveCount(0);
+  await expect(page.getByText(/points added from the General’s cabinets/)).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Control points' })).toContainText('gc-1-2');
+  await expect(page.getByText('Cabinets that did not match')).toBeVisible();
+
   // ADR-041: this is a Secondary, so the text layer can become a cabinet zone and take the
   // Secondary text roles only; the route layer takes the number of ways.
   const textLayer = page.getByLabel('Becomes: طبقة-النصوص');
@@ -255,6 +294,7 @@ test('mapping to a published design revision: unit, save, build, review, publish
   // The Secondary draft sees the General draft as the other drawing, ready, and links to it.
   const pairChecklist = page.getByRole('region', { name: 'Before publishing' });
   await expect(pairChecklist).toContainText('The other drawing (General (main)) is ready');
+  await expect(pairChecklist).toContainText('The Secondary is all trench — no question.');
   await expect(
     pairChecklist.getByRole('link', { name: 'Open the General (main) draft' }),
   ).toBeVisible();
@@ -271,7 +311,9 @@ test('mapping to a published design revision: unit, save, build, review, publish
   const revisionTable = page.getByRole('table', { name: 'Design revisions' });
   await expect(revisionTable).toContainText('Published');
   // Both drawings were published together and each row names its kind.
-  await expect(revisionTable.getByRole('row')).toHaveCount(3);
-  await expect(revisionTable.locator('[data-kind="general"]')).toContainText('Main');
+  // …and the first General draft, discarded because its installation was unanswered.
+  await expect(revisionTable.getByRole('row')).toHaveCount(4);
+  await expect(revisionTable).toContainText('Discarded');
+  await expect(revisionTable.locator('[data-kind="general"]').first()).toContainText('Main');
   await expect(revisionTable.locator('[data-kind="secondary"]')).toContainText('Secondary');
 });

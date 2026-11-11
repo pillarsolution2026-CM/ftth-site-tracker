@@ -13,6 +13,13 @@ const api = vi.hoisted(() => ({
   publishDesignRevision: vi.fn(),
 }));
 vi.mock('../api/design-revisions-api', () => api);
+const installationApi = vi.hoisted(() => ({
+  getInstallation: vi.fn(),
+  setInstallationAnswer: vi.fn(),
+  createTrenchMark: vi.fn(),
+  withdrawTrenchMark: vi.fn(),
+}));
+vi.mock('@/features/installation/api/installation-api', () => installationApi);
 vi.mock('../hooks/use-text-review', () => ({ useTextReview: () => ({}) }));
 vi.mock('../hooks/use-diff-view', () => ({ useDiffView: () => ({}) }));
 vi.mock('./text-review', () => ({ TextReviewView: () => null }));
@@ -45,6 +52,7 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
       { key: 'open_items', ok: true, count: 0 },
       { key: 'other_drawing', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
+      { key: 'installation', ok: true, count: 0 },
     ],
     canPublish: true,
     drawingKind: 'general',
@@ -52,6 +60,21 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
     needsAcknowledgement: false,
     cabinets: null,
     warningCount: 0,
+    installation: null,
+    ...overrides,
+  };
+}
+
+function liveInstallation(overrides: Record<string, unknown> = {}) {
+  return {
+    cadFileId: CAD_FILE,
+    drawingKind: 'general',
+    asked: true,
+    answer: null,
+    answerHistory: [],
+    marks: [],
+    activeMarkCount: 0,
+    activeTrenchM: '0.000',
     ...overrides,
   };
 }
@@ -71,6 +94,8 @@ function renderDetail(access?: ProjectAccess) {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
   api.getDesignRevision.mockResolvedValue(revision);
+  Object.values(installationApi).forEach((fn) => fn.mockReset());
+  installationApi.getInstallation.mockResolvedValue(liveInstallation());
   sections.problems.mockClear();
   sections.corrections.mockClear();
   sections.viewer.mockClear();
@@ -144,6 +169,119 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
       await screen.findByText(/4.* drawing errors are left in the Secondary drawing/),
     ).toBeInTheDocument();
     await waitFor(() => expect(api.getPublishReadiness).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
+  it('asks the installation question on a General draft and answers it', async () => {
+    const user = userEvent.setup();
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    installationApi.setInstallationAnswer.mockResolvedValue({});
+    renderDetail();
+    const answer = await screen.findByRole('button', { name: 'All pulled through old pipes' });
+    await user.click(answer);
+    await waitFor(() =>
+      expect(installationApi.setInstallationAnswer).toHaveBeenCalledWith('p', CAD_FILE, {
+        answer: 'pull_only',
+      }),
+    );
+  });
+
+  it('tells to rebuild when the answer is newer than the draft', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    api.getDesignRevision.mockResolvedValue({
+      ...revision,
+      installation: { answer: null, answerId: null, marks: [] },
+    });
+    installationApi.getInstallation.mockResolvedValue(
+      liveInstallation({
+        answer: {
+          id: '44444444-4444-4444-8444-444444444444',
+          cadFileId: CAD_FILE,
+          answer: 'pull_only',
+          answeredBy: null,
+          answeredAt: '2026-11-12T10:00:00.000Z',
+        },
+      }),
+    );
+    renderDetail();
+    expect(await screen.findByText('Rebuild so the marks are applied')).toBeInTheDocument();
+  });
+
+  it('does not ask on a Secondary', async () => {
+    api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
+    api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
+    renderDetail();
+    await screen.findByRole('button', { name: 'Publish' });
+    expect(installationApi.getInstallation).not.toHaveBeenCalled();
+    expect(screen.queryByText(/pulled through old pipes/)).not.toBeInTheDocument();
+  });
+
+  it('tells the viewer the drawing is a General, and shows the route of an issue', async () => {
+    api.getPublishReadiness.mockResolvedValue(
+      readiness({
+        canPublish: false,
+        checks: readiness().checks.map((c) =>
+          c.key === 'installation' ? { ...c, ok: false, count: 1 } : c,
+        ),
+        installation: {
+          applies: true,
+          frozen: null,
+          ok: false,
+          issueCount: 1,
+          issues: [
+            {
+              code: 'MARK_ROUTE_MISSING',
+              markIds: [],
+              routeHandle: 'A1F',
+              featureId: null,
+              markedM: null,
+              routeLengthM: null,
+            },
+          ],
+          totals: null,
+        },
+      }),
+    );
+    renderDetail();
+    const show = await screen.findByRole('button', { name: 'Show the place on the drawing' });
+    await waitFor(() => expect(sections.viewer).toHaveBeenCalled());
+    const props = () =>
+      (sections.viewer.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+    expect(props()).toMatchObject({ isGeneral: true });
+    await userEvent.setup().click(show);
+    expect(props().focus).toEqual({ code: null, handle: 'A1F', x: null, y: null, nonce: 1 });
+  });
+
+  it('explains a refused publish with every installation issue', async () => {
+    const user = userEvent.setup();
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    api.publishDesignRevision.mockRejectedValue(
+      new ApiClientError('CONFLICT', 409, {
+        reason: 'INSTALLATION_UNCLEAR',
+        drawingKind: 'general',
+        issueCount: 1,
+        issues: [
+          {
+            code: 'QUESTION_UNANSWERED',
+            markIds: [],
+            routeHandle: null,
+            featureId: null,
+            markedM: null,
+            routeLengthM: null,
+          },
+        ],
+      }),
+    );
+    renderDetail();
+    const button = await screen.findByRole('button', { name: 'Publish' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    expect(
+      await screen.findByText(
+        /installation method of the General \(main\) drawing is unclear.*installation question is not answered/,
+      ),
+    ).toBeInTheDocument();
   });
 });
 

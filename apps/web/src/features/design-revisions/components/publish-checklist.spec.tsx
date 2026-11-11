@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PublishCheckKey, PublishReadiness } from '@ftth/shared';
+import type { InstallationIssue, PublishCheckKey, PublishReadiness } from '@ftth/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/test-utils/render';
 import { PublishChecklist } from './publish-checklist';
@@ -17,6 +17,7 @@ function readiness(
     open_items: 0,
     other_drawing: 0,
     cabinets_match: 0,
+    installation: 0,
     ...counts,
   };
   const keys = [
@@ -26,6 +27,7 @@ function readiness(
     'open_items',
     'other_drawing',
     'cabinets_match',
+    'installation',
   ] as const;
   return {
     checks: keys.map((key) => ({ key, ok: !failing.includes(key), count: base[key] })),
@@ -35,6 +37,7 @@ function readiness(
     needsAcknowledgement: failing.includes('open_items'),
     cabinets: null,
     warningCount: 0,
+    installation: null,
   };
 }
 
@@ -63,16 +66,17 @@ function setup(
 }
 
 describe('PublishChecklist', () => {
-  it('lists the six checks with an icon and a word each, with counts', () => {
+  it('lists the seven checks with an icon and a word each, with counts', () => {
     setup(readiness(['no_problems'], { no_problems: 5 }));
     expect(screen.getByText('Coordinates: source CRS chosen')).toBeInTheDocument();
     expect(screen.getByText(/At least one control point in use \(.*2.*\)/)).toBeInTheDocument();
     expect(screen.getByText(/No drawing errors \(.*5.* left\)/)).toBeInTheDocument();
     expect(screen.getByText(/Open items reviewed/)).toBeInTheDocument();
     expect(screen.getByText(/The other drawing \(Secondary\) is ready/)).toBeInTheDocument();
-    expect(screen.getAllByText('✅')).toHaveLength(5);
+    expect(screen.getByText('Installation method (pull / trench) is clear')).toBeInTheDocument();
+    expect(screen.getAllByText('✅')).toHaveLength(6);
     expect(screen.getByText('❌')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getAllByText('(Done)')).toHaveLength(5);
+    expect(screen.getAllByText('(Done)')).toHaveLength(6);
     expect(screen.getByText('(Not done)')).toBeInTheDocument();
   });
 
@@ -169,7 +173,7 @@ describe('PublishChecklist cabinets row (ADR-041)', () => {
     ).toBeInTheDocument();
     expect(
       screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('✅')),
-    ).toHaveLength(6);
+    ).toHaveLength(7);
     expect(screen.queryByText(/Only in the General/)).not.toBeInTheDocument();
   });
 
@@ -221,5 +225,69 @@ describe('RevisionStatusBadge', () => {
     renderScreen(<RevisionStatusBadge status={status} />);
     expect(screen.getByText(label)).toBeInTheDocument();
     expect(screen.getByText(icon)).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+describe('PublishChecklist installation row (ADR-042)', () => {
+  const route = 'A1F';
+  function withIssues(issues: InstallationIssue[]): PublishReadiness {
+    return {
+      ...readiness(['installation'], { installation: issues.length }),
+      installation: {
+        applies: true,
+        frozen: null,
+        ok: false,
+        issueCount: issues.length,
+        issues,
+        totals: null,
+      },
+    };
+  }
+  const issue = (code: InstallationIssue['code'], more: Partial<InstallationIssue> = {}) => ({
+    code,
+    markIds: [],
+    routeHandle: null,
+    featureId: null,
+    markedM: null,
+    routeLengthM: null,
+    ...more,
+  });
+
+  it.each([
+    ['QUESTION_UNANSWERED', /installation question is not answered/],
+    ['TRENCH_NOT_MARKED', /marked no part/],
+    ['MARKS_WITH_PULL_ONLY', /answer is .All pulled. but there are trench marks/],
+  ] as const)('says what %s means', (code, text) => {
+    setup(withIssues([issue(code)]));
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.getByText('❌')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('names the route and offers to show it on the drawing', async () => {
+    const onShowRoute = vi.fn();
+    setup(
+      withIssues([
+        issue('TRENCH_LONGER_THAN_ROUTE', {
+          routeHandle: route,
+          markedM: '80.000',
+          routeLengthM: '60.000',
+        }),
+        issue('MARK_ROUTE_MISSING', { routeHandle: 'B2' }),
+        issue('ROUTE_LENGTH_UNKNOWN', { routeHandle: 'C3' }),
+      ]),
+      { onShowRoute },
+    );
+    expect(screen.getByText(/is longer than the written route length/)).toBeInTheDocument();
+    expect(screen.getByText(/has no route in the built drawing/)).toBeInTheDocument();
+    expect(screen.getByText(/has no written length/)).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button', { name: 'Show the place on the drawing' });
+    expect(buttons).toHaveLength(3);
+    await userEvent.click(buttons[0] as HTMLElement);
+    expect(onShowRoute).toHaveBeenCalledWith(route);
+  });
+
+  it('is ok on a Secondary, with a note that it is all trench', () => {
+    setup({ ...readiness(), drawingKind: 'secondary' });
+    expect(screen.getByText('The Secondary is all trench — no question.')).toBeInTheDocument();
   });
 });
