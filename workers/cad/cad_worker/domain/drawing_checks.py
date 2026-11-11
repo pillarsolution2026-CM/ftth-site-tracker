@@ -7,6 +7,10 @@ the nearest named item) so the user can fix the drawing or ignore it on their ow
 Labels: the readable texts on the layers mapped to a feature type are that type's labels. Each
 label is paired with at most one symbol of the type, nearest pairs first, within the text-link
 radius (ADR-019). Counting is by symbol; labels only name and check them.
+
+Texts on layers with text roles (ADR-041) are read by meaning (`role_reading.py`) and checked by
+`kind_checks.py`; they are left out of this label pairing and of the length check. In `legacy`
+reading mode no layer has roles, so these checks are exactly Phase 1.
 """
 
 from __future__ import annotations
@@ -30,6 +34,16 @@ ProblemCode = Literal[
     "LABEL_MISSING",
     "LABEL_TYPE_MISMATCH",
     "LABEL_LENGTH_MISSING",
+    "HANDHOLE_TYPE_MISSING",
+    "HANDHOLE_TYPE_UNKNOWN",
+    "HANDHOLE_NOT_DRAWN",
+    "BOX_NUMBER_DUPLICATE",
+    "BOX_NOT_REACHED",
+    "CABINET_BOX_COUNT_MISMATCH",
+    "CABINET_ZONE_MISSING",
+    "SPARE_CORES_MISMATCH",
+    "CABLE_SLACK_TOO_SHORT",
+    "CABLE_SLACK_TOO_LONG",
 ]
 PROBLEM_CODES: tuple[ProblemCode, ...] = (
     "ROUTE_SPLIT",
@@ -38,7 +52,18 @@ PROBLEM_CODES: tuple[ProblemCode, ...] = (
     "LABEL_MISSING",
     "LABEL_TYPE_MISMATCH",
     "LABEL_LENGTH_MISSING",
+    "HANDHOLE_TYPE_MISSING",
+    "HANDHOLE_TYPE_UNKNOWN",
+    "HANDHOLE_NOT_DRAWN",
+    "BOX_NUMBER_DUPLICATE",
+    "BOX_NOT_REACHED",
+    "CABINET_BOX_COUNT_MISMATCH",
+    "CABINET_ZONE_MISSING",
+    "SPARE_CORES_MISMATCH",
+    "CABLE_SLACK_TOO_SHORT",
+    "CABLE_SLACK_TOO_LONG",
 )
+# Display hint only (ADR-038); what blocks publishing is decided by the code (BLOCKS).
 SEVERITY: Mapping[ProblemCode, str] = {
     "ROUTE_SPLIT": "warning",
     "RING_LABEL_MISMATCH": "warning",
@@ -46,7 +71,20 @@ SEVERITY: Mapping[ProblemCode, str] = {
     "LABEL_MISSING": "warning",
     "LABEL_TYPE_MISMATCH": "error",
     "LABEL_LENGTH_MISSING": "info",
+    "HANDHOLE_TYPE_MISSING": "error",
+    "HANDHOLE_TYPE_UNKNOWN": "error",
+    "HANDHOLE_NOT_DRAWN": "error",
+    "BOX_NUMBER_DUPLICATE": "error",
+    "BOX_NOT_REACHED": "error",
+    "CABINET_BOX_COUNT_MISMATCH": "error",
+    "CABINET_ZONE_MISSING": "error",
+    "SPARE_CORES_MISMATCH": "error",
+    "CABLE_SLACK_TOO_SHORT": "error",
+    "CABLE_SLACK_TOO_LONG": "warning",
 }
+# `DRAWING_PROBLEM_BLOCKS`: every code blocks publishing except a cable longer than its bundle by
+# more than 30 m (ADR-040).
+BLOCKS: Mapping[ProblemCode, bool] = {code: code != "CABLE_SLACK_TOO_LONG" for code in SEVERITY}
 MAX_PROBLEM_ITEMS = 500
 
 # Technical tuning, not business rules: route ends closer than this meet; an item this close to
@@ -75,6 +113,8 @@ class ProblemItem:
     handle: str
     suggested_layer: str | None = None
     text: str | None = None
+    # `DrawingProblemParamsSchema` (ADR-041); None = no params (Phase-1 places).
+    params: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +131,8 @@ def labels_for(
     for t in texts:
         target = rules.layers.get(t.layer)
         if target not in POINT_FEATURE_TYPES or not t.readable or not t.text.strip():
+            continue
+        if t.layer in rules.text_roles:
             continue
         if rules.text_rule(t.layer, t.text) is not None:
             continue
@@ -272,7 +314,7 @@ def _labels_without_length(
     texts: Sequence[SourceText], rules: MappingRules, place: Placer
 ) -> list[ProblemItem]:
     """Cable / duct labels (`1x 144 core cable`, `1x4 way`) that do not start with a length."""
-    label_layers = rules.layers_with("label", "route")
+    label_layers = rules.layers_with("label", "route") - rules.text_roles.keys()
     out: list[ProblemItem] = []
     for t in texts:
         if t.layer not in label_layers or not t.readable:
@@ -339,7 +381,7 @@ def _item_json(
 ) -> dict[str, object]:
     near = nearest_named(item.position, features, names, skip_handle=item.handle)
     drawing = place.to_drawing(item.position)
-    return {
+    out: dict[str, object] = {
         "x": round(item.position[0], 3),
         "y": round(item.position[1], 3),
         "drawingX": round(drawing[0], 3),
@@ -357,6 +399,9 @@ def _item_json(
             "distanceM": round(math.dist(item.position, near.feature.coords[0]), 2),
         },
     }
+    if item.params:
+        out["params"] = dict(item.params)
+    return out
 
 
 def problem_counts(problems: Mapping[ProblemCode, Sequence[ProblemItem]]) -> Counter[str]:

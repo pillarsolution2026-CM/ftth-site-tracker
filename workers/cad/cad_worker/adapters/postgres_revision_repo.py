@@ -47,7 +47,7 @@ WHERE id = %s AND project_id = %s AND current_job_id = %s AND status IN ('queued
 """
 LOCK_SQL = """
 SELECT cad_file_id, base_revision_id, rules, crs_epsg, drawing_unit, metres_per_unit, placement,
-  corrections
+  corrections, drawing_kind
 FROM design_revisions
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'building'
 FOR UPDATE
@@ -188,6 +188,7 @@ class PostgresRevisionRepository:
                 metres_per_unit=Decimal(row[5]),
                 placement=row[6],
                 corrections=row[7],
+                drawing_kind=str(row[8]),
             )
             build = PostgresRevisionBuild(conn, job, inputs)
             yield build
