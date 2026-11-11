@@ -942,6 +942,9 @@
       "waysPlaceholder": "مثلًا 12",
       "waysInvalid": "اكتب رقم صحيح من 1 لـ288",
       "waysRequired": "عدد المخارج لازم يكون رقم من 1 لـ288 في: {names}",
+      "aliases": "أنواع الغرف المؤكدة",
+      "aliasRemove": "مسح",
+      "aliasRemoveOne": "مسح التأكيد «{found}»",
       "role": {
         "box_number": "رقم البوكس",
         "box_cabinet": "كابينة البوكس",
@@ -1170,7 +1173,10 @@
         "CABINET_ZONE_MISSING": "كابينة بلا زون",
         "SPARE_CORES_MISMATCH": "سبير الكور مش مظبوط",
         "CABLE_SLACK_TOO_SHORT": "سبير الكابل أقل من 15 متر",
-        "CABLE_SLACK_TOO_LONG": "سبير الكابل أكتر من 30 متر"
+        "CABLE_SLACK_TOO_LONG": "سبير الكابل أكتر من 30 متر",
+        "BOX_CABINET_UNKNOWN": "صندوق بكابينة مش موجودة",
+        "CABINET_NAME_DUPLICATE": "كابينتين بنفس الاسم",
+        "CONNECTOR_SIZE_MISSING": "باندل 1way من غير مقاس الدكت"
       },
       "ROUTE_SPLIT": {
         "description": "كابل مرسوم على هيئة قطع منفصلة تلتقي طرفًا بطرف بعيدًا عن أي عنصر، فلا يستطيع النظام قراءته كمسار واحد.",
@@ -1236,6 +1242,18 @@
         "description": "الكابل المكتوب أطول من الباندل بأكتر من 30 متر. ده تنبيه بس ومش بيمنع النشر.",
         "fix": "راجع طول الكابل لو الرقم غلط؛ ولو صح سيبه زي ما هو."
       },
+      "BOX_CABINET_UNKNOWN": {
+        "description": "البوكس مكتوب عليه كابينة مش موجودة في الرسمة. ممكن يكون الاسم فيه غلطة كتابة.",
+        "fix": "صحّح اسم الكابينة المكتوب على البوكس عشان يطابق كابينة موجودة في الرسمة."
+      },
+      "CABINET_NAME_DUPLICATE": {
+        "description": "فيه كابينتين في الرسمة ليهم نفس الاسم، ولازم لكل كابينة اسم واحد مميّز.",
+        "fix": "غيّر اسم واحدة من الكابينتين للاسم الصح."
+      },
+      "CONNECTOR_SIZE_MISSING": {
+        "description": "باندل 1way تسميته من غير مقاس الدكت، فمقاس الكونيكتور والـend cap مش معروف.",
+        "fix": "اكتب مقاس الدكت في تسمية الباندل (زي 1way 20/16)."
+      },
       "detail": {
         "LABEL_MISSING": "ناقص نص: {role}",
         "LABEL_TYPE_MISMATCH": "الطبقة معرّفة {expected} مخرج بس النص مكتوب فيه {found} مخرج",
@@ -1244,7 +1262,13 @@
         "CABINET_BOX_COUNT_MISMATCH": "الكابينة {cabinet}: مكتوب {written} بوكس والمرسوم {drawn}",
         "SPARE_CORES_MISMATCH": "المفروض SP {expected} (الكابل الرئيسي {mainCores} كور) والمكتوب {found}",
         "CABLE_SLACK_TOO_SHORT": "الكابل {cable} م والباندل {bundle} م، الفرق {slack} م (الحد الأدنى 15 م)",
-        "CABLE_SLACK_TOO_LONG": "الكابل {cable} م والباندل {bundle} م، الفرق {slack} م (أكتر من 30 م)"
+        "CABLE_SLACK_TOO_LONG": "الكابل {cable} م والباندل {bundle} م، الفرق {slack} م (أكتر من 30 م)",
+        "BOX_CABINET_UNKNOWN": "البوكس مكتوب عليه الكابينة «{cabinet}» ومش موجودة في الرسمة. اتأكد من الإملاء",
+        "CABINET_NAME_DUPLICATE": "الاسم «{cabinet}» مكتوب على أكتر من كابينة",
+        "CONNECTOR_SIZE_MISSING": "باندل 1way من غير مقاس الدكت، فمقاس الكونيكتور والـend cap مش معروف",
+        "LABEL_MISSING_BOX_COUNT": "ناقص عدد البوكسات على الكابينة. اقتراح: {suggested} بوكس (المرسوم تحت الكابينة)",
+        "LABEL_MISSING_BOX_COUNT_NO_SUGGESTION": "ناقص عدد البوكسات على الكابينة (مثلًا 22B)",
+        "BOX_NUMBER_DUPLICATE_FORMS": "الرقم {number} متكرر في الكابينة {cabinet} (مكتوب بأكتر من شكل: {found})"
       },
       "warningsHeading": "تنبيهات: {total}",
       "warningNote": "تنبيه — مش بيمنع النشر",
@@ -1302,7 +1326,14 @@
       "noPointLayers": "لا توجد طبقة مربوطة بنوع عنصر بعد. احفظ الربط أولًا.",
       "mergePieces": "سيتم وصل {count} قطعة في كابل واحد.",
       "merge": "دمج القطع في كابل واحد",
-      "noHandholeLayers": "مفيش طبقة مربوطة بغرفة. اربطها في شاشة الربط الأول."
+      "noHandholeLayers": "مفيش طبقة مربوطة بغرفة. اربطها في شاشة الربط الأول.",
+      "confirmTypeOpen": "تأكيد النوع",
+      "confirmTypeLabel": "النوع المقصود بالمكتوب «{found}»",
+      "confirmTypeChoose": "اختر النوع",
+      "confirmTypeSave": "تأكيد وحفظ في الربط",
+      "confirmTypeScope": "التأكيد ده بيتطبّق على كل الغرف المكتوب عليها «{found}» في الرسمة دي.",
+      "confirmTypeDone": "اتحفظ التأكيد. دوس «طبّق التصحيحات وابنِ من جديد» عشان يتطبّق.",
+      "confirmTypeNoRule": "مفيش طبقة في الربط بتقرا نوع الغرفة (handhole_type). عيّن المعنى في شاشة الربط الأول."
     },
     "corrections": {
       "title": "التصحيحات",

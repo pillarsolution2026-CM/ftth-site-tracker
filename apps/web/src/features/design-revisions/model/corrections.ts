@@ -48,11 +48,16 @@ export function toolOf(
     case 'LABEL_LENGTH_MISSING':
     case 'HANDHOLE_TYPE_UNKNOWN':
     case 'BOX_NUMBER_DUPLICATE':
+    case 'BOX_CABINET_UNKNOWN':
+    case 'CABINET_NAME_DUPLICATE':
     case 'CABINET_BOX_COUNT_MISMATCH':
     case 'SPARE_CORES_MISMATCH':
     case 'CABLE_SLACK_TOO_SHORT':
     case 'CABLE_SLACK_TOO_LONG':
       return 'set_text';
+    case 'CONNECTOR_SIZE_MISSING':
+      // The place is the 1way label when the check found one (its route is `featureHandle`).
+      return place?.params?.featureHandle !== undefined ? 'set_text' : 'none';
     case 'HANDHOLE_NOT_DRAWN':
       return 'add_item';
     case 'ROUTE_SPLIT':

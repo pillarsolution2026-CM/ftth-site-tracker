@@ -6,8 +6,10 @@ import {
   suggestBundleWays,
   suggestTextRoles,
   textRoleFitsTarget,
+  type CadMappingInput,
   type CadMappingView,
   type DrawingKind,
+  type HandholeType,
   type MappingTarget,
   type TextRole,
 } from '@ftth/shared';
@@ -20,8 +22,10 @@ import type { MappingFormState } from './mapping-form';
 export interface LayerMeaningForm {
   roles: TextRole[];
   ways: string;
+  /** Handhole types the PM confirmed for other spellings of THIS drawing («HH2» → HH-II). */
+  aliases: Record<string, HandholeType>;
 }
-export const EMPTY_MEANING: LayerMeaningForm = { roles: [], ways: '' };
+export const EMPTY_MEANING: LayerMeaningForm = { roles: [], ways: '', aliases: {} };
 
 /**
  * Text roles and ways of layer rules (ADR-041). Roles say what a layer's texts mean; ways is the
@@ -74,7 +78,7 @@ export function suggestMeaning(
           target,
           view.texts.filter((row) => row.layer === layer),
         );
-  return { roles, ways: ways === null ? '' : String(ways) };
+  return { roles, ways: ways === null ? '' : String(ways), aliases: {} };
 }
 
 /** Layers without roles get the suggestion; chosen roles and typed ways are never replaced. */
@@ -91,8 +95,11 @@ export function withSuggestedMeaning(
     const next = {
       roles: current.roles.length > 0 ? current.roles : suggested.roles,
       ways: current.ways !== '' ? current.ways : suggested.ways,
+      aliases: current.aliases,
     };
-    if (next.roles.length > 0 || next.ways !== '') meaning[layer.name] = next;
+    if (next.roles.length > 0 || next.ways !== '' || Object.keys(next.aliases).length > 0) {
+      meaning[layer.name] = next;
+    }
   }
   return { ...state, meaning };
 }
@@ -125,13 +132,58 @@ export function layerMeaningFields(target: string, meaning: LayerMeaningForm | u
     (role) => meaning.roles.includes(role) && textRoleFitsTarget(role, target),
   );
   const ways = target === 'route' ? parseWays(meaning.ways) : null;
+  // Aliases only make sense (and are only accepted) on a layer that reads handhole_type.
+  const aliases = roles.includes('handhole_type') ? meaning.aliases : {};
   return {
     ...(roles.length > 0 ? { textRoles: roles } : {}),
     ...(ways !== null ? { ways } : {}),
+    ...(Object.keys(aliases).length > 0 ? { handholeTypeAliases: aliases } : {}),
   };
 }
 
 /** Roles that still fit when a layer changes target (the others would be refused). */
 export function rolesFittingTarget(roles: readonly TextRole[], target: string): TextRole[] {
   return roles.filter((role) => textRoleFitsTarget(role, target));
+}
+
+/** The alias list sorted for display and for the form signature. */
+export const sortedAliases = (aliases: Readonly<Record<string, HandholeType>>) =>
+  Object.entries(aliases).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+/** True when a (case-insensitive, trimmed) spelling already has an alias. */
+export const hasAlias = (aliases: Readonly<Record<string, HandholeType>>, found: string) =>
+  Object.keys(aliases).some((key) => key.trim().toLowerCase() === found.trim().toLowerCase());
+
+/**
+ * The mapping to save when the PM confirms that the spelling `found` means `type` in this drawing:
+ * the layer rule that reads `handhole_type` gets `handholeTypeAliases[found] = type` and nothing
+ * else changes (version kept for optimistic concurrency). null when there is no saved mapping or no
+ * layer rule reads `handhole_type` (then the alias cannot be kept).
+ */
+export function mappingWithAlias(
+  view: CadMappingView | undefined,
+  found: string,
+  type: HandholeType,
+): CadMappingInput | null {
+  const mapping = view?.mapping;
+  const key = found.trim();
+  if (!mapping || key === '') return null;
+  const index = mapping.rules.findIndex(
+    (rule) => rule.source === 'layer' && rule.textRoles?.includes('handhole_type'),
+  );
+  if (index < 0) return null;
+  const rules = mapping.rules.map((rule, i) => {
+    if (i !== index || rule.source !== 'layer') return rule;
+    const rest = Object.entries(rule.handholeTypeAliases ?? {}).filter(
+      ([k]) => k.trim().toLowerCase() !== key.toLowerCase(),
+    );
+    return { ...rule, handholeTypeAliases: { ...Object.fromEntries(rest), [key]: type } };
+  });
+  return {
+    rules,
+    crsEpsg: mapping.crsEpsg,
+    drawingUnit: mapping.drawingUnit,
+    version: mapping.version,
+    placement: mapping.placement,
+  };
 }
