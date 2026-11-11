@@ -23,6 +23,11 @@ export function placeDetail(
   if (!p) return null;
   switch (code) {
     case 'LABEL_MISSING':
+      if (p.role === 'cabinet_info' && p.field === 'box_count') {
+        return p.suggested !== undefined
+          ? t('design.problems.detail.LABEL_MISSING_BOX_COUNT', { suggested: ltr(p.suggested) })
+          : t('design.problems.detail.LABEL_MISSING_BOX_COUNT_NO_SUGGESTION');
+      }
       return p.role === undefined
         ? null
         : t('design.problems.detail.LABEL_MISSING', { role: t(`mapping.meaning.role.${p.role}`) });
@@ -39,11 +44,24 @@ export function placeDetail(
         : null;
     case 'BOX_NUMBER_DUPLICATE':
       return p.boxNumber !== undefined && p.cabinet !== undefined
-        ? t('design.problems.detail.BOX_NUMBER_DUPLICATE', {
-            number: ltr(p.boxNumber),
-            cabinet: ltr(p.cabinet),
-          })
+        ? t(
+            p.found !== undefined
+              ? 'design.problems.detail.BOX_NUMBER_DUPLICATE_FORMS'
+              : 'design.problems.detail.BOX_NUMBER_DUPLICATE',
+            {
+              found: ltr(p.found ?? ''),
+              number: ltr(p.boxNumber),
+              cabinet: ltr(p.cabinet),
+            },
+          )
         : null;
+    case 'BOX_CABINET_UNKNOWN':
+    case 'CABINET_NAME_DUPLICATE':
+      return p.cabinet !== undefined
+        ? t(`design.problems.detail.${code}`, { cabinet: ltr(p.cabinet) })
+        : null;
+    case 'CONNECTOR_SIZE_MISSING':
+      return t('design.problems.detail.CONNECTOR_SIZE_MISSING');
     case 'CABINET_BOX_COUNT_MISMATCH':
       return p.expected !== undefined && p.found !== undefined
         ? t('design.problems.detail.CABINET_BOX_COUNT_MISMATCH', {

@@ -942,6 +942,9 @@
       "waysPlaceholder": "ex. 12",
       "waysInvalid": "Saisissez un entier de 1 à 288",
       "waysRequired": "Le nombre de voies doit être un nombre de 1 à 288 sur : {names}",
+      "aliases": "Types de chambre confirmés",
+      "aliasRemove": "Retirer",
+      "aliasRemoveOne": "Retirer la confirmation « {found} »",
       "role": {
         "box_number": "Numéro de boîte",
         "box_cabinet": "Armoire de la boîte",
@@ -1170,7 +1173,10 @@
         "CABINET_ZONE_MISSING": "Armoire sans zone",
         "SPARE_CORES_MISMATCH": "Réserve de fibres incohérente",
         "CABLE_SLACK_TOO_SHORT": "Réserve de câble inférieure à 15 m",
-        "CABLE_SLACK_TOO_LONG": "Réserve de câble supérieure à 30 m"
+        "CABLE_SLACK_TOO_LONG": "Réserve de câble supérieure à 30 m",
+        "BOX_CABINET_UNKNOWN": "Boîtier d’une armoire inconnue",
+        "CABINET_NAME_DUPLICATE": "Deux armoires de même nom",
+        "CONNECTOR_SIZE_MISSING": "Faisceau 1way sans taille de conduit"
       },
       "ROUTE_SPLIT": {
         "description": "Un câble est dessiné en morceaux séparés qui se rejoignent bout à bout loin de tout élément ; le système ne peut pas le lire comme un seul tracé.",
@@ -1236,6 +1242,18 @@
         "description": "Le câble écrit dépasse son faisceau de plus de 30 m. Simple avertissement, il ne bloque pas la publication.",
         "fix": "Vérifiez la longueur du câble si le nombre est faux ; s’il est juste, laissez-le."
       },
+      "BOX_CABINET_UNKNOWN": {
+        "description": "Un boîtier indique une armoire qui n’existe pas dans le plan. Le nom peut contenir une faute de frappe.",
+        "fix": "Corrigez le nom d’armoire écrit sur le boîtier pour qu’il corresponde à une armoire du plan."
+      },
+      "CABINET_NAME_DUPLICATE": {
+        "description": "Deux armoires du plan portent le même nom ; chaque armoire doit avoir un nom unique.",
+        "fix": "Renommez l’une des deux armoires."
+      },
+      "CONNECTOR_SIZE_MISSING": {
+        "description": "L’étiquette d’un faisceau 1way n’indique pas la taille du conduit : la taille du connecteur et du bouchon est inconnue.",
+        "fix": "Écrivez la taille du conduit dans l’étiquette du faisceau (ex. 1way 20/16)."
+      },
       "detail": {
         "LABEL_MISSING": "Texte manquant : {role}",
         "LABEL_TYPE_MISMATCH": "Le calque indique {expected} voies mais le texte indique {found} voies",
@@ -1244,7 +1262,13 @@
         "CABINET_BOX_COUNT_MISMATCH": "Armoire {cabinet} : {written} boîtes écrites, {drawn} dessinées",
         "SPARE_CORES_MISMATCH": "Devrait être SP {expected} (câble principal {mainCores} fibres) mais {found} est écrit",
         "CABLE_SLACK_TOO_SHORT": "Câble {cable} m, faisceau {bundle} m, écart {slack} m (minimum 15 m)",
-        "CABLE_SLACK_TOO_LONG": "Câble {cable} m, faisceau {bundle} m, écart {slack} m (plus de 30 m)"
+        "CABLE_SLACK_TOO_LONG": "Câble {cable} m, faisceau {bundle} m, écart {slack} m (plus de 30 m)",
+        "BOX_CABINET_UNKNOWN": "Le boîtier indique l’armoire « {cabinet} », absente du plan. Vérifiez l’orthographe",
+        "CABINET_NAME_DUPLICATE": "Le nom « {cabinet} » est écrit sur plusieurs armoires",
+        "CONNECTOR_SIZE_MISSING": "Faisceau 1way sans taille de conduit : la taille du connecteur et du bouchon est inconnue",
+        "LABEL_MISSING_BOX_COUNT": "Il manque le nombre de boîtiers sur l’armoire. Suggestion : {suggested} boîtiers (dessinés sous l’armoire)",
+        "LABEL_MISSING_BOX_COUNT_NO_SUGGESTION": "Il manque le nombre de boîtiers sur l’armoire (par exemple 22B)",
+        "BOX_NUMBER_DUPLICATE_FORMS": "Le numéro {number} est répété dans l’armoire {cabinet} (écrit sous plusieurs formes : {found})"
       },
       "warningsHeading": "Avertissements : {total}",
       "warningNote": "Avertissement — ne bloque pas la publication",
@@ -1302,7 +1326,14 @@
       "noPointLayers": "Aucun calque n'est encore associé à un type d'élément. Enregistrez d'abord l'association.",
       "mergePieces": "{count} tronçons seront réunis en un seul câble.",
       "merge": "Fusionner les tronçons en un seul câble",
-      "noHandholeLayers": "Aucun calque n’est associé aux chambres. Associez-en un sur l’écran de liaison d’abord."
+      "noHandholeLayers": "Aucun calque n’est associé aux chambres. Associez-en un sur l’écran de liaison d’abord.",
+      "confirmTypeOpen": "Confirmer le type",
+      "confirmTypeLabel": "Le type voulu pour le texte « {found} »",
+      "confirmTypeChoose": "Choisir le type",
+      "confirmTypeSave": "Confirmer et enregistrer dans le mappage",
+      "confirmTypeScope": "Cette confirmation s’applique à toutes les chambres écrites « {found} » dans ce plan.",
+      "confirmTypeDone": "Confirmation enregistrée. Appuyez sur « Appliquer les corrections et reconstruire » pour l’appliquer.",
+      "confirmTypeNoRule": "Aucun calque du mappage ne lit le type de chambre (handhole_type). Définissez d’abord le sens des textes sur l’écran de mappage."
     },
     "corrections": {
       "title": "Corrections",

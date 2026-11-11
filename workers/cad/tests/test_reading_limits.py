@@ -6,10 +6,11 @@ Huge text heights cannot widen a text's reach past `ROLE_LINK_MAX_RADIUS_M`, a t
 
 from __future__ import annotations
 
+import math
 import time
 
 from cad_worker.domain.design_build import DrawingData, SourceCurve, SourceInsert, SourceText
-from cad_worker.domain.kind_checks import check_kind
+from cad_worker.domain.kind_checks import MAX_FOUND_LENGTH, NETWORK_MAX_HITS, check_kind
 from cad_worker.domain.role_reading import (
     ROLE_LINK_MAX_CANDIDATES,
     ROLE_LINK_MAX_RADIUS_M,
@@ -186,3 +187,115 @@ def test_stacked_zone_curves_and_many_cabinets_are_read_in_a_few_seconds() -> No
     zones = {reading.readings[f.key]["zoneHandle"] for f in features if f.feature_type == "cabinet"}
     assert zones == {"Z0000"}
     assert elapsed < CPU_BUDGET_S, f"{elapsed:.1f} s"
+
+
+# ---------- cable networks of the spare-cores check (security review of the owner answers) ----
+
+
+def _star(n: int, centre: tuple[float, float]) -> list[SourceCurve]:
+    """n routes leaving one point (that end lies on every one of them)."""
+    cx, cy = centre
+    return [
+        line(
+            f"S{i:05d}",
+            "OOOOOO",
+            centre,
+            (cx + 100 * math.cos(2 * math.pi * i / n), cy + 100 * math.sin(2 * math.pi * i / n)),
+        )
+        for i in range(n)
+    ]
+
+
+def _main_with_spare() -> tuple[list[SourceCurve], list[SourceText]]:
+    """A labelled 144-core main (0,0)-(500,0) with «SP 132» and one 12-core branch."""
+    curves = [
+        line("MAIN", "OOOOOO", (0, 0), (500, 0)),
+        line("BRANCH", "OOOOOO", (200, 0), (200, -300)),
+    ]
+    texts = [
+        text("B-MAIN", "EXCH", "500M/4way 16/12", (100, 3)),
+        text("C-MAIN", "EXCH", "520M/144Core F.O", (100, 6)),
+        text("B-BR", "EXCH", "20M/4way 7/3.5", (203, -150)),
+        text("C-BR", "EXCH", "50M/12Core F.O", (206, -147)),
+        text("SP", "EXCH", "SP 132", (300, 3)),
+    ]
+    return curves, texts
+
+
+def _spare_places(drawing: DrawingData) -> tuple[float, list[dict[str, object]]]:
+    start = time.process_time()
+    reading, features = read(drawing, GENERAL_RULES, "general")
+    problems = check_kind(features, reading, rules_of(GENERAL_RULES))
+    elapsed = time.process_time() - start
+    places = [{"handle": i.handle, **(i.params or {})} for i in problems["SPARE_CORES_MISMATCH"]]
+    return elapsed, places
+
+
+def test_a_network_too_crowded_to_read_fails_closed() -> None:
+    """More than NETWORK_MAX_HITS routes at one route end: the network cannot be trusted, so its SP
+    check is a (blocking) SPARE_CORES_MISMATCH with no expected value."""
+    curves, texts = _main_with_spare()
+    crowd = _star(NETWORK_MAX_HITS + 1, (500, 0))
+    _, places = _spare_places(DrawingData((*curves, *crowd), (), tuple(texts)))
+    assert places == [{"handle": "SP", "found": "132", "mainCores": 144, "featureHandle": "MAIN"}]
+    # The same crowd far from the main does not touch its network: checked normally.
+    far = _star(NETWORK_MAX_HITS + 1, (5000, 5000))
+    _, places = _spare_places(DrawingData((*curves, *far), (), tuple(texts)))
+    assert places == []
+    # Up to NETWORK_MAX_HITS the network is read (the star's spokes carry no cable).
+    fine = _star(NETWORK_MAX_HITS - 2, (500, 0))
+    _, places = _spare_places(DrawingData((*curves, *fine), (), tuple(texts)))
+    assert places == []
+
+
+def test_a_crowded_node_fails_closed() -> None:
+    curves, texts = _main_with_spare()
+    spokes = [
+        line(f"P{i:03d}", "OOOOOO", (503 + i * 0.01, 3), (503 + i * 0.01, 50))
+        for i in range(NETWORK_MAX_HITS + 1)
+    ]
+    drawing = DrawingData((*curves, *spokes), (insert("HX", "HH", (502, 2)),), tuple(texts))
+    _, places = _spare_places(drawing)
+    assert [(p["handle"], p.get("expected")) for p in places] == [("SP", None)]
+
+
+def test_a_star_of_20k_routes_is_checked_in_a_few_seconds() -> None:
+    curves, texts = _main_with_spare()
+    drawing = DrawingData((*curves, *_star(20_000, (500, 0))), (), tuple(texts))
+    elapsed, places = _spare_places(drawing)
+    assert [(p["handle"], p.get("expected")) for p in places] == [("SP", None)]
+    assert elapsed < CPU_BUDGET_S, f"{elapsed:.1f} s"
+
+
+def test_20k_route_ends_around_stacked_nodes_are_checked_in_a_few_seconds() -> None:
+    curves, texts = _main_with_spare()
+    around = [
+        line(
+            f"E{i:05d}",
+            "OOOOOO",
+            (500 + 3 * math.cos(i), 3 * math.sin(i)),
+            (500 + 3.5 * math.cos(i), 3.5 * math.sin(i)),
+        )
+        for i in range(10_000)
+    ]
+    nodes = tuple(insert(f"H{i:05d}", "HH", (500, 0)) for i in range(2000))
+    elapsed, places = _spare_places(DrawingData((*curves, *around), nodes, tuple(texts)))
+    assert [(p["handle"], p.get("expected")) for p in places] == [("SP", None)]
+    assert elapsed < CPU_BUDGET_S, f"{elapsed:.1f} s"
+
+
+def test_box_number_duplicates_name_a_bounded_list_of_written_forms() -> None:
+    boxes = tuple(insert(f"B{i:04d}", "BOX", (30.0 * i, 0), "box c") for i in range(400))
+    texts = tuple(
+        t
+        for i in range(400)
+        for t in (
+            text(f"N{i:04d}", "TXTNMPER", "0" * (i % 4) + "1", (30.0 * i, 3)),
+            text(f"K{i:04d}", "TXTCAP", "1-3", (30.0 * i + 2, 3)),
+        )
+    )
+    reading, features = read(DrawingData((), boxes, texts), SECONDARY_RULES, "secondary")
+    problems = check_kind(features, reading, rules_of(SECONDARY_RULES))
+    found = {str((i.params or {})["found"]) for i in problems["BOX_NUMBER_DUPLICATE"]}
+    assert found == {"0001, 001, 01, 1"}
+    assert all(len(f) <= MAX_FOUND_LENGTH for f in found)

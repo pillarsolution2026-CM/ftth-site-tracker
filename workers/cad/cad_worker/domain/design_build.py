@@ -15,7 +15,10 @@ only, required) `role`; the feature keeps them in `attrs` (ADR-033/034).
 
 ADR-041 (reading by meaning), `layer` rules only: `textRoles` (what the layer's texts mean, see
 `text_roles.py`; target `label` or the roles' feature type), `ways` (route rules: the bundle type)
-and the target `zone` (curves around a cabinet and its boxes; never a feature). Reading mode
+and the target `zone` (curves around a cabinet and its boxes; never a feature). A layer reading
+`handhole_type` may carry `handholeTypeAliases`: the PM's confirmation of a type written another
+way in this drawing (owner 2026-11-11, «HH2» -> HH-II); keys trimmed, compared case-insensitively.
+Reading mode
 `legacy` (no rule with `textRoles`, none to `zone`) builds exactly as Phase 1; `roles` adds the
 reading of `role_reading.py` (mirror of `readingModeOf`).
 
@@ -41,9 +44,12 @@ from cad_worker.domain.design import (
 )
 from cad_worker.domain.placement import Placer
 from cad_worker.domain.text_roles import (
+    HANDHOLE_TYPES,
     MAX_BUNDLE_WAYS,
     TEXT_ROLES,
+    HandholeType,
     TextRole,
+    js_trim,
     text_role_fits_target,
 )
 
@@ -73,6 +79,9 @@ SHAPE_TOUCH_M = 0.05
 # Block name of an item added by a drawing correction (ADR-038): no block rule applies to it, its
 # layer's rule decides what it is.
 FIX_BLOCK = "__fix__"
+# `handholeTypeAliases` bounds (`MAX_HANDHOLE_TYPE_ALIASES`, key 1-16 characters once trimmed).
+MAX_HANDHOLE_TYPE_ALIASES = 50
+MAX_HANDHOLE_TYPE_ALIAS_LENGTH = 16
 
 
 class MappingInvalidError(ValueError):
@@ -109,6 +118,13 @@ class MappingRules:
     # ADR-041: layer -> its text roles (TEXT_ROLES order); route layer -> bundle ways.
     text_roles: Mapping[str, tuple[TextRole, ...]] = field(default_factory=dict)
     ways: Mapping[str, int] = field(default_factory=dict)
+    # Layer -> (trimmed upper-case written type -> list type), confirmed by the PM.
+    handhole_type_aliases: Mapping[str, Mapping[str, HandholeType]] = field(default_factory=dict)
+
+    def confirmed_handhole_type(self, layer: str, written: str) -> HandholeType | None:
+        """The list type the PM confirmed for a type written another way on this layer."""
+        aliases = self.handhole_type_aliases.get(layer)
+        return aliases.get(handhole_alias_key(written)) if aliases else None
 
     @property
     def reading_mode(self) -> ReadingMode:
@@ -147,6 +163,10 @@ def text_rule_key(text: str) -> str:
     return text.strip().lower()
 
 
+def handhole_alias_key(written: str) -> str:
+    return js_trim(written).upper()
+
+
 def _name(rule: Mapping[str, object], key: str) -> str:
     value = rule.get(key)
     if not isinstance(value, str) or not 1 <= len(value) <= MAX_NAME_LENGTH:
@@ -164,6 +184,7 @@ def parse_rules(raw: object) -> MappingRules:
     attrs: dict[tuple[str, ...], RuleAttrs] = {}
     text_roles: dict[str, tuple[TextRole, ...]] = {}
     ways: dict[str, int] = {}
+    hh_aliases: dict[str, dict[str, HandholeType]] = {}
     for item in raw:
         if not isinstance(item, dict):
             raise MappingInvalidError(f"rule {item!r} is not an object")
@@ -180,6 +201,9 @@ def parse_rules(raw: object) -> MappingRules:
             rule_ways = _ways(rule, str(target))
             if rule_ways is not None:
                 ways[name] = rule_ways
+            aliases = _handhole_type_aliases(rule, roles)
+            if aliases:
+                hh_aliases[name] = aliases
         elif source == "block" and target in BLOCK_TARGETS:
             name = _name(rule, "block")
             _put(blocks, name, cast(Target, target), rule)
@@ -196,7 +220,7 @@ def parse_rules(raw: object) -> MappingRules:
         rule_attrs = _rule_attrs(rule, str(target))
         if rule_attrs != NO_ATTRS:
             attrs[key] = rule_attrs
-    return MappingRules(layers, blocks, texts, attrs, text_roles, ways)
+    return MappingRules(layers, blocks, texts, attrs, text_roles, ways, hh_aliases)
 
 
 def _text_roles(rule: Mapping[str, object], target: str) -> tuple[TextRole, ...]:
@@ -214,6 +238,37 @@ def _text_roles(rule: Mapping[str, object], target: str) -> tuple[TextRole, ...]
                 f"rule {dict(rule)!r}: text role {role} does not fit target {target}"
             )
     return tuple(r for r in TEXT_ROLES if r in raw)
+
+
+def _handhole_type_aliases(
+    rule: Mapping[str, object], roles: tuple[TextRole, ...]
+) -> dict[str, HandholeType]:
+    """`handholeTypeAliases`: only with the handhole_type role; keys 1-16 characters once trimmed,
+    values list types, at most 50. Keys are compared case-insensitively: two spellings of one key
+    naming different types are not a confirmation (that spelling stays unknown)."""
+    raw = rule.get("handholeTypeAliases")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or "handhole_type" not in roles:
+        raise MappingInvalidError(
+            f"rule {dict(rule)!r}: handholeTypeAliases need the handhole_type text role"
+        )
+    trimmed: dict[str, HandholeType] = {}
+    for key, value in raw.items():
+        name = js_trim(key) if isinstance(key, str) else ""
+        if not 1 <= len(name) <= MAX_HANDHOLE_TYPE_ALIAS_LENGTH or value not in HANDHOLE_TYPES:
+            raise MappingInvalidError(f"rule {dict(rule)!r}: invalid handhole type alias {key!r}")
+        trimmed[name] = cast(HandholeType, value)
+    if len(trimmed) > MAX_HANDHOLE_TYPE_ALIASES:
+        raise MappingInvalidError(f"rule {dict(rule)!r}: too many handhole type aliases")
+    out: dict[str, HandholeType] = {}
+    ambiguous: set[str] = set()
+    for name, value in trimmed.items():
+        folded = handhole_alias_key(name)
+        if out.get(folded, value) != value:
+            ambiguous.add(folded)
+        out[folded] = value
+    return {k: v for k, v in out.items() if k not in ambiguous}
 
 
 def _ways(rule: Mapping[str, object], target: str) -> int | None:

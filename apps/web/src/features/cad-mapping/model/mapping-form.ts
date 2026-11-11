@@ -16,7 +16,12 @@ import {
   type PointFeatureType,
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
-import { layerMeaningFields, withSuggestedMeaning, type LayerMeaningForm } from './layer-meaning';
+import {
+  layerMeaningFields,
+  sortedAliases,
+  withSuggestedMeaning,
+  type LayerMeaningForm,
+} from './layer-meaning';
 import { initialEpsgText, parseEpsg } from './epsg';
 import {
   initialPlacementState,
@@ -218,10 +223,16 @@ export function initialFormState(
 
   const meaning: Record<string, LayerMeaningForm> = {};
   for (const rule of savedRules(view)) {
-    if (rule.source === 'layer' && (rule.textRoles !== undefined || rule.ways !== undefined)) {
+    if (
+      rule.source === 'layer' &&
+      (rule.textRoles !== undefined ||
+        rule.ways !== undefined ||
+        rule.handholeTypeAliases !== undefined)
+    ) {
       meaning[rule.layer] = {
         roles: [...(rule.textRoles ?? [])],
         ways: rule.ways === undefined ? '' : String(rule.ways),
+        aliases: { ...rule.handholeTypeAliases },
       };
     }
   }
@@ -290,9 +301,13 @@ export function formSignature(state: MappingFormState): string {
     Object.entries(state.meaning)
       .map(([layer, m]): [string, string] => [
         layer,
-        `${TEXT_ROLES.filter((role) => m.roles.includes(role)).join(',')}|${m.ways.trim()}`,
+        `${TEXT_ROLES.filter((role) => m.roles.includes(role)).join(',')}|${m.ways.trim()}|${sortedAliases(
+          m.aliases,
+        )
+          .map(([k, v]) => `${k}=${v}`)
+          .join(',')}`,
       ])
-      .filter(([, value]) => value !== '|')
+      .filter(([, value]) => value !== '||')
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     placementSignature(state.placement),
   ]);

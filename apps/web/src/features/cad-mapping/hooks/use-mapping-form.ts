@@ -147,6 +147,14 @@ export function useMappingForm(view: CadMappingView, drawingKind: DrawingKind | 
           [layer]: { ...(current.meaning[layer] ?? EMPTY_MEANING), ways },
         },
       })),
+    removeLayerAlias: (layer: string, found: string) =>
+      change((current) => {
+        const old = current.meaning[layer] ?? EMPTY_MEANING;
+        const aliases = Object.fromEntries(
+          Object.entries(old.aliases).filter(([k]) => k !== found),
+        );
+        return { ...current, meaning: { ...current.meaning, [layer]: { ...old, aliases } } };
+      }),
     /** Fills roles and ways of layers that have none from their texts and names (asked for). */
     suggestMeaning: () => change((current) => withSuggestedMeaning(view, current, drawingKind)),
     setBlockChoice: (block: string, choice: BlockChoice) =>

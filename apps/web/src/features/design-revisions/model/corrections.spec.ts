@@ -114,3 +114,16 @@ describe('corrections model', () => {
     expect(correctionErrorKey('NETWORK', null)).toBe('errors.NETWORK');
   });
 });
+
+describe('toolOf for the owner-answer codes (2026-11-11)', () => {
+  it('edits the text of an unknown or repeated cabinet name', () => {
+    expect(toolOf('BOX_CABINET_UNKNOWN')).toBe('set_text');
+    expect(toolOf('CABINET_NAME_DUPLICATE')).toBe('set_text');
+  });
+
+  it('edits the 1way label when it is known, else it is fixed in AutoCAD', () => {
+    expect(toolOf('CONNECTOR_SIZE_MISSING', { params: { featureHandle: 'R1' } })).toBe('set_text');
+    expect(toolOf('CONNECTOR_SIZE_MISSING', { params: undefined })).toBe('none');
+    expect(toolOf('CONNECTOR_SIZE_MISSING')).toBe('none');
+  });
+});

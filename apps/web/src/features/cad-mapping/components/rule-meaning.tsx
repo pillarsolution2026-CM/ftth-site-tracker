@@ -1,6 +1,7 @@
 'use client';
 
 import { TEXT_ROLES, type DrawingKind, type TextRole } from '@ftth/shared';
+import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import {
@@ -8,6 +9,7 @@ import {
   parseWays,
   roleNotForKind,
   roleOptionsFor,
+  sortedAliases,
   type LayerMeaningForm,
 } from '../model/layer-meaning';
 
@@ -25,6 +27,7 @@ export function RuleMeaningEditor({
   disabled,
   onRolesChange,
   onWaysChange,
+  onAliasRemove,
 }: {
   id: string;
   rowLabel: string;
@@ -34,11 +37,13 @@ export function RuleMeaningEditor({
   disabled: boolean;
   onRolesChange: (roles: TextRole[]) => void;
   onWaysChange: (ways: string) => void;
+  onAliasRemove: (found: string) => void;
 }) {
   const { t } = useI18n();
   const meaning = value ?? EMPTY_MEANING;
   const options = roleOptionsFor(kind, target, meaning.roles);
   const isRoute = target === 'route';
+  const aliases = meaning.roles.includes('handhole_type') ? sortedAliases(meaning.aliases) : [];
   if (options.length === 0 && !isRoute) return null;
   const waysText = meaning.ways.trim();
   const waysBad = waysText !== '' && parseWays(waysText) === null;
@@ -73,6 +78,30 @@ export function RuleMeaningEditor({
             ))}
           </div>
         </fieldset>
+      ) : null}
+      {aliases.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium">
+            {t('mapping.meaning.aliases')}: <bdi>{rowLabel}</bdi>
+          </p>
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            {aliases.map(([found, type]) => (
+              <li key={found} className="flex flex-wrap items-center gap-2 text-sm">
+                <bdi dir="ltr">
+                  {found} → {type}
+                </bdi>
+                <Button
+                  variant="outline"
+                  disabled={disabled}
+                  aria-label={t('mapping.meaning.aliasRemoveOne', { found })}
+                  onClick={() => onAliasRemove(found)}
+                >
+                  {t('mapping.meaning.aliasRemove')}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {isRoute ? (
         <div className="flex flex-col gap-1">

@@ -141,6 +141,38 @@ describe('MappingEditor text roles and ways (ADR-041)', () => {
     expect(onSave.mock.calls[0]?.[0].rules).toEqual(rules);
   });
 
+  it('keeps the confirmed handhole types on save and lets the PM remove one', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(5);
+    const rules: NonNullable<CadMappingView['mapping']>['rules'] = [
+      {
+        source: 'layer',
+        layer: 'TXTNMPER',
+        target: 'label',
+        textRoles: ['handhole_type'],
+        handholeTypeAliases: { HH2: 'HH-II', CH: 'HH-II' },
+      },
+      { source: 'layer', layer: '1X12w Line', target: 'route', ways: 12 },
+    ];
+    const saved = mappingView({ ...view(), mapping: savedMapping(rules) });
+    renderScreen(<MappingEditor {...props({ view: saved, drawingKind: 'general', onSave })} />);
+    const row = rowOf('TXTNMPER');
+    expect(within(row).getByText('CH → HH-II')).toBeInTheDocument();
+    expect(within(row).getByText('HH2 → HH-II')).toBeInTheDocument();
+    // Saving untouched keeps both.
+    await user.clear(screen.getByLabelText('EPSG code'));
+    await user.type(screen.getByLabelText('EPSG code'), '32635');
+    await user.click(screen.getByRole('button', { name: 'Save mapping' }));
+    expect(onSave.mock.calls[0]?.[0].rules).toEqual(rules);
+    // Removing one leaves the other.
+    await user.click(within(row).getByRole('button', { name: /Remove the confirmation .*CH/ }));
+    expect(within(row).queryByText('CH → HH-II')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save mapping' }));
+    expect(onSave.mock.calls[1]?.[0].rules[0]).toMatchObject({
+      handholeTypeAliases: { HH2: 'HH-II' },
+    });
+  });
+
   it('fills the meanings of a saved legacy mapping only when asked', async () => {
     const user = userEvent.setup();
     const legacy = mappingView({
