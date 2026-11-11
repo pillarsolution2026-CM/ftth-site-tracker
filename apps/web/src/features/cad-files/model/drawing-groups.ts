@@ -5,8 +5,9 @@ export function isSuperseded(file: Pick<CadFileSummary, 'supersededAt'>): boolea
 }
 
 /**
- * The two sections of the file list (ADR-040): files of each kind, the current version first,
- * then the older versions (newest first).
+ * The two sections of the file list (ADR-040): the current file(s) of each kind, newest first.
+ * Older versions stay in the system as history but are not listed (owner 2026-11-11); the API
+ * already leaves them out, this keeps the list right if one ever arrives.
  */
 export function groupByKind(
   files: readonly CadFileSummary[],
@@ -14,11 +15,8 @@ export function groupByKind(
   const groups = { general: [], secondary: [] } as Record<DrawingKind, CadFileSummary[]>;
   for (const kind of DRAWING_KINDS) {
     groups[kind] = files
-      .filter((file) => file.drawingKind === kind)
-      .sort((a, b) => {
-        if (isSuperseded(a) !== isSuperseded(b)) return isSuperseded(a) ? 1 : -1;
-        return b.createdAt.localeCompare(a.createdAt);
-      });
+      .filter((file) => file.drawingKind === kind && !isSuperseded(file))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   return groups;
 }

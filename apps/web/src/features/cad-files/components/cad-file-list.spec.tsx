@@ -141,7 +141,7 @@ describe('CadFileListView', () => {
 describe('CadFileListView sections (ADR-040)', () => {
   const ID = (n: number) => `1f8fad5b-d9cb-469f-a165-70867728950${n}`;
 
-  it('groups into General and Secondary, the current version first, old ones badged', () => {
+  it('groups into General and Secondary and hides old versions (owner 2026-11-11)', () => {
     renderScreen(
       <CadFileListView
         basePath="/en/p"
@@ -167,14 +167,10 @@ describe('CadFileListView sections (ADR-040)', () => {
     );
     const general = screen.getByRole('region', { name: 'General (main)' });
     const rows = within(general).getAllByRole('row');
+    expect(rows).toHaveLength(2); // header + the current version only
     expect(rows[1]).toHaveTextContent('new-general.dxf');
-    expect(rows[2]).toHaveTextContent('old-general.dxf');
-    expect(within(rows[2] as HTMLElement).getByText('Old version')).toBeInTheDocument();
-    expect(within(rows[1] as HTMLElement).queryByText('Old version')).not.toBeInTheDocument();
-    expect(within(rows[2] as HTMLElement).getByRole('link')).toHaveAttribute(
-      'href',
-      `/en/p/${ID(1)}`,
-    );
+    expect(within(general).queryByText('old-general.dxf')).not.toBeInTheDocument();
+    expect(within(general).queryByText('Old version')).not.toBeInTheDocument();
     const secondary = screen.getByRole('region', { name: 'Secondary' });
     expect(within(secondary).getByText('sec.dxf')).toBeInTheDocument();
   });

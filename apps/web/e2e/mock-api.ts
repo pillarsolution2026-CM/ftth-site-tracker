@@ -1185,7 +1185,11 @@ async function handleCad(
 ): Promise<void> {
   if (id === undefined) {
     if (method === 'GET') {
-      const items = [...cadFiles.values()].reverse().map(cadSummary);
+      // Older versions are history: not listed (owner 2026-11-11).
+      const items = [...cadFiles.values()]
+        .filter((file) => file.supersededAt === null)
+        .reverse()
+        .map(cadSummary);
       return send(res, 200, CadFileListResponseSchema.parse({ items }));
     }
     if (method === 'POST') {

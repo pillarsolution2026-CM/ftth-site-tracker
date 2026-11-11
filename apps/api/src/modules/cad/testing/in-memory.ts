@@ -64,7 +64,9 @@ export class InMemoryCadFiles implements CadFileRepository {
   readonly views = new Map<string, DrawingViewRecord>();
 
   async list(projectId: string): Promise<CadFile[]> {
-    return [...this.rows.values()].filter((file) => file.projectId === projectId);
+    return [...this.rows.values()].filter(
+      (file) => file.projectId === projectId && file.supersededAt === null,
+    );
   }
   async find(projectId: string, cadFileId: string): Promise<CadFile | null> {
     const file = this.rows.get(cadFileId);
