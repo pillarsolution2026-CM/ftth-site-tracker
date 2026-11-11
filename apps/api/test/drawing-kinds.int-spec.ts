@@ -182,6 +182,29 @@ describe('migration 0018 constraints', () => {
     ).toBe('23503');
   });
 
+  it('only lets a file be superseded by a file of the same kind', async () => {
+    const project = await newProject();
+    const general = await insertFile(project, 'general');
+    const secondary = await insertFile(project, 'secondary');
+    expect(
+      await sqlState(
+        q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
+          general,
+          secondary,
+        ]),
+      ),
+    ).toBe('23001');
+    const sameKind = await insertFile(project, 'general');
+    expect(
+      await sqlState(
+        q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
+          general,
+          sameKind,
+        ]),
+      ),
+    ).toBe(null);
+  });
+
   it("requires a revision's kind to equal its file's kind", async () => {
     const project = await newProject();
     const general = await insertFile(project, 'general');
@@ -359,6 +382,76 @@ describe('uploading a drawing of a kind', () => {
       [project],
     );
     expect(current.rows[0].n).toBe(1);
+  });
+
+  it('discards the open revision of the kind when a new version is accepted, and only that one', async () => {
+    const mapAndBuild = async (project: string, file: string) => {
+      await q(`UPDATE cad_files SET status = 'processed', processed_at = now() WHERE id = $1`, [
+        file,
+      ]);
+      const saved = await as(admin)(http().put(`${filesUrl(project)}/${file}/mapping`)).send({
+        rules: [{ source: 'layer', layer: 'N_DUC_CBL', target: 'route' }],
+        crsEpsg: 32636,
+        drawingUnit: 'm',
+        version: null,
+      });
+      expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+      const created = await as(admin)(http().post(revisionsUrl(project))).send({
+        cadFileId: file,
+        mappingVersion: 1,
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(202);
+      return created.body.id as string;
+    };
+    const project = await newProject();
+    const v1 = await upload(project, '?kind=general', 'v1.dxf');
+    const g1 = await mapAndBuild(project, v1.body.id);
+    const sec = await upload(project, '?kind=secondary', 'sec.dxf');
+    const s1 = await mapAndBuild(project, sec.body.id);
+    const otherProject = await newProject();
+    const other = await upload(otherProject, '?kind=general', 'other.dxf');
+    const o1 = await mapAndBuild(otherProject, other.body.id);
+    const jobOf = async (id: string) =>
+      (await q('SELECT current_job_id FROM design_revisions WHERE id = $1', [id])).rows[0]
+        .current_job_id;
+    const jobBefore = await jobOf(g1);
+
+    const v2 = await upload(project, '?kind=general&newVersion=true', 'v2.dxf');
+    expect(v2.status, JSON.stringify(v2.body)).toBe(201);
+
+    const statuses = await q(
+      'SELECT id, status FROM design_revisions WHERE id = ANY($1) ORDER BY id',
+      [[g1, s1, o1]],
+    );
+    const status = new Map(statuses.rows.map((r) => [r.id, r.status]));
+    expect(status.get(g1)).toBe('discarded');
+    expect(status.get(s1)).toBe('queued');
+    expect(status.get(o1)).toBe('queued');
+    // A worker still building G1 is superseded: its job id changed.
+    expect(await jobOf(g1)).not.toBe(jobBefore);
+    expect(await eventTypes(ctx.pool, g1)).toEqual([
+      'design_revision.queued',
+      'design_revision.discarded',
+    ]);
+    const uploaded = await q(
+      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'cad_file.uploaded'`,
+      [v2.body.id],
+    );
+    expect(uploaded.rows[0].payload).toMatchObject({
+      supersededFileIds: [v1.body.id],
+      discardedRevisionId: g1,
+    });
+    // Without an open revision the field is null.
+    const sec2 = await upload(project, '?kind=secondary&newVersion=true', 'sec2.dxf');
+    expect(sec2.status).toBe(201);
+    const first = await q(
+      `SELECT payload FROM events WHERE entity_id = $1 AND type = 'cad_file.uploaded'`,
+      [v1.body.id],
+    );
+    expect(first.rows[0].payload.discardedRevisionId).toBeNull();
+
+    // Building from the new version works now.
+    await mapAndBuild(project, v2.body.id);
   });
 
   it('refuses to build from a superseded file (NOT_CURRENT_VERSION)', async () => {

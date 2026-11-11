@@ -13,8 +13,23 @@ import { peekStream } from '../../../common/storage/peek-stream.js';
 import type { CadFile } from '../domain/cad-file.js';
 import type { CadUnitOfWork } from '../domain/cad-file.repository.js';
 import { declaredFormat, SNIFF_BYTES, verifyCadContent } from '../domain/cad-sniffer.js';
+import { discardRevisionInTx } from './discard-design-revision.use-case.js';
 import { enqueueAfterCommit } from './cad-enqueue.js';
 import type { JobQueue } from './ports.js';
+
+function kindExists(kind: DrawingKind, current: CadFile): AppError {
+  const details: KindExistsDetails = {
+    reason: 'KIND_EXISTS',
+    kind,
+    currentFileId: current.id,
+    currentFileName: current.originalName,
+  };
+  return new AppError(
+    'CONFLICT',
+    'This work order already has a drawing of this kind; confirm it is a new version',
+    details,
+  );
+}
 
 export class UploadCadFileUseCase {
   constructor(
@@ -39,6 +54,12 @@ export class UploadCadFileUseCase {
     const format = declaredFormat(file.fileName);
     const { head, stream } = await peekStream(file.stream, SNIFF_BYTES);
     verifyCadContent(format, head);
+
+    // Cheap pre-check so a refused upload never stores the file; the locked check below decides.
+    if (!newVersion) {
+      const existing = await this.uow.run((tx) => tx.files.listCurrentOfKind(projectId, kind));
+      if (existing[0]) throw kindExists(kind, existing[0]);
+    }
 
     const id = this.ids.next();
     const jobId = this.ids.next();
@@ -90,20 +111,23 @@ export class UploadCadFileUseCase {
         // Serialises uploads of this kind: the one-current-file-per-kind rule lives here.
         const current = await tx.files.lockCurrentOfKind(projectId, kind);
         const newest = current[0];
-        if (newest && !newVersion) {
-          const details: KindExistsDetails = {
-            reason: 'KIND_EXISTS',
-            kind,
-            currentFileId: newest.id,
-            currentFileName: newest.originalName,
-          };
-          throw new AppError(
-            'CONFLICT',
-            'This work order already has a drawing of this kind; confirm it is a new version',
-            details,
-          );
-        }
+        if (newest && !newVersion) throw kindExists(kind, newest);
         const supersededFileIds = current.map((f) => f.id);
+        // A new version makes the open revision of the kind (built from an older file) useless:
+        // discard it, whatever its state, and supersede a worker still building it (owner, M1).
+        let discardedRevisionId: string | null = null;
+        if (newest) {
+          const open = await tx.revisions.findOpen(projectId, kind);
+          const locked = open ? await tx.revisions.find(projectId, open.id, { lock: true }) : null;
+          if (locked) {
+            await discardRevisionInTx(tx, {
+              revision: locked,
+              actorId,
+              supersedingJobId: this.ids.next(),
+            });
+            discardedRevisionId = locked.id;
+          }
+        }
         await tx.files.insertUploaded(uploaded);
         await tx.files.supersede(projectId, supersededFileIds, id, now);
         await tx.events.append({
@@ -119,6 +143,7 @@ export class UploadCadFileUseCase {
             sha256: uploaded.sha256,
             drawingKind: kind,
             supersededFileIds,
+            discardedRevisionId,
           },
         });
         await tx.files.markQueued(projectId, id, jobId, now);

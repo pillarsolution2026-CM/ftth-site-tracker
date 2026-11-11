@@ -117,6 +117,21 @@ export class DrizzleCadFileRepository implements CadFileRepository {
     });
   }
 
+  async listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
+    const rows = await this.db
+      .select()
+      .from(cadFiles)
+      .where(
+        and(
+          eq(cadFiles.projectId, projectId),
+          eq(cadFiles.drawingKind, kind),
+          isNull(cadFiles.supersededAt),
+        ),
+      )
+      .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id));
+    return rows.map(toCadFile);
+  }
+
   async lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
     // NO KEY UPDATE: serialises two first uploads without blocking children's foreign-key checks.
     await this.db

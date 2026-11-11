@@ -32,6 +32,13 @@ BEGIN
           OR NEW.superseded_by IS DISTINCT FROM OLD.superseded_by) THEN
     RAISE EXCEPTION 'cad_files: a superseded file stays superseded' USING ERRCODE = 'restrict_violation';
   END IF;
+  -- A newer version replaces a file of the same kind only (the FK keeps it in the same project).
+  IF NEW.superseded_by IS NOT NULL AND OLD.superseded_by IS NULL
+     AND (SELECT drawing_kind FROM cad_files
+          WHERE project_id = NEW.project_id AND id = NEW.superseded_by) <> NEW.drawing_kind THEN
+    RAISE EXCEPTION 'cad_files: a file is superseded by a file of the same kind only'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
   RETURN NEW;
 END;
 $$;
