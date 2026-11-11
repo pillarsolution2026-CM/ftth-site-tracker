@@ -93,8 +93,12 @@ async function insertRevision(
   options: { kind?: DrawingKind; status?: string } = {},
 ): Promise<string> {
   const id = randomUUID();
-  const columns = options.kind ? `, drawing_kind` : '';
-  const values = options.kind ? `, '${options.kind}'` : '';
+  // ADR-042: a General revision carries its frozen installation; these are published with pull_only.
+  const general = (options.kind ?? 'general') === 'general';
+  const columns = (options.kind ? `, drawing_kind` : '') + (general ? ', installation' : '');
+  const values =
+    (options.kind ? `, '${options.kind}'` : '') +
+    (general ? `, '{"answer":"pull_only","answerId":"${randomUUID()}","marks":[]}'::jsonb` : '');
   await ctx.pool.query(
     `INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, rules,
                                    mapping_version, crs_epsg, drawing_unit, metres_per_unit${columns})
@@ -570,6 +574,12 @@ describe('publishing the pair', () => {
   async function newPair(withPlacement = true): Promise<Pair> {
     const project = await newProject();
     const generalFile = await insertFile(project, 'general');
+    // ADR-042: a General is published only after its installation question is answered.
+    await q(
+      `INSERT INTO cad_file_installation_answers (id, project_id, cad_file_id, answer)
+       VALUES ($1, $2, $3, 'pull_only')`,
+      [randomUUID(), project, generalFile],
+    );
     const secondaryFile = await insertFile(project, 'secondary');
     for (const file of [generalFile, secondaryFile]) {
       const res = await as(admin)(http().put(`${filesUrl(project)}/${file}/mapping`)).send({
@@ -710,6 +720,7 @@ describe('publishing the pair', () => {
       ['open_items', true, 0],
       ['other_drawing', false, 4],
       ['cabinets_match', true, 0],
+      ['installation', true, 0],
     ]);
     expect(ready).toMatchObject({ canPublish: false, otherRevisionId: secondary.id });
 

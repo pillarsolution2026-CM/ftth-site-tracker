@@ -134,7 +134,17 @@ async function insertCadFile(
       kind,
     ],
   );
+  if (kind === 'general') await answerPullOnly(project, id);
   return id;
+}
+
+/** ADR-042: a General is published only after its installation question is answered. */
+async function answerPullOnly(project: string, fileId: string): Promise<void> {
+  await ctx.pool.query(
+    `INSERT INTO cad_file_installation_answers (id, project_id, cad_file_id, answer)
+     VALUES ($1, $2, $3, 'pull_only')`,
+    [randomUUID(), project, fileId],
+  );
 }
 
 async function insertExtraction(fileId: string): Promise<void> {
@@ -1332,6 +1342,7 @@ describe('a built draft revision', () => {
         { key: 'open_items', ok: false, count: 2 },
         { key: 'other_drawing', ok: true, count: 0 },
         { key: 'cabinets_match', ok: true, count: 0 },
+        { key: 'installation', ok: true, count: 0 },
       ],
       canPublish: false,
       drawingKind: 'general',
@@ -1343,6 +1354,7 @@ describe('a built draft revision', () => {
         secondary: { count: 0, unnamed: 0, missingInOther: [] },
       },
       warningCount: 0,
+      installation: expect.objectContaining({ applies: true, ok: true, issueCount: 0 }),
     });
 
     await setPlacement(place(true));
@@ -1362,6 +1374,7 @@ describe('a built draft revision', () => {
       { key: 'open_items', ok: false, count: 2 },
       { key: 'other_drawing', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
+      { key: 'installation', ok: true, count: 0 },
     ]);
     expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });

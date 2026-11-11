@@ -34,6 +34,8 @@ import type {
   DrawingUnit,
   FeatureType,
   FrozenDrawingCorrection,
+  FrozenInstallation,
+  InstallationAnswer,
   MappingRule,
   Placement,
   TextLinkCounts,
@@ -520,6 +522,8 @@ export const designRevisions = pgTable(
     placement: jsonb('placement').$type<Placement>(),
     /** Corrections in force at creation, in order (ADR-038); read by the worker. */
     corrections: jsonb('corrections').$type<FrozenDrawingCorrection[]>().notNull().default([]),
+    /** Migration 0022: the General's installation answer and trench marks frozen (ADR-042). */
+    installation: jsonb('installation').$type<FrozenInstallation>(),
     insUnits: integer('ins_units'),
     unitsConflict: boolean('units_conflict').notNull().default(false),
     counts: jsonb('counts').$type<DesignRevisionCounts>(),
@@ -573,6 +577,61 @@ export const cadFileCorrections = pgTable(
       foreignColumns: [cadFiles.projectId, cadFiles.id],
     }),
     index('cad_file_corrections_file_idx').on(
+      table.projectId,
+      table.cadFileId,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
+/** Installation answers (migration 0022, ADR-042): append-only; the latest row is in force. */
+export const cadFileInstallationAnswers = pgTable(
+  'cad_file_installation_answers',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    cadFileId: uuid('cad_file_id').notNull(),
+    answer: text('answer').$type<InstallationAnswer>().notNull(),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'cad_file_installation_answers_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }),
+    index('cad_file_installation_answers_file_idx').on(
+      table.projectId,
+      table.cadFileId,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
+/** Trench marks (migration 0022, ADR-042): append-only; only the withdrawal changes, once. */
+export const cadFileTrenchMarks = pgTable(
+  'cad_file_trench_marks',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    cadFileId: uuid('cad_file_id').notNull(),
+    routeHandle: text('route_handle').notNull(),
+    lengthM: numeric('length_m', { precision: 9, scale: 3 }).notNull(),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    withdrawnBy: uuid('withdrawn_by').references(() => users.id),
+    withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: 'cad_file_trench_marks_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }),
+    index('cad_file_trench_marks_file_idx').on(
       table.projectId,
       table.cadFileId,
       table.createdAt,

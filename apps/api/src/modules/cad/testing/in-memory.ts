@@ -6,6 +6,8 @@ import {
   type DrawingKind,
   type FeatureType,
   type FrozenDrawingCorrection,
+  type FrozenInstallation,
+  type InstallationRoute,
   type GpsProposalListQuery,
   type TextLinkCounts,
 } from '@ftth/shared';
@@ -24,6 +26,13 @@ import type {
   NewDrawingCorrection,
 } from '../domain/drawing-correction.js';
 import type {
+  InstallationAnswerRow,
+  InstallationRepository,
+  NewInstallationAnswer,
+  NewTrenchMark,
+  TrenchMarkRecord,
+} from '../domain/installation.js';
+import type {
   GpsProposalDecision,
   GpsProposalRecord,
   GpsProposalRepository,
@@ -34,6 +43,7 @@ import type {
   DrawingProblemRepository,
   NewDesignRevision,
   OpenItems,
+  SubCabinetPosition,
   TextLinkRecord,
   TextLinkRepository,
 } from '../domain/design-revision.repository.js';
@@ -214,6 +224,40 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
   readonly frozenCorrections = new Map<string, FrozenDrawingCorrection[]>();
   /** revisionId -> `code` of each sub cabinet feature (null: unnamed); empty when not set. */
   readonly subCabinets = new Map<string, (string | null)[]>();
+  /** revisionId -> route features for the installation check. */
+  readonly routes = new Map<string, InstallationRoute[]>();
+  /** revisionId -> sub cabinet positions (ADR-042 part G). */
+  readonly cabinetPositions = new Map<string, SubCabinetPosition[]>();
+
+  async installationRoutes(projectId: string, revisionId: string): Promise<InstallationRoute[]> {
+    const row = this.rows.get(revisionId);
+    return row?.projectId === projectId ? [...(this.routes.get(revisionId) ?? [])] : [];
+  }
+  async frozenMergeHandles(projectId: string, revisionId: string): Promise<string[][]> {
+    const row = this.rows.get(revisionId);
+    if (row?.projectId !== projectId) return [];
+    return (this.frozenCorrections.get(revisionId) ?? []).flatMap((frozen) =>
+      frozen.correction.kind === 'merge_routes' ? [frozen.correction.handles] : [],
+    );
+  }
+  async findLatestBuiltOfFile(
+    projectId: string,
+    cadFileId: string,
+  ): Promise<DesignRevision | null> {
+    const built = [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.projectId === projectId &&
+          row.cadFileId === cadFileId &&
+          (row.status === 'draft' || row.status === 'published'),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return built[0] ? { ...built[0] } : null;
+  }
+  async subCabinetPositions(projectId: string, revisionId: string): Promise<SubCabinetPosition[]> {
+    const row = this.rows.get(revisionId);
+    return row?.projectId === projectId ? [...(this.cabinetPositions.get(revisionId) ?? [])] : [];
+  }
 
   async subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]> {
     const row = this.rows.get(revisionId);
@@ -280,6 +324,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       drawingUnit: revision.drawingUnit,
       metresPerUnit: revision.metresPerUnit,
       placement: revision.placement,
+      installation: revision.installation,
       insUnits: revision.insUnits,
       unitsConflict: revision.unitsConflict,
       counts: null,
@@ -595,6 +640,99 @@ export class InMemoryDrawingCorrections implements DrawingCorrectionRepository {
   }
 }
 
+/** Installation answers and trench marks in memory; `curves` stands in for the extracted curves. */
+export class InMemoryInstallation implements InstallationRepository {
+  readonly answers = new Map<string, InstallationAnswerRow>();
+  readonly marks = new Map<string, TrenchMarkRecord>();
+  /** handles that are curves of any file (tests use one file). */
+  readonly curves = new Set<string>();
+
+  private answersOf(projectId: string, cadFileId: string): InstallationAnswerRow[] {
+    return [...this.answers.values()]
+      .filter((row) => row.projectId === projectId && row.cadFileId === cadFileId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  }
+  private marksOf(projectId: string, cadFileId: string): TrenchMarkRecord[] {
+    return [...this.marks.values()]
+      .filter((row) => row.projectId === projectId && row.cadFileId === cadFileId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  }
+
+  async listAnswers(projectId: string, cadFileId: string): Promise<InstallationAnswerRow[]> {
+    return this.answersOf(projectId, cadFileId).reverse();
+  }
+  async countAnswers(projectId: string, cadFileId: string): Promise<number> {
+    return this.answersOf(projectId, cadFileId).length;
+  }
+  async insertAnswer(answer: NewInstallationAnswer): Promise<void> {
+    this.answers.set(answer.id, {
+      id: answer.id,
+      projectId: answer.projectId,
+      cadFileId: answer.cadFileId,
+      answer: answer.answer,
+      createdBy: { id: answer.createdById, name: 'PM' },
+      createdAt: answer.createdAt,
+    });
+  }
+  async listMarks(projectId: string, cadFileId: string): Promise<TrenchMarkRecord[]> {
+    return this.marksOf(projectId, cadFileId).reverse();
+  }
+  async findMark(
+    projectId: string,
+    cadFileId: string,
+    markId: string,
+  ): Promise<TrenchMarkRecord | null> {
+    const row = this.marks.get(markId);
+    return row?.projectId === projectId && row.cadFileId === cadFileId ? { ...row } : null;
+  }
+  async countActiveMarks(projectId: string, cadFileId: string): Promise<number> {
+    return this.marksOf(projectId, cadFileId).filter((row) => row.withdrawnAt === null).length;
+  }
+  async countAllMarks(projectId: string, cadFileId: string): Promise<number> {
+    return this.marksOf(projectId, cadFileId).length;
+  }
+  async insertMark(mark: NewTrenchMark): Promise<void> {
+    this.marks.set(mark.id, {
+      id: mark.id,
+      projectId: mark.projectId,
+      cadFileId: mark.cadFileId,
+      routeHandle: mark.routeHandle,
+      lengthM: mark.lengthM,
+      createdBy: { id: mark.createdById, name: 'PM' },
+      createdAt: mark.createdAt,
+      withdrawnBy: null,
+      withdrawnAt: null,
+    });
+  }
+  async withdrawMark(
+    projectId: string,
+    cadFileId: string,
+    markId: string,
+    actorId: string,
+    at: Date,
+  ): Promise<boolean> {
+    const row = this.marks.get(markId);
+    if (row?.projectId !== projectId || row.cadFileId !== cadFileId || row.withdrawnAt) {
+      return false;
+    }
+    this.marks.set(markId, { ...row, withdrawnBy: { id: actorId, name: 'PM' }, withdrawnAt: at });
+    return true;
+  }
+  async curveExists(_projectId: string, _cadFileId: string, handle: string): Promise<boolean> {
+    return this.curves.has(handle);
+  }
+  async frozen(projectId: string, cadFileId: string): Promise<FrozenInstallation> {
+    const latest = this.answersOf(projectId, cadFileId).at(-1);
+    return {
+      answer: latest?.answer ?? null,
+      answerId: latest?.id ?? null,
+      marks: this.marksOf(projectId, cadFileId)
+        .filter((row) => row.withdrawnAt === null)
+        .map((row) => ({ id: row.id, routeHandle: row.routeHandle, lengthM: row.lengthM })),
+    };
+  }
+}
+
 /** Not transactional (nothing here fails halfway); good enough to test use-case orchestration. */
 export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly files = new InMemoryCadFiles();
@@ -604,6 +742,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly problems = new InMemoryDrawingProblems();
   readonly proposals = new InMemoryGpsProposals();
   readonly corrections = new InMemoryDrawingCorrections();
+  readonly installation = new InMemoryInstallation();
   readonly events = new InMemoryEventLog();
 
   run<T>(work: (tx: CadTx) => Promise<T>): Promise<T> {
@@ -615,6 +754,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
       problems: this.problems,
       proposals: this.proposals,
       corrections: this.corrections,
+      installation: this.installation,
       events: this.events,
     });
   }
