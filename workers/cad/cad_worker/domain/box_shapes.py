@@ -60,6 +60,8 @@ BOX_SHAPE_GALLERY_VERSION = 1
 PREVIEW_DECIMALS = 4
 
 _HANDLE_MAX = 64
+# `blockNames` items (zod `.max(255)`, UTF-16 units).
+MAX_BLOCK_NAME = 255
 
 
 class ShapeTooLargeError(ValueError):
@@ -322,7 +324,7 @@ def shape_preview(geometry: ShapeGeometry) -> dict[str, object]:
                 "y": _clamp_unit(u[1]),
                 "height": height,
                 "rotation": round(t.rotation % 360.0, TEXT_ROTATION_DECIMALS),
-                "text": _no_control(t.text)[:MAX_BOX_SHAPE_PREVIEW_TEXT_LENGTH],
+                "text": utf16_cut(_no_control(t.text), MAX_BOX_SHAPE_PREVIEW_TEXT_LENGTH),
             }
         )
     return {"paths": flat, "texts": texts, "truncated": truncated}
@@ -330,6 +332,23 @@ def shape_preview(geometry: ShapeGeometry) -> dict[str, object]:
 
 def text_preview(text: str) -> dict[str, object]:
     return shape_preview(ShapeGeometry(texts=(ShapeText(0.0, 0.0, 0.5, 0.0, text_key(text)),)))
+
+
+def utf16_length(text: str) -> int:
+    """Length as JavaScript / zod count it (UTF-16 code units)."""
+    return len(text) + sum(1 for ch in text if ord(ch) > 0xFFFF)
+
+
+def utf16_cut(text: str, limit: int) -> str:
+    """The longest prefix of at most `limit` UTF-16 code units (never half a character)."""
+    if len(text) * 2 <= limit:
+        return text
+    units = 0
+    for i, ch in enumerate(text):
+        units += 2 if ord(ch) > 0xFFFF else 1
+        if units > limit:
+            return text[:i]
+    return text
 
 
 def _no_control(value: str) -> str:
@@ -429,8 +448,8 @@ def build_gallery(boxes: Iterable[BoxShapeOf]) -> dict[str, object]:
             e = entries[b.shape] = _Entry(b.source)
         e.count += 1
         if b.block_name is not None:
-            e.block_names.add(b.block_name[:255])
-        if len(b.handle) <= _HANDLE_MAX and not any(ord(ch) < 0x20 for ch in b.handle):
+            e.block_names.add(utf16_cut(b.block_name, MAX_BLOCK_NAME))
+        if utf16_length(b.handle) <= _HANDLE_MAX and not any(ord(ch) < 0x20 for ch in b.handle):
             e.handles.append(b.handle)
         if e.preview is None and b.preview is not None:
             e.preview = b.preview
