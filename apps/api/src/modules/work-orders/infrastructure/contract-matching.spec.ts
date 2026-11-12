@@ -141,6 +141,27 @@ describe('work-order sheet against the contract (owner layout)', () => {
     expect(rowOf(out, ITEM_ROWS.cable)).toMatchObject({ kind: 'skipped', issues: [] });
   });
 
+  it('skips a heading of the file only (code not in the contract, no unit, quantity 0 or empty) silently (owner 2026-11-12)', async () => {
+    for (const quantity of [0, null]) {
+      const rows = setCell(workOrderSheetRows(), ITEM_ROWS.cable, 'code', '2-14');
+      setCell(rows, ITEM_ROWS.cable, 'unit', null);
+      setCell(rows, ITEM_ROWS.cable, 'quantity', quantity);
+      const { rows: out, summary } = await check(rows);
+      expect(rowOf(out, ITEM_ROWS.cable)).toMatchObject({ kind: 'skipped', issues: [] });
+      expect(summary.errorRowCount).toBe(0);
+    }
+  });
+
+  it('still refuses a code not in the contract when the row has a unit or a quantity', async () => {
+    const withUnit = setCell(workOrderSheetRows(), ITEM_ROWS.cable, 'code', '2-14');
+    setCell(withUnit, ITEM_ROWS.cable, 'quantity', 0);
+    expect(errorsOf(rowOf((await check(withUnit)).rows, ITEM_ROWS.cable))).toHaveLength(1);
+    const withQuantity = setCell(workOrderSheetRows(), ITEM_ROWS.cable, 'code', '2-14');
+    setCell(withQuantity, ITEM_ROWS.cable, 'unit', null);
+    setCell(withQuantity, ITEM_ROWS.cable, 'quantity', 5);
+    expect(errorsOf(rowOf((await check(withQuantity)).rows, ITEM_ROWS.cable))).toHaveLength(1);
+  });
+
   it('skips a row without a code silently, whatever its other cells hold', async () => {
     const rows = setCell(workOrderSheetRows(), ITEM_ROWS.cable, 'code', null);
     setCell(rows, ITEM_ROWS.cable, 'quantity', 'total');

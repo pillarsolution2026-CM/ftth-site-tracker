@@ -509,9 +509,18 @@ function parsePreview(
         kind: 'skipped' as 'heading' | 'item' | 'skipped',
         issues: skipIssues,
       });
-      // Rows without a code (totals, tax) and contract headings are skipped silently.
+      // Rows without a code (totals, tax), contract headings and headings of the file only (code
+      // unknown to the contract, no unit) with an empty or zero quantity are skipped silently.
       if (raw.code === null) return skipped();
-      if (against.contract.headingCodes.includes(raw.code) && zeroOrEmpty(raw.quantity)) {
+      const code = raw.code;
+      const fileHeading =
+        raw.unit === null &&
+        !against.contract.headingCodes.includes(code) &&
+        !against.contract.lines.some((candidate) => candidate.code === code);
+      if (
+        (against.contract.headingCodes.includes(code) || fileHeading) &&
+        zeroOrEmpty(raw.quantity)
+      ) {
         return skipped();
       }
       if (raw.quantity === null) {
