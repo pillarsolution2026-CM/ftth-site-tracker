@@ -79,4 +79,20 @@ describe('import issue messages', () => {
     );
     expect(text).toContain('صيانة');
   });
+
+  it('words CONTRACT_MISMATCH as a warning that the contract value is taken', () => {
+    const issue = {
+      code: 'CONTRACT_MISMATCH' as const,
+      severity: 'warning' as const,
+      field: 'unitPrice' as const,
+      params: { contractValue: '12.5' },
+    };
+    const text = (locale: (typeof LOCALES)[number]) =>
+      rowIssueText(issue, (key, params) => translate(locale, key, params));
+    expect(text('ar')).toBe('سعر الوحدة مختلف عن العقد — هيتاخد من العقد: 12.5');
+    expect(text('en')).toBe(
+      'Unit price differs from the contract — the contract value is used: 12.5',
+    );
+    expect(text('fr')).toContain('12.5');
+  });
 });

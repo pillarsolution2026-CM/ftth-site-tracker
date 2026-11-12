@@ -100,6 +100,7 @@ function preview(rows: ImportPreviewRow[]): WorkOrderImportPreviewResponse {
     summary: {
       rowCount: rows.length,
       headingCount: 0,
+      skippedCount: 0,
       errorRowCount: rows.filter((entry) => entry.issues.length > 0).length,
       warningRowCount: 0,
       duplicateCodes: [],
