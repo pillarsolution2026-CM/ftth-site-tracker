@@ -99,6 +99,16 @@ describe('box types model', () => {
     expect(message.params.count).toContain('197');
   });
 
+  it('has a message key for a Secondary mapped without text roles', () => {
+    const message = boxTypeIssueMessage({
+      code: 'READING_ROLES_MISSING',
+      shape: null,
+      boxCount: null,
+      workOrderLineId: null,
+    });
+    expect(message.key).toBe('design.boxTypes.issue.READING_ROLES_MISSING');
+  });
+
   it('writes the line as code then the description cut to 80 characters', () => {
     const text = lineOptionText({ code: 'BX-8', description: 'x'.repeat(200) });
     expect(text).toContain('BX-8');

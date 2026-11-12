@@ -21,6 +21,7 @@ import {
   publishRevision,
   type ExecutionFixture,
 } from './support/execution-fixtures.js';
+import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -630,6 +631,7 @@ describe('publishing the pair', () => {
         }),
       ],
     );
+    await makeBoxTypesClear(ctx.pool, revisionId);
   }
 
   const publish = (project: string, revisionId: string, body: object = {}) =>

@@ -14,6 +14,7 @@ import { Redis } from 'ioredis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
+import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -321,6 +322,7 @@ async function pair(answerValue: 'pull_only' | 'has_trench' | null): Promise<Pai
   const sRev = await build(sFile);
   await markDraft(gRev);
   await markDraft(sRev);
+  await makeBoxTypesClear(ctx.pool, sRev);
   return {
     project: p,
     general: { file: gFile, revision: gRev },
@@ -917,6 +919,7 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
     const sRev = await build(sFile);
     await markDraft(gRev);
     await markDraft(sRev);
+    await makeBoxTypesClear(ctx.pool, sRev);
     if (options.routeFeature !== false) {
       await insertFeature(gRev, p, 'route', 'A1', { attrs: routeAttrs(routeLength) });
     }

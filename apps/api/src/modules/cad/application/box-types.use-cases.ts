@@ -248,7 +248,22 @@ export async function boxTypesReportOf(
   workOrderLines: WorkOrderLines,
   revision: DesignRevision,
 ): Promise<BoxTypesReport> {
-  const applies = boxTypesApply(revision.drawingKind, readingModeOf(revision.rules));
+  const mode = readingModeOf(revision.rules);
+  const applies = boxTypesApply(revision.drawingKind, mode);
+  // A Secondary mapped without text roles reads in legacy mode: that is an error, not "n/a".
+  if (revision.drawingKind === 'secondary' && mode === 'legacy') {
+    return {
+      ...evaluateBoxTypes({
+        applies: false,
+        rolesMissing: true,
+        gallery: null,
+        frozen: null,
+        workOrderExists: true,
+        workOrderLineIds: new Set(),
+      }),
+      changedSinceBuild: false,
+    };
+  }
   if (!applies) {
     return {
       ...evaluateBoxTypes({

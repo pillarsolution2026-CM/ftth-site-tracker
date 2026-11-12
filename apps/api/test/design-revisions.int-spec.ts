@@ -26,6 +26,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { signTile } from '../src/modules/cad/domain/tile-signature.js';
 import { ensureMember, eventTypes, loginAs, projectIds, SEED_LOGINS } from './support/helpers.js';
+import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -452,6 +453,7 @@ async function secondaryDraft(): Promise<string> {
   const id = created.body.id as string;
   await simulateBuild(id, false);
   await setRevisionPlacement(id, USED_PLACEMENT);
+  await makeBoxTypesClear(ctx.pool, id);
   return id;
 }
 

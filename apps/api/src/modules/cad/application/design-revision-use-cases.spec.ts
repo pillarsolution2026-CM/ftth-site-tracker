@@ -182,7 +182,16 @@ async function addSecondaryDraft(patch: Partial<DesignRevision> = {}): Promise<D
     actorId: ACTOR,
     request: { cadFileId: SEC_FILE, mappingVersion: 1 },
   });
-  const draft: DesignRevision = { ...revision, status: 'draft', placement: USED_POINT, ...patch };
+  // A Secondary is read by roles (ADR-043: legacy mode blocks publishing) with no boxes to type.
+  const draft: DesignRevision = {
+    ...revision,
+    status: 'draft',
+    placement: USED_POINT,
+    rules: [{ source: 'layer', layer: 'BOXES', target: 'box', textRoles: ['box_cable_type'] }],
+    boxTypes: { choices: [] },
+    boxShapes: { version: 1, boxCount: 0, shapeCount: 0, shapes: [], boxesWithoutShape: 0 },
+    ...patch,
+  };
   uow.revisions.rows.set(revision.id, draft);
   uow.links.diffConflictsByRevision.set(revision.id, 0);
   return draft;
@@ -203,6 +212,23 @@ const reason = async (promise: Promise<unknown>) => {
   const appError = error as AppError;
   return { code: appError.code, status: appError.httpStatus, details: appError.details };
 };
+
+describe('a Secondary mapped without text roles (ADR-043 L3)', () => {
+  it('blocks the check and the publish with READING_ROLES_MISSING', async () => {
+    const draft = await addSecondaryDraft({ rules: MAPPING.rules });
+    const ready = await new GetPublishReadinessUseCase(uow, new InMemoryWorkOrderLines()).execute(
+      PROJECT,
+      draft.id,
+    );
+    expect(ready.checks.find((c) => c.key === 'box_types')).toEqual({
+      key: 'box_types',
+      ok: false,
+      count: 1,
+    });
+    expect(ready.boxTypes?.issues).toMatchObject([{ code: 'READING_ROLES_MISSING' }]);
+    expect(ready.canPublish).toBe(false);
+  });
+});
 
 describe('SaveCadMappingUseCase', () => {
   it('inserts version 1 with the exact factor of the chosen unit and records the event', async () => {

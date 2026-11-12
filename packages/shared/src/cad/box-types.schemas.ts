@@ -317,6 +317,8 @@ export type BoxTypeOnBox = z.infer<typeof BoxTypeOnBoxSchema>;
 
 /**
  * Why a Secondary's box types are unclear (each blocks publishing):
+ * - READING_ROLES_MISSING: the Secondary is mapped without «معنى النصوص» (legacy reading mode), so
+ *   box types and the ADR-041 checks would silently not apply: set the text roles and rebuild;
  * - WORK_ORDER_MISSING: the project has no work order, so no type can be chosen;
  * - BOX_SHAPES_NOT_READ: the revision has no gallery (built before 0023): rebuild;
  * - BOX_SHAPE_UNKNOWN: boxes whose shape was not read (file processed before 0023): reprocess the
@@ -326,6 +328,7 @@ export type BoxTypeOnBox = z.infer<typeof BoxTypeOnBoxSchema>;
  * - BOX_TYPE_LINE_MISSING: the chosen line is no longer a line of the project's work order.
  */
 export const BOX_TYPE_ISSUE_CODES = [
+  'READING_ROLES_MISSING',
   'WORK_ORDER_MISSING',
   'BOX_SHAPES_NOT_READ',
   'BOX_SHAPE_UNKNOWN',
@@ -380,6 +383,11 @@ const byString = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
  */
 export function evaluateBoxTypes(input: {
   applies: boolean;
+  /**
+   * A Secondary read in legacy mode (no text roles): one READING_ROLES_MISSING issue, `applies`
+   * becomes true, nothing else is evaluated. Ignored when false/absent.
+   */
+  rolesMissing?: boolean;
   gallery: BoxShapeGallery | null;
   frozen: FrozenBoxTypes | null;
   /** The project has a work order. */
@@ -388,6 +396,19 @@ export function evaluateBoxTypes(input: {
   workOrderLineIds: ReadonlySet<string>;
 }): Omit<BoxTypesReport, 'changedSinceBuild'> {
   const { applies, gallery, frozen, workOrderExists, workOrderLineIds } = input;
+  if (input.rolesMissing) {
+    return {
+      applies: true,
+      gallery: null,
+      frozen: null,
+      ok: false,
+      issueCount: 1,
+      issues: [
+        { code: 'READING_ROLES_MISSING', shape: null, boxCount: null, workOrderLineId: null },
+      ],
+      totals: null,
+    };
+  }
   if (!applies) {
     return {
       applies: false,

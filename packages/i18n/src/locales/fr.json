@@ -1555,6 +1555,7 @@
         "TOO_MANY_CHOICES": "Le nombre maximal de choix de types pour ce fichier est atteint."
       },
       "issue": {
+        "READING_ROLES_MISSING": "Le secondaire a été mappé sans « sens des textes ». Définissez le sens des textes des calques dans l’écran de mappage puis reconstruisez.",
         "WORK_ORDER_MISSING": "Le projet n’a pas d’ordre de travail : aucune ligne ne peut être choisie. Créez-le d’abord.",
         "BOX_SHAPES_NOT_READ": "Les formes des boîtiers n’ont pas encore été lues. Reconstruisez le dessin.",
         "BOX_SHAPE_UNKNOWN": "{count} boîtiers ont une forme non lue. Retraitez le fichier, puis reconstruisez.",
