@@ -9,6 +9,7 @@ import { DrawingKindBadge } from '@/shared/ui/drawing-kind-badge';
 import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader } from '@/shared/ui/table';
+import { BoxTypesSection } from '@/features/box-types/components/box-types-section';
 import { InstallationQuestionCard } from '@/features/installation/components/installation-question-card';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { ShowPlace } from '../hooks/use-drawing-viewer';
@@ -99,6 +100,7 @@ export function DesignRevisionDetailScreen({
             canWrite={state.canWrite}
             canFix={state.canReview}
             isGeneral={revision.drawingKind === 'general'}
+            isSecondary={revision.drawingKind === 'secondary'}
             onShowOnDrawing={showOnDrawing}
             focus={focus}
           />
@@ -163,6 +165,18 @@ export function DesignRevisionDetailScreen({
               onShowOnDrawing={showOnDrawing}
             />
           </Card>
+          {revision.drawingKind === 'secondary' ? (
+            <Card>
+              <BoxTypesSection
+                projectId={projectId}
+                revisionId={revisionId}
+                cadFileId={revision.cadFileId}
+                enabled={state.canRead && state.built}
+                canEdit={state.canReview}
+                onShowHandle={(handle) => showOnDrawing({ code: null, handle, x: null, y: null })}
+              />
+            </Card>
+          ) : null}
           <Card>
             <CorrectionsSection
               projectId={projectId}

@@ -15,6 +15,8 @@ import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { BoxTypeIssueList } from '@/features/box-types/components/box-type-issues';
+import { useBoxTypesReport } from '@/features/box-types/api/queries';
 import { useDrawingProblems } from '../api/queries';
 import { useFixTools, type FixTools } from '../hooks/use-fix-tools';
 import type { ShowPlace } from '../hooks/use-drawing-viewer';
@@ -57,6 +59,7 @@ export function ProblemsSection({
   const { t } = useI18n();
   const query = useDrawingProblems(projectId, revisionId, enabled);
   const tools = useFixTools(projectId, cadFileId, enabled && canFix);
+  const boxTypes = useBoxTypesReport(projectId, revisionId, enabled);
   const { blocking, warnings } = splitProblems(query.data?.items ?? []);
   const total = query.data?.total ?? 0;
   const warningTotal = query.data?.warningTotal ?? 0;
@@ -93,6 +96,24 @@ export function ProblemsSection({
             />
           ))}
         </>
+      ) : null}
+      {boxTypes.data?.applies && boxTypes.data.issueCount > 0 ? (
+        <div className="mt-2 flex flex-col gap-2 rounded-md border border-(--color-border) p-3">
+          <h3 id="problems-box-types" className="text-base font-semibold">
+            {t('design.boxTypes.title')} <Ltr>({boxTypes.data.issueCount})</Ltr>
+          </h3>
+          <p className="text-sm">{t('design.boxTypes.problemsHint')}</p>
+          <BoxTypeIssueList
+            issues={boxTypes.data.issues}
+            issueCount={boxTypes.data.issueCount}
+            gallery={boxTypes.data.gallery}
+            onShowHandle={
+              onShowOnDrawing
+                ? (handle) => onShowOnDrawing({ code: null, handle, x: null, y: null })
+                : undefined
+            }
+          />
+        </div>
       ) : null}
     </section>
   );

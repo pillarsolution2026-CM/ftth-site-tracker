@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
 vi.mock('../api/design-revisions-api', () => api);
 const mappingApi = vi.hoisted(() => ({ getMapping: vi.fn() }));
 vi.mock('@/features/cad-mapping/api/mapping-api', () => mappingApi);
+const boxApi = vi.hoisted(() => ({ getBoxTypesReport: vi.fn() }));
+vi.mock('@/features/box-types/api/box-types-api', () => boxApi);
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const REVISION = '22222222-2222-4222-8222-222222222222';
@@ -52,6 +54,7 @@ function list(): DrawingProblemList {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
   mappingApi.getMapping.mockReset();
+  boxApi.getBoxTypesReport.mockReset();
 });
 
 describe('ProblemsSection', () => {
@@ -195,5 +198,51 @@ describe('ProblemsSection', () => {
     expect(
       screen.queryByRole('button', { name: 'Show the place on the drawing' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('has its own «Box types» section with the shape issues, apart from drawing errors (ADR-043)', async () => {
+    const SHAPE = `v1-${'a'.repeat(64)}`;
+    api.listDrawingProblems.mockResolvedValue({ total: 0, warningTotal: 0, items: [] });
+    boxApi.getBoxTypesReport.mockResolvedValue({
+      applies: true,
+      gallery: {
+        version: 1,
+        boxCount: 197,
+        shapeCount: 1,
+        shapes: [
+          {
+            shape: SHAPE,
+            source: 'block',
+            count: 197,
+            blockNames: ['box c'],
+            sampleHandles: ['B1'],
+            preview: null,
+          },
+        ],
+        boxesWithoutShape: 0,
+      },
+      frozen: null,
+      ok: false,
+      issueCount: 1,
+      issues: [{ code: 'BOX_TYPE_UNSET', shape: SHAPE, boxCount: 197, workOrderLineId: null }],
+      totals: null,
+      changedSinceBuild: false,
+    });
+    const onShow = vi.fn();
+    renderScreen(
+      <ProblemsSection
+        projectId={PROJECT}
+        revisionId={REVISION}
+        cadFileId={FILE}
+        enabled
+        canFix={false}
+        onShowOnDrawing={onShow}
+      />,
+    );
+    expect(await screen.findByRole('heading', { name: /Box types/ })).toBeInTheDocument();
+    expect(screen.getByText(/has no work-order line/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose the line' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show on the drawing' }));
+    expect(onShow).toHaveBeenCalledWith({ code: null, handle: 'B1', x: null, y: null });
   });
 });

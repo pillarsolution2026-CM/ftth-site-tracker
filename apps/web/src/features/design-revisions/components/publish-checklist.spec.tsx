@@ -1,6 +1,11 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { InstallationIssue, PublishCheckKey, PublishReadiness } from '@ftth/shared';
+import type {
+  BoxTypesReport,
+  InstallationIssue,
+  PublishCheckKey,
+  PublishReadiness,
+} from '@ftth/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/test-utils/render';
 import { PublishChecklist } from './publish-checklist';
@@ -18,6 +23,7 @@ function readiness(
     other_drawing: 0,
     cabinets_match: 0,
     installation: 0,
+    box_types: null,
     ...counts,
   };
   const keys = [
@@ -28,6 +34,7 @@ function readiness(
     'other_drawing',
     'cabinets_match',
     'installation',
+    'box_types',
   ] as const;
   return {
     checks: keys.map((key) => ({ key, ok: !failing.includes(key), count: base[key] })),
@@ -38,6 +45,7 @@ function readiness(
     cabinets: null,
     warningCount: 0,
     installation: null,
+    boxTypes: null,
   };
 }
 
@@ -74,9 +82,9 @@ describe('PublishChecklist', () => {
     expect(screen.getByText(/Open items reviewed/)).toBeInTheDocument();
     expect(screen.getByText(/The other drawing \(Secondary\) is ready/)).toBeInTheDocument();
     expect(screen.getByText('Installation method (pull / trench) is clear')).toBeInTheDocument();
-    expect(screen.getAllByText('✅')).toHaveLength(6);
+    expect(screen.getAllByText('✅')).toHaveLength(7);
     expect(screen.getByText('❌')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getAllByText('(Done)')).toHaveLength(6);
+    expect(screen.getAllByText('(Done)')).toHaveLength(7);
     expect(screen.getByText('(Not done)')).toBeInTheDocument();
   });
 
@@ -173,7 +181,7 @@ describe('PublishChecklist cabinets row (ADR-041)', () => {
     ).toBeInTheDocument();
     expect(
       screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('✅')),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     expect(screen.queryByText(/Only in the General/)).not.toBeInTheDocument();
   });
 
@@ -289,5 +297,68 @@ describe('PublishChecklist installation row (ADR-042)', () => {
   it('is ok on a Secondary, with a note that it is all trench', () => {
     setup({ ...readiness(), drawingKind: 'secondary' });
     expect(screen.getByText('The Secondary is all trench — no question.')).toBeInTheDocument();
+  });
+});
+
+describe('PublishChecklist box types row (ADR-043)', () => {
+  const SHAPE = `v1-${'a'.repeat(64)}`;
+  const report = (
+    issues: BoxTypesReport['issues'],
+    overrides: Partial<BoxTypesReport> = {},
+  ): BoxTypesReport => ({
+    applies: true,
+    gallery: {
+      version: 1,
+      boxCount: 197,
+      shapeCount: 1,
+      shapes: [
+        {
+          shape: SHAPE,
+          source: 'block',
+          count: 197,
+          blockNames: ['box c'],
+          sampleHandles: ['B1'],
+          preview: null,
+        },
+      ],
+      boxesWithoutShape: 0,
+    },
+    frozen: null,
+    ok: issues.length === 0,
+    issueCount: issues.length,
+    issues,
+    totals: null,
+    changedSinceBuild: false,
+    ...overrides,
+  });
+
+  function secondary(boxTypes: BoxTypesReport | null, count: number | null) {
+    const base = readiness(count && count > 0 ? ['box_types'] : [], { box_types: count });
+    return { ...base, drawingKind: 'secondary' as const, boxTypes };
+  }
+
+  it('has the eighth row, with its words', () => {
+    setup(secondary(report([]), 0));
+    expect(screen.getByText('Every box shape has a work-order line')).toBeInTheDocument();
+  });
+
+  it('lists the issues of a shape and zooms to a sample box', async () => {
+    const onShowRoute = vi.fn();
+    setup(
+      secondary(
+        report([{ code: 'BOX_TYPE_UNSET', shape: SHAPE, boxCount: 197, workOrderLineId: null }]),
+        1,
+      ),
+      { onShowRoute },
+    );
+    expect(screen.getByText(/has no work-order line/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose the line' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show on the drawing' }));
+    expect(onShowRoute).toHaveBeenCalledWith('B1');
+  });
+
+  it('says the types are set on the Secondary when this is the General', () => {
+    setup(readiness());
+    expect(screen.getByText('Box types are set on the Secondary drawing.')).toBeInTheDocument();
   });
 });

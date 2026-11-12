@@ -28,6 +28,10 @@ const sections = vi.hoisted(() => ({
   problems: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   corrections: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   viewer: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+  boxTypes: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+}));
+vi.mock('@/features/box-types/components/box-types-section', () => ({
+  BoxTypesSection: sections.boxTypes,
 }));
 vi.mock('./drawing-viewer', () => ({ DrawingViewer: sections.viewer }));
 vi.mock('./problems-section', () => ({ ProblemsSection: sections.problems }));
@@ -53,6 +57,7 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
       { key: 'other_drawing', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
       { key: 'installation', ok: true, count: 0 },
+      { key: 'box_types', ok: true, count: null },
     ],
     canPublish: true,
     drawingKind: 'general',
@@ -61,6 +66,7 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
     cabinets: null,
     warningCount: 0,
     installation: null,
+    boxTypes: null,
     ...overrides,
   };
 }
@@ -99,6 +105,7 @@ beforeEach(() => {
   sections.problems.mockClear();
   sections.corrections.mockClear();
   sections.viewer.mockClear();
+  sections.boxTypes.mockClear();
 });
 
 describe('DesignRevisionDetailScreen publish checklist', () => {
@@ -378,5 +385,56 @@ describe('DesignRevisionDetailScreen drawing viewer', () => {
     renderDetail();
     await screen.findByText(/once the build has finished/);
     expect(sections.viewer).not.toHaveBeenCalled();
+  });
+});
+
+describe('DesignRevisionDetailScreen box types (ADR-043)', () => {
+  const lastProps = (fn: typeof sections.boxTypes) =>
+    (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+
+  it('shows «Box types» on a Secondary draft, editable by who can write designs', async () => {
+    api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
+    api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
+    renderDetail();
+    await waitFor(() => expect(sections.boxTypes).toHaveBeenCalled());
+    expect(lastProps(sections.boxTypes)).toMatchObject({ cadFileId: CAD_FILE, canEdit: true });
+    expect(lastProps(sections.viewer)).toMatchObject({ isSecondary: true, isGeneral: false });
+  });
+
+  it('does not show it on a General', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    renderDetail();
+    await waitFor(() => expect(sections.viewer).toHaveBeenCalled());
+    expect(sections.boxTypes).not.toHaveBeenCalled();
+  });
+
+  it('explains a refused publish with the box-type issues', async () => {
+    const user = userEvent.setup();
+    api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
+    api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
+    api.publishDesignRevision.mockRejectedValue(
+      new ApiClientError('CONFLICT', 409, {
+        reason: 'BOX_TYPES_UNCLEAR',
+        drawingKind: 'secondary',
+        issueCount: 1,
+        issues: [
+          {
+            code: 'BOX_TYPE_UNSET',
+            shape: `v1-${'a'.repeat(64)}`,
+            boxCount: 197,
+            workOrderLineId: null,
+          },
+        ],
+      }),
+    );
+    renderDetail();
+    const button = await screen.findByRole('button', { name: 'Publish' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    expect(
+      await screen.findByText(
+        /box types of the Secondary drawing are unclear.*has no work-order line/,
+      ),
+    ).toBeInTheDocument();
   });
 });

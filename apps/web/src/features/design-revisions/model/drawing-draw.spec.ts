@@ -282,3 +282,67 @@ describe('drawOverlay trench marks (ADR-042)', () => {
     expect(ctx.fillText).not.toHaveBeenCalled();
   });
 });
+
+describe('drawOverlay box type texts (ADR-043)', () => {
+  const view = { cx: 50, cy: 25, scale: 4 };
+  const label = (kind: 'built' | 'pending' | 'none', lines: string[], x = 50) => ({
+    x,
+    y: 25,
+    kind,
+    lines,
+  });
+
+  it('writes the code and the description under a box, and the status words for the rest', () => {
+    const ctx = createMockContext();
+    drawOverlay(
+      asCtx(ctx),
+      model({
+        boxLabels: [
+          label('built', ['BX-8', 'Box 8 ways'], 40),
+          label('pending', ['BX-4', 'Box 4 ways', 'Not built yet'], 50),
+          label('none', ['No type'], 60),
+        ],
+      }),
+      new PathCache(scene),
+      view,
+      vp,
+    );
+    const written = ctx.fillText.mock.calls.map((call) => call[0]);
+    expect(written).toEqual([
+      'BX-8',
+      'Box 8 ways',
+      'BX-4',
+      'Box 4 ways',
+      'Not built yet',
+      'No type',
+    ]);
+    // Not built yet and no type are drawn dashed, not by colour alone.
+    expect(ctx.setLineDash).toHaveBeenCalledWith([4, 3]);
+  });
+
+  it('writes only the first line when many boxes are on screen', () => {
+    const ctx = createMockContext();
+    const many = Array.from({ length: 41 }, (_, i) =>
+      label('built', ['BX-8', 'Box 8 ways'], 40 + i / 10),
+    );
+    drawOverlay(asCtx(ctx), model({ boxLabels: many }), new PathCache(scene), view, vp);
+    expect(ctx.fillText).toHaveBeenCalledTimes(41);
+    expect(ctx.fillText).not.toHaveBeenCalledWith(
+      'Box 8 ways',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('draws nothing for a box outside the window', () => {
+    const ctx = createMockContext();
+    drawOverlay(
+      asCtx(ctx),
+      model({ boxLabels: [label('built', ['BX-8'], 5000)] }),
+      new PathCache(scene),
+      view,
+      vp,
+    );
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+});

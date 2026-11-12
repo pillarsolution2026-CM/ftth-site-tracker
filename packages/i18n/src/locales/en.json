@@ -1084,7 +1084,8 @@
         "open_items": "Open items reviewed ({count})",
         "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set",
         "cabinets_match": "Cabinets match in both drawings (name and count)",
-        "installation": "Installation method (pull / trench) is clear"
+        "installation": "Installation method (pull / trench) is clear",
+        "box_types": "Every box shape has a work-order line"
       },
       "fixCoordinates": "Open the coordinates screen",
       "lockedHint": "Publishing is locked until all checks except open items are done.",
@@ -1097,7 +1098,8 @@
         "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
         "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together.",
         "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing.",
-        "INSTALLATION_UNCLEAR": "The installation method of the {drawing} drawing is unclear ({count} issues): {issues}"
+        "INSTALLATION_UNCLEAR": "The installation method of the {drawing} drawing is unclear ({count} issues): {issues}",
+        "BOX_TYPES_UNCLEAR": "The box types of the {drawing} drawing are unclear ({count} issues): {issues}"
       },
       "otherNoDraft": "There is no draft for the {drawing} yet",
       "otherErrors": "{count} errors in it",
@@ -1341,7 +1343,9 @@
       "closePopover": "Close",
       "entityLayer": "Layer",
       "entityKind": "Type",
-      "trenchLegend": "Parts marked for trench are drawn with a dashed purple line and their length."
+      "trenchLegend": "Parts marked for trench are drawn with a dashed purple line and their length.",
+      "boxTypesToggle": "Show the type of each box ({count})",
+      "boxTypesLegend": "The type is written next to each box: the code, then the line description. “Not built yet” means the choice is saved but not applied; “No type” means the box has no line."
     },
     "fix": {
       "open": "Fix this place",
@@ -1509,6 +1513,55 @@
       },
       "secondaryOk": "The Secondary is all trench — no question.",
       "moreIssues": "… and {count} more issues not shown"
+    },
+    "boxTypes": {
+      "title": "Box types",
+      "hint": "The program groups the boxes by the shape of the drawn symbol (not by block name). Choose a work-order line for each shape, then rebuild.",
+      "summary": "{boxes} boxes in {shapes} different shapes",
+      "linesFailed": "Could not read the work-order lines. Try again.",
+      "stateFailed": "Could not read the current choices. Try again.",
+      "rebuildNeeded": "Rebuild so the types are applied",
+      "readOnly": "You can see the types only. The project manager chooses them.",
+      "usePrevious": "Use the previous version’s choices",
+      "previousHint": "The previous Secondary has {count} choices that fit these shapes.",
+      "allClear": "Every box shape has a work-order line.",
+      "save": "Save choices",
+      "saving": "Saving…",
+      "unsaved": "{count} choices not saved yet",
+      "shapeName": "Shape {shape}",
+      "count": "Boxes: {count}",
+      "blocks": "Block names",
+      "chosen": "Has a line",
+      "unset": "No line",
+      "pick": "Choose a work-order line",
+      "noLine": "— No line —",
+      "lineMissingCard": "This line is no longer in the work order. Choose another line.",
+      "showOnDrawing": "Show on the drawing",
+      "choose": "Choose the line",
+      "moreIssues": "… and {count} more issues not shown",
+      "generalOk": "Box types are set on the Secondary drawing.",
+      "problemsHint": "These are not drawing errors. Choose the work-order line of each box shape.",
+      "label": {
+        "pending": "Not built yet",
+        "none": "No type"
+      },
+      "error": {
+        "NOT_SECONDARY_DRAWING": "Box types are set on the Secondary drawing only.",
+        "FILE_SUPERSEDED": "A newer version of the Secondary exists. Choose on the newer one.",
+        "NOT_BUILT": "The drawing is not built yet. Build it first, then choose the types.",
+        "NO_WORK_ORDER": "The project has no work order. Create the work order first.",
+        "SHAPE_NOT_FOUND": "One of the shapes is not in the latest build. Refresh the page and try again.",
+        "LINE_NOT_IN_WORK_ORDER": "One of the lines is not in the project’s work order. Refresh the page and try again.",
+        "TOO_MANY_CHOICES": "The maximum number of box-type choices for this file is reached."
+      },
+      "issue": {
+        "WORK_ORDER_MISSING": "The project has no work order, so no line can be chosen. Create the work order first.",
+        "BOX_SHAPES_NOT_READ": "The box shapes were not read yet. Rebuild the drawing.",
+        "BOX_SHAPE_UNKNOWN": "{count} boxes have an unread shape. Reprocess the file, then rebuild.",
+        "BOX_SHAPES_TOO_MANY": "Too many box shapes (more than 200). Unify the symbols in AutoCAD.",
+        "BOX_TYPE_UNSET": "Shape {shape} ({count} boxes) has no work-order line.",
+        "BOX_TYPE_LINE_MISSING": "The line chosen for shape {shape} ({count} boxes) is no longer in the work order. Choose another line."
+      }
     }
   },
   "asbuilt": {
