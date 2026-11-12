@@ -14,7 +14,8 @@ from cad_worker.application.ports import FailureCode, ResultSink
 
 DEFAULT_BATCH_SIZE = 5000
 ERROR_MESSAGE_LIMIT = 2000
-CHILD_TABLES = ("cad_layers", "cad_inserts", "cad_texts", "cad_curves")
+# Replaced on every (re)processing; `cad_file_shapes` is the import output of ADR-043.
+CHILD_TABLES = ("cad_layers", "cad_inserts", "cad_texts", "cad_curves", "cad_file_shapes")
 
 START_SQL = """
 UPDATE cad_files SET status = 'processing', processing_started_at = now(),

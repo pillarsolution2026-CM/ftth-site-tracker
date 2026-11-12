@@ -339,6 +339,9 @@ class SourceInsert:
     block_name: str
     position: Xy
     attributes: tuple[SourceAttribute, ...] = ()
+    # ADR-043: the symbol's shape signature read at import; None for files processed before
+    # migration 0023 (the box's shape is then unknown).
+    shape: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
