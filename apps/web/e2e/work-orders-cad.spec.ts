@@ -291,8 +291,62 @@ test('mapping to a published design revision: unit, save, build, review, publish
   // The reading totals are shown because the mapping gave the texts a meaning.
   await expect(page.getByRole('table', { name: 'Bundles by type' })).toContainText('361.500');
 
+  // ADR-043: the box types are the lines of the project's work order. Nothing is chosen yet, so
+  // the Secondary draft says the shape has no line.
+  const boxChecklist = page.getByRole('region', { name: 'Before publishing' });
+  await expect(boxChecklist).toContainText('Every box shape has a work-order line');
+  await expect(boxChecklist).toContainText('has no work-order line');
+  const boxTypes = page.getByRole('region', { name: 'Box types' });
+  await expect(boxTypes).toContainText(/boxes in .* different shapes/);
+  await expect(boxTypes.getByRole('img', { name: /Shape/ })).toBeVisible();
+
+  // Create the work order (one line from the contract), then choose the line for the shape.
+  const existing = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders`);
+  if (((await existing.json()) as { items: unknown[] }).items.length === 0) {
+    const items = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders/contract-items`);
+    const contractItem = ((await items.json()) as { items: { contractItemId: string }[] }).items[0];
+    const created = await page.request.post(`/api/projects/${PROJECT_ID}/work-orders`, {
+      headers: { origin: BASE, 'content-type': 'application/json' },
+      data: {
+        number: 'WO-BOX-1',
+        lines: [{ contractItemId: contractItem?.contractItemId, quantity: '2' }],
+      },
+    });
+    expect(created.ok()).toBe(true);
+  }
+  await page.reload();
+  const picker = page
+    .getByRole('region', { name: 'Box types' })
+    .getByRole('combobox', { name: 'Choose a work-order line' });
+  await expect(picker.getByRole('option').nth(1)).toBeAttached();
+  await picker.selectOption({ index: 1 });
+  await page.getByRole('button', { name: 'Save choices' }).click();
+  await expect(page.getByText('Has a line')).toBeVisible();
+  // The draft froze no type: it must be built again to apply it.
+  await expect(page.getByText('Rebuild so the types are applied')).toBeVisible();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard revision' }).click();
+  await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page
+    .getByRole('row', { name: /secondary-1\.dxf/ })
+    .getByRole('link', { name: 'secondary-1.dxf' })
+    .click();
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  // The Secondary’s placement is filled from the General’s cabinets again: save it, then build.
+  await page.getByRole('button', { name: 'Save mapping' }).click();
+  await expect(page.getByText(/Mapping saved \(version/)).toBeVisible();
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('table', { name: 'Bundles by type' })).toContainText('361.500');
+  await expect(page.getByText('Rebuild so the types are applied')).toHaveCount(0);
+
   // The Secondary draft sees the General draft as the other drawing, ready, and links to it.
   const pairChecklist = page.getByRole('region', { name: 'Before publishing' });
+  await expect(pairChecklist).toContainText('Every box shape has a work-order line');
+  await expect(
+    pairChecklist.getByRole('listitem').filter({ hasText: 'work-order line' }),
+  ).toContainText('Done');
   await expect(pairChecklist).toContainText('The other drawing (General (main)) is ready');
   await expect(pairChecklist).toContainText('The Secondary is all trench — no question.');
   await expect(
@@ -311,9 +365,10 @@ test('mapping to a published design revision: unit, save, build, review, publish
   const revisionTable = page.getByRole('table', { name: 'Design revisions' });
   await expect(revisionTable).toContainText('Published');
   // Both drawings were published together and each row names its kind.
-  // …and the first General draft, discarded because its installation was unanswered.
-  await expect(revisionTable.getByRole('row')).toHaveCount(4);
+  // …and two drafts discarded to be built again: the General (installation unanswered) and the
+  // Secondary (box types chosen after the build, ADR-043).
+  await expect(revisionTable.getByRole('row')).toHaveCount(5);
   await expect(revisionTable).toContainText('Discarded');
   await expect(revisionTable.locator('[data-kind="general"]').first()).toContainText('Main');
-  await expect(revisionTable.locator('[data-kind="secondary"]')).toContainText('Secondary');
+  await expect(revisionTable.locator('[data-kind="secondary"]').first()).toContainText('Secondary');
 });

@@ -217,6 +217,8 @@ class RevisionInputs:
     corrections: object = None
     # `design_revisions.drawing_kind` (ADR-040): which reading and checks apply (ADR-041).
     drawing_kind: str = "general"
+    # Frozen FrozenBoxTypesSchema JSON (ADR-043, Secondary); None = no choice frozen.
+    box_types: object = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +286,8 @@ class BuildSummary:
     tiles_storage_key: str | None
     warnings: list[dict[str, object]]
     log: str
+    # `design_revisions.box_shapes` (BoxShapeGallerySchema, ADR-043): roles-mode Secondary only.
+    box_shapes: dict[str, object] | None = None
 
 
 class RevisionBuild(Protocol):
@@ -303,6 +307,10 @@ class RevisionBuild(Protocol):
         """The base revision's features in this revision's CRS (empty without a base)."""
         ...
 
+    def load_shape_previews(self) -> dict[str, dict[str, object]]:
+        """Insert shape signature -> preview of the revision's CAD file (`cad_file_shapes`)."""
+        ...
+
     def write(self, rows: RevisionRows) -> Decimal:
         """Insert features, design features, text links and diff; return Σ route `length_m`."""
         ...
@@ -312,7 +320,7 @@ class RevisionBuild(Protocol):
         ...
 
     def finish(self, summary: BuildSummary) -> None:
-        """Set `draft`, counts, tiles key, append `design_revision.built`, commit."""
+        """Set `draft`, counts, box shapes, tiles key, append `design_revision.built`, commit."""
         ...
 
 

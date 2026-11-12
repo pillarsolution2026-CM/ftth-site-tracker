@@ -2,6 +2,7 @@ import {
   TEXT_LINK_STATUSES,
   type CadBuildRevisionJob,
   type CadImportJob,
+  type BoxShapeGallery,
   type CadRenderViewJob,
   type DrawingKind,
   type FeatureType,
@@ -14,7 +15,8 @@ import {
 import { AppError } from '../../../common/app-error.js';
 import type { Clock } from '../../../common/clock.js';
 import type { DomainEventInput, EventLog } from '../../../common/event-log.port.js';
-import type { JobQueue } from '../application/ports.js';
+import type { JobQueue, WorkOrderLineRef, WorkOrderLines } from '../application/ports.js';
+import type { BoxTypeChoiceRow, BoxTypeRepository, NewBoxTypeChoice } from '../domain/box-types.js';
 import type { CadFile, DrawingViewRecord } from '../domain/cad-file.js';
 import type { CadFileRepository, CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
 import type { CadMappingRecord } from '../domain/cad-mapping.js';
@@ -331,6 +333,8 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       metresPerUnit: revision.metresPerUnit,
       placement: revision.placement,
       installation: revision.installation,
+      boxTypes: revision.boxTypes,
+      boxShapes: null,
       insUnits: revision.insUnits,
       unitsConflict: revision.unitsConflict,
       counts: null,
@@ -740,6 +744,49 @@ export class InMemoryInstallation implements InstallationRepository {
   }
 }
 
+/** Box-type choices in memory; `galleries` stands in for the worker's gallery per file. */
+export class InMemoryBoxTypes implements BoxTypeRepository {
+  /** Insertion order stands for the database `seq`. */
+  readonly rows: BoxTypeChoiceRow[] = [];
+  readonly galleries = new Map<string, BoxShapeGallery>();
+  /** cadFileId -> the file it superseded. */
+  readonly previousFiles = new Map<string, string>();
+
+  async listChoices(projectId: string, cadFileId: string): Promise<BoxTypeChoiceRow[]> {
+    return this.rows
+      .filter((row) => row.projectId === projectId && row.cadFileId === cadFileId)
+      .reverse();
+  }
+  async insertChoices(choices: NewBoxTypeChoice[]): Promise<void> {
+    for (const choice of choices) {
+      this.rows.push({
+        id: choice.id,
+        projectId: choice.projectId,
+        cadFileId: choice.cadFileId,
+        shape: choice.shape,
+        workOrderLineId: choice.workOrderLineId,
+        createdBy: { id: choice.createdById, name: 'PM' },
+        createdAt: choice.createdAt,
+      });
+    }
+  }
+  async latestBuiltGallery(_projectId: string, cadFileId: string): Promise<BoxShapeGallery | null> {
+    return this.galleries.get(cadFileId) ?? null;
+  }
+  async previousVersionFileId(_projectId: string, cadFileId: string): Promise<string | null> {
+    return this.previousFiles.get(cadFileId) ?? null;
+  }
+}
+
+/** The project's work order lines in memory. */
+export class InMemoryWorkOrderLines implements WorkOrderLines {
+  exists = true;
+  lines: WorkOrderLineRef[] = [];
+  async findLinesOfProject(): Promise<{ exists: boolean; lines: WorkOrderLineRef[] }> {
+    return { exists: this.exists, lines: [...this.lines] };
+  }
+}
+
 /** Not transactional (nothing here fails halfway); good enough to test use-case orchestration. */
 export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly files = new InMemoryCadFiles();
@@ -750,6 +797,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly proposals = new InMemoryGpsProposals();
   readonly corrections = new InMemoryDrawingCorrections();
   readonly installation = new InMemoryInstallation();
+  readonly boxTypes = new InMemoryBoxTypes();
   readonly events = new InMemoryEventLog();
 
   run<T>(work: (tx: CadTx) => Promise<T>): Promise<T> {
@@ -762,6 +810,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
       proposals: this.proposals,
       corrections: this.corrections,
       installation: this.installation,
+      boxTypes: this.boxTypes,
       events: this.events,
     });
   }

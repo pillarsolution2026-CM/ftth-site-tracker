@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -57,6 +58,12 @@ class InsertRow:
     attributes: tuple[Attribute, ...] = ()
     # Centre of the drawn block, the symbol's position (ADR-032); None when nothing is drawn.
     centre: Xyz | None = None
+    # Shape of the drawn symbol (ADR-043, `domain/box_shapes.py`) and its normalized preview
+    # (`BoxShapePreview` JSON, shared between inserts of one shape); None when not read.
+    shape_signature: str | None = None
+    shape_preview: Mapping[str, object] | None = field(default=None, compare=False)
+    # The symbol used up its explosion budget (shape not read, insertion point as position).
+    too_complex: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,6 +21,7 @@ import pytest
 
 from cad_worker.adapters.ezdxf_reader import EzdxfReader
 from cad_worker.application.build_revision import DesignBuild, compose_design
+from cad_worker.domain.box_shapes import parse_frozen_box_types
 from cad_worker.domain.corrections import apply_corrections, parse_corrections
 from cad_worker.domain.design import FEATURE_TYPES
 from cad_worker.domain.design_build import (
@@ -76,7 +77,14 @@ def _drawing(name: str) -> DrawingData:
                 SourceAttribute(a.tag, a.raw_value, a.value, a.readable) for a in row.attributes
             )
             inserts.append(
-                SourceInsert(row.handle, row.layer, row.block_name, (c[0], c[1]), attributes)
+                SourceInsert(
+                    row.handle,
+                    row.layer,
+                    row.block_name,
+                    (c[0], c[1]),
+                    attributes,
+                    row.shape_signature,
+                )
             )
         elif isinstance(row, TextRow):
             texts.append(
@@ -367,3 +375,46 @@ def test_point_features_carry_their_drawn_centre_for_the_secondary_placement(
     assert sub_cabinet_at(secondary, "1-7") == pytest.approx((1970.167, 708.955), abs=0.01)
     # The centre of the drawn block (ADR-032), not its insertion point (7275.471, 4089.292).
     assert sub_cabinet_at(named, "1-7") == pytest.approx((7284.286, 4091.719), abs=0.01)
+
+
+def test_secondary_boxes_are_one_shape_and_take_the_chosen_line(
+    drawings: dict[str, DrawingData],
+) -> None:
+    """ADR-043 golden: the 197 boxes of the Secondary are one block `box c` with no attributes ->
+    one shape x 197; before a choice every box reads `boxType` null (one BOX_TYPE_UNSET for the
+    API), after one choice and a rebuild every box carries the line (totals {line: 197})."""
+    mapping = _load(SECONDARY)
+    unset = _build(drawings["secondary"], "secondary", mapping["rules"])
+    gallery = unset.box_shapes
+    assert gallery is not None
+    assert (gallery["boxCount"], gallery["shapeCount"], gallery["boxesWithoutShape"]) == (197, 1, 0)
+    listed: Any = gallery["shapes"]
+    [shape] = listed
+    assert (shape["source"], shape["count"], shape["blockNames"]) == ("block", 197, ["box c"])
+    signature = shape["shape"]
+    boxes = _readings(unset, "box")
+    assert len(boxes) == 197
+    assert all(b["shape"] == signature and b["boxType"] is None for b in boxes)
+
+    line_id = "0b9a4f3e-6d1c-4d0e-9a51-3f1f6c2d7a10"
+    frozen = parse_frozen_box_types(
+        {
+            "choices": [
+                {
+                    "choiceId": "5d6f1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+                    "shape": signature,
+                    "workOrderLineId": line_id,
+                    "line": {"code": "T-1", "description": "test line", "label": "test line"},
+                }
+            ]
+        }
+    )
+    loaded, rules = _prepare(drawings["secondary"], mapping["rules"], None)
+    chosen = compose_design(
+        loaded, rules, unit_placer(1.0), (), uuid.uuid4, "secondary", box_types=frozen
+    )
+    typed = Counter(
+        b["boxType"]["workOrderLineId"] for b in _readings(chosen, "box") if b["boxType"]
+    )
+    assert typed == {line_id: 197}
+    assert chosen.box_shapes == unset.box_shapes

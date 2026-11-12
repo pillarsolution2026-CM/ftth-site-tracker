@@ -4,7 +4,9 @@ import {
   type DesignRevisionStatus,
   type DiffCounts,
   type DrawingKind,
+  type BoxShapeGallery,
   type DrawingUnit,
+  type FrozenBoxTypes,
   type FrozenInstallation,
   type MappingRule,
   type Placement,
@@ -36,6 +38,10 @@ export interface DesignRevision {
   placement: Placement | null;
   /** Frozen installation answer and trench marks (ADR-042); null on a Secondary / before 0022. */
   installation: FrozenInstallation | null;
+  /** Frozen box-type choices (ADR-043); null on a General, in legacy mode / before 0023. */
+  boxTypes: FrozenBoxTypes | null;
+  /** The worker's shape gallery of the built Secondary (ADR-043); null otherwise. */
+  boxShapes: BoxShapeGallery | null;
   insUnits: number | null;
   unitsConflict: boolean;
   counts: DesignRevisionCounts | null;

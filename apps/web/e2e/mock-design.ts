@@ -10,6 +10,8 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  BoxTypeStateSchema,
+  BoxTypesReportSchema,
   CadMappingInputSchema,
   CadMappingSchema,
   CadMappingViewSchema,
@@ -28,6 +30,7 @@ import {
   PublishBlockedDetailsSchema,
   PublishDesignRevisionRequestSchema,
   PublishReadinessSchema,
+  SetBoxTypesRequestSchema,
   ReviewTextLinkRequestSchema,
   SecondaryPlacementSuggestionSchema,
   SetInstallationAnswerRequestSchema,
@@ -35,7 +38,12 @@ import {
   TextLinkPageSchema,
   TextLinkSchema,
   TrenchMarkSchema,
+  boxTypeLabel,
+  boxTypesApply,
+  boxTypesChangedSince,
+  evaluateBoxTypes,
   evaluateInstallation,
+  latestChoicePerShape,
   generalCabinetPointId,
   installationQuestionApplies,
   mappingKindProblems,
@@ -43,6 +51,8 @@ import {
   suggestBlockTarget,
   suggestLayerTarget,
   suggestTextTarget,
+  type BoxShapeGallery,
+  type FrozenBoxTypes,
   type FrozenInstallation,
   type MappingRule,
   otherDrawingKind,
@@ -254,6 +264,8 @@ interface RevisionRecord {
   links: LinkRecord[];
   /** ADR-042: the General's answer and marks frozen at creation (null on a Secondary). */
   installation: FrozenInstallation | null;
+  /** ADR-043: the box-type choices frozen at creation (null on a General). */
+  boxTypes: FrozenBoxTypes | null;
 }
 
 const revisions = new Map<string, RevisionRecord>();
@@ -399,6 +411,7 @@ function detail(rev: RevisionRecord) {
     errorMessage: null,
     log: null,
     installation: rev.installation,
+    boxTypes: rev.boxTypes,
   });
 }
 
@@ -486,6 +499,7 @@ export async function handleDesignRevisions(
         publishedAt: null,
         links: initialLinks(),
         installation: frozenInstallation(cad),
+        boxTypes: frozenBoxTypes(cad),
       };
       revisions.set(rev.id, rev);
       return h.send(res, 202, DesignRevisionSummarySchema.parse(summary(rev)));
@@ -584,6 +598,7 @@ export async function handleDesignRevisions(
       candidate.cad.drawingKind !== rev.cad.drawingKind && statusOf(candidate) === 'draft',
   );
   const ownInstallation = reportOf(rev);
+  const ownBoxTypes = boxTypesReportOf(rev);
   const openOf = (r: RevisionRecord) => r.links.filter((link) => link.status === 'review').length;
   const openItems = openOf(rev) + (otherDraft ? openOf(otherDraft) : 0);
 
@@ -599,7 +614,10 @@ export async function handleDesignRevisions(
           { key: 'open_items', ok: openItems === 0, count: openItems },
           {
             key: 'other_drawing',
-            ok: otherDraft !== undefined && reportOf(otherDraft).ok,
+            ok:
+              otherDraft !== undefined &&
+              reportOf(otherDraft).ok &&
+              boxTypesReportOf(otherDraft).ok,
             count: otherDraft ? 0 : null,
           },
           // ADR-041: the mock drawings carry the same (sub) cabinets, so the pair matches.
@@ -610,12 +628,20 @@ export async function handleDesignRevisions(
             ok: ownInstallation.ok,
             count: ownInstallation.applies ? ownInstallation.issueCount : null,
           },
+          // ADR-043: the Secondary's box types (always ok, no count, on a General).
+          {
+            key: 'box_types',
+            ok: ownBoxTypes.ok,
+            count: ownBoxTypes.applies ? ownBoxTypes.issueCount : null,
+          },
         ],
         canPublish:
           status === 'draft' &&
           otherDraft !== undefined &&
           ownInstallation.ok &&
-          reportOf(otherDraft).ok,
+          ownBoxTypes.ok &&
+          reportOf(otherDraft).ok &&
+          boxTypesReportOf(otherDraft).ok,
         drawingKind: rev.cad.drawingKind,
         otherRevisionId: otherDraft?.id ?? null,
         needsAcknowledgement: openItems > 0,
@@ -628,8 +654,13 @@ export async function handleDesignRevisions(
           : null,
         warningCount: 0,
         installation: ownInstallation.applies ? ownInstallation : null,
+        boxTypes: ownBoxTypes.applies ? ownBoxTypes : null,
       }),
     );
+  }
+
+  if (sub === 'box-types' && method === 'GET') {
+    return h.send(res, 200, BoxTypesReportSchema.parse(boxTypesReportOf(rev)));
   }
 
   if (sub === 'installation' && method === 'GET') {
@@ -661,6 +692,22 @@ export async function handleDesignRevisions(
           PublishBlockedDetailsSchema.parse({
             reason: 'INSTALLATION_UNCLEAR',
             drawingKind: 'general',
+            issueCount: report.issueCount,
+            issues: report.issues,
+          }),
+        );
+      }
+    }
+    for (const candidate of [rev, otherDraft]) {
+      const report = boxTypesReportOf(candidate);
+      if (!report.ok) {
+        return h.sendError(
+          res,
+          409,
+          'CONFLICT',
+          PublishBlockedDetailsSchema.parse({
+            reason: 'BOX_TYPES_UNCLEAR',
+            drawingKind: 'secondary',
             issueCount: report.issueCount,
             issues: report.issues,
           }),
@@ -854,6 +901,175 @@ export async function handleInstallation(
     return h.send(res, 200, markOut(cad, row));
   }
   return h.sendError(res, 404, 'NOT_FOUND');
+}
+
+// ---------- box types by drawn shape (ADR-043) ----------
+
+export interface MockOrderLines {
+  exists: boolean;
+  lines: { id: string; code: string; description: string }[];
+}
+
+let orderLinesSource: () => MockOrderLines = () => ({ exists: false, lines: [] });
+
+/** The mock API server tells this module where the project's work-order lines are. */
+export function provideOrderLines(source: () => MockOrderLines): void {
+  orderLinesSource = source;
+}
+
+/** The mock Secondary draws its two boxes with one symbol: one shape, two boxes. */
+export const MOCK_BOX_SHAPE = `v1-${'a'.repeat(64)}`;
+
+const MOCK_GALLERY: BoxShapeGallery = {
+  version: 1,
+  boxCount: 2,
+  shapeCount: 1,
+  boxesWithoutShape: 0,
+  shapes: [
+    {
+      shape: MOCK_BOX_SHAPE,
+      source: 'block',
+      count: 2,
+      blockNames: ['box c'],
+      sampleHandles: ['B1', 'B2'],
+      preview: {
+        paths: [[-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5]],
+        texts: [],
+        truncated: false,
+      },
+    },
+  ],
+};
+
+interface ChoiceRow {
+  id: string;
+  shape: string;
+  workOrderLineId: string | null;
+  createdAt: string;
+}
+
+/** Append-only per Secondary file, like the API: the latest row per shape is in force. */
+const boxChoices = new Map<string, ChoiceRow[]>();
+
+function choicesOf(cadId: string): ChoiceRow[] {
+  const existing = boxChoices.get(cadId);
+  if (existing) return existing;
+  const created: ChoiceRow[] = [];
+  boxChoices.set(cadId, created);
+  return created;
+}
+
+const activeChoices = (cadId: string) =>
+  latestChoicePerShape([...choicesOf(cadId)].reverse()).filter(
+    (row) => row.workOrderLineId !== null,
+  );
+
+function boxTypeStateOf(cad: MockCadFile) {
+  const applies = cad.drawingKind === 'secondary';
+  const rows = applies ? [...choicesOf(cad.id)].reverse() : [];
+  const row = (choice: ChoiceRow) => ({
+    id: choice.id,
+    cadFileId: cad.id,
+    shape: choice.shape,
+    workOrderLineId: choice.workOrderLineId,
+    createdBy: MOCK_USER(cad),
+    createdAt: choice.createdAt,
+  });
+  return BoxTypeStateSchema.parse({
+    cadFileId: cad.id,
+    drawingKind: cad.drawingKind,
+    applies,
+    active: applies ? activeChoices(cad.id).map(row) : [],
+    history: rows.map(row),
+    previousVersion: null,
+  });
+}
+
+/** What a creation freezes: the choices in force with a snapshot of their lines. */
+function frozenBoxTypes(cad: MockCadFile): FrozenBoxTypes | null {
+  if (cad.drawingKind !== 'secondary') return null;
+  const lines = orderLinesSource().lines;
+  return {
+    choices: activeChoices(cad.id).map((choice) => {
+      const line = lines.find((candidate) => candidate.id === choice.workOrderLineId);
+      return {
+        choiceId: choice.id,
+        shape: choice.shape,
+        workOrderLineId: choice.workOrderLineId as string,
+        line: line
+          ? {
+              code: line.code,
+              description: line.description,
+              label: boxTypeLabel(line.description),
+            }
+          : null,
+      };
+    }),
+  };
+}
+
+function boxTypesReportOf(rev: RevisionRecord) {
+  const order = orderLinesSource();
+  const applies = boxTypesApply(rev.cad.drawingKind, readingModeOf(rev.mapping.rules));
+  const report = evaluateBoxTypes({
+    applies,
+    gallery: applies ? MOCK_GALLERY : null,
+    frozen: rev.boxTypes,
+    workOrderExists: order.exists,
+    workOrderLineIds: new Set(order.lines.map((line) => line.id)),
+  });
+  return {
+    ...report,
+    changedSinceBuild:
+      applies &&
+      boxTypesChangedSince(
+        rev.boxTypes,
+        activeChoices(rev.cad.id).map((choice) => choice.id),
+      ),
+  };
+}
+
+/** `…/cad-files/:f/box-types` — GET the live state, POST a batch of choices. */
+export async function handleBoxTypes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  cad: MockCadFile,
+  h: Helpers,
+): Promise<void> {
+  if (method === 'GET') return h.send(res, 200, boxTypeStateOf(cad));
+  if (method !== 'POST') return h.sendError(res, 404, 'NOT_FOUND');
+  const refuse = (status: number, reason: string) =>
+    h.sendError(res, status, status === 422 ? 'VALIDATION_FAILED' : 'CONFLICT', { reason });
+  const body = SetBoxTypesRequestSchema.safeParse(await h.readJson(req));
+  if (!body.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
+  if (cad.drawingKind !== 'secondary') return refuse(409, 'NOT_SECONDARY_DRAWING');
+  if (cad.superseded) return refuse(409, 'FILE_SUPERSEDED');
+  const built = [...revisions.values()].some(
+    (rev) => rev.cad.id === cad.id && ['draft', 'published'].includes(statusOf(rev)),
+  );
+  if (!built) return refuse(409, 'NOT_BUILT');
+  const order = orderLinesSource();
+  if (!order.exists) return refuse(409, 'NO_WORK_ORDER');
+  if (body.data.choices.some((choice) => choice.shape !== MOCK_BOX_SHAPE)) {
+    return refuse(422, 'SHAPE_NOT_FOUND');
+  }
+  const known = new Set(order.lines.map((line) => line.id));
+  if (body.data.choices.some((c) => c.workOrderLineId !== null && !known.has(c.workOrderLineId))) {
+    return refuse(422, 'LINE_NOT_IN_WORK_ORDER');
+  }
+  const rows = choicesOf(cad.id);
+  for (const choice of body.data.choices) {
+    const current = latestChoicePerShape([...rows].reverse()).find((r) => r.shape === choice.shape);
+    if ((current?.workOrderLineId ?? null) === choice.workOrderLineId) continue;
+    rows.push({
+      id: randomUUID(),
+      shape: choice.shape,
+      workOrderLineId: choice.workOrderLineId,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return h.send(res, 200, boxTypeStateOf(cad));
 }
 
 /**

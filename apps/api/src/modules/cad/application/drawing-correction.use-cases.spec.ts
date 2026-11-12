@@ -6,7 +6,12 @@ import {
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
 import type { CadFile } from '../domain/cad-file.js';
-import { FakeClock, InMemoryCadUnitOfWork, RecordingJobQueue } from '../testing/in-memory.js';
+import {
+  FakeClock,
+  InMemoryCadUnitOfWork,
+  InMemoryWorkOrderLines,
+  RecordingJobQueue,
+} from '../testing/in-memory.js';
 import { SaveCadMappingUseCase } from './cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './create-design-revision.use-case.js';
 import {
@@ -116,13 +121,13 @@ const save = () =>
     mapping: MAPPING,
   });
 const create = () =>
-  new CreateDesignRevisionUseCase(uow, queue, clock, ids).execute({
+  new CreateDesignRevisionUseCase(uow, queue, clock, ids, new InMemoryWorkOrderLines()).execute({
     projectId: PROJECT,
     actorId: ACTOR,
     request: { cadFileId: FILE, mappingVersion: 1 },
   });
 const rebuild = (revisionId: string, mappingVersion = 1) =>
-  new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+  new RebuildDesignRevisionUseCase(uow, queue, clock, ids, new InMemoryWorkOrderLines()).execute({
     projectId: PROJECT,
     revisionId,
     actorId: ACTOR,
@@ -378,7 +383,13 @@ describe('rebuild', () => {
   it('does not know the revisions of another project', async () => {
     const old = await draft();
     await expect(
-      new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+      new RebuildDesignRevisionUseCase(
+        uow,
+        queue,
+        clock,
+        ids,
+        new InMemoryWorkOrderLines(),
+      ).execute({
         projectId: OTHER_PROJECT,
         revisionId: old.id,
         actorId: ACTOR,

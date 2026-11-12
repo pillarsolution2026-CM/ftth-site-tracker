@@ -1084,7 +1084,8 @@
         "open_items": "Éléments ouverts revus ({count})",
         "other_drawing": "L'autre plan ({drawing}) est prêt : zéro erreur, coordonnées calées",
         "cabinets_match": "Les armoires correspondent dans les deux plans (nom et nombre)",
-        "installation": "Le mode de pose (tirage / tranchée) est clair"
+        "installation": "Le mode de pose (tirage / tranchée) est clair",
+        "box_types": "Chaque forme de boîtier a une ligne de l’ordre de travail"
       },
       "fixCoordinates": "Ouvrir l'écran des coordonnées",
       "lockedHint": "La publication est verrouillée tant que toutes les vérifications, sauf les éléments ouverts, ne sont pas faites.",
@@ -1097,7 +1098,8 @@
         "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation.",
         "OTHER_DRAWING_MISSING": "Il n'y a pas de brouillon pour le {drawing}. Envoyez-le et construisez-le d'abord — les deux plans sont publiés ensemble.",
         "CABINETS_MISMATCH": "Les armoires ne correspondent pas entre les plans : Général {generalCount} / Secondaire {secondaryCount}. Seulement dans le Général : {onlyGeneral}. Seulement dans le Secondaire : {onlySecondary}. Armoires sans nom : {unnamed}. Rendez les noms et le nombre identiques dans les deux plans avant de publier.",
-        "INSTALLATION_UNCLEAR": "Le mode de pose du plan {drawing} n’est pas clair ({count} problèmes) : {issues}"
+        "INSTALLATION_UNCLEAR": "Le mode de pose du plan {drawing} n’est pas clair ({count} problèmes) : {issues}",
+        "BOX_TYPES_UNCLEAR": "Les types de boîtiers du dessin {drawing} sont peu clairs ({count} problèmes) : {issues}"
       },
       "otherNoDraft": "Il n'y a pas encore de brouillon pour le {drawing}",
       "otherErrors": "{count} erreurs dedans",
@@ -1341,7 +1343,9 @@
       "closePopover": "Fermer",
       "entityLayer": "Calque",
       "entityKind": "Type",
-      "trenchLegend": "Les parties marquées en tranchée sont tracées en violet pointillé avec leur longueur."
+      "trenchLegend": "Les parties marquées en tranchée sont tracées en violet pointillé avec leur longueur.",
+      "boxTypesToggle": "Afficher le type de chaque boîtier ({count})",
+      "boxTypesLegend": "Le type est écrit à côté de chaque boîtier : le code, puis la description de la ligne. « Pas encore construit » signifie que le choix est enregistré mais pas appliqué ; « Sans type » signifie que le boîtier n’a pas de ligne."
     },
     "fix": {
       "open": "Corriger cet endroit",
@@ -1509,6 +1513,56 @@
       },
       "secondaryOk": "Le Secondaire est entièrement en tranchée — pas de question.",
       "moreIssues": "… et {count} autres problèmes non affichés"
+    },
+    "boxTypes": {
+      "title": "Types de boîtiers",
+      "hint": "Le programme regroupe les boîtiers selon la forme du symbole dessiné (pas selon le nom du bloc). Choisissez une ligne de l’ordre de travail pour chaque forme, puis reconstruisez.",
+      "summary": "{boxes} boîtiers en {shapes} formes différentes",
+      "linesFailed": "Impossible de lire les lignes de l’ordre de travail. Réessayez.",
+      "stateFailed": "Impossible de lire les choix actuels. Réessayez.",
+      "rebuildNeeded": "Reconstruisez pour appliquer les types",
+      "readOnly": "Vous pouvez seulement voir les types. Le chef de projet les choisit.",
+      "usePrevious": "Utiliser les choix de la version précédente",
+      "previousHint": "Le Secondaire précédent a {count} choix qui correspondent à ces formes.",
+      "allClear": "Chaque forme de boîtier a une ligne de l’ordre de travail.",
+      "save": "Enregistrer les choix",
+      "saving": "Enregistrement…",
+      "unsaved": "{count} choix pas encore enregistrés",
+      "shapeName": "Forme {shape}",
+      "count": "Boîtiers : {count}",
+      "blocks": "Noms de blocs",
+      "chosen": "A une ligne",
+      "unset": "Sans ligne",
+      "pick": "Choisir une ligne de l’ordre de travail",
+      "noLine": "— Sans ligne —",
+      "lineMissingCard": "Cette ligne n’est plus dans l’ordre de travail. Choisissez une autre ligne.",
+      "showOnDrawing": "Afficher sur le dessin",
+      "choose": "Choisir la ligne",
+      "moreIssues": "… et {count} autres problèmes non affichés",
+      "generalOk": "Les types de boîtiers se définissent sur le dessin Secondaire.",
+      "problemsHint": "Ce ne sont pas des erreurs de dessin. Choisissez la ligne de l’ordre de travail de chaque forme de boîtier.",
+      "label": {
+        "pending": "Pas encore construit",
+        "none": "Sans type"
+      },
+      "error": {
+        "NOT_SECONDARY_DRAWING": "Les types de boîtiers se définissent uniquement sur le dessin Secondaire.",
+        "FILE_SUPERSEDED": "Une version plus récente du Secondaire existe. Choisissez sur la plus récente.",
+        "NOT_BUILT": "Le dessin n’est pas encore construit. Construisez-le d’abord, puis choisissez les types.",
+        "NO_WORK_ORDER": "Le projet n’a pas d’ordre de travail. Créez-le d’abord.",
+        "SHAPE_NOT_FOUND": "Une des formes n’est pas dans la dernière construction. Actualisez la page et réessayez.",
+        "LINE_NOT_IN_WORK_ORDER": "Une des lignes n’est pas dans l’ordre de travail du projet. Actualisez la page et réessayez.",
+        "TOO_MANY_CHOICES": "Le nombre maximal de choix de types pour ce fichier est atteint."
+      },
+      "issue": {
+        "READING_ROLES_MISSING": "Le secondaire a été mappé sans « sens des textes ». Définissez le sens des textes des calques dans l’écran de mappage puis reconstruisez.",
+        "WORK_ORDER_MISSING": "Le projet n’a pas d’ordre de travail : aucune ligne ne peut être choisie. Créez-le d’abord.",
+        "BOX_SHAPES_NOT_READ": "Les formes des boîtiers n’ont pas encore été lues. Reconstruisez le dessin.",
+        "BOX_SHAPE_UNKNOWN": "{count} boîtiers ont une forme non lue. Retraitez le fichier, puis reconstruisez.",
+        "BOX_SHAPES_TOO_MANY": "Trop de formes de boîtiers (plus de 200). Unifiez les symboles dans AutoCAD.",
+        "BOX_TYPE_UNSET": "La forme {shape} ({count} boîtiers) n’a pas de ligne de l’ordre de travail.",
+        "BOX_TYPE_LINE_MISSING": "La ligne choisie pour la forme {shape} ({count} boîtiers) n’est plus dans l’ordre de travail. Choisissez une autre ligne."
+      }
     }
   },
   "asbuilt": {

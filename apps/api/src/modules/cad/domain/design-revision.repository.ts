@@ -7,6 +7,7 @@ import type {
   DrawingUnit,
   FeatureType,
   FrozenDrawingCorrection,
+  FrozenBoxTypes,
   FrozenInstallation,
   InstallationRoute,
   MappingRule,
@@ -66,6 +67,8 @@ export interface NewDesignRevision {
   corrections: FrozenDrawingCorrection[];
   /** The General's installation answer and marks in force (ADR-042); null for a Secondary. */
   installation: FrozenInstallation | null;
+  /** The Secondary's box-type choices in force with a snapshot of their lines (ADR-043). */
+  boxTypes: FrozenBoxTypes | null;
   insUnits: number | null;
   unitsConflict: boolean;
   createdById: string;

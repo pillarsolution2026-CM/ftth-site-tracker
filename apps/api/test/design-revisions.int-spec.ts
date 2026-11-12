@@ -26,6 +26,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { signTile } from '../src/modules/cad/domain/tile-signature.js';
 import { ensureMember, eventTypes, loginAs, projectIds, SEED_LOGINS } from './support/helpers.js';
+import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -452,6 +453,7 @@ async function secondaryDraft(): Promise<string> {
   const id = created.body.id as string;
   await simulateBuild(id, false);
   await setRevisionPlacement(id, USED_PLACEMENT);
+  await makeBoxTypesClear(ctx.pool, id);
   return id;
 }
 
@@ -1343,6 +1345,7 @@ describe('a built draft revision', () => {
         { key: 'other_drawing', ok: true, count: 0 },
         { key: 'cabinets_match', ok: true, count: 0 },
         { key: 'installation', ok: true, count: 0 },
+        { key: 'box_types', ok: true, count: null },
       ],
       canPublish: false,
       drawingKind: 'general',
@@ -1355,6 +1358,7 @@ describe('a built draft revision', () => {
       },
       warningCount: 0,
       installation: expect.objectContaining({ applies: true, ok: true, issueCount: 0 }),
+      boxTypes: null,
     });
 
     await setPlacement(place(true));
@@ -1375,6 +1379,7 @@ describe('a built draft revision', () => {
       { key: 'other_drawing', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
       { key: 'installation', ok: true, count: 0 },
+      { key: 'box_types', ok: true, count: null },
     ]);
     expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });

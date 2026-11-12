@@ -13,6 +13,8 @@ export const EVENT_ENTITIES = {
   /** ADR-042 part D: rows of `cad_file_installation_answers` / `cad_file_trench_marks`. */
   installationAnswer: 'installation_answer',
   trenchMark: 'trench_mark',
+  /** ADR-043: rows of `cad_file_box_type_choices`. */
+  boxTypeChoice: 'box_type_choice',
   designRevision: 'design_revision',
   textLink: 'text_link',
   executionUpdate: 'execution_update',
@@ -61,6 +63,11 @@ export const EVENT_TYPES = {
   trenchMarkAdded: 'trench_mark.added',
   /** ADR-042. Payload: { cadFileId, routeHandle, lengthM }. */
   trenchMarkWithdrawn: 'trench_mark.withdrawn',
+  /**
+   * ADR-043, one per row written. Payload: { cadFileId, shape, workOrderLineId (null = cleared),
+   * previousWorkOrderLineId (null the first time), fromPreviousVersion: boolean }.
+   */
+  boxTypeChosen: 'box_type_choice.chosen',
   designRevisionQueued: 'design_revision.queued',
   /** Written by the worker (actor_id NULL). */
   designRevisionBuildStarted: 'design_revision.build_started',

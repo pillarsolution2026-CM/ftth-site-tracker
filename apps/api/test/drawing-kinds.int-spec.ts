@@ -21,6 +21,7 @@ import {
   publishRevision,
   type ExecutionFixture,
 } from './support/execution-fixtures.js';
+import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -630,6 +631,7 @@ describe('publishing the pair', () => {
         }),
       ],
     );
+    await makeBoxTypesClear(ctx.pool, revisionId);
   }
 
   const publish = (project: string, revisionId: string, body: object = {}) =>
@@ -721,6 +723,7 @@ describe('publishing the pair', () => {
       ['other_drawing', false, 4],
       ['cabinets_match', true, 0],
       ['installation', true, 0],
+      ['box_types', true, null],
     ]);
     expect(ready).toMatchObject({ canPublish: false, otherRevisionId: secondary.id });
 

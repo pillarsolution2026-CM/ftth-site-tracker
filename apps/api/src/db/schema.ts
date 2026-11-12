@@ -34,6 +34,9 @@ import type {
   DrawingUnit,
   FeatureType,
   FrozenDrawingCorrection,
+  BoxShapeGallery,
+  BoxShapePreview,
+  FrozenBoxTypes,
   FrozenInstallation,
   InstallationAnswer,
   MappingRule,
@@ -383,6 +386,8 @@ export const cadInserts = pgTable(
     scaleY: doublePrecision('scale_y').notNull().default(1),
     scaleZ: doublePrecision('scale_z').notNull().default(1),
     aciColor: smallint('aci_color').notNull().default(256),
+    /** Migration 0023 (ADR-043): drawn-shape signature; NULL before reprocessing. */
+    shapeSignature: text('shape_signature'),
     attributes: jsonb('attributes')
       .$type<{ tag: string; rawValue: string; value: string; readable: boolean }[]>()
       .notNull()
@@ -524,6 +529,10 @@ export const designRevisions = pgTable(
     corrections: jsonb('corrections').$type<FrozenDrawingCorrection[]>().notNull().default([]),
     /** Migration 0022: the General's installation answer and trench marks frozen (ADR-042). */
     installation: jsonb('installation').$type<FrozenInstallation>(),
+    /** Migration 0023: the Secondary's box-type choices frozen (ADR-043). */
+    boxTypes: jsonb('box_types').$type<FrozenBoxTypes>(),
+    /** Migration 0023: the shape gallery the worker wrote when it built the Secondary. */
+    boxShapes: jsonb('box_shapes').$type<BoxShapeGallery>(),
     insUnits: integer('ins_units'),
     unitsConflict: boolean('units_conflict').notNull().default(false),
     counts: jsonb('counts').$type<DesignRevisionCounts>(),
@@ -631,6 +640,52 @@ export const cadFileTrenchMarks = pgTable(
       foreignColumns: [cadFiles.projectId, cadFiles.id],
     }),
     index('cad_file_trench_marks_file_idx').on(table.projectId, table.cadFileId, table.seq),
+  ],
+);
+
+/** Box-type choices (migration 0023, ADR-043): append-only; the latest row per shape is in force. */
+export const cadFileBoxTypeChoices = pgTable(
+  'cad_file_box_type_choices',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    cadFileId: uuid('cad_file_id').notNull(),
+    shapeSignature: text('shape_signature').notNull(),
+    /** `work_order_items.id` (no FK, a trigger checks the project); null = cleared. */
+    workOrderItemId: uuid('work_order_item_id'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Order of the rows of a file, independent of clocks and ids. */
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'cad_file_box_type_choices_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }),
+    index('cad_file_box_type_choices_file_idx').on(table.projectId, table.cadFileId, table.seq),
+  ],
+);
+
+/** Distinct insert shapes of a file with their previews (migration 0023); the worker writes it. */
+export const cadFileShapes = pgTable(
+  'cad_file_shapes',
+  {
+    projectId: uuid('project_id').notNull(),
+    cadFileId: uuid('cad_file_id').notNull(),
+    shapeSignature: text('shape_signature').notNull(),
+    insertCount: integer('insert_count').notNull(),
+    blockNames: jsonb('block_names').$type<string[]>().notNull().default([]),
+    preview: jsonb('preview').$type<BoxShapePreview>(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.cadFileId, table.shapeSignature] }),
+    foreignKey({
+      name: 'cad_file_shapes_file_fkey',
+      columns: [table.projectId, table.cadFileId],
+      foreignColumns: [cadFiles.projectId, cadFiles.id],
+    }).onDelete('cascade'),
   ],
 );
 

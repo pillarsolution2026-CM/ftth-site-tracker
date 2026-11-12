@@ -1,5 +1,6 @@
 import { ltr, translate, type Locale, type MessageKey } from '@ftth/i18n';
 import { PublishBlockedDetailsSchema, type PublishBlockedDetails } from '@ftth/shared';
+import { boxTypeIssueMessage } from '@/features/box-types/model/box-types-model';
 import { issueMessage } from '@/features/installation/model/installation-model';
 import { ApiClientError, type ClientErrorCode } from '@/shared/api/bff-client';
 
@@ -71,6 +72,18 @@ export function publishBlockedMessage(
       .join(' ');
     return {
       key: 'design.publish.blocked.INSTALLATION_UNCLEAR',
+      params: { drawing, count: ltr(details.issueCount), issues },
+    };
+  }
+  if (details.reason === 'BOX_TYPES_UNCLEAR') {
+    const issues = details.issues
+      .map((issue) => {
+        const message = boxTypeIssueMessage(issue);
+        return translate(locale, message.key, message.params);
+      })
+      .join(' ');
+    return {
+      key: 'design.publish.blocked.BOX_TYPES_UNCLEAR',
       params: { drawing, count: ltr(details.issueCount), issues },
     };
   }

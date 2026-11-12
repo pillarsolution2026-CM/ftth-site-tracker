@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type {
+  BoxTypesReport,
   CabinetsComparison,
   InstallationReport,
   PublishCheck,
@@ -15,6 +16,7 @@ import { Ltr } from '@/shared/ui/ltr';
 import { Checkbox } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { issueMessage } from '@/features/installation/model/installation-model';
+import { BoxTypeIssueList } from '@/features/box-types/components/box-type-issues';
 
 interface PublishChecklistProps {
   readiness: PublishReadiness | null;
@@ -73,6 +75,7 @@ export function PublishChecklist({
               check={check}
               cabinets={readiness.cabinets}
               installation={readiness.installation}
+              boxTypes={readiness.boxTypes}
               drawingKind={readiness.drawingKind}
               onShowRoute={onShowRoute}
               mappingHref={mappingHref}
@@ -205,6 +208,7 @@ function CheckRow({
   check,
   cabinets,
   installation,
+  boxTypes,
   drawingKind,
   onShowRoute,
   mappingHref,
@@ -214,6 +218,7 @@ function CheckRow({
   check: PublishCheck;
   cabinets: CabinetsComparison | null;
   installation: InstallationReport | null;
+  boxTypes: BoxTypesReport | null;
   drawingKind: DrawingKind;
   onShowRoute: ((routeHandle: string) => void) | undefined;
   mappingHref: string | null;
@@ -259,6 +264,19 @@ function CheckRow({
       ) : null}
       {check.key === 'installation' && !check.ok && installation ? (
         <InstallationDetail report={installation} onShowRoute={onShowRoute} />
+      ) : null}
+      {check.key === 'box_types' && drawingKind === 'general' ? (
+        <span className="text-sm">{t('design.boxTypes.generalOk')}</span>
+      ) : null}
+      {check.key === 'box_types' && !check.ok && boxTypes ? (
+        <div className="ms-7 w-full">
+          <BoxTypeIssueList
+            issues={boxTypes.issues}
+            issueCount={boxTypes.issueCount}
+            gallery={boxTypes.gallery}
+            onShowHandle={onShowRoute}
+          />
+        </div>
       ) : null}
       {check.key === 'cabinets_match' && !check.ok ? (
         cabinets ? (

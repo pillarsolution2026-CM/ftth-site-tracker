@@ -80,6 +80,8 @@ const revision = (
   metresPerUnit: '1',
   placement: drawingKind === 'general' ? PLACED : null,
   installation: null,
+  boxTypes: null,
+  boxShapes: null,
   insUnits: 1,
   unitsConflict: false,
   counts: null,

@@ -10,6 +10,12 @@ import {
   InstallationReportSchema,
   MAX_INSTALLATION_ISSUES_LISTED,
 } from '../cad/installation.schemas.js';
+import {
+  BoxTypeIssueSchema,
+  BoxTypesReportSchema,
+  FrozenBoxTypesSchema,
+  MAX_BOX_TYPE_ISSUES_LISTED,
+} from '../cad/box-types.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { BooleanQuerySchema, PageQuerySchema, pageSchema } from '../common/pagination.js';
 import {
@@ -164,6 +170,11 @@ export const DesignRevisionDetailSchema = DesignRevisionSummarySchema.extend({
    * Secondary and on revisions built before migration 0022 (a General then reads as unanswered).
    */
   installation: FrozenInstallationSchema.nullable().default(null),
+  /**
+   * Frozen box-type choices (ADR-043); Secondary only. null on a General and on revisions built
+   * before migration 0023. The shape gallery is served apart (GET …/box-types), not here.
+   */
+  boxTypes: FrozenBoxTypesSchema.nullable().default(null),
   errorMessage: z.string().nullable(),
   log: z.string().nullable(),
 });
@@ -223,7 +234,7 @@ export type CabinetsComparison = z.infer<typeof CabinetsComparisonSchema>;
  * drawing has an open draft (`OTHER_DRAWING_MISSING`); then for this drawing, then the other:
  * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`), drawing errors (`PROBLEMS_OPEN`, blocking
  * problems only, ADR-041) and, for the General, the installation (`INSTALLATION_UNCLEAR`,
- * ADR-042); then the shared cabinets of the pair (`CABINETS_MISMATCH`); last, open
+ * ADR-042), for the Secondary, the box types (`BOX_TYPES_UNCLEAR`, ADR-043); then the shared cabinets of the pair (`CABINETS_MISMATCH`); last, open
  * items of both without acknowledgement (`OPEN_ITEMS`, summed). `drawingKind` names the drawing
  * that blocks.
  */
@@ -249,6 +260,16 @@ export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
     drawingKind: z.literal('general'),
     issueCount: z.number().int().min(1),
     issues: z.array(InstallationIssueSchema).max(MAX_INSTALLATION_ISSUES_LISTED),
+  }),
+  /**
+   * ADR-043, Secondary in roles mode only: a box shape has no work-order line chosen, a chosen line
+   * no longer exists, or shapes could not be read (`evaluateBoxTypes`). Anything unclear is an error.
+   */
+  z.object({
+    reason: z.literal('BOX_TYPES_UNCLEAR'),
+    drawingKind: z.literal('secondary'),
+    issueCount: z.number().int().min(1),
+    issues: z.array(BoxTypeIssueSchema).max(MAX_BOX_TYPE_ISSUES_LISTED),
   }),
   z.object({
     reason: z.literal('OPEN_ITEMS'),
@@ -333,6 +354,12 @@ export const PUBLISH_CHECK_KEYS = [
    * installation is part of `other_drawing`.
    */
   'installation',
+  /**
+   * ADR-043: the Secondary's box types are clear (`evaluateBoxTypes` ok) — on the Secondary's
+   * readiness for itself; always ok (count null) on the General's and on a legacy-mode Secondary,
+   * where the Secondary's box types are part of `other_drawing`.
+   */
+  'box_types',
 ] as const;
 export const PublishCheckKeySchema = z.enum(PUBLISH_CHECK_KEYS);
 export type PublishCheckKey = z.infer<typeof PublishCheckKeySchema>;
@@ -343,9 +370,10 @@ export const PublishCheckSchema = z.object({
   /**
    * crs_known: null; control_point: points in use; no_problems: blocking problems left; open_items:
    * open (both drawings); other_drawing: blocking problems left in the other drawing's draft (null:
-   * no draft; ok also needs the other General's installation clear); cabinets_match: unmatched
-   * cabinets = unnamed + missingInOther of both sides (null: no other draft); installation: issues
-   * of the General's installation (null on a Secondary).
+   * no draft; ok also needs the other General's installation clear, or the other Secondary's box
+   * types clear); cabinets_match: unmatched cabinets = unnamed + missingInOther of both sides
+   * (null: no other draft); installation: issues of the General's installation (null on a
+   * Secondary); box_types: issues of the Secondary's box types (null on a General / legacy mode).
    */
   count: z.number().int().min(0).nullable(),
 });
@@ -367,6 +395,8 @@ export const PublishReadinessSchema = z.object({
   warningCount: z.number().int().min(0).default(0),
   /** ADR-042: the installation report behind `installation`; null on a Secondary. */
   installation: InstallationReportSchema.nullable().default(null),
+  /** ADR-043: the box-types report behind `box_types`; null on a General / legacy-mode Secondary. */
+  boxTypes: BoxTypesReportSchema.nullable().default(null),
 });
 export type PublishReadiness = z.infer<typeof PublishReadinessSchema>;
 

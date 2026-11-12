@@ -50,6 +50,20 @@ export class InMemoryWorkOrders implements WorkOrderRepository {
   async existsForProject(projectId: string): Promise<boolean> {
     return [...this.orders.values()].some((order) => order.header.projectId === projectId);
   }
+  async findLinesOfProject(projectId: string): Promise<{
+    exists: boolean;
+    lines: { id: string; code: string; description: string }[];
+  }> {
+    const order = [...this.orders.values()].find((o) => o.header.projectId === projectId);
+    return {
+      exists: order !== undefined,
+      lines: (order?.items ?? []).map((i) => ({
+        id: i.id,
+        code: i.code,
+        description: i.description,
+      })),
+    };
+  }
   async lineIdsByContractItem(projectId: string): Promise<Map<string, string>> {
     const ids = new Map<string, string>();
     for (const order of this.orders.values()) {

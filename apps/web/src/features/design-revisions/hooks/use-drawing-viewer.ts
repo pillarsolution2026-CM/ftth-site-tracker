@@ -4,6 +4,14 @@ import { useCallback, useMemo, useState } from 'react';
 import { ltr } from '@ftth/i18n';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import {
+  useAllBoxes,
+  useBoxTypeState,
+  useBoxTypesReport,
+  useWorkOrderLines,
+} from '@/features/box-types/api/queries';
+import { boxLabelInputs } from '@/features/box-types/model/box-types-model';
+import { useProject } from '@/features/projects/hooks/project-access-context';
 import { useTrenchTool, type TrenchTool } from '@/features/installation/hooks/use-trench-tool';
 import {
   useCorrections,
@@ -13,7 +21,7 @@ import {
   useRequestDrawingView,
 } from '../api/queries';
 import { pendingPlaces, routePieces } from '../model/corrections';
-import { PathCache, type DrawModel } from '../model/drawing-draw';
+import { PathCache, type BoxLabel, type DrawModel } from '../model/drawing-draw';
 import { buildMarkers, hitEntity, hitMarker, type ProblemMarker } from '../model/drawing-hit';
 import { applyCorrections, defaultTextHeight, effectiveLayer } from '../model/drawing-preview';
 import { boxOf, buildScene, type DrawingScene } from '../model/drawing-scene';
@@ -79,6 +87,13 @@ export interface DrawingViewer {
   tools: FixTools;
   /** «حفر جديد» and the trench marks of a General (ADR-042). */
   trench: TrenchTool;
+  /** The type text next to each box of a Secondary (ADR-043). */
+  boxTypes: {
+    available: boolean;
+    shown: boolean;
+    setShown: (shown: boolean) => void;
+    count: number;
+  };
   // Layers
   layerRows: LayerRow[];
   layerQuery: string;
@@ -114,6 +129,8 @@ interface Input {
   canFix: boolean;
   /** The drawing is a General: its trench marks are read and drawn. */
   isGeneral?: boolean;
+  /** The drawing is a Secondary: the type text of its boxes is drawn (ADR-043). */
+  isSecondary?: boolean;
   focus: ShowPlace | null;
 }
 
@@ -153,6 +170,44 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     enabled: enabled && input.isGeneral === true,
     canEdit: canFix,
   });
+
+  const { can } = useProject();
+  const boxReport = useBoxTypesReport(projectId, revisionId, enabled && input.isSecondary === true);
+  const boxesApply = boxReport.data?.applies === true;
+  const boxes = useAllBoxes(projectId, revisionId, enabled && boxesApply);
+  const liveBoxTypes = useBoxTypeState(
+    projectId,
+    cadFileId,
+    enabled && boxesApply && can('cad_files:read'),
+  );
+  const orderLines = useWorkOrderLines(projectId, enabled && boxesApply && can('work_orders:read'));
+  const [showBoxTypes, setShowBoxTypes] = useState(true);
+  const boxLabels = useMemo<BoxLabel[]>(() => {
+    if (!boxesApply || !boxes.data) return [];
+    const live = liveBoxTypes.data
+      ? new Map(
+          liveBoxTypes.data.active.flatMap((choice) =>
+            choice.workOrderLineId === null
+              ? []
+              : [[choice.shape, choice.workOrderLineId] as const],
+          ),
+        )
+      : undefined;
+    const lines = new Map(orderLines.lines.map((line) => [line.id, line] as const));
+    return boxLabelInputs(boxes.data, live, lines).map((label) => ({
+      x: label.x,
+      y: label.y,
+      kind: label.kind,
+      lines:
+        label.kind === 'none'
+          ? [t('design.boxTypes.label.none')]
+          : [
+              ltr(label.code ?? '—'),
+              ...(label.label ? [label.label] : []),
+              ...(label.kind === 'pending' ? [t('design.boxTypes.label.pending')] : []),
+            ],
+    }));
+  }, [boxesApply, boxes.data, liveBoxTypes.data, orderLines.lines, t]);
 
   const scene = useMemo(
     () => (viewQuery.data ? buildScene(viewQuery.data) : null),
@@ -286,9 +341,20 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             highlighted,
             selected,
             trench: trenchLabels,
+            boxLabels: showBoxTypes ? boxLabels : [],
           }
         : null,
-    [scene, preview, isShown, markers, highlighted, selected, trenchLabels],
+    [
+      scene,
+      preview,
+      isShown,
+      markers,
+      highlighted,
+      selected,
+      trenchLabels,
+      boxLabels,
+      showBoxTypes,
+    ],
   );
 
   const click = (sx: number, sy: number) => {
@@ -350,6 +416,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     scene,
     tools,
     trench,
+    boxTypes: {
+      available: boxLabels.length > 0,
+      shown: showBoxTypes,
+      setShown: setShowBoxTypes,
+      count: boxLabels.length,
+    },
     layerRows,
     layerQuery,
     setLayerQuery,
