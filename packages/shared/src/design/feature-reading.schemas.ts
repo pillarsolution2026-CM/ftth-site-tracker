@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { DrawingKindSchema } from '../cad/drawing-kind.schemas.js';
 import { HandholeTypeSchema, MAX_BUNDLE_WAYS, TextRoleSchema } from '../cad/text-roles.js';
 import { DecimalStringSchema } from '../common/decimal.js';
+import { BoxShapeSignatureSchema, BoxTypeOnBoxSchema } from '../cad/box-types.schemas.js';
 
 /**
  * What the worker read from a feature's role texts (ADR-041), stored in
@@ -38,6 +39,13 @@ export const BoxReadingSchema = z.object({
   cableCores: Soft(Cores),
   /** Building cable length from the cabinet («398M»). */
   cableLengthM: DecimalStringSchema.nullable(),
+  /**
+   * ADR-043: the drawn shape of the box's symbol (null: not read — file processed or revision
+   * built before migration 0023). Absent on older readings.
+   */
+  shape: BoxShapeSignatureSchema.nullable().catch(null).default(null),
+  /** ADR-043: the work-order line the PM chose for that shape, as frozen on the revision. */
+  boxType: BoxTypeOnBoxSchema.nullable().catch(null).default(null),
   texts: RoleTexts,
 });
 
