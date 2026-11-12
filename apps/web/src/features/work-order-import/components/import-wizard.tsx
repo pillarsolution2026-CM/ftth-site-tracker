@@ -1,6 +1,7 @@
 'use client';
 
 import type { Dispatch, ReactNode } from 'react';
+import { WORK_ORDER_REQUIRED_IMPORT_FIELDS } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
@@ -16,6 +17,7 @@ import { workOrderConflictOf } from '@/features/work-orders/model/conflict';
 import { WorkOrderErrorNotice } from '@/features/work-orders/components/work-order-error';
 import { useWorkOrderGate } from '@/features/work-orders/hooks/use-work-order-gate';
 import { contractorErrorMsg, translateMsg } from '@/features/contractors/model/contractor-errors';
+
 import { useImportWizard } from '../hooks/use-import-wizard';
 import {
   CONTRACTOR_IMPORT_FIELDS,
@@ -211,7 +213,12 @@ export function ImportWizardView({
                   required: CONTRACTOR_REQUIRED_FIELDS,
                   note: t('contractors.import.mappingNote'),
                 }
-              : {})}
+              : forContract
+                ? {}
+                : {
+                    required: WORK_ORDER_REQUIRED_IMPORT_FIELDS,
+                    note: t('import.mapping.workOrderNote'),
+                  })}
           />
           <ImportSummary selection={selection} />
           {forContract ? (

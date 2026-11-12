@@ -9,6 +9,7 @@ import {
   buildCommitPayload,
   buildContractCommitPayload,
   commitBlockers,
+  mappingProblems,
   deriveSelection,
   isDraftApplied,
   wizardReducer,
@@ -94,6 +95,7 @@ function preview(
     summary: {
       rowCount: 4,
       headingCount: 0,
+      skippedCount: 0,
       errorRowCount: 1,
       warningRowCount: 2,
       duplicateCodes: [{ code: 'B-2', rowNumbers: [3, 4] }],
@@ -117,6 +119,7 @@ describe('import wizard selection', () => {
       total: 4,
       included: 4,
       headingRows: 0,
+      skippedRows: 0,
       errorRows: 1,
       warningRows: 2,
     });
@@ -296,6 +299,7 @@ describe('heading rows (contract BOQ)', () => {
         ...base.summary,
         rowCount: 2,
         headingCount: 2,
+        skippedCount: 0,
         errorRowCount: 0,
         warningRowCount: 0,
         duplicateCodes: [],
@@ -334,5 +338,92 @@ describe('heading rows (contract BOQ)', () => {
     expect(payload).toMatchObject({ expectedVersion: 4, excludedRowNumbers: [] });
     expect(payload).not.toHaveProperty('workOrder');
     expect(buildContractCommitPayload(INITIAL_WIZARD_STATE, 4)).toBeNull();
+  });
+});
+
+describe('work-order import rules (ADR-044)', () => {
+  const ONLY_CODE_AND_QUANTITY = {
+    ...MAPPING,
+    description: null,
+    unit: null,
+    unitPrice: null,
+    workType: null,
+  };
+  const mismatch: ImportPreviewRow['issues'][number] = {
+    code: 'CONTRACT_MISMATCH',
+    severity: 'warning',
+    field: 'unitPrice',
+    params: { contractValue: '12.5' },
+  };
+  const skippedRow = (rowNumber: number): ImportPreviewRow => ({
+    ...row(rowNumber, null, null),
+    kind: 'skipped',
+  });
+
+  function workOrderPreview(overrides: Partial<WorkOrderImportPreviewResponse> = {}) {
+    return preview({
+      mapping: ONLY_CODE_AND_QUANTITY,
+      rows: [row(2, 'A-1', '10', [mismatch]), skippedRow(3), skippedRow(4)],
+      summary: {
+        rowCount: 3,
+        headingCount: 0,
+        skippedCount: 2,
+        errorRowCount: 0,
+        warningRowCount: 1,
+        duplicateCodes: [],
+        total: '10',
+      },
+      ...overrides,
+    });
+  }
+
+  it('needs only the code and the quantity to be mapped', () => {
+    const state = run([{ type: 'previewLoaded', preview: workOrderPreview() }, withHeader]);
+    expect(commitBlockers(state)).toEqual([]);
+    const noQuantity = run([
+      {
+        type: 'previewLoaded',
+        preview: workOrderPreview({ mapping: { ...ONLY_CODE_AND_QUANTITY, quantity: null } }),
+      },
+      withHeader,
+    ]);
+    expect(commitBlockers(noQuantity)).toEqual(['mappingIncomplete']);
+  });
+
+  it('keeps the contract import and the contractor sheet on their own required fields', () => {
+    const state = run([{ type: 'previewLoaded', preview: workOrderPreview() }]);
+    expect(commitBlockers(state, { target: 'contract' })).toContain('mappingIncomplete');
+    expect(commitBlockers(state, { target: 'contractor' })).toContain('mappingIncomplete');
+    expect(mappingProblems(ONLY_CODE_AND_QUANTITY).unmapped).toContain('description');
+  });
+
+  it('sends the optional fields as null in the commit mapping', () => {
+    const state = run([{ type: 'previewLoaded', preview: workOrderPreview() }, withHeader]);
+    const payload = buildCommitPayload(state);
+    expect(payload?.mapping).toEqual({ ...ONLY_CODE_AND_QUANTITY, scope: null });
+    expect(
+      WorkOrderImportCommitPayloadSchema.safeParse({ ...payload, workOrder: { number: 'WO-1' } })
+        .success,
+    ).toBe(true);
+  });
+
+  it('a contract-difference warning never blocks and needs no decision', () => {
+    const state = run([{ type: 'previewLoaded', preview: workOrderPreview() }, withHeader]);
+    expect(deriveSelection(state).counts.warningRows).toBe(1);
+    expect(commitBlockers(state)).toEqual([]);
+    expect(buildCommitPayload(state)).not.toBeNull();
+  });
+
+  it('counts skipped rows and does not count them as rows to import', () => {
+    const state = run([{ type: 'previewLoaded', preview: workOrderPreview() }, withHeader]);
+    expect(deriveSelection(state).counts.skippedRows).toBe(2);
+    const onlySkipped = run([
+      {
+        type: 'previewLoaded',
+        preview: workOrderPreview({ rows: [skippedRow(2), skippedRow(3)] }),
+      },
+      withHeader,
+    ]);
+    expect(commitBlockers(onlySkipped)).toEqual(['noRows']);
   });
 });

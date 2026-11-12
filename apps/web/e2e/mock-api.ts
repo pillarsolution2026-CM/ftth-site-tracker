@@ -489,6 +489,64 @@ function parsePreview(
     const issues: unknown[] = [];
     // A heading row (owner, 2026-10-31): no unit, no price, quantity and amount empty or zero.
     const zeroOrEmpty = (value: string | null) => value === null || Number(value) === 0;
+    if (against) {
+      // Work-order import (ADR-044): only the code and the quantity are taken from the file; the
+      // other columns are compared with the contract below (warnings).
+      const base = {
+        rowNumber: index + 2,
+        raw,
+        code: raw.code,
+        description: raw.description,
+        unit: raw.unit,
+        quantity: null as string | null,
+        unitPrice: null as string | null,
+        workType: null as WorkType | null,
+        sheetAmount: raw.amount,
+        amount: null as string | null,
+      };
+      const skipped = (skipIssues: unknown[] = []) => ({
+        ...base,
+        kind: 'skipped' as 'heading' | 'item' | 'skipped',
+        issues: skipIssues,
+      });
+      // Rows without a code (totals, tax) and contract headings are skipped silently.
+      if (raw.code === null) return skipped();
+      if (against.contract.headingCodes.includes(raw.code) && zeroOrEmpty(raw.quantity)) {
+        return skipped();
+      }
+      if (raw.quantity === null) {
+        return skipped([
+          { code: 'EMPTY_QUANTITY_SKIPPED', severity: 'warning', field: 'quantity' },
+        ]);
+      }
+      const issues: unknown[] = [];
+      let quantity: string | null = null;
+      if (!/^\d+(\.\d+)?$/.test(raw.quantity)) {
+        issues.push({ code: 'INVALID_NUMBER', severity: 'error', field: 'quantity' });
+      } else {
+        // More than 4 decimals are rounded half-up to 4 without a warning (Excel float noise).
+        const [whole = '0', fraction = ''] = raw.quantity.split('.');
+        const scaled = BigInt(whole + fraction.padEnd(4, '0').slice(0, 4));
+        const round = fraction.length > 4 && Number(fraction[4]) >= 5 ? 1n : 0n;
+        const total = (scaled + round).toString().padStart(5, '0');
+        quantity = `${total.slice(0, -4)}.${total.slice(-4)}`.replace(/0+$/, '').replace(/\.$/, '');
+      }
+      const typeText = raw.workType === null ? null : normalise(raw.workType);
+      const workType =
+        typeText === null
+          ? null
+          : (WORK_TYPES.find((type) =>
+              WORK_TYPE_SYNONYMS[type].map(normalise).includes(typeText),
+            ) ?? null);
+      return {
+        ...base,
+        kind: 'item' as 'heading' | 'item' | 'skipped',
+        quantity,
+        unitPrice: raw.unitPrice,
+        workType,
+        issues,
+      };
+    }
     if (
       raw.unit === null &&
       raw.unitPrice === null &&
@@ -570,7 +628,7 @@ function parsePreview(
   const duplicateCodes = against ? [] : repeated;
   for (const duplicate of repeated) {
     for (const row of rows) {
-      if (row.code !== duplicate.code) continue;
+      if (row.code !== duplicate.code || row.kind === 'skipped') continue;
       row.issues.push({
         code: against ? 'CODE_REPEATED' : 'DUPLICATE_CODE',
         severity: against ? 'error' : 'warning',
@@ -588,10 +646,12 @@ function parsePreview(
         row.issues.push({ code: 'NOT_IN_CONTRACT', severity: 'error', field: 'code' });
         continue;
       }
+      // Only the quantity is the file's; the amount is that quantity at the contract price.
+      row.amount = row.quantity !== null ? mulDec(row.quantity, line.unitPrice) : null;
       const mismatch = (field: string, contractValue: string) =>
         row.issues.push({
           code: 'CONTRACT_MISMATCH',
-          severity: 'error',
+          severity: 'warning',
           field,
           params: { contractValue },
         });
@@ -625,7 +685,7 @@ function parsePreview(
   // The same unit typed differently (spaces / line breaks): warn, keep the value as typed.
   const unitGroups = new Map<string, typeof rows>();
   for (const row of rows) {
-    if (row.kind !== 'item' || row.unit === null) continue;
+    if (against || row.kind !== 'item' || row.unit === null) continue;
     const key = row.unit.replace(/\s+/g, ' ').trim();
     unitGroups.set(key, [...(unitGroups.get(key) ?? []), row]);
   }
@@ -676,6 +736,7 @@ function parsePreview(
       summary: {
         rowCount: rows.length,
         headingCount: rows.filter((row) => row.kind === 'heading').length,
+        skippedCount: rows.filter((row) => row.kind === 'skipped').length,
         errorRowCount: rows.filter(hasError).length,
         warningRowCount: rows.filter(hasWarning).length,
         duplicateCodes,
@@ -1159,19 +1220,23 @@ function commitImport(
   }
 
   const workOrder = newWorkOrder(projectId, payload.workOrder ?? {}, 'import');
-  workOrder.items = included.map((row, index) => ({
-    id: randomUUID(),
-    lineNo: index + 1,
-    code: row.code as string,
-    description: row.description as string,
-    unit: row.unit as string,
-    quantity: row.quantity as string,
-    unitPrice: row.unitPrice as string,
-    workType: row.workType,
-    contractItemId: parsed.contractLines.find((line) => line.code === row.code)?.id ?? null,
-    source: 'import',
-    sourceRow: row.rowNumber,
-  }));
+  // Description, unit, price and work type come from the contract item (ADR-044).
+  workOrder.items = included.map((row, index) => {
+    const line = parsed.contractLines.find((candidate) => candidate.code === row.code);
+    return {
+      id: randomUUID(),
+      lineNo: index + 1,
+      code: row.code as string,
+      description: line?.description ?? (row.description as string),
+      unit: line?.unit ?? (row.unit as string),
+      quantity: row.quantity as string,
+      unitPrice: line?.unitPrice ?? (row.unitPrice as string),
+      workType: line?.workType ?? row.workType,
+      contractItemId: line?.id ?? null,
+      source: 'import',
+      sourceRow: row.rowNumber,
+    };
+  });
   workOrder.attachments.push({
     id: randomUUID(),
     kind: 'import_source',

@@ -17,6 +17,9 @@ function xlsxFixture(): Buffer {
         ['9-9', 'Unknown', 'm', '1', '1', 'مدني'],
         // more than the 40 the contract has
         ['1-1-1', 'ردم', 'م', '50', '3', 'مدني'],
+        // a contract heading and a total row without a code: skipped silently (ADR-044)
+        ['1', 'أعمال مدنية', '', '', '', ''],
+        ['', 'الإجمالي', '', '', '', ''],
       ],
     },
   ];
@@ -52,7 +55,13 @@ test('the import preview checks every row against the approved contract', async 
     buffer: xlsxFixture(),
   });
   await expect(page.getByRole('heading', { name: '2. Sheet and columns' })).toBeVisible();
-  await expect(page.getByText('Unit price differs from the contract (12.5)')).toBeVisible();
+  await expect(
+    page.getByText('Unit price differs from the contract — the contract value is used: 12.5'),
+  ).toBeVisible();
+  const summary = page.getByRole('region', { name: '3. Summary' });
+  await expect(summary.getByText('Skipped rows').locator('xpath=following-sibling::dd')).toHaveText(
+    '2',
+  );
   await expect(page.getByText('The code is not in the contract')).toBeVisible();
   await expect(
     page.getByText('The quantity is above what is available in the contract (available 40 of 40)'),

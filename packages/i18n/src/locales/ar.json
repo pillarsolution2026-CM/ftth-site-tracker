@@ -383,7 +383,8 @@
       "usedTwice": "العمود مستخدم لأكثر من حقل",
       "reread": "إعادة قراءة الملف بهذه الإعدادات",
       "unapplied": "التعديلات لم تُطبَّق بعد على الصفوف",
-      "requiredHint": "الحقول المعلَّمة بنجمة مطلوبة."
+      "requiredHint": "الحقول المعلَّمة بنجمة مطلوبة.",
+      "workOrderNote": "من الملف بنأخد الكود والكمية بس. الوصف والوحدة والسعر ونوع الأعمال بتيجي من العقد، وأي عمود منهم هنا للمقارنة بس."
     },
     "fields": {
       "code": "الكود",
@@ -402,7 +403,8 @@
       "errors": "صفوف بها أخطاء",
       "warnings": "صفوف بها تحذيرات",
       "computedTotal": "الإجمالي المحسوب",
-      "headings": "صفوف العناوين"
+      "headings": "صفوف العناوين",
+      "skipped": "صفوف اتخطّت"
     },
     "duplicates": {
       "title": "الأكواد المكررة",
@@ -432,7 +434,9 @@
       "issues": "الملاحظات",
       "ok": "سليم",
       "headingBadge": "عنوان قسم",
-      "headingNote": "عنوان قسم: لا كمية ولا سعر"
+      "headingNote": "عنوان قسم: لا كمية ولا سعر",
+      "skippedBadge": "اتخطّى",
+      "skippedNote": "الصف اتخطّى ومش هيدخل أمر التكليف"
     },
     "severity": {
       "error": "خطأ",
@@ -477,7 +481,7 @@
       "AMOUNT_MISMATCH": "القيمة في الملف تختلف عن الكمية × سعر الوحدة",
       "UNIT_FORM_VARIANT": "نفس الوحدة مكتوبة بشكل مختلف في الصفوف {otherRows}",
       "NOT_IN_CONTRACT": "الكود غير موجود في العقد",
-      "CONTRACT_MISMATCH": "{field} مختلف عن العقد ({contractValue})",
+      "CONTRACT_MISMATCH": "{field} مختلف عن العقد — هيتاخد من العقد: {contractValue}",
       "CODE_REPEATED": "الكود مكرر في الصفوف {otherRows}؛ البند يظهر مرة واحدة",
       "QUANTITY_EXCEEDS_CONTRACT": "الكمية أكبر من المتاح في العقد (المتاح {availableQuantity} من {contractQuantity})",
       "EMPTY_QUANTITY_SKIPPED": "الكمية فارغة: الصف لن يُضاف إلى أمر التكليف",
