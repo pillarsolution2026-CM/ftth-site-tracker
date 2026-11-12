@@ -11,7 +11,7 @@ from psycopg.types.json import Jsonb
 from cad_worker.adapters.job_message import CadImportJob
 from cad_worker.adapters.wkt import linestring_z, point_z
 from cad_worker.application.ports import ExtractionResult
-from cad_worker.domain.box_shapes import MAX_FILE_SHAPES
+from cad_worker.domain.box_shapes import MAX_BOX_SHAPE_BLOCK_NAMES, MAX_FILE_SHAPES
 from cad_worker.domain.model import CurveRow, InsertRow, LayerRow, TextRow
 
 COPY_INSERTS = (
@@ -20,8 +20,27 @@ COPY_INSERTS = (
 )
 # ADR-043: one preview per distinct insert shape of the file (migration 0023).
 COPY_FILE_SHAPES = (
-    "COPY cad_file_shapes (project_id, cad_file_id, shape_signature, preview) FROM STDIN"
+    "COPY cad_file_shapes (project_id, cad_file_id, shape_signature, insert_count, block_names, "
+    "preview) FROM STDIN"
 )
+MAX_BLOCK_NAME = 255
+
+
+class _FileShape:
+    """One distinct insert shape of the file: how many inserts, which block names, a preview."""
+
+    __slots__ = ("block_names", "count", "preview")
+
+    def __init__(self, preview: str | None) -> None:
+        self.count = 0
+        self.block_names: set[str] = set()
+        self.preview = preview
+
+    def row(self, ids: tuple[str, str], sig: str) -> tuple[Any, ...]:
+        names = sorted(self.block_names)[:MAX_BOX_SHAPE_BLOCK_NAMES]
+        return (*ids, sig, self.count, json.dumps(names, ensure_ascii=False), self.preview)
+
+
 COPY_TEXTS = (
     "COPY cad_texts (project_id, cad_file_id, handle, kind, layer, position, height, rotation, "
     "raw_text, text, readable, style, font, aci_color) FROM STDIN"
@@ -71,7 +90,7 @@ class PostgresSink:
         self._texts: list[tuple[Any, ...]] = []
         self._curves: list[tuple[Any, ...]] = []
         # Distinct insert shapes in drawing order; previews kept for the first MAX_FILE_SHAPES.
-        self._shapes: dict[str, str] = {}
+        self._shapes: dict[str, _FileShape] = {}
         self.committed = False
 
     @property
@@ -99,7 +118,7 @@ class PostgresSink:
         self._flush(COPY_CURVES, self._curves)
         self._flush(COPY_LAYERS, [self._layer_tuple(layer) for layer in result.layers])
         self._flush(
-            COPY_FILE_SHAPES, [(*self._ids, sig, preview) for sig, preview in self._shapes.items()]
+            COPY_FILE_SHAPES, [shape.row(self._ids, sig) for sig, shape in self._shapes.items()]
         )
         e = result.extents
         cur = self._conn.execute(
@@ -158,13 +177,20 @@ class PostgresSink:
         rows.clear()
 
     def _keep_shape(self, r: InsertRow) -> None:
-        """Beyond MAX_FILE_SHAPES the signature is still stored on the insert, without a preview
-        row (the gallery then shows no picture for that shape)."""
+        """Every distinct signature gets a row with its insert count and block names (≤ 20, each
+        ≤ 255 characters); the preview only for the first MAX_FILE_SHAPES shapes, NULL beyond (the
+        gallery then shows no picture for that shape)."""
         sig = r.shape_signature
-        if sig is None or sig in self._shapes or r.shape_preview is None:
+        if sig is None:
             return
-        if len(self._shapes) < MAX_FILE_SHAPES:
-            self._shapes[sig] = json.dumps(r.shape_preview, ensure_ascii=False)
+        shape = self._shapes.get(sig)
+        if shape is None:
+            keep = r.shape_preview is not None and len(self._shapes) < MAX_FILE_SHAPES
+            preview = json.dumps(r.shape_preview, ensure_ascii=False) if keep else None
+            shape = self._shapes[sig] = _FileShape(preview)
+        shape.count += 1
+        if len(shape.block_names) < MAX_BOX_SHAPE_BLOCK_NAMES or r.block_name in shape.block_names:
+            shape.block_names.add(r.block_name[:MAX_BLOCK_NAME])
 
     def _insert_tuple(self, r: InsertRow) -> tuple[Any, ...]:
         attrs = [
