@@ -13,7 +13,7 @@ import {
   type Reservations,
 } from '../contract-lines.js';
 import { Decimal } from '../decimal.js';
-import { summarize } from './import-summary.js';
+import { collapseWhitespace, duplicateGroups, summarize } from './import-summary.js';
 import type { ParsedImport } from './import-parser.js';
 
 type Params = NonNullable<ImportRowIssue['params']>;
@@ -36,10 +36,13 @@ function samePrice(row: ImportPreviewRow, item: ContractItemInfo): boolean {
 /** Fields of the row that differ from the contract item; only fields the row has a value for. */
 function mismatches(row: ImportPreviewRow, item: ContractItemInfo): ImportRowIssue[] {
   const found: ImportRowIssue[] = [];
-  if (row.description !== null && row.description.trim() !== item.description.trim()) {
+  if (
+    row.description !== null &&
+    collapseWhitespace(row.description) !== collapseWhitespace(item.description)
+  ) {
     found.push(issue('CONTRACT_MISMATCH', 'description', { contractValue: item.description }));
   }
-  if (row.unit !== null && row.unit.trim() !== item.unit.trim()) {
+  if (row.unit !== null && collapseWhitespace(row.unit) !== collapseWhitespace(item.unit)) {
     found.push(issue('CONTRACT_MISMATCH', 'unit', { contractValue: item.unit }));
   }
   if (!samePrice(row, item)) {
@@ -70,6 +73,30 @@ export function skipEmptyQuantity(row: ImportPreviewRow): ImportPreviewRow {
   };
 }
 
+const hasQuantityFormulaIssue = (row: ImportPreviewRow): boolean =>
+  row.issues.some((found) => found.code === 'FORMULA_WITHOUT_RESULT' && found.field === 'quantity');
+
+const isZeroQuantity = (quantity: string | null): boolean =>
+  quantity !== null && Decimal.parse(quantity).compare(Decimal.zero) === 0;
+
+/**
+ * Work-order rows that are not part of the order (ADR-044): a row on a contract heading code with
+ * an empty or zero quantity is skipped silently; any other empty quantity is skipped with the
+ * EMPTY_QUANTITY_SKIPPED warning. A quantity formula without a saved result is unreadable, not empty.
+ */
+function skipWithoutQuantity(
+  row: ImportPreviewRow,
+  headingCodes: ReadonlySet<string>,
+): ImportPreviewRow {
+  if (row.kind !== 'item' || row.code === null) return row;
+  const unreadable = hasQuantityFormulaIssue(row);
+  const noQuantity = row.raw.quantity === null && !unreadable;
+  if (headingCodes.has(row.code) && (noQuantity || (!unreadable && isZeroQuantity(row.quantity)))) {
+    return { ...row, kind: 'skipped', amount: null, issues: [] };
+  }
+  return unreadable ? row : skipEmptyQuantity(row);
+}
+
 /** The contract item a code refers to; with several of the same code, the one that equals the row. */
 function pickCandidate(
   row: ImportPreviewRow,
@@ -80,9 +107,9 @@ function pickCandidate(
 
 /**
  * Checks the item rows of a work-order sheet against the project's approved contract (ADR-028).
- * Matching is by code to a priced item; headings never match and are left untouched. Any
- * difference is an error: NOT_IN_CONTRACT, CONTRACT_MISMATCH (one per field), CODE_REPEATED,
- * QUANTITY_EXCEEDS_CONTRACT. DUPLICATE_CODE is replaced by CODE_REPEATED. `reservations` must not
+ * Matching is by code to a priced item; headings never match and are left untouched. Errors:
+ * NOT_IN_CONTRACT, CODE_REPEATED, QUANTITY_EXCEEDS_CONTRACT; a difference in description, unit,
+ * price or work type is only the warning CONTRACT_MISMATCH (ADR-044). DUPLICATE_CODE is replaced by CODE_REPEATED. `reservations` must not
  * include the sheet itself (the work order does not exist yet).
  */
 export function annotateAgainstContract(
@@ -90,7 +117,8 @@ export function annotateAgainstContract(
   contract: ApprovedContract,
   reservations: Reservations,
 ): ImportPreviewRow[] {
-  const rows = sheetRows.map(skipEmptyQuantity);
+  const headingCodes = new Set(contract.headingCodes);
+  const rows = sheetRows.map((row) => skipWithoutQuantity(row, headingCodes));
   const byCode = new Map<string, ContractItemInfo[]>();
   for (const item of contract.items)
     byCode.set(item.code, [...(byCode.get(item.code) ?? []), item]);
@@ -136,7 +164,11 @@ export function annotateAgainstContract(
         }
       }
     }
-    return { ...row, issues: [...issues, ...added] };
+    const priced =
+      item && row.quantity !== null
+        ? { amount: item.unitPrice.mul(Decimal.parse(row.quantity)).toString() }
+        : { amount: null };
+    return { ...row, ...priced, issues: [...issues, ...added] };
   });
 }
 
@@ -147,7 +179,9 @@ export function checkImportAgainstContract(
   reservations: Reservations,
 ): ParsedImport {
   const rows = annotateAgainstContract(parsed.rows, contract, reservations);
-  return { ...parsed, rows, summary: summarize(rows) };
+  // Only rows that count as items can repeat a code (skipped headings and totals do not).
+  const duplicateCodes = duplicateGroups(rows.filter((row) => row.kind === 'item'));
+  return { ...parsed, rows, summary: { ...summarize(rows), duplicateCodes } };
 }
 
 /** Contract item of an item row that passed the checks (same pick as the annotation). */
