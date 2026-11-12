@@ -7,6 +7,7 @@ import { DrizzleDrawingCorrectionRepository } from './drizzle-drawing-correction
 import { DrizzleDesignRevisionRepository } from './drizzle-design-revision.repository.js';
 import { DrizzleDrawingProblemRepository } from './drizzle-drawing-problem.repository.js';
 import { DrizzleGpsProposalRepository } from './drizzle-gps-proposal.repository.js';
+import { DrizzleBoxTypeRepository } from './drizzle-box-type.repository.js';
 import { DrizzleInstallationRepository } from './drizzle-installation.repository.js';
 import { DrizzleTextLinkRepository } from './drizzle-text-link.repository.js';
 
@@ -25,6 +26,7 @@ export class DrizzleCadUnitOfWork implements CadUnitOfWork {
         proposals: new DrizzleGpsProposalRepository(tx),
         corrections: new DrizzleDrawingCorrectionRepository(tx),
         installation: new DrizzleInstallationRepository(tx),
+        boxTypes: new DrizzleBoxTypeRepository(tx),
         events: new DrizzleEventLog(tx),
       }),
     );

@@ -23,6 +23,7 @@ import {
   PreviewWorkOrderImportUseCase,
 } from './application/import.use-cases.js';
 import type { ProjectCurrencyLookup, WorkbookReader } from './application/ports.js';
+import { FindWorkOrderLinesUseCase } from './application/work-order-lines.js';
 import { UpdateWorkOrderUseCase } from './application/update-work-order.use-case.js';
 import {
   AddWorkOrderItemUseCase,
@@ -52,6 +53,7 @@ import { WorkOrdersController } from './interface/work-orders.controller.js';
 import {
   ATTACHMENT_REPOSITORY,
   CONTRACT_CATALOG,
+  FIND_WORK_ORDER_LINES,
   PROJECT_CURRENCY_LOOKUP,
   WORK_ORDER_REPOSITORY,
   WORK_ORDER_UNIT_OF_WORK,
@@ -86,6 +88,11 @@ const providers: Provider[] = [
     useFactory: (db: Database) => new DrizzleContractCatalog(db),
   },
   { provide: WORKBOOK_READER, useValue: new ExcelJsWorkbookReader() },
+  {
+    provide: FIND_WORK_ORDER_LINES,
+    inject: [WORK_ORDER_REPOSITORY],
+    useFactory: (orders: WorkOrderRepository) => new FindWorkOrderLinesUseCase(orders),
+  },
   {
     provide: ListContractItemAvailabilityUseCase,
     inject: [CONTRACT_CATALOG, WORK_ORDER_REPOSITORY],
@@ -212,6 +219,8 @@ const providers: Provider[] = [
 @Module({
   imports: [IdentityModule, ProjectsModule],
   controllers: [WorkOrdersController, WorkOrderImportController, WorkOrderAttachmentsController],
+  // The cad module reads the work order's lines for box types (ADR-043) through this service.
+  exports: [FIND_WORK_ORDER_LINES],
   providers,
 })
 export class WorkOrdersModule {}

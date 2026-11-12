@@ -10,7 +10,9 @@ import {
 import { AppError } from '../../../common/app-error.js';
 import type { Clock } from '../../../common/clock.js';
 import type { CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
+import { boxTypesReportOf } from './box-types.use-cases.js';
 import { installationReportOf } from './installation.use-cases.js';
+import type { WorkOrderLines } from './ports.js';
 import { assertPublishable, type DesignRevision } from '../domain/design-revision.js';
 import {
   pairOpenItems,
@@ -21,12 +23,17 @@ import {
 } from '../domain/publish-readiness.js';
 
 /** Gathers what the publish rules need for one drawing; used by the checklist and by publishing. */
-async function publishFacts(tx: CadTx, revision: DesignRevision): Promise<PublishFacts> {
-  const [warnings, open, subCabinets, installation] = await Promise.all([
+async function publishFacts(
+  tx: CadTx,
+  workOrderLines: WorkOrderLines,
+  revision: DesignRevision,
+): Promise<PublishFacts> {
+  const [warnings, open, subCabinets, installation, boxTypes] = await Promise.all([
     tx.problems.warnings(revision.projectId, revision.id),
     tx.links.countOpenItems(revision.projectId, revision.id),
     tx.revisions.subCabinetCodes(revision.projectId, revision.id),
     installationReportOf(tx, revision),
+    boxTypesReportOf(tx, workOrderLines, revision),
   ]);
   const totals = problemTotalsOf(warnings);
   return {
@@ -37,13 +44,17 @@ async function publishFacts(tx: CadTx, revision: DesignRevision): Promise<Publis
     warningTotal: totals.warnings,
     subCabinets,
     installation,
+    boxTypes,
     open,
   };
 }
 
 /** GET …/publish-readiness: the ✅ / ❌ list shown before «نشر» (ADR-038, ADR-040). */
 export class GetPublishReadinessUseCase {
-  constructor(private readonly uow: CadUnitOfWork) {}
+  constructor(
+    private readonly uow: CadUnitOfWork,
+    private readonly workOrderLines: WorkOrderLines,
+  ) {}
 
   execute(projectId: string, revisionId: string): Promise<PublishReadiness> {
     return this.uow.run(async (tx) => {
@@ -55,9 +66,12 @@ export class GetPublishReadinessUseCase {
       );
       const other: OtherDraft | null =
         otherRevision?.status === 'draft'
-          ? { revisionId: otherRevision.id, facts: await publishFacts(tx, otherRevision) }
+          ? {
+              revisionId: otherRevision.id,
+              facts: await publishFacts(tx, this.workOrderLines, otherRevision),
+            }
           : null;
-      return publishReadiness(await publishFacts(tx, revision), other);
+      return publishReadiness(await publishFacts(tx, this.workOrderLines, revision), other);
     });
   }
 }
@@ -70,6 +84,8 @@ const BLOCKED_MESSAGE: Record<PublishBlockedDetails['reason'], string> = {
   PROBLEMS_OPEN: 'The drawing still has errors; fix them before publishing',
   INSTALLATION_UNCLEAR:
     'The installation of the General is unclear; answer the question and mark the trench parts',
+  BOX_TYPES_UNCLEAR:
+    'The box types of the Secondary are unclear; choose a work-order line for every box shape',
   CABINETS_MISMATCH:
     'The sub cabinets of the General and the Secondary do not match by name and count',
   OPEN_ITEMS: 'Open items must be acknowledged before publishing',
@@ -86,6 +102,7 @@ export class PublishDesignRevisionUseCase {
   constructor(
     private readonly uow: CadUnitOfWork,
     private readonly clock: Clock,
+    private readonly workOrderLines: WorkOrderLines,
   ) {}
 
   async execute(input: {
@@ -117,8 +134,8 @@ export class PublishDesignRevisionUseCase {
       if (other?.status !== 'draft') throw missing;
 
       const [facts, otherFacts] = await Promise.all([
-        publishFacts(tx, revision),
-        publishFacts(tx, other),
+        publishFacts(tx, this.workOrderLines, revision),
+        publishFacts(tx, this.workOrderLines, other),
       ]);
       const blocker = publishBlocker(facts, otherFacts);
       if (blocker) throw refuse(blocker);

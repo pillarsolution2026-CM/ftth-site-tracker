@@ -14,6 +14,7 @@ import type { DesignRevision } from '../domain/design-revision.js';
 import {
   FakeClock,
   InMemoryCadUnitOfWork,
+  InMemoryWorkOrderLines,
   RecordingJobQueue,
   type FakeLink,
 } from '../testing/in-memory.js';
@@ -142,7 +143,7 @@ const save = (mapping: Partial<CadMappingInput> = {}, project = PROJECT) =>
   });
 
 const create = (mappingVersion = 1, project = PROJECT) =>
-  new CreateDesignRevisionUseCase(uow, queue, clock, ids).execute({
+  new CreateDesignRevisionUseCase(uow, queue, clock, ids, new InMemoryWorkOrderLines()).execute({
     projectId: project,
     actorId: ACTOR,
     request: { cadFileId: FILE, mappingVersion },
@@ -170,7 +171,13 @@ async function addSecondaryDraft(patch: Partial<DesignRevision> = {}): Promise<D
       mapping: MAPPING,
     });
   }
-  const revision = await new CreateDesignRevisionUseCase(uow, queue, clock, ids).execute({
+  const revision = await new CreateDesignRevisionUseCase(
+    uow,
+    queue,
+    clock,
+    ids,
+    new InMemoryWorkOrderLines(),
+  ).execute({
     projectId: PROJECT,
     actorId: ACTOR,
     request: { cadFileId: SEC_FILE, mappingVersion: 1 },
@@ -455,7 +462,7 @@ describe('review, publish and discard', () => {
     });
   const publish = async (acknowledgeOpenItems = false) => {
     if (!(await uow.revisions.hasOpen(PROJECT, 'secondary'))) await addSecondaryDraft();
-    return new PublishDesignRevisionUseCase(uow, clock).execute({
+    return new PublishDesignRevisionUseCase(uow, clock, new InMemoryWorkOrderLines()).execute({
       projectId: PROJECT,
       revisionId,
       actorId: ACTOR,
@@ -605,7 +612,11 @@ describe('review, publish and discard', () => {
     const next = await create();
     uow.revisions.rows.set(next.id, { ...next, status: 'draft', placement: USED_POINT });
     await addSecondaryDraft();
-    const second = await new PublishDesignRevisionUseCase(uow, clock).execute({
+    const second = await new PublishDesignRevisionUseCase(
+      uow,
+      clock,
+      new InMemoryWorkOrderLines(),
+    ).execute({
       projectId: PROJECT,
       revisionId: next.id,
       actorId: ACTOR,
@@ -910,9 +921,10 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
   });
   const setRevision = (patch: Record<string, unknown>) =>
     uow.revisions.rows.set(revisionId, { ...must(uow.revisions.rows.get(revisionId)), ...patch });
-  const readiness = () => new GetPublishReadinessUseCase(uow).execute(PROJECT, revisionId);
+  const readiness = () =>
+    new GetPublishReadinessUseCase(uow, new InMemoryWorkOrderLines()).execute(PROJECT, revisionId);
   const publish = (acknowledgeOpenItems = true) =>
-    new PublishDesignRevisionUseCase(uow, clock).execute({
+    new PublishDesignRevisionUseCase(uow, clock, new InMemoryWorkOrderLines()).execute({
       projectId: PROJECT,
       revisionId,
       actorId: ACTOR,
@@ -1081,6 +1093,7 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
         { key: 'other_drawing', ok: false, count: 6 },
         { key: 'cabinets_match', ok: true, count: 0 },
         { key: 'installation', ok: true, count: 0 },
+        { key: 'box_types', ok: true, count: null },
       ],
       canPublish: false,
       drawingKind: 'general',
@@ -1106,6 +1119,7 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       { key: 'other_drawing', ok: false, count: 6 },
       { key: 'cabinets_match', ok: true, count: 0 },
       { key: 'installation', ok: true, count: 0 },
+      { key: 'box_types', ok: true, count: null },
     ]);
     expect(result).toMatchObject({ canPublish: false, needsAcknowledgement: true });
   });
@@ -1153,7 +1167,10 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
     it('compares as general vs secondary whichever draft is asked', async () => {
       uow.revisions.subCabinets.set(revisionId, ['1-1']);
       uow.revisions.subCabinets.set(secondary.id, []);
-      const asSecondary = await new GetPublishReadinessUseCase(uow).execute(PROJECT, secondary.id);
+      const asSecondary = await new GetPublishReadinessUseCase(
+        uow,
+        new InMemoryWorkOrderLines(),
+      ).execute(PROJECT, secondary.id);
       expect(asSecondary.cabinets).toMatchObject({
         general: { count: 1, missingInOther: ['1-1'] },
         secondary: { count: 0 },
@@ -1219,7 +1236,14 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
 
   it('answers 404 for another project', async () => {
     expect(
-      (await reason(new GetPublishReadinessUseCase(uow).execute(OTHER_PROJECT, revisionId))).code,
+      (
+        await reason(
+          new GetPublishReadinessUseCase(uow, new InMemoryWorkOrderLines()).execute(
+            OTHER_PROJECT,
+            revisionId,
+          ),
+        )
+      ).code,
     ).toBe('NOT_FOUND');
   });
 
@@ -1338,7 +1362,10 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
     it('is always ok on a Secondary, whose other_drawing needs the General installation clear', async () => {
       uow.revisions.rows.set(secondary.id, { ...secondary, placement: placement([false]) });
       setRevision({ installation: frozen(null) });
-      const asSecondary = await new GetPublishReadinessUseCase(uow).execute(PROJECT, secondary.id);
+      const asSecondary = await new GetPublishReadinessUseCase(
+        uow,
+        new InMemoryWorkOrderLines(),
+      ).execute(PROJECT, secondary.id);
       expect(asSecondary.checks.find((c) => c.key === 'installation')).toEqual({
         key: 'installation',
         ok: true,
@@ -1348,7 +1375,10 @@ describe('publish readiness and gate (ADR-038, ADR-040)', () => {
       expect(asSecondary.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(false);
       expect(asSecondary.canPublish).toBe(false);
       setRevision({ installation: frozen('pull_only') });
-      const clear = await new GetPublishReadinessUseCase(uow).execute(PROJECT, secondary.id);
+      const clear = await new GetPublishReadinessUseCase(uow, new InMemoryWorkOrderLines()).execute(
+        PROJECT,
+        secondary.id,
+      );
       expect(clear.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(true);
       expect(clear.canPublish).toBe(true);
     });
@@ -1376,7 +1406,13 @@ describe('drawing kinds on revisions (ADR-040)', () => {
       FILE,
       processedFile({ supersededAt: clock.now(), supersededById: SEC_FILE }),
     );
-    const rebuild = new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+    const rebuild = new RebuildDesignRevisionUseCase(
+      uow,
+      queue,
+      clock,
+      ids,
+      new InMemoryWorkOrderLines(),
+    ).execute({
       projectId: PROJECT,
       revisionId: revision.id,
       actorId: ACTOR,
@@ -1416,7 +1452,13 @@ describe('drawing kinds on revisions (ADR-040)', () => {
     });
     expect(uow.revisions.rows.get(first.id)?.installation?.answer).toBe('pull_only');
     uow.revisions.rows.set(first.id, { ...first, status: 'draft' });
-    const rebuilt = await new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+    const rebuilt = await new RebuildDesignRevisionUseCase(
+      uow,
+      queue,
+      clock,
+      ids,
+      new InMemoryWorkOrderLines(),
+    ).execute({
       projectId: PROJECT,
       revisionId: first.id,
       actorId: ACTOR,

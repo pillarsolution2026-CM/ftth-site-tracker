@@ -721,6 +721,7 @@ describe('publishing the pair', () => {
       ['other_drawing', false, 4],
       ['cabinets_match', true, 0],
       ['installation', true, 0],
+      ['box_types', true, null],
     ]);
     expect(ready).toMatchObject({ canPublish: false, otherRevisionId: secondary.id });
 
