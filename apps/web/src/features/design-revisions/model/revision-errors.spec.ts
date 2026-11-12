@@ -123,3 +123,32 @@ describe('INSTALLATION_UNCLEAR refusal (ADR-042)', () => {
     expect(publishBlockedOf(new ApiClientError('CONFLICT', 409, details))).toEqual(details);
   });
 });
+
+describe('BOX_TYPES_UNCLEAR refusal (ADR-043)', () => {
+  const shape = `v1-${'a'.repeat(64)}`;
+  const details: PublishBlockedDetails = {
+    reason: 'BOX_TYPES_UNCLEAR',
+    drawingKind: 'secondary',
+    issueCount: 2,
+    issues: [
+      { code: 'BOX_TYPE_UNSET', shape, boxCount: 197, workOrderLineId: null },
+      { code: 'WORK_ORDER_MISSING', shape: null, boxCount: null, workOrderLineId: null },
+    ],
+  };
+
+  it('names the drawing and lists every issue, in each language', () => {
+    for (const locale of ['en', 'ar', 'fr'] as const) {
+      const { key, params } = publishBlockedMessage(details, locale);
+      const text = translate(locale, key, params);
+      expect(text).toContain('aaaaaa');
+      expect(text).toContain('197');
+      expect(text).not.toBe(key);
+    }
+    const { key, params } = publishBlockedMessage(details, 'en');
+    expect(translate('en', key, params)).toMatch(/box types .* unclear/);
+  });
+
+  it('is read out of the 409 details', () => {
+    expect(publishBlockedOf(new ApiClientError('CONFLICT', 409, details))).toEqual(details);
+  });
+});

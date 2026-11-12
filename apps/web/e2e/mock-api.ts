@@ -67,6 +67,8 @@ import {
 } from './mock-contractors.ts';
 import {
   MOCK_DETECTION,
+  provideOrderLines,
+  handleBoxTypes,
   handleDesignRevisions,
   handleGeneralCabinets,
   handleInstallation,
@@ -212,6 +214,17 @@ interface WorkOrderRecord {
 }
 
 const workOrders = new Map<string, WorkOrderRecord>();
+
+// ADR-043: the box-type mock reads the project's work-order lines (the type list).
+provideOrderLines(() => {
+  const own = [...workOrders.values()].filter((w) => w.projectId === PROJECT_ID);
+  return {
+    exists: own.length > 0,
+    lines: own.flatMap((w) =>
+      w.items.map((item) => ({ id: item.id, code: item.code, description: item.description })),
+    ),
+  };
+});
 
 function itemOut(workOrderId: string, item: ItemRecord) {
   const now = new Date().toISOString();
@@ -1258,6 +1271,7 @@ async function handleCad(
   }
   if (sub === 'mapping') return handleMapping(req, res, method, mockCad(file), helpers);
   // ADR-042: the General's installation question and trench marks; the Secondary's points.
+  if (sub === 'box-types') return handleBoxTypes(req, res, method, mockCad(file), helpers);
   if (sub === 'installation') {
     return handleInstallation(req, res, method, mockCad(file), [subId, subSub, subSubSub], helpers);
   }
