@@ -13,7 +13,7 @@ import tempfile
 import time
 import uuid
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -33,6 +33,12 @@ from cad_worker.application.ports import (
     RevisionRows,
     TextLinkRow,
     TileLimitError,
+)
+from cad_worker.domain.box_reading import read_box_shapes
+from cad_worker.domain.box_shapes import (
+    BoxTypeOnBox,
+    BoxTypesInvalidError,
+    parse_frozen_box_types,
 )
 from cad_worker.domain.corrections import (
     CorrectionInvalidError,
@@ -108,6 +114,8 @@ class DesignBuild:
     # ADR-041 `counts.reading` (roles reading mode only) and a log line about the reading.
     reading_totals: dict[str, object] | None = None
     reading_log: str | None = None
+    # ADR-043 gallery of a roles-mode Secondary (`design_revisions.box_shapes`), else None.
+    box_shapes: dict[str, object] | None = None
 
 
 def run_build(job: CadBuildRevisionJob, deps: BuildDeps, worker_id: str) -> Outcome:
@@ -148,7 +156,13 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
                 float(inputs.metres_per_unit),  # geometry only; the exact factor stays stored
             )
             corrections = parse_corrections(inputs.corrections)
-        except (MappingInvalidError, PlacementInvalidError, CorrectionInvalidError) as exc:
+            box_types = parse_frozen_box_types(inputs.box_types)
+        except (
+            MappingInvalidError,
+            PlacementInvalidError,
+            CorrectionInvalidError,
+            BoxTypesInvalidError,
+        ) as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         kind = inputs.drawing_kind
         if kind not in DRAWING_KINDS:
@@ -169,7 +183,17 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
         except CorrectionInvalidError as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         base = tx.load_base()
-        design = compose_design(drawing, rules, place, base, deps.new_id, kind)
+        previews = tx.load_shape_previews() if box_types_apply(kind, rules) else {}
+        design = compose_design(
+            drawing,
+            rules,
+            place,
+            base,
+            deps.new_id,
+            kind,
+            box_types=box_types,
+            shape_previews=previews,
+        )
         route_length = tx.write(design.rows)
         built_s = time.monotonic() - started
         key, tiles_log = _tiles(job, tx, deps, design.background)
@@ -192,6 +216,11 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
     return "built"
 
 
+def box_types_apply(drawing_kind: str, rules: MappingRules) -> bool:
+    """Box types are a Secondary reading by roles (`boxTypesApply`, ADR-043)."""
+    return drawing_kind == "secondary" and rules.reading_mode == "roles"
+
+
 def compose_design(
     drawing: DrawingData,
     rules: MappingRules,
@@ -199,6 +228,9 @@ def compose_design(
     base: Sequence[BaseFeature],
     new_id: Callable[[], UUID],
     drawing_kind: DrawingKind = "general",
+    *,
+    box_types: Mapping[str, BoxTypeOnBox] | None = None,
+    shape_previews: Mapping[str, Mapping[str, object]] | None = None,
 ) -> DesignBuild:
     """Rules -> features -> text links -> box codes -> match against the base. Pure.
 
@@ -228,6 +260,10 @@ def compose_design(
     else:
         codes = box_codes(links, built.features)
         features = [_with_links(f, codes.get(f.key), linked.get(f.key)) for f in built.features]
+    gallery = None
+    if box_types_apply(drawing_kind, rules):
+        shapes = read_box_shapes(features, drawing, shape_previews or {}, box_types or {})
+        features, gallery = shapes.features, shapes.gallery
     match = match_revision(features, base, new_id)
     types = {fid: f.feature_type for f in features if (fid := match.ids[f.key]) in match.new_ids}
     rows = RevisionRows(
@@ -271,6 +307,7 @@ def compose_design(
         problems=problems_json(found, features, names, place),
         reading_totals=totals,
         reading_log=reading_log,
+        box_shapes=gallery,
     )
 
 
@@ -394,8 +431,14 @@ def _summary(
         f"route length: {route_length:.3f} m (zero-length skipped: {design.zero_length_routes})",
         "text links: " + " ".join(f"{s}={n}" for s, n in design.text_link_counts.items()),
         "diff: " + " ".join(f"{c}={n}" for c, n in design.diff_counts.items()),
-        *timings,
     ]
+    if design.box_shapes is not None:
+        g = design.box_shapes
+        lines.append(
+            f"box shapes: {g['shapeCount']} shapes, {g['boxCount']} boxes, "
+            f"{g['boxesWithoutShape']} without a shape"
+        )
+    lines.extend(timings)
     counts: dict[str, object] = {
         "features": design.feature_counts,
         "routeLengthM": f"{route_length:.3f}",
@@ -410,4 +453,5 @@ def _summary(
         tiles_storage_key=tiles_key,
         warnings=warnings,
         log="\n".join(lines),
+        box_shapes=design.box_shapes,
     )

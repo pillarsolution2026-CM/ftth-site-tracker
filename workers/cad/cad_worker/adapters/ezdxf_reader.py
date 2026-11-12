@@ -12,6 +12,7 @@ from ezdxf.math import Vec3
 from ezdxf.tools.text import plain_mtext
 
 from cad_worker.adapters.ezdxf_curves import CURVE_TYPES, curve_from_entity, to_wcs
+from cad_worker.adapters.ezdxf_shapes import InsertShapes
 from cad_worker.application.ports import DrawingSource, ImportFailure
 from cad_worker.domain.flatten import FLATTEN_TOLERANCE
 from cad_worker.domain.model import (
@@ -56,6 +57,7 @@ class EzdxfSource:
         self._decoder = decoder
         self._tolerance = tolerance
         self._fonts = {s.dxf.name.lower(): str(s.dxf.get("font", "")) or None for s in doc.styles}
+        self._shapes = InsertShapes()
 
     def features(self) -> Iterator[Feature]:
         for entity in self._doc.modelspace():
@@ -86,6 +88,8 @@ class EzdxfSource:
 
     def _insert(self, e: Any) -> InsertRow:
         attributes = tuple(self._attribute(a) for a in e.attribs)
+        # Next to the drawn centre: what the symbol looks like (ADR-043).
+        shape = self._shapes.read(e)
         return InsertRow(
             handle=str(e.dxf.handle),
             layer=_clean(str(e.dxf.layer)),
@@ -100,6 +104,8 @@ class EzdxfSource:
             aci_color=_aci(e),
             attributes=attributes,
             centre=_drawn_centre(e),
+            shape_signature=shape[0] if shape else None,
+            shape_preview=shape[1] if shape else None,
         )
 
     def _attribute(self, a: Any) -> Attribute:

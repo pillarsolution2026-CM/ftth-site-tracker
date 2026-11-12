@@ -159,18 +159,19 @@ def queue_revision(
     placement: object = None,
     corrections: Sequence[object] = (),
     drawing_kind: str = "general",
+    box_types: object = None,
 ) -> QueuedRevision:
     revision_id, job_id = uuid.uuid4(), uuid.uuid4()
     factor = {"m": Decimal("1"), "in": Decimal("0.0254")}[unit]
     db.execute(
         "INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, "
         "base_revision_id, rules, mapping_version, crs_epsg, drawing_unit, metres_per_unit, "
-        "placement, corrections, ins_units, units_conflict, drawing_kind) "
-        "VALUES (%s, %s, %s, 'queued', %s, %s, %s, 1, 32636, %s, %s, %s, %s, 1, true, %s)",
+        "placement, corrections, ins_units, units_conflict, drawing_kind, box_types) "
+        "VALUES (%s, %s, %s, 'queued', %s, %s, %s, 1, 32636, %s, %s, %s, %s, 1, true, %s, %s)",
         (revision_id, seeded.project_id, seeded.cad_file_id, job_id, base_revision_id,
          json.dumps(RULES if rules is None else rules), unit, factor,
          None if placement is None else json.dumps(placement), json.dumps(list(corrections)),
-         drawing_kind),
+         drawing_kind, None if box_types is None else json.dumps(box_types)),
     )  # fmt: skip
     return QueuedRevision(seeded.project_id, seeded.cad_file_id, revision_id, job_id)
 

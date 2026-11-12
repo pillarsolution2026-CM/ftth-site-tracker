@@ -47,7 +47,7 @@ WHERE id = %s AND project_id = %s AND current_job_id = %s AND status IN ('queued
 """
 LOCK_SQL = """
 SELECT cad_file_id, base_revision_id, rules, crs_epsg, drawing_unit, metres_per_unit, placement,
-  corrections, drawing_kind
+  corrections, drawing_kind, box_types
 FROM design_revisions
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'building'
 FOR UPDATE
@@ -67,11 +67,15 @@ WHERE cad_file_id = %s AND project_id = %s AND (layer = ANY(%s) OR handle = ANY(
 ORDER BY handle
 """
 # A symbol's position is the centre of what it draws (ADR-032); files processed before migration
-# 0010 have no centre and keep the insertion point.
+# 0010 have no centre and keep the insertion point. Its shape (ADR-043) is NULL before 0023.
 INSERTS_SQL = """
 SELECT handle, layer, block_name, ST_X(COALESCE(centre, position)),
-  ST_Y(COALESCE(centre, position)), attributes
+  ST_Y(COALESCE(centre, position)), attributes, shape_signature
 FROM cad_inserts WHERE cad_file_id = %s AND project_id = %s ORDER BY handle
+"""
+SHAPE_PREVIEWS_SQL = """
+SELECT shape_signature, preview FROM cad_file_shapes
+WHERE cad_file_id = %s AND project_id = %s AND preview IS NOT NULL
 """
 TEXTS_SQL = """
 SELECT handle, layer, ST_X(position), ST_Y(position), height, raw_text, text, readable
@@ -115,7 +119,7 @@ WHERE revision_id = %s AND project_id = %s AND feature_type = 'route'
 FINISH_SQL = """
 UPDATE design_revisions SET status = 'draft', built_at = now(), counts = %s,
   text_link_counts = %s, diff_counts = %s, tiles_storage_key = %s, warnings = %s, log = %s,
-  error_code = NULL, error_message = NULL
+  box_shapes = %s, error_code = NULL, error_message = NULL
 WHERE id = %s AND project_id = %s AND current_job_id = %s AND status = 'building'
 """
 FAIL_SQL = """
@@ -189,6 +193,7 @@ class PostgresRevisionRepository:
                 placement=row[6],
                 corrections=row[7],
                 drawing_kind=str(row[8]),
+                box_types=row[9],
             )
             build = PostgresRevisionBuild(conn, job, inputs)
             yield build
@@ -267,8 +272,9 @@ class PostgresRevisionBuild:
                     )
                     for a in attrs
                 ),
+                str(shape) if shape is not None else None,
             )
-            for h, layer, block, x, y, attrs in self._conn.execute(INSERTS_SQL, self._ids)
+            for h, layer, block, x, y, attrs, shape in self._conn.execute(INSERTS_SQL, self._ids)
         )
         texts = tuple(
             SourceText(
@@ -285,6 +291,13 @@ class PostgresRevisionBuild:
             )
         )
         return DrawingData(curves, inserts, texts)
+
+    def load_shape_previews(self) -> dict[str, dict[str, object]]:
+        return {
+            str(sig): dict(preview)
+            for sig, preview in self._conn.execute(SHAPE_PREVIEWS_SQL, self._ids)
+            if isinstance(preview, dict)
+        }
 
     def load_base(self) -> tuple[BaseFeature, ...]:
         base = self.inputs.base_revision_id
@@ -402,6 +415,7 @@ class PostgresRevisionBuild:
                 summary.tiles_storage_key,
                 Jsonb(summary.warnings),
                 pg_text(summary.log),
+                Jsonb(summary.box_shapes) if summary.box_shapes is not None else None,
                 job.revision_id,
                 job.project_id,
                 job.id,
@@ -420,10 +434,28 @@ class PostgresRevisionBuild:
                 "textLinkCounts": summary.text_link_counts,
                 "diffCounts": summary.diff_counts,
                 "hasTiles": summary.tiles_storage_key is not None,
+                "boxShapes": _gallery_summary(summary.box_shapes),
             },
         )
         self._conn.commit()
         self.committed = True
+
+
+def _gallery_summary(gallery: dict[str, object] | None) -> dict[str, object] | None:
+    """The event carries the gallery's numbers; the gallery itself is in `box_shapes`."""
+    if gallery is None:
+        return None
+    shapes = gallery.get("shapes")
+    return {
+        "boxCount": gallery.get("boxCount"),
+        "shapeCount": gallery.get("shapeCount"),
+        "boxesWithoutShape": gallery.get("boxesWithoutShape"),
+        "shapes": [
+            {"shape": s.get("shape"), "count": s.get("count")}
+            for s in (shapes if isinstance(shapes, list) else [])
+            if isinstance(s, dict)
+        ],
+    }
 
 
 def _feature_type(value: object) -> FeatureType:
