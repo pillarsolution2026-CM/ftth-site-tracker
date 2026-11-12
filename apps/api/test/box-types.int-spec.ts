@@ -628,7 +628,14 @@ describe('freezing on the design revision', () => {
       (await q('SELECT box_types FROM design_revisions WHERE id = $1', [revision])).rows[0]
         ?.box_types,
     ).toBeNull();
-    expect(await report(legacy, revision)).toMatchObject({ applies: false, ok: true });
+    // ADR-043 L3: a Secondary without text roles is an error, not "not applicable".
+    expect(await report(legacy, revision)).toMatchObject({
+      applies: true,
+      ok: false,
+      issueCount: 1,
+      issues: [{ code: 'READING_ROLES_MISSING' }],
+      totals: null,
+    });
   });
 });
 
@@ -763,6 +770,30 @@ describe('readiness and publishing (BOX_TYPES_UNCLEAR)', () => {
       'BOX_SHAPES_TOO_MANY',
       'BOX_TYPE_UNSET',
     ]);
+  });
+
+  it('refuses a Secondary mapped without text roles (READING_ROLES_MISSING), also via the General', async () => {
+    const sc = await scenario();
+    const general = await generalDraft(sc);
+    const version = await saveMapping(sc, sc.secondary, ROUTE_RULES);
+    const legacy = await createRevision(sc, sc.secondary, version);
+    await markDraft(legacy, null);
+    const ready = await readiness(sc, legacy);
+    expect(ready.checks.at(-1)).toEqual({ key: 'box_types', ok: false, count: 1 });
+    expect(ready.canPublish).toBe(false);
+    expect((await readiness(sc, general)).checks.find((c) => c.key === 'other_drawing')?.ok).toBe(
+      false,
+    );
+    for (const target of [general, legacy]) {
+      const blocked = await publish(sc, target);
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.details).toMatchObject({
+        reason: 'BOX_TYPES_UNCLEAR',
+        drawingKind: 'secondary',
+        issueCount: 1,
+        issues: [{ code: 'READING_ROLES_MISSING' }],
+      });
+    }
   });
 
   it('reports a missing work order', async () => {

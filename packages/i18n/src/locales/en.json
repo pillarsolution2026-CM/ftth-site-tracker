@@ -1555,6 +1555,7 @@
         "TOO_MANY_CHOICES": "The maximum number of box-type choices for this file is reached."
       },
       "issue": {
+        "READING_ROLES_MISSING": "The Secondary was mapped without «text meaning». Set the meaning of the layers' texts on the mapping screen and rebuild.",
         "WORK_ORDER_MISSING": "The project has no work order, so no line can be chosen. Create the work order first.",
         "BOX_SHAPES_NOT_READ": "The box shapes were not read yet. Rebuild the drawing.",
         "BOX_SHAPE_UNKNOWN": "{count} boxes have an unread shape. Reprocess the file, then rebuild.",

@@ -187,6 +187,24 @@ describe('label', () => {
 });
 
 describe('evaluateBoxTypes', () => {
+  it('a Secondary mapped without text roles is one blocking issue, no totals', () => {
+    const r = evaluateBoxTypes({
+      applies: false,
+      rolesMissing: true,
+      gallery: null,
+      frozen: null,
+      workOrderExists: true,
+      workOrderLineIds: new Set(),
+    });
+    expect(r).toMatchObject({
+      applies: true,
+      ok: false,
+      issueCount: 1,
+      totals: null,
+      issues: [{ code: 'READING_ROLES_MISSING', shape: null, boxCount: null }],
+    });
+  });
+
   it('not applicable → ok, nothing listed', () => {
     const r = evaluateBoxTypes({
       applies: false,

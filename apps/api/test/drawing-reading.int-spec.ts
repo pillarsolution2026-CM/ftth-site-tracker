@@ -9,6 +9,7 @@ import { Redis } from 'ioredis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { loginAs, SEED_LOGINS } from './support/helpers.js';
+import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 
@@ -280,6 +281,7 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
           }),
         ],
       );
+      await makeBoxTypesClear(ctx.pool, created.body.id);
     }
     return { project, general: ids.general, secondary: ids.secondary };
   }
@@ -429,8 +431,8 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
         ['cabinets_match', true, 0],
         // The Secondary is never asked: ok with no count.
         ['installation', true, revision === pair.general ? 0 : null],
-        // The pair's Secondary here is read in legacy mode: no box types to choose.
-        ['box_types', true, null],
+        // The Secondary is read by roles with no boxes: clear, 0 issues.
+        ['box_types', true, revision === pair.general ? null : 0],
       ]);
       expect(ready).toMatchObject({
         canPublish: true,
