@@ -62,6 +62,8 @@ class InsertRow:
     # (`BoxShapePreview` JSON, shared between inserts of one shape); None when not read.
     shape_signature: str | None = None
     shape_preview: Mapping[str, object] | None = field(default=None, compare=False)
+    # The symbol used up its explosion budget (shape not read, insertion point as position).
+    too_complex: bool = False
 
 
 @dataclass(frozen=True, slots=True)

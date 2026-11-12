@@ -219,8 +219,8 @@ def test_reader_gives_one_shape_per_look(tmp_path: Path) -> None:
     [text] = texts
     assert text["text"] == "8" and text["rotation"] == 0.0
     assert text["height"] == pytest.approx(0.4 / 4.0)  # the symbol's larger side is 4
-    # The same preview object is shared by every insert of one look.
-    assert by_hint["c"].shape_preview == preview
+    # A preview is computed once per look and carried by its first insert only (review M2).
+    assert [r.shape_preview is not None for r in rows].count(True) == 3  # a; e mirrored; f
 
 
 def test_an_unreadable_symbol_has_no_shape(tmp_path: Path) -> None:

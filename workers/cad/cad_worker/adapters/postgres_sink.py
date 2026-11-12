@@ -11,7 +11,12 @@ from psycopg.types.json import Jsonb
 from cad_worker.adapters.job_message import CadImportJob
 from cad_worker.adapters.wkt import linestring_z, point_z
 from cad_worker.application.ports import ExtractionResult
-from cad_worker.domain.box_shapes import MAX_BOX_SHAPE_BLOCK_NAMES, MAX_FILE_SHAPES
+from cad_worker.domain.box_shapes import (
+    MAX_BLOCK_NAME,
+    MAX_BOX_SHAPE_BLOCK_NAMES,
+    MAX_FILE_SHAPES,
+    utf16_cut,
+)
 from cad_worker.domain.model import CurveRow, InsertRow, LayerRow, TextRow
 
 COPY_INSERTS = (
@@ -23,7 +28,6 @@ COPY_FILE_SHAPES = (
     "COPY cad_file_shapes (project_id, cad_file_id, shape_signature, insert_count, block_names, "
     "preview) FROM STDIN"
 )
-MAX_BLOCK_NAME = 255
 
 
 class _FileShape:
@@ -190,7 +194,7 @@ class PostgresSink:
             shape = self._shapes[sig] = _FileShape(preview)
         shape.count += 1
         if len(shape.block_names) < MAX_BOX_SHAPE_BLOCK_NAMES or r.block_name in shape.block_names:
-            shape.block_names.add(r.block_name[:MAX_BLOCK_NAME])
+            shape.block_names.add(utf16_cut(r.block_name, MAX_BLOCK_NAME))
 
     def _insert_tuple(self, r: InsertRow) -> tuple[Any, ...]:
         attrs = [
