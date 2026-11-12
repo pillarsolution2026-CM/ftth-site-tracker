@@ -80,18 +80,24 @@ const isZeroQuantity = (quantity: string | null): boolean =>
   quantity !== null && Decimal.parse(quantity).compare(Decimal.zero) === 0;
 
 /**
- * Work-order rows that are not part of the order (ADR-044): a row on a contract heading code with
- * an empty or zero quantity is skipped silently; any other empty quantity is skipped with the
- * EMPTY_QUANTITY_SKIPPED warning. A quantity formula without a saved result is unreadable, not empty.
+ * Work-order rows that are not part of the order (ADR-044), skipped silently when the quantity is
+ * empty or zero: a row on a contract heading code, and a heading of the file only — a code that is
+ * neither an item nor a heading of the contract, with an empty unit (owner, 2026-11-12). Any other
+ * empty quantity is skipped with the EMPTY_QUANTITY_SKIPPED warning. A quantity formula without a
+ * saved result is unreadable, not empty.
  */
 function skipWithoutQuantity(
   row: ImportPreviewRow,
   headingCodes: ReadonlySet<string>,
+  itemCodes: ReadonlySet<string>,
 ): ImportPreviewRow {
   if (row.kind !== 'item' || row.code === null) return row;
   const unreadable = hasQuantityFormulaIssue(row);
   const noQuantity = row.raw.quantity === null && !unreadable;
-  if (headingCodes.has(row.code) && (noQuantity || (!unreadable && isZeroQuantity(row.quantity)))) {
+  const emptyOrZero = noQuantity || (!unreadable && isZeroQuantity(row.quantity));
+  const fileHeading =
+    !headingCodes.has(row.code) && !itemCodes.has(row.code) && row.raw.unit === null;
+  if (emptyOrZero && (headingCodes.has(row.code) || fileHeading)) {
     return { ...row, kind: 'skipped', amount: null, issues: [] };
   }
   return unreadable ? row : skipEmptyQuantity(row);
@@ -118,7 +124,8 @@ export function annotateAgainstContract(
   reservations: Reservations,
 ): ImportPreviewRow[] {
   const headingCodes = new Set(contract.headingCodes);
-  const rows = sheetRows.map((row) => skipWithoutQuantity(row, headingCodes));
+  const itemCodes = new Set(contract.items.map((item) => item.code));
+  const rows = sheetRows.map((row) => skipWithoutQuantity(row, headingCodes, itemCodes));
   const byCode = new Map<string, ContractItemInfo[]>();
   for (const item of contract.items)
     byCode.set(item.code, [...(byCode.get(item.code) ?? []), item]);
