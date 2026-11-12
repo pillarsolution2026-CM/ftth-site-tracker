@@ -383,7 +383,8 @@
       "usedTwice": "Cette colonne est utilisée pour plusieurs champs",
       "reread": "Relire le fichier avec ces réglages",
       "unapplied": "Vos modifications ne sont pas encore appliquées aux lignes",
-      "requiredHint": "Les champs marqués * sont obligatoires."
+      "requiredHint": "Les champs marqués * sont obligatoires.",
+      "workOrderNote": "Seuls le code et la quantité sont pris dans le fichier. La désignation, l'unité, le prix et le type de travaux viennent du contrat ; ces colonnes ici servent seulement à comparer."
     },
     "fields": {
       "code": "Code",
@@ -402,7 +403,8 @@
       "errors": "Lignes en erreur",
       "warnings": "Lignes avec avertissements",
       "computedTotal": "Total calculé",
-      "headings": "Lignes de titre"
+      "headings": "Lignes de titre",
+      "skipped": "Lignes ignorées"
     },
     "duplicates": {
       "title": "Codes répétés",
@@ -432,7 +434,9 @@
       "issues": "Remarques",
       "ok": "OK",
       "headingBadge": "Titre de section",
-      "headingNote": "Titre de section : ni quantité ni prix"
+      "headingNote": "Titre de section : ni quantité ni prix",
+      "skippedBadge": "Ignorée",
+      "skippedNote": "Ligne ignorée : elle n'est pas ajoutée à l'ordre de travail"
     },
     "severity": {
       "error": "Erreur",
@@ -477,7 +481,7 @@
       "AMOUNT_MISMATCH": "Le montant de la feuille diffère de quantité × prix unitaire",
       "UNIT_FORM_VARIANT": "La même unité est saisie différemment dans les lignes {otherRows}",
       "NOT_IN_CONTRACT": "Le code n'est pas dans le contrat",
-      "CONTRACT_MISMATCH": "{field} diffère du contrat ({contractValue})",
+      "CONTRACT_MISMATCH": "{field} diffère du contrat — la valeur du contrat est utilisée : {contractValue}",
       "CODE_REPEATED": "Le code est répété aux lignes {otherRows} ; un article apparaît une fois",
       "QUANTITY_EXCEEDS_CONTRACT": "La quantité dépasse le disponible du contrat (disponible {availableQuantity} sur {contractQuantity})",
       "EMPTY_QUANTITY_SKIPPED": "Quantité vide : la ligne est ignorée et n'est pas ajoutée à l'ordre de travail",

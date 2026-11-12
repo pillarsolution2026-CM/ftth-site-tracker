@@ -66,7 +66,16 @@ export class DrizzleContractCatalog implements ContractCatalog {
         quantity: Decimal.parse(row.quantity),
       });
     }
-    return { id: contract.id, number: contract.number, items };
+    const headings = await this.db
+      .select({ code: contractItems.code })
+      .from(contractItems)
+      .where(and(eq(contractItems.contractId, contract.id), eq(contractItems.kind, 'heading')));
+    return {
+      id: contract.id,
+      number: contract.number,
+      items,
+      headingCodes: headings.map((heading) => heading.code),
+    };
   }
 
   async reservations(contractId: string): Promise<Reservations> {

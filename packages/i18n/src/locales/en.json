@@ -383,7 +383,8 @@
       "usedTwice": "This column is used for more than one field",
       "reread": "Re-read the file with these settings",
       "unapplied": "Your changes are not applied to the rows yet",
-      "requiredHint": "Fields marked with * are required."
+      "requiredHint": "Fields marked with * are required.",
+      "workOrderNote": "Only the code and the quantity are taken from the file. Description, unit, price and work type come from the contract; any of those columns here is for comparison only."
     },
     "fields": {
       "code": "Code",
@@ -402,7 +403,8 @@
       "errors": "Rows with errors",
       "warnings": "Rows with warnings",
       "computedTotal": "Computed total",
-      "headings": "Heading rows"
+      "headings": "Heading rows",
+      "skipped": "Skipped rows"
     },
     "duplicates": {
       "title": "Repeated codes",
@@ -432,7 +434,9 @@
       "issues": "Issues",
       "ok": "OK",
       "headingBadge": "Section heading",
-      "headingNote": "Section heading: no quantity, no price"
+      "headingNote": "Section heading: no quantity, no price",
+      "skippedBadge": "Skipped",
+      "skippedNote": "Row skipped: it is not added to the work order"
     },
     "severity": {
       "error": "Error",
@@ -477,7 +481,7 @@
       "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price",
       "UNIT_FORM_VARIANT": "The same unit is typed differently in rows {otherRows}",
       "NOT_IN_CONTRACT": "The code is not in the contract",
-      "CONTRACT_MISMATCH": "{field} differs from the contract ({contractValue})",
+      "CONTRACT_MISMATCH": "{field} differs from the contract — the contract value is used: {contractValue}",
       "CODE_REPEATED": "The code is repeated in rows {otherRows}; an item appears once",
       "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is available in the contract (available {availableQuantity} of {contractQuantity})",
       "EMPTY_QUANTITY_SKIPPED": "Quantity is empty: the row is skipped and not added to the work order",

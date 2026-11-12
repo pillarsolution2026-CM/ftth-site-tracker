@@ -3,6 +3,8 @@ import {
   IMPORT_FIELDS,
   REQUIRED_IMPORT_FIELDS,
   ContractorConfirmedColumnMappingSchema,
+  WORK_ORDER_REQUIRED_IMPORT_FIELDS,
+  WorkOrderConfirmedColumnMappingSchema,
   type ColumnMapping,
   type ContractImportCommitPayload,
   type ContractorImportCommitPayload,
@@ -142,6 +144,8 @@ export interface Selection {
     included: number;
     /** Section-heading rows of the sheet (contract BOQ; skipped by the work-order import). */
     headingRows: number;
+    /** Rows the import leaves out by itself (kind skipped: empty quantity, no code, contract heading). */
+    skippedRows: number;
     errorRows: number;
     warningRows: number;
   };
@@ -181,6 +185,7 @@ export function deriveSelection(state: WizardState): Selection {
       total: rows.length,
       included: included.length,
       headingRows: state.preview?.summary.headingCount ?? rows.filter(isHeadingRow).length,
+      skippedRows: state.preview?.summary.skippedCount ?? 0,
       errorRows: rows.filter(hasErrors).length,
       warningRows: rows.filter(hasWarnings).length,
     },
@@ -281,7 +286,11 @@ export function commitBlockers(state: WizardState, options: CommitOptions = {}):
   if (preview.headerRow === null) blockers.push('noHeaderRow');
   const problems = mappingProblems(
     preview.mapping,
-    contractor ? CONTRACTOR_REQUIRED_FIELDS : REQUIRED_IMPORT_FIELDS,
+    contractor
+      ? CONTRACTOR_REQUIRED_FIELDS
+      : options.target === 'contract'
+        ? REQUIRED_IMPORT_FIELDS
+        : WORK_ORDER_REQUIRED_IMPORT_FIELDS,
   );
   if (problems.unmapped.length > 0 || problems.duplicated.length > 0) {
     blockers.push('mappingIncomplete');
@@ -293,7 +302,7 @@ export function commitBlockers(state: WizardState, options: CommitOptions = {}):
     ? selection.included.filter((row) => row.kind === 'item')
     : contract
       ? selection.included
-      : selection.included.filter((row) => !isHeadingRow(row));
+      : selection.included.filter((row) => !isHeadingRow(row) && row.kind !== 'skipped');
   if (counting.length === 0) blockers.push('noRows');
   if (selection.blockingErrorRows.length > 0) blockers.push('errorRows');
   // Work orders have no duplicate decision since ADR-028: a repeated code is an error row.
@@ -311,7 +320,7 @@ export function buildCommitPayload(state: WizardState):
   | null {
   const { preview } = state;
   if (!preview || preview.headerRow === null || commitBlockers(state).length > 0) return null;
-  const mapping = ConfirmedColumnMappingSchema.safeParse(preview.mapping);
+  const mapping = WorkOrderConfirmedColumnMappingSchema.safeParse(preview.mapping);
   if (!mapping.success) return null;
   const selection = deriveSelection(state);
   return {

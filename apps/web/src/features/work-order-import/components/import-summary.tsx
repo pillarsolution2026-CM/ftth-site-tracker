@@ -12,6 +12,9 @@ export function ImportSummary({ selection }: { selection: Selection }) {
     [t('import.summary.total'), selection.counts.total],
     [t('import.summary.included'), selection.counts.included],
     [t('import.summary.headings'), selection.counts.headingRows],
+    ...(selection.counts.skippedRows > 0
+      ? ([[t('import.summary.skipped'), selection.counts.skippedRows]] as [string, number][])
+      : []),
     [t('import.summary.errors'), selection.counts.errorRows],
     [t('import.summary.warnings'), selection.counts.warningRows],
   ];

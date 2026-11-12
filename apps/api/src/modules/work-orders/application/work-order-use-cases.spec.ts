@@ -593,7 +593,12 @@ describe('Excel import against the contract', () => {
       sizeBytes: file.length,
       sha256: createHash('sha256').update(file).digest('hex'),
     });
-    expect(result.summary).toMatchObject({ errorRowCount: 0, headingCount: 3, rowCount: 8 });
+    expect(result.summary).toMatchObject({
+      errorRowCount: 0,
+      headingCount: 0,
+      skippedCount: 3,
+      rowCount: 8,
+    });
     expect(storage.objects.size).toBe(0);
     expect(uow.orders.orders.size).toBe(0);
   });
@@ -662,19 +667,24 @@ describe('Excel import against the contract', () => {
     expect(storage.objects.size).toBe(0);
   });
 
-  it('refuses rows that differ from the contract; excluding them lets the commit through', async () => {
+  it('warns about rows that differ from the contract but stores the contract values (ADR-044)', async () => {
     const rows = setCell(workOrderSheetRows(), ITEM_ROWS.chamber, 'unitPrice', 7999);
+    const file = await buildWorkOrderSheet(rows);
+    const result = await preview(file);
+    expect(result.summary).toMatchObject({ errorRowCount: 0, warningRowCount: 1 });
+    const { order } = await run(file, payload(file));
+    expect(order.items).toHaveLength(5);
+    expect(order.items.find((i) => i.code === '1-2-1')?.unitPrice.toString()).toBe('8000');
+  });
+
+  it('still refuses a code that is not in the contract; excluding the row lets the commit through', async () => {
+    const rows = setCell(workOrderSheetRows(), ITEM_ROWS.chamber, 'code', '9-9-9');
     const file = await buildWorkOrderSheet(rows);
     await expect(run(file, payload(file))).rejects.toMatchObject({
       code: 'IMPORT_INVALID',
       details: {
         reason: 'ROW_ERRORS',
-        rows: [
-          {
-            rowNumber: ITEM_ROWS.chamber,
-            issues: [{ code: 'CONTRACT_MISMATCH', field: 'unitPrice' }],
-          },
-        ],
+        rows: [{ rowNumber: ITEM_ROWS.chamber, issues: [{ code: 'NOT_IN_CONTRACT' }] }],
       },
     });
     expect(storage.objects.size).toBe(0);
