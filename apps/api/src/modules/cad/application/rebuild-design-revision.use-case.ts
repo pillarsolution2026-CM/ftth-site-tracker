@@ -9,7 +9,7 @@ import {
   type NewRevisionInput,
 } from './create-design-revision.use-case.js';
 import { discardRevisionInTx } from './discard-design-revision.use-case.js';
-import type { JobQueue } from './ports.js';
+import type { JobQueue, WorkOrderLines } from './ports.js';
 
 /**
  * «طبّق التصليحات وابنِ من جديد» (ADR-038): discards the draft (or failed) revision and creates a
@@ -22,6 +22,7 @@ export class RebuildDesignRevisionUseCase {
     private readonly queue: JobQueue,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
+    private readonly workOrderLines: WorkOrderLines,
   ) {}
 
   async execute(input: {
@@ -54,7 +55,7 @@ export class RebuildDesignRevisionUseCase {
         jobId,
         now,
       };
-      await createRevisionInTx(tx, next);
+      await createRevisionInTx(tx, next, this.workOrderLines);
       return next;
     });
 

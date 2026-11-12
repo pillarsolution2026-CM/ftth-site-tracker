@@ -10,6 +10,9 @@ import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rat
 import { IdentityModule } from '../identity/identity.module.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
+import type { FindWorkOrderLinesUseCase } from '../work-orders/application/work-order-lines.js';
+import { FIND_WORK_ORDER_LINES } from '../work-orders/work-orders.tokens.js';
+import { WorkOrdersModule } from '../work-orders/work-orders.module.js';
 import { GET_PROJECT_USE_CASE } from '../projects/projects.tokens.js';
 import {
   CadExtractionUseCases,
@@ -54,7 +57,19 @@ import {
 import { GetSecondaryPlacementSuggestionUseCase } from './application/secondary-placement.use-case.js';
 import { InstallationController } from './interface/installation.controller.js';
 import { SecondaryPlacementController } from './interface/secondary-placement.controller.js';
-import type { JobQueue, ProjectEpsgLookup, TileConfig } from './application/ports.js';
+import {
+  GetBoxTypeStateUseCase,
+  GetRevisionBoxTypesUseCase,
+  SetBoxTypesUseCase,
+} from './application/box-types.use-cases.js';
+import { BoxTypesController } from './interface/box-types.controller.js';
+import { WorkOrdersServiceLines } from './infrastructure/work-orders-service-lines.js';
+import type {
+  JobQueue,
+  ProjectEpsgLookup,
+  TileConfig,
+  WorkOrderLines,
+} from './application/ports.js';
 import {
   GetPublishReadinessUseCase,
   PublishDesignRevisionUseCase,
@@ -82,6 +97,7 @@ import {
   GPS_PROPOSAL_REPOSITORY,
   JOB_QUEUE,
   PROJECT_EPSG_LOOKUP,
+  WORK_ORDER_LINES,
   TILE_CONFIG,
 } from './cad.tokens.js';
 import type {
@@ -148,6 +164,11 @@ const providers: Provider[] = [
     provide: PROJECT_EPSG_LOOKUP,
     inject: [GET_PROJECT_USE_CASE],
     useFactory: (getProject: GetProjectUseCase) => new ProjectsServiceEpsgLookup(getProject),
+  },
+  {
+    provide: WORK_ORDER_LINES,
+    inject: [FIND_WORK_ORDER_LINES],
+    useFactory: (find: FindWorkOrderLinesUseCase) => new WorkOrdersServiceLines(find),
   },
   {
     provide: CAD_FILE_REPOSITORY,
@@ -308,9 +329,9 @@ const providers: Provider[] = [
   },
   {
     provide: CreateDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
-    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
-      new CreateDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines) =>
+      new CreateDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines),
   },
   {
     provide: ListDesignRevisionsUseCase,
@@ -354,13 +375,15 @@ const providers: Provider[] = [
   },
   {
     provide: GetPublishReadinessUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new GetPublishReadinessUseCase(uow),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
+      new GetPublishReadinessUseCase(uow, lines),
   },
   {
     provide: PublishDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new PublishDesignRevisionUseCase(uow, systemClock),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
+      new PublishDesignRevisionUseCase(uow, systemClock, lines),
   },
   {
     provide: DiscardDesignRevisionUseCase,
@@ -370,9 +393,9 @@ const providers: Provider[] = [
   },
   {
     provide: RebuildDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
-    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
-      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines) =>
+      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines),
   },
   {
     provide: ListDrawingCorrectionsUseCase,
@@ -417,6 +440,23 @@ const providers: Provider[] = [
     useFactory: (uow: CadUnitOfWork) => new GetRevisionInstallationUseCase(uow),
   },
   {
+    provide: GetBoxTypeStateUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetBoxTypeStateUseCase(uow),
+  },
+  {
+    provide: SetBoxTypesUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
+      new SetBoxTypesUseCase(uow, lines, systemClock, uuidGenerator),
+  },
+  {
+    provide: GetRevisionBoxTypesUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
+      new GetRevisionBoxTypesUseCase(uow, lines),
+  },
+  {
     provide: GetSecondaryPlacementSuggestionUseCase,
     inject: [CAD_UNIT_OF_WORK],
     useFactory: (uow: CadUnitOfWork) => new GetSecondaryPlacementSuggestionUseCase(uow),
@@ -441,13 +481,14 @@ const providers: Provider[] = [
 ];
 
 @Module({
-  imports: [IdentityModule, ProjectsModule],
+  imports: [IdentityModule, ProjectsModule, WorkOrdersModule],
   controllers: [
     CadFilesController,
     CadExtractionController,
     CadMappingController,
     DrawingCorrectionsController,
     InstallationController,
+    BoxTypesController,
     SecondaryPlacementController,
     DrawingViewController,
     GpsProposalsController,

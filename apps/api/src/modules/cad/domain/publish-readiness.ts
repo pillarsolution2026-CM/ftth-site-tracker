@@ -1,6 +1,7 @@
 import {
   PUBLISH_CHECK_KEYS,
   compareCabinets,
+  type BoxTypesReport,
   type CabinetsComparison,
   type DrawingKind,
   type InstallationReport,
@@ -24,6 +25,8 @@ export interface PublishFacts {
   subCabinets: (string | null)[];
   /** The installation check (ADR-042): `applies` false and ok on a Secondary. */
   installation: InstallationReport;
+  /** The box-types check (ADR-043): `applies` false and ok on a General / legacy-mode Secondary. */
+  boxTypes: BoxTypesReport;
   open: OpenItems;
 }
 
@@ -43,7 +46,8 @@ const ownChecksOk = (facts: PublishFacts): boolean =>
   facts.placement !== null &&
   pointsInUse(facts.placement) >= 1 &&
   facts.problemTotal === 0 &&
-  facts.installation.ok;
+  facts.installation.ok &&
+  facts.boxTypes.ok;
 
 /** The sub cabinets of the pair compared by name, always as general vs secondary. */
 export function cabinetsOf(facts: PublishFacts, other: PublishFacts): CabinetsComparison {
@@ -87,6 +91,11 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
       ok: facts.installation.ok,
       count: facts.installation.applies ? facts.installation.issueCount : null,
     },
+    box_types: {
+      key: 'box_types',
+      ok: facts.boxTypes.ok,
+      count: facts.boxTypes.applies ? facts.boxTypes.issueCount : null,
+    },
   };
   const checks = PUBLISH_CHECK_KEYS.map((key) => byKey[key]);
   return {
@@ -98,6 +107,7 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
     cabinets,
     warningCount: facts.warningTotal,
     installation: facts.installation.applies ? facts.installation : null,
+    boxTypes: facts.boxTypes.applies ? facts.boxTypes : null,
   };
 }
 
@@ -115,6 +125,14 @@ export function drawingBlocker(facts: PublishFacts): PublishBlockedDetails | nul
       drawingKind: 'general',
       issueCount: facts.installation.issueCount,
       issues: facts.installation.issues,
+    };
+  }
+  if (!facts.boxTypes.ok) {
+    return {
+      reason: 'BOX_TYPES_UNCLEAR',
+      drawingKind: 'secondary',
+      issueCount: facts.boxTypes.issueCount,
+      issues: facts.boxTypes.issues,
     };
   }
   return null;

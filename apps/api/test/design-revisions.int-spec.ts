@@ -1343,6 +1343,7 @@ describe('a built draft revision', () => {
         { key: 'other_drawing', ok: true, count: 0 },
         { key: 'cabinets_match', ok: true, count: 0 },
         { key: 'installation', ok: true, count: 0 },
+        { key: 'box_types', ok: true, count: null },
       ],
       canPublish: false,
       drawingKind: 'general',
@@ -1355,6 +1356,7 @@ describe('a built draft revision', () => {
       },
       warningCount: 0,
       installation: expect.objectContaining({ applies: true, ok: true, issueCount: 0 }),
+      boxTypes: null,
     });
 
     await setPlacement(place(true));
@@ -1375,6 +1377,7 @@ describe('a built draft revision', () => {
       { key: 'other_drawing', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
       { key: 'installation', ok: true, count: 0 },
+      { key: 'box_types', ok: true, count: null },
     ]);
     expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });

@@ -429,6 +429,8 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
         ['cabinets_match', true, 0],
         // The Secondary is never asked: ok with no count.
         ['installation', true, revision === pair.general ? 0 : null],
+        // The pair's Secondary here is read in legacy mode: no box types to choose.
+        ['box_types', true, null],
       ]);
       expect(ready).toMatchObject({
         canPublish: true,

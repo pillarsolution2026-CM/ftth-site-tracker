@@ -45,6 +45,7 @@ export function toRevisionDetailDto(revision: DesignRevision): DesignRevisionDet
     rules: revision.rules,
     placement: revision.placement,
     installation: revision.installation,
+    boxTypes: revision.boxTypes,
     errorMessage: revision.errorMessage,
     log: revision.log,
   };
