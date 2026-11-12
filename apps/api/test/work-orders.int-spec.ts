@@ -1068,7 +1068,7 @@ describe('Excel import against the contract (owner layout)', () => {
     expect(parsed).toMatchObject({
       sheetName: 'WO',
       headerRow: 3,
-      summary: { rowCount: 8, headingCount: 3, errorRowCount: 0, total: '81289' },
+      summary: { rowCount: 8, headingCount: 0, skippedCount: 3, errorRowCount: 0, total: '81289' },
       file: { name: 'wo.xlsx', sha256: createHash('sha256').update(file).digest('hex') },
     });
     expect(await workOrderCount(s.projectId)).toBe(before);
@@ -1098,7 +1098,7 @@ describe('Excel import against the contract (owner layout)', () => {
     expect(del.status).toBe(409);
   });
 
-  it('reports every difference as an error with the contract value, and commit refuses them', async () => {
+  it('warns about every difference with the contract value; only a code outside the contract blocks', async () => {
     const s = await importScenario();
     const rows = workOrderSheetRows();
     setCell(rows, ITEM_ROWS.trench, 'unitPrice', 13); // price
@@ -1110,32 +1110,31 @@ describe('Excel import against the contract (owner layout)', () => {
 
     const prev = await preview(s.projectId, file);
     expect(prev.status).toBe(200);
-    expect(prev.body.summary.errorRowCount).toBe(5);
-    // Errors only: a changed price also makes the sheet amount disagree (a warning).
-    const issue = (row: number) =>
+    expect(prev.body.summary.errorRowCount).toBe(1);
+    const issue = (row: number, severity: string) =>
       prev.body.rows
         .find((r: { rowNumber: number }) => r.rowNumber === row)
-        .issues.filter((found: { severity: string }) => found.severity === 'error');
-    expect(issue(ITEM_ROWS.trench)).toEqual([
+        .issues.filter((found: { severity: string }) => found.severity === severity);
+    expect(issue(ITEM_ROWS.trench, 'warning')).toEqual([
       expect.objectContaining({
         code: 'CONTRACT_MISMATCH',
         field: 'unitPrice',
         params: { contractValue: '12.5' },
       }),
     ]);
-    expect(issue(ITEM_ROWS.chamber)[0]).toMatchObject({
+    expect(issue(ITEM_ROWS.chamber, 'warning')[0]).toMatchObject({
       field: 'unit',
       params: { contractValue: 'عدد' },
     });
-    expect(issue(ITEM_ROWS.cable)[0]).toMatchObject({
+    expect(issue(ITEM_ROWS.cable, 'warning')[0]).toMatchObject({
       field: 'description',
       params: { contractValue: 'كابل رئيسي' },
     });
-    expect(issue(ITEM_ROWS.joint)[0]).toMatchObject({
+    expect(issue(ITEM_ROWS.joint, 'warning')[0]).toMatchObject({
       field: 'workType',
       params: { contractValue: 'installation' },
     });
-    expect(issue(ITEM_ROWS.building)[0]).toMatchObject({ code: 'NOT_IN_CONTRACT' });
+    expect(issue(ITEM_ROWS.building, 'error')[0]).toMatchObject({ code: 'NOT_IN_CONTRACT' });
 
     const refused = await commit(s.projectId, file, commitPayload(file));
     expect(refused.status).toBe(422);
@@ -1143,7 +1142,7 @@ describe('Excel import against the contract (owner layout)', () => {
       code: 'IMPORT_INVALID',
       details: { reason: 'ROW_ERRORS' },
     });
-    expect(refused.body.details.rows).toHaveLength(5);
+    expect(refused.body.details.rows).toHaveLength(1);
     expect(await workOrderCount(s.projectId)).toBe(0);
     expect(
       (
@@ -1153,14 +1152,109 @@ describe('Excel import against the contract (owner layout)', () => {
       ).rowCount,
     ).toBe(0);
 
-    // Every item row has an error, so excluding them all leaves nothing to import.
-    const rest = await commit(
+    // Leaving the unknown-code row out, the four rows with warnings commit with contract values.
+    const ok = await commit(
       s.projectId,
       file,
-      commitPayload(file, { excludedRowNumbers: Object.values(ITEM_ROWS) }),
+      commitPayload(file, { excludedRowNumbers: [ITEM_ROWS.building] }),
     );
-    expect(rest.status).toBe(422);
-    expect(rest.body.details.reason).toBe('NO_ROWS_INCLUDED');
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+    const trench = ok.body.items.find((i: { code: string }) => i.code === '1-1');
+    expect(trench.unitPrice).toBe('12.5');
+    const chamber = ok.body.items.find((i: { code: string }) => i.code === '1-2-1');
+    expect(chamber.unit).toBe('عدد');
+  });
+
+  it('imports a real-shaped work-order file (ADR-044): optional cells, headings, 0, rounding, totals', async () => {
+    const s = await importScenario();
+    const header = [
+      'مسلسل',
+      'البيـــان',
+      'الوحدة',
+      'الكميه',
+      'سعر الوحدة جم بدون الضريبة',
+      'الإجمالي بدون الضريبة',
+    ];
+    const file = await buildXlsx([
+      {
+        name: 'WO',
+        rows: [
+          ['أمر تكليف'],
+          [],
+          header,
+          // 4: a contract heading with an empty unit and a price formula without a cached result
+          ['1-2', 'غرف التفتيش', null, null, { formula: 'F5*0' }, null],
+          // 5: shorter description than the contract, quantity with float noise
+          ['1-1', 'حفر', 'م.ط', 100.00004999999, 12.5, null],
+          // 6: quantity 0
+          ['1-2-1', 'غرفة نوع 1', 'عدد', 0, 8000, null],
+          // 7: empty quantity
+          ['2-9-1', 'كابل رئيسي', 'م.ط', null, 2, null],
+          // 8: priced item whose unit and price cells are empty
+          ['2-9-1-1', 'وصلة', null, 3, null, null],
+          // 9, 10: totals and tax rows without a code
+          [null, 'الإجمالي', null, null, null, { formula: 'SUM(F4:F8)' }],
+          [null, 'ضريبة القيمة المضافة', null, 14, null, 5000],
+        ],
+      },
+    ]);
+    const mapping = { code: 0, description: 1, unit: 2, quantity: 3, unitPrice: 4, amount: 5 };
+
+    const prev = await preview(s.projectId, file);
+    expect(prev.status, JSON.stringify(prev.body)).toBe(200);
+    expect(prev.body.fileIssues).toEqual([]);
+    expect(prev.body.summary).toMatchObject({
+      errorRowCount: 0,
+      skippedCount: 4,
+      headingCount: 0,
+    });
+    expect(issuesOf(prev.body, 5)).toContain('CONTRACT_MISMATCH');
+    expect(issuesOf(prev.body, 4)).toEqual([]);
+    expect(issuesOf(prev.body, 7)).toEqual(['EMPTY_QUANTITY_SKIPPED']);
+    expect(issuesOf(prev.body, 9)).toEqual([]);
+    expect(issuesOf(prev.body, 10)).toEqual([]);
+    // total = contract price × quantity: 100×12.5 + 0×8000 + 3×3
+    expect(prev.body.summary.total).toBe('1259');
+
+    const done = await commit(s.projectId, file, commitPayload(file, { headerRow: 3, mapping }));
+    expect(done.status, JSON.stringify(done.body)).toBe(201);
+    const byCode = (code: string) => done.body.items.find((i: { code: string }) => i.code === code);
+    expect(done.body.items).toHaveLength(3);
+    expect(byCode('1-1')).toMatchObject({
+      description: 'حفر خندق',
+      unit: 'م.ط',
+      unitPrice: '12.5',
+      quantity: '100',
+    });
+    expect(byCode('1-2-1')).toMatchObject({ quantity: '0', unitPrice: '8000' });
+    expect(byCode('2-9-1-1')).toMatchObject({ quantity: '3' });
+    expect(byCode('2-9-1')).toBeUndefined();
+  });
+
+  it('needs only the code and quantity columns and rounds a quantity to 4 decimals', async () => {
+    const s = await importScenario();
+    const file = await buildXlsx([
+      {
+        name: 'WO',
+        rows: [
+          ['كود', 'الكمية'],
+          ['1-1', 99.99995],
+          ['2-9-1', 1.00004999999],
+        ],
+      },
+    ]);
+    // Two headers are below the auto-detection minimum, so the header row is given.
+    const prev = await preview(s.projectId, file, { headerRow: 1 });
+    expect(prev.status, JSON.stringify(prev.body)).toBe(200);
+    expect(prev.body.fileIssues).toEqual([]);
+    expect(prev.body.summary.errorRowCount).toBe(0);
+    const done = await commit(
+      s.projectId,
+      file,
+      commitPayload(file, { headerRow: 1, mapping: { code: 0, quantity: 1 } }),
+    );
+    expect(done.status, JSON.stringify(done.body)).toBe(201);
+    expect(done.body.items.map((i: { quantity: string }) => i.quantity)).toEqual(['100', '1']);
   });
 
   it('treats 8000 and 8000.00 as the same price', async () => {

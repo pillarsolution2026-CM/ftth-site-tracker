@@ -25,7 +25,11 @@ import {
   contractItemOfRow,
 } from '../domain/import/contract-matching.js';
 import { selectRowsForCommit } from '../domain/import/import-commit.js';
-import { parseImport, type ParsedImport } from '../domain/import/import-parser.js';
+import {
+  parseImport,
+  type ImportProfile,
+  type ParsedImport,
+} from '../domain/import/import-parser.js';
 import type { RawWorkbook } from '../domain/import/raw-workbook.js';
 import { WorkOrder, type NewItem } from '../domain/work-order.js';
 import type {
@@ -63,7 +67,10 @@ export function importInvalid(details: ImportInvalidDetails): AppError {
 
 /** Parses the sheet and returns rows with their issues. Writes nothing. */
 export class PreviewImportUseCase {
-  constructor(private readonly reader: WorkbookReader) {}
+  constructor(
+    private readonly reader: WorkbookReader,
+    private readonly profile: ImportProfile = 'standard',
+  ) {}
 
   async execute(input: {
     file: UploadedXlsx;
@@ -72,7 +79,7 @@ export class PreviewImportUseCase {
     const { workbook, sha256 } = await readXlsx(input.file, this.reader);
     return {
       file: { name: input.file.fileName, sizeBytes: input.file.buffer.length, sha256 },
-      ...parseImport(workbook, input.options),
+      ...parseImport(workbook, input.options, this.profile),
     };
   }
 }
@@ -105,7 +112,7 @@ export class PreviewWorkOrderImportUseCase {
     private readonly contracts: ContractCatalog,
     private readonly orders: WorkOrderRepository,
   ) {
-    this.preview = new PreviewImportUseCase(reader);
+    this.preview = new PreviewImportUseCase(reader, 'workOrder');
   }
 
   async execute(input: {
@@ -159,11 +166,11 @@ export class CommitImportUseCase {
       throw importInvalid({ reason: 'FILE_CHANGED', fileIssues: [], rows: [], duplicateCodes: [] });
     }
 
-    const parsed = parseImport(workbook, {
-      sheetName: payload.sheetName,
-      headerRow: payload.headerRow,
-      mapping: payload.mapping,
-    });
+    const parsed = parseImport(
+      workbook,
+      { sheetName: payload.sheetName, headerRow: payload.headerRow, mapping: payload.mapping },
+      'workOrder',
+    );
     const excluded = new Set(payload.excludedRowNumbers);
     // A repeated code is judged among the rows that stay, like the other duplicate rules.
     const kept: ParsedImport = {
@@ -172,10 +179,12 @@ export class CommitImportUseCase {
     };
     const checked = checkImportAgainstContract(kept, contract, reservations);
     // `acceptedDuplicateCodes` is ignored (ADR-028): a repeated code is the error CODE_REPEATED.
-    const selection = selectRowsForCommit(checked, {
-      excludedRowNumbers: [],
-      acceptedDuplicateCodes: [],
-    });
+    const selection = selectRowsForCommit(
+      checked,
+      { excludedRowNumbers: [], acceptedDuplicateCodes: [] },
+      'skip',
+      'contract',
+    );
     if (!selection.ok) throw importInvalid(selection.details);
     const excludedRowCount = parsed.rows.length - kept.rows.length;
 
