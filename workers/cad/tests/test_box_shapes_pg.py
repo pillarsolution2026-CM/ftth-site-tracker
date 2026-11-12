@@ -1,6 +1,5 @@
-"""ADR-043 against a real PostGIS: shapes at import, gallery and box types at build, BOX_TYPE
-texts in the As-Built DXF. Needs the columns / tables of migration 0023 (conftest applies the
-worker's part of its spec until the API's migration is in the tree)."""
+"""ADR-043 against a real PostGIS (the API's migrations, 0023 included): shapes at import, gallery
+and box types at build, BOX_TYPE texts in the As-Built DXF."""
 
 from __future__ import annotations
 
@@ -91,13 +90,17 @@ def test_import_stores_a_signature_per_insert_and_a_preview_per_shape(
         ).fetchall()
     )
     assert sigs["box c:0"] == sigs["box copy:10"] != sigs["box c:20"]
-    shapes = db.execute(
-        "SELECT shape_signature, preview FROM cad_file_shapes WHERE cad_file_id = %s "
-        "ORDER BY shape_signature",
+    rows = db.execute(
+        "SELECT shape_signature, insert_count, block_names, preview FROM cad_file_shapes "
+        "WHERE cad_file_id = %s ORDER BY shape_signature",
         (f.cad_file_id,),
     ).fetchall()
+    shapes = [(s, p) for s, _, _, p in rows]
     assert sorted(s for s, _ in shapes) == sorted({sigs["box c:0"], sigs["box c:20"]})
     assert all(p["truncated"] is False and p["paths"] for _, p in shapes)
+    counts = {s: (n, names) for s, n, names, _ in rows}
+    assert counts[sigs["box c:0"]] == (2, ["box c", "box copy"])
+    assert counts[sigs["box c:20"]] == (1, ["box c"])
 
     # Reprocessing replaces the import output (no duplicate key, same rows).
     second = uuid.uuid4()
@@ -123,8 +126,8 @@ def _secondary(db: psycopg.Connection[Any]) -> Any:
         (SIG_A, seeded.cad_file_id),
     )
     db.execute(
-        "INSERT INTO cad_file_shapes (project_id, cad_file_id, shape_signature, preview) "
-        "VALUES (%s, %s, %s, %s)",
+        "INSERT INTO cad_file_shapes (project_id, cad_file_id, shape_signature, insert_count, "
+        "block_names, preview) VALUES (%s, %s, %s, 2, '[\"sub\"]', %s)",
         (seeded.project_id, seeded.cad_file_id, SIG_A, json.dumps(PREVIEW)),
     )
     return seeded

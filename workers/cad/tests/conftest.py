@@ -16,10 +16,6 @@ from tests.support.docker import docker_available, postgis_container, redis_cont
 from tests.support.env import MIGRATIONS_DIR, env_value
 
 MIGRATION_FILES = sorted(MIGRATIONS_DIR.glob("*.sql"))
-# ADR-043: the API's migration 0023 is written in parallel; until it is in the tree the worker's
-# tests apply the part of its spec the worker uses (tests/support/migration_0023_spec.sql).
-if not any(p.name.startswith("0023_") for p in MIGRATION_FILES):
-    MIGRATION_FILES.append(Path(__file__).parent / "support" / "migration_0023_spec.sql")
 
 
 def _apply_migrations(admin_url: str, db_name: str) -> str:
