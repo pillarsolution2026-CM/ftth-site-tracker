@@ -248,6 +248,13 @@ The owner replaced Qalyub (known drawing problems) and the Darawish trial with *
 - **Owner open points kept at the cautious default:** a new General version asks the question again; Σ marks on a route ≤ its written length; route + length (no position along the route); a changed General placement only warns on the Secondary panel; suggested points are saved only when the PM saves; sub cabinets only.
 - **Tests (local, 2026-11-12):** build, typecheck, lint, format: pass. Unit: shared 271, API 577, web 712, worker 541 (+ Al-Fath). Web e2e 20. API integration: new `installation.int-spec.ts` 26 (Windows run; full run on CI).
 
+#### Box type by the drawn shape — part E (ADR-043; branch `feat/box-type-by-shape`)
+- **Owner 2026-11-12:** the type of each box shape is a **line of the project's work order** (option أ), chosen per drawing; anything unclear blocks publishing.
+- **Done:** worker shape signature per box symbol (geometry, not block name; rotation / uniform scale removed, mirroring kept) with bounded previews (`cad_inserts.shape_signature`, `cad_file_shapes`), gallery per revision (`design_revisions.box_shapes`), `reading.shape` / `boxType` on boxes, As-Built DXF text per typed box (layer `BOX_TYPE`); API append-only choices (`cad_file_box_type_choices`, Secondary only, line of the same project), frozen with a line snapshot on create / rebuild (`design_revisions.box_types`), check `box_types` and blocker `BOX_TYPES_UNCLEAR`, work-orders lines port; web «أنواع البوكسات» (shape cards with picture, count, line picker, previous-version choices, rebuild notice), checklist row, labels on the drawing viewer; ar/en/fr. Migration `0023`.
+- **Al-Fath:** Secondary 197 boxes = 1 shape × 197.
+- **Owner open points (cautious defaults):** colour not part of the shape; label = line code + description; any work-order line; previous choices applied only on click; line deleted after publishing → part H; General boxes not typed.
+- **Tests (local, 2026-11-12):** build, typecheck, lint, format: pass; unit 13 tasks (shared 294, API 598, web 746), worker 558 (+ PG on the real migrations, Al-Fath). API integration `box-types.int-spec.ts` 16 (Windows; full run on CI).
+
 ### Phase 3 — Supervisor app (offline) — started before Phase 2 (ADR-023)
 Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_rules`, zones UI), which was not built. Phase 1b is still awaiting approval; neither 1b nor 2 is marked approved here. Contracts: `docs/phase-3-contracts.md`. ADRs: 023 (order of phases), 024 (sync design), 025 (on-device encryption). Migration `0006`.
 - **Done:**
