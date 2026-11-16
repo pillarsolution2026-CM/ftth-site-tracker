@@ -69,20 +69,23 @@ export function PublishChecklist({
       {failed ? <p role="alert">{t('design.publish.loadFailed')}</p> : null}
       {readiness ? (
         <ul className="flex flex-col gap-2">
-          {readiness.checks.map((check) => (
-            <CheckRow
-              key={check.key}
-              check={check}
-              cabinets={readiness.cabinets}
-              installation={readiness.installation}
-              boxTypes={readiness.boxTypes}
-              drawingKind={readiness.drawingKind}
-              onShowRoute={onShowRoute}
-              mappingHref={mappingHref}
-              otherRevisionHref={otherRevisionHref}
-              otherKind={otherDrawingKind(readiness.drawingKind)}
-            />
-          ))}
+          {readiness.checks
+            .filter((check) => !(readiness.switchedOff.includes(check.key) && check.ok))
+            .map((check) => (
+              <CheckRow
+                key={check.key}
+                check={check}
+                cabinets={readiness.cabinets}
+                installation={readiness.installation}
+                boxTypes={readiness.boxTypes}
+                drawingKind={readiness.drawingKind}
+                switchedOff={readiness.switchedOff.includes(check.key)}
+                onShowRoute={onShowRoute}
+                mappingHref={mappingHref}
+                otherRevisionHref={otherRevisionHref}
+                otherKind={otherDrawingKind(readiness.drawingKind)}
+              />
+            ))}
         </ul>
       ) : null}
       {readiness && readiness.warningCount > 0 ? (
@@ -210,6 +213,7 @@ function CheckRow({
   installation,
   boxTypes,
   drawingKind,
+  switchedOff,
   onShowRoute,
   mappingHref,
   otherRevisionHref,
@@ -220,6 +224,7 @@ function CheckRow({
   installation: InstallationReport | null;
   boxTypes: BoxTypesReport | null;
   drawingKind: DrawingKind;
+  switchedOff: boolean;
   onShowRoute: ((routeHandle: string) => void) | undefined;
   mappingHref: string | null;
   otherRevisionHref: string | null;
@@ -259,13 +264,13 @@ function CheckRow({
           {t('design.publish.openOther', { drawing })}
         </Link>
       ) : null}
-      {check.key === 'installation' && drawingKind === 'secondary' ? (
+      {check.key === 'installation' && drawingKind === 'secondary' && !switchedOff ? (
         <span className="text-sm">{t('design.installation.secondaryOk')}</span>
       ) : null}
       {check.key === 'installation' && !check.ok && installation ? (
         <InstallationDetail report={installation} onShowRoute={onShowRoute} />
       ) : null}
-      {check.key === 'box_types' && drawingKind === 'general' ? (
+      {check.key === 'box_types' && drawingKind === 'general' && !switchedOff ? (
         <span className="text-sm">{t('design.boxTypes.generalOk')}</span>
       ) : null}
       {check.key === 'box_types' && !check.ok && boxTypes ? (

@@ -44,6 +44,11 @@ export async function createTestContext(
     AUTH_REFRESH_RATE_LIMIT: '10000',
     SYNC_RATE_LIMIT: '100000',
     SYNC_UPLOAD_RATE_LIMIT: '100000',
+    // ADR-045: the existing suites keep testing the enabled behaviour; drawing-flow-off.int-spec.ts
+    // overrides these to check the switched-off one.
+    DRAWING_INSTALLATION_QUESTION: 'on',
+    DRAWING_BOX_TYPES: 'on',
+    DRAWING_READING_TOTALS: 'on',
     ...overrides,
   });
 

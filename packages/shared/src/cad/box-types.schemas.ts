@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DrawingKindSchema, type DrawingKind } from './drawing-kind.schemas.js';
+import type { DrawingFlow } from './drawing-flow.js';
 import type { ReadingMode } from './cad-mapping.schemas.js';
 
 /**
@@ -23,9 +24,12 @@ import type { ReadingMode } from './cad-mapping.schemas.js';
  * `BOX_TYPES_UNCLEAR`).
  */
 
-/** Box types are chosen on the Secondary, read by roles (ADR-041); legacy mode has no reading. */
-export function boxTypesApply(kind: DrawingKind, mode: ReadingMode): boolean {
-  return kind === 'secondary' && mode === 'roles';
+/**
+ * Box types are chosen on the Secondary, read by roles (ADR-041); legacy mode has no reading. Only
+ * while the step is switched on (ADR-045).
+ */
+export function boxTypesApply(kind: DrawingKind, mode: ReadingMode, flow: DrawingFlow): boolean {
+  return flow.boxTypes && kind === 'secondary' && mode === 'roles';
 }
 
 // ---------- shape signature ----------

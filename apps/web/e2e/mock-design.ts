@@ -40,6 +40,7 @@ import {
   TrenchMarkSchema,
   boxTypeLabel,
   boxTypesApply,
+  DRAWING_FLOW_ALL_ON,
   boxTypesChangedSince,
   evaluateBoxTypes,
   evaluateInstallation,
@@ -799,7 +800,7 @@ function markOut(cad: MockCadFile, row: MarkRow) {
 
 function installationState(cad: MockCadFile) {
   const store = storeOf(cad.id);
-  const asked = installationQuestionApplies(cad.drawingKind);
+  const asked = installationQuestionApplies(cad.drawingKind, DRAWING_FLOW_ALL_ON);
   const latest = asked ? store.answers.at(-1) : undefined;
   const marks = asked ? [...store.marks].reverse() : [];
   const inForce = marks.filter((mark) => mark.withdrawnAt === null);
@@ -818,7 +819,7 @@ function installationState(cad: MockCadFile) {
 
 /** What a build freezes: the answer and the marks in force (null on a Secondary). */
 function frozenInstallation(cad: MockCadFile): FrozenInstallation | null {
-  if (!installationQuestionApplies(cad.drawingKind)) return null;
+  if (!installationQuestionApplies(cad.drawingKind, DRAWING_FLOW_ALL_ON)) return null;
   const store = storeOf(cad.id);
   const latest = store.answers.at(-1);
   return {
@@ -841,6 +842,7 @@ function reportOf(rev: RevisionRecord) {
       writtenLengthM: feature.len,
     })),
     merges: [],
+    flow: DRAWING_FLOW_ALL_ON,
   });
 }
 
@@ -858,7 +860,8 @@ export async function handleInstallation(
   }
   const refuse = (status: number, reason: string) =>
     h.sendError(res, status, status === 422 ? 'VALIDATION_FAILED' : 'CONFLICT', { reason });
-  if (!installationQuestionApplies(cad.drawingKind)) return refuse(409, 'NOT_GENERAL_DRAWING');
+  if (!installationQuestionApplies(cad.drawingKind, DRAWING_FLOW_ALL_ON))
+    return refuse(409, 'NOT_GENERAL_DRAWING');
   if (cad.superseded) return refuse(409, 'FILE_SUPERSEDED');
   const store = storeOf(cad.id);
   const inForce = () => store.marks.filter((mark) => mark.withdrawnAt === null);
@@ -1010,7 +1013,11 @@ function frozenBoxTypes(cad: MockCadFile): FrozenBoxTypes | null {
 
 function boxTypesReportOf(rev: RevisionRecord) {
   const order = orderLinesSource();
-  const applies = boxTypesApply(rev.cad.drawingKind, readingModeOf(rev.mapping.rules));
+  const applies = boxTypesApply(
+    rev.cad.drawingKind,
+    readingModeOf(rev.mapping.rules),
+    DRAWING_FLOW_ALL_ON,
+  );
   const report = evaluateBoxTypes({
     applies,
     gallery: applies ? MOCK_GALLERY : null,

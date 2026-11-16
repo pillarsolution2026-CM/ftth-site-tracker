@@ -410,3 +410,9 @@ Added because staging had no way to create a project, a user or an assignment. I
   6. Zone names are unique per project, ignoring case.
   7. The initial password is handed over by the admin in person (no email); the user is not forced to change it.
 - **Note:** merged with `main` after PR #17 (Phase 3); ADR renumbered to 026 because #17 used 025. No migration added.
+
+
+#### Three drawing-upload steps switched off (ADR-045; branch `feat/drawing-flow-switch-off`)
+- **Owner 2026-11-16:** no quantity takeoff from the drawings and no comparison with the work-order BOQ; the supervisor picks the BOQ line when recording work (list per element still to come from the owner). Switched off, not deleted: the General's installation question and trench marks (part D), a work-order line per box shape (part E), the drawing totals. Readiness keeps drawing errors (both), other drawing, cabinets match. `READING_ROLES_MISSING` still blocks. Part H dropped.
+- **Done:** shared `DrawingFlow` and env switches `DRAWING_INSTALLATION_QUESTION`, `DRAWING_BOX_TYPES`, `DRAWING_READING_TOTALS` (`on`/`off`, default `off`), passed to `installationQuestionApplies`, `evaluateInstallation`, `boxTypesApply`; readiness `switchedOff`. API token `DRAWING_FLOW` injected in the cad use cases and presenters (writes refused like on the other drawing kind, nothing frozen, `counts.reading` not sent). Web hides switched-off rows while ok. Stored answers, marks and choices untouched; no migration. Env examples list the switches at `off`.
+- **Tests (local, 2026-11-16):** typecheck, lint, unit (turbo, 29 tasks) and format: pass; shared 304, API 618. API integration (Docker, Windows with a local storage-path patch not committed): 430 / 431 pass, the 1 failure is the known `sync.int-spec` photo upload `ECONNRESET`; new `drawing-flow-off.int-spec.ts` 5 pass. Web e2e not run.

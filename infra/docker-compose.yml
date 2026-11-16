@@ -144,6 +144,10 @@ services:
       # Signed tile URLs (ADR-021). DEV ONLY default secret; production generates its own (docs/DEPLOY.md).
       TILE_URL_SECRET: ${TILE_URL_SECRET:-dev-only-tile-secret-change-me-dev-only-tile-secret}
       TILES_PUBLIC_URL: ${TILES_PUBLIC_URL:-http://localhost:3002}
+      # Drawing-flow steps switched off by default (ADR-045); on|off.
+      DRAWING_INSTALLATION_QUESTION: ${DRAWING_INSTALLATION_QUESTION:-off}
+      DRAWING_BOX_TYPES: ${DRAWING_BOX_TYPES:-off}
+      DRAWING_READING_TOTALS: ${DRAWING_READING_TOTALS:-off}
     command:
       - sh
       - -c

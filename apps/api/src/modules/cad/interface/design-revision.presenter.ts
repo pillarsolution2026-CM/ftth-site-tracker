@@ -2,6 +2,7 @@ import {
   RevisionFailureCodeSchema,
   type CadMapping,
   type CadMappingView,
+  type DrawingFlow,
   type DesignRevisionDetail,
   type DesignRevisionSummary,
 } from '@ftth/shared';
@@ -9,7 +10,21 @@ import type { CadMappingRecord } from '../domain/cad-mapping.js';
 import type { DesignRevision } from '../domain/design-revision.js';
 import type { CadMappingViewModel } from '../application/cad-mapping.use-cases.js';
 
-export function toRevisionSummaryDto(revision: DesignRevision): DesignRevisionSummary {
+/**
+ * ADR-045: the drawing totals («ما قرأته الرسمة», `counts.reading`) are left out while the step is
+ * switched off; nothing else of the counts changes and nothing stored is touched.
+ */
+function countsFor(revision: DesignRevision, flow: DrawingFlow): DesignRevision['counts'] {
+  if (flow.readingTotals || revision.counts === null) return revision.counts;
+  const rest = { ...revision.counts };
+  delete rest.reading;
+  return rest;
+}
+
+export function toRevisionSummaryDto(
+  revision: DesignRevision,
+  flow: DrawingFlow,
+): DesignRevisionSummary {
   const failure = RevisionFailureCodeSchema.safeParse(revision.errorCode);
   return {
     id: revision.id,
@@ -25,7 +40,7 @@ export function toRevisionSummaryDto(revision: DesignRevision): DesignRevisionSu
     insUnits: revision.insUnits,
     unitsConflict: revision.unitsConflict,
     baseRevisionId: revision.baseRevisionId,
-    counts: revision.counts,
+    counts: countsFor(revision, flow),
     textLinkCounts: revision.textLinkCounts,
     diffCounts: revision.diffCounts,
     hasTiles: revision.tilesStorageKey !== null,
@@ -39,9 +54,12 @@ export function toRevisionSummaryDto(revision: DesignRevision): DesignRevisionSu
   };
 }
 
-export function toRevisionDetailDto(revision: DesignRevision): DesignRevisionDetail {
+export function toRevisionDetailDto(
+  revision: DesignRevision,
+  flow: DrawingFlow,
+): DesignRevisionDetail {
   return {
-    ...toRevisionSummaryDto(revision),
+    ...toRevisionSummaryDto(revision, flow),
     rules: revision.rules,
     placement: revision.placement,
     installation: revision.installation,

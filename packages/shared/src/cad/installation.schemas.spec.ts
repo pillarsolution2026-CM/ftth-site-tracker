@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DRAWING_FLOW_ALL_ON, DRAWING_FLOW_DEFAULT } from './drawing-flow.js';
 import {
   CreateTrenchMarkRequestSchema,
   DEFAULT_INSTALLATION_METHOD,
@@ -41,12 +42,18 @@ const frozen = (
 });
 
 const general = (f: FrozenInstallation | null, merges: string[][] = []) =>
-  evaluateInstallation({ drawingKind: 'general', frozen: f, routes, merges });
+  evaluateInstallation({
+    drawingKind: 'general',
+    frozen: f,
+    routes,
+    merges,
+    flow: DRAWING_FLOW_ALL_ON,
+  });
 
 describe('installation basics (ADR-040 G14–G17)', () => {
   it('asks the General only; General = pull, Secondary = trench by default', () => {
-    expect(installationQuestionApplies('general')).toBe(true);
-    expect(installationQuestionApplies('secondary')).toBe(false);
+    expect(installationQuestionApplies('general', DRAWING_FLOW_ALL_ON)).toBe(true);
+    expect(installationQuestionApplies('secondary', DRAWING_FLOW_ALL_ON)).toBe(false);
     expect(DEFAULT_INSTALLATION_METHOD).toEqual({ general: 'pull', secondary: 'trench' });
   });
 
@@ -144,9 +151,32 @@ describe('evaluateInstallation', () => {
       frozen: null,
       routes,
       merges: [],
+      flow: DRAWING_FLOW_ALL_ON,
     });
     expect(report).toMatchObject({ applies: false, ok: true, issueCount: 0, totals: null });
     expect(InstallationReportSchema.parse(report)).toEqual(report);
+  });
+
+  it('switched off (ADR-045): the General is not asked and passes, even with no answer', () => {
+    expect(installationQuestionApplies('general', DRAWING_FLOW_DEFAULT)).toBe(false);
+    expect(installationQuestionApplies('secondary', DRAWING_FLOW_DEFAULT)).toBe(false);
+    for (const f of [null, frozen(null), frozen('has_trench', [['ZZ', '1.000']])]) {
+      const report = evaluateInstallation({
+        drawingKind: 'general',
+        frozen: f,
+        routes,
+        merges: [],
+        flow: DRAWING_FLOW_DEFAULT,
+      });
+      expect(report).toMatchObject({
+        applies: false,
+        frozen: null,
+        ok: true,
+        issueCount: 0,
+        issues: [],
+        totals: null,
+      });
+    }
   });
 
   it('unanswered (also a revision built before 0022) is an error', () => {

@@ -10,6 +10,7 @@ import {
   latestChoicePerShape,
   readingModeOf,
   type BoxTypesReport,
+  type DrawingFlow,
   type FrozenBoxTypes,
   type MappingRule,
   type SetBoxTypesRequest,
@@ -47,15 +48,16 @@ export function activeChoicesOf(newestFirst: readonly BoxTypeChoiceRow[]): BoxTy
   return latestChoicePerShape(newestFirst).filter((row) => row.workOrderLineId !== null);
 }
 
-const modeApplies = async (tx: CadTx, file: CadFile): Promise<boolean> => {
+const modeApplies = async (tx: CadTx, file: CadFile, flow: DrawingFlow): Promise<boolean> => {
   if (file.drawingKind !== 'secondary') return false;
   const mapping = await tx.mappings.find(file.projectId, file.id);
-  return mapping !== null && boxTypesApply(file.drawingKind, readingModeOf(mapping.rules));
+  return mapping !== null && boxTypesApply(file.drawingKind, readingModeOf(mapping.rules), flow);
 };
 
-async function stateOf(tx: CadTx, file: CadFile): Promise<BoxTypeStateModel> {
-  const applies = await modeApplies(tx, file);
-  if (file.drawingKind !== 'secondary') {
+async function stateOf(tx: CadTx, file: CadFile, flow: DrawingFlow): Promise<BoxTypeStateModel> {
+  const applies = await modeApplies(tx, file, flow);
+  // Switched off (ADR-045): like a General, nothing is chosen; stored choices are kept, not shown.
+  if (file.drawingKind !== 'secondary' || !flow.boxTypes) {
     return { file, applies: false, history: [], previousVersion: null };
   }
   const history = await tx.boxTypes.listChoices(file.projectId, file.id);
@@ -74,13 +76,16 @@ async function stateOf(tx: CadTx, file: CadFile): Promise<BoxTypeStateModel> {
 }
 
 export class GetBoxTypeStateUseCase {
-  constructor(private readonly uow: CadUnitOfWork) {}
+  constructor(
+    private readonly uow: CadUnitOfWork,
+    private readonly flow: DrawingFlow,
+  ) {}
 
   execute(projectId: string, cadFileId: string): Promise<BoxTypeStateModel> {
     return this.uow.run(async (tx) => {
       const file = await tx.files.find(projectId, cadFileId);
       if (!file) throw new AppError('NOT_FOUND', 'CAD file not found');
-      return stateOf(tx, file);
+      return stateOf(tx, file, this.flow);
     });
   }
 }
@@ -91,6 +96,7 @@ export class SetBoxTypesUseCase {
     private readonly workOrderLines: WorkOrderLines,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -105,7 +111,7 @@ export class SetBoxTypesUseCase {
       // other writes (the caps) and with a new version superseding the file.
       const file = await tx.files.find(projectId, cadFileId, { lock: true });
       if (!file) throw new AppError('NOT_FOUND', 'CAD file not found');
-      if (file.drawingKind !== 'secondary') {
+      if (file.drawingKind !== 'secondary' || !this.flow.boxTypes) {
         throw conflict(
           'NOT_SECONDARY_DRAWING',
           'Box types are chosen on the Secondary drawing, not on the General',
@@ -197,7 +203,7 @@ export class SetBoxTypesUseCase {
           });
         }
       }
-      return stateOf(tx, file);
+      return stateOf(tx, file, this.flow);
     });
   }
 }
@@ -211,8 +217,9 @@ export async function freezeBoxTypes(
   workOrderLines: WorkOrderLines,
   file: CadFile,
   rules: readonly MappingRule[],
+  flow: DrawingFlow,
 ): Promise<FrozenBoxTypes | null> {
-  if (!boxTypesApply(file.drawingKind, readingModeOf(rules))) return null;
+  if (!boxTypesApply(file.drawingKind, readingModeOf(rules), flow)) return null;
   const active = activeChoicesOf(await tx.boxTypes.listChoices(file.projectId, file.id));
   if (active.length === 0) return { choices: [] };
   const { lines } = await workOrderLines.findLinesOfProject(file.projectId);
@@ -247,9 +254,10 @@ export async function boxTypesReportOf(
   tx: { boxTypes: CadTx['boxTypes'] },
   workOrderLines: WorkOrderLines,
   revision: DesignRevision,
+  flow: DrawingFlow,
 ): Promise<BoxTypesReport> {
   const mode = readingModeOf(revision.rules);
-  const applies = boxTypesApply(revision.drawingKind, mode);
+  const applies = boxTypesApply(revision.drawingKind, mode, flow);
   // A Secondary mapped without text roles reads in legacy mode: that is an error, not "n/a".
   if (revision.drawingKind === 'secondary' && mode === 'legacy') {
     return {
@@ -303,12 +311,13 @@ export class GetRevisionBoxTypesUseCase {
   constructor(
     private readonly uow: CadUnitOfWork,
     private readonly workOrderLines: WorkOrderLines,
+    private readonly flow: DrawingFlow,
   ) {}
 
   execute(projectId: string, revisionId: string): Promise<BoxTypesReport> {
     return this.uow.run(async (tx) => {
       const revision = await requireRevision(tx.revisions, projectId, revisionId);
-      return boxTypesReportOf(tx, this.workOrderLines, revision);
+      return boxTypesReportOf(tx, this.workOrderLines, revision, this.flow);
     });
   }
 }

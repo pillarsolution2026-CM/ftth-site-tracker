@@ -1351,6 +1351,7 @@ describe('a built draft revision', () => {
       drawingKind: 'general',
       otherRevisionId: secondaryId,
       needsAcknowledgement: true,
+      switchedOff: [],
       cabinets: {
         ok: true,
         general: { count: 0, unnamed: 0, missingInOther: [] },

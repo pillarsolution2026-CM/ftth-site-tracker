@@ -3,6 +3,7 @@ import {
   EVENT_TYPES,
   problemTotalsOf,
   otherDrawingKind,
+  type DrawingFlow,
   type PublishBlockedDetails,
   type PublishDesignRevisionRequest,
   type PublishReadiness,
@@ -27,13 +28,14 @@ async function publishFacts(
   tx: CadTx,
   workOrderLines: WorkOrderLines,
   revision: DesignRevision,
+  flow: DrawingFlow,
 ): Promise<PublishFacts> {
   const [warnings, open, subCabinets, installation, boxTypes] = await Promise.all([
     tx.problems.warnings(revision.projectId, revision.id),
     tx.links.countOpenItems(revision.projectId, revision.id),
     tx.revisions.subCabinetCodes(revision.projectId, revision.id),
-    installationReportOf(tx, revision),
-    boxTypesReportOf(tx, workOrderLines, revision),
+    installationReportOf(tx, revision, flow),
+    boxTypesReportOf(tx, workOrderLines, revision, flow),
   ]);
   const totals = problemTotalsOf(warnings);
   return {
@@ -54,6 +56,7 @@ export class GetPublishReadinessUseCase {
   constructor(
     private readonly uow: CadUnitOfWork,
     private readonly workOrderLines: WorkOrderLines,
+    private readonly flow: DrawingFlow,
   ) {}
 
   execute(projectId: string, revisionId: string): Promise<PublishReadiness> {
@@ -68,10 +71,14 @@ export class GetPublishReadinessUseCase {
         otherRevision?.status === 'draft'
           ? {
               revisionId: otherRevision.id,
-              facts: await publishFacts(tx, this.workOrderLines, otherRevision),
+              facts: await publishFacts(tx, this.workOrderLines, otherRevision, this.flow),
             }
           : null;
-      return publishReadiness(await publishFacts(tx, this.workOrderLines, revision), other);
+      return publishReadiness(
+        await publishFacts(tx, this.workOrderLines, revision, this.flow),
+        other,
+        this.flow,
+      );
     });
   }
 }
@@ -103,6 +110,7 @@ export class PublishDesignRevisionUseCase {
     private readonly uow: CadUnitOfWork,
     private readonly clock: Clock,
     private readonly workOrderLines: WorkOrderLines,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -134,8 +142,8 @@ export class PublishDesignRevisionUseCase {
       if (other?.status !== 'draft') throw missing;
 
       const [facts, otherFacts] = await Promise.all([
-        publishFacts(tx, this.workOrderLines, revision),
-        publishFacts(tx, this.workOrderLines, other),
+        publishFacts(tx, this.workOrderLines, revision, this.flow),
+        publishFacts(tx, this.workOrderLines, other, this.flow),
       ]);
       const blocker = publishBlocker(facts, otherFacts);
       if (blocker) throw refuse(blocker);

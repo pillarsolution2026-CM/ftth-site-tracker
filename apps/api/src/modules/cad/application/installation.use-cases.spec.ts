@@ -2,6 +2,8 @@ import {
   MAX_INSTALLATION_ANSWERS_PER_FILE,
   MAX_TRENCH_MARKS_PER_FILE,
   MAX_TRENCH_MARK_ROWS_PER_FILE,
+  DRAWING_FLOW_ALL_ON,
+  DRAWING_FLOW_DEFAULT,
 } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../../common/app-error.js';
@@ -73,7 +75,7 @@ beforeEach(() => {
 
 const answer = (value: 'pull_only' | 'has_trench', cadFileId = GENERAL, project = PROJECT) => {
   clock.advanceMinutes(1);
-  return new SetInstallationAnswerUseCase(uow, clock, ids).execute({
+  return new SetInstallationAnswerUseCase(uow, clock, ids, DRAWING_FLOW_ALL_ON).execute({
     projectId: project,
     cadFileId,
     actorId: ACTOR,
@@ -82,7 +84,7 @@ const answer = (value: 'pull_only' | 'has_trench', cadFileId = GENERAL, project 
 };
 const mark = (routeHandle = 'A1', lengthM = '12.500', cadFileId = GENERAL, project = PROJECT) => {
   clock.advanceMinutes(1);
-  return new AddTrenchMarkUseCase(uow, clock, ids).execute({
+  return new AddTrenchMarkUseCase(uow, clock, ids, DRAWING_FLOW_ALL_ON).execute({
     projectId: project,
     cadFileId,
     actorId: ACTOR,
@@ -90,7 +92,7 @@ const mark = (routeHandle = 'A1', lengthM = '12.500', cadFileId = GENERAL, proje
   });
 };
 const withdraw = (markId: string, project = PROJECT) =>
-  new WithdrawTrenchMarkUseCase(uow, clock).execute({
+  new WithdrawTrenchMarkUseCase(uow, clock, DRAWING_FLOW_ALL_ON).execute({
     projectId: project,
     cadFileId: GENERAL,
     markId,
@@ -111,7 +113,10 @@ describe('installation answer (ADR-042)', () => {
     expect(first).toMatchObject({ answer: 'has_trench', createdBy: { id: ACTOR } });
     const second = await answer('pull_only');
     expect(second.id).not.toBe(first.id);
-    const state = await new GetInstallationUseCase(uow).execute(PROJECT, GENERAL);
+    const state = await new GetInstallationUseCase(uow, DRAWING_FLOW_ALL_ON).execute(
+      PROJECT,
+      GENERAL,
+    );
     expect(state.answers.map((a) => a.answer)).toEqual(['pull_only', 'has_trench']);
     const events = uow.events.events.filter((e) => e.type === 'installation_answer.answered');
     expect(events.map((e) => e.payload)).toEqual([
@@ -267,10 +272,57 @@ describe('trench marks (ADR-042)', () => {
 
 describe('reading the installation state', () => {
   it('is empty for a Secondary and 404 for another project', async () => {
-    const state = await new GetInstallationUseCase(uow).execute(PROJECT, SECONDARY);
+    const state = await new GetInstallationUseCase(uow, DRAWING_FLOW_ALL_ON).execute(
+      PROJECT,
+      SECONDARY,
+    );
     expect(state).toMatchObject({ answers: [], marks: [] });
     expect(
-      (await reason(new GetInstallationUseCase(uow).execute(OTHER_PROJECT, GENERAL))).code,
+      (
+        await reason(
+          new GetInstallationUseCase(uow, DRAWING_FLOW_ALL_ON).execute(OTHER_PROJECT, GENERAL),
+        )
+      ).code,
     ).toBe('NOT_FOUND');
+  });
+});
+
+describe('the installation question switched off (ADR-045)', () => {
+  it('is not asked: reading is empty, writes are refused like on a Secondary, stored rows stay', async () => {
+    await answer('has_trench');
+    const created = await mark();
+    const state = await new GetInstallationUseCase(uow, DRAWING_FLOW_DEFAULT).execute(
+      PROJECT,
+      GENERAL,
+    );
+    expect(state).toMatchObject({ answers: [], marks: [] });
+
+    const off = DRAWING_FLOW_DEFAULT;
+    const refused = [
+      new SetInstallationAnswerUseCase(uow, clock, ids, off).execute({
+        projectId: PROJECT,
+        cadFileId: GENERAL,
+        actorId: ACTOR,
+        request: { answer: 'pull_only' },
+      }),
+      new AddTrenchMarkUseCase(uow, clock, ids, off).execute({
+        projectId: PROJECT,
+        cadFileId: GENERAL,
+        actorId: ACTOR,
+        request: { routeHandle: 'A1', lengthM: '1.000' },
+      }),
+      new WithdrawTrenchMarkUseCase(uow, clock, off).execute({
+        projectId: PROJECT,
+        cadFileId: GENERAL,
+        markId: created.id,
+        actorId: ACTOR,
+      }),
+    ];
+    for (const promise of refused) {
+      expect((await reason(promise)).details).toMatchObject({ reason: 'NOT_GENERAL_DRAWING' });
+    }
+    // Nothing stored was touched.
+    expect(uow.installation.answers.size).toBe(1);
+    expect(uow.installation.marks.size).toBe(1);
   });
 });
