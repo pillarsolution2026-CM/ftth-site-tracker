@@ -397,6 +397,12 @@ export const PublishReadinessSchema = z.object({
   installation: InstallationReportSchema.nullable().default(null),
   /** ADR-043: the box-types report behind `box_types`; null on a General / legacy-mode Secondary. */
   boxTypes: BoxTypesReportSchema.nullable().default(null),
+  /**
+   * ADR-045: checks whose step is switched off (`installation`, `box_types`). Such a check is ok
+   * unless it still reports an error (`READING_ROLES_MISSING` on `box_types`); the web hides it
+   * while ok.
+   */
+  switchedOff: z.array(PublishCheckKeySchema).default([]),
 });
 export type PublishReadiness = z.infer<typeof PublishReadinessSchema>;
 

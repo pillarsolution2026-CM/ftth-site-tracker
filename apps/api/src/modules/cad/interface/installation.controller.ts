@@ -24,6 +24,7 @@ import {
   type InstallationState,
   type SetInstallationAnswerRequest,
   type TrenchMark,
+  type DrawingFlow,
 } from '@ftth/shared';
 import { ProjectIdParam } from '../../../common/http/params.js';
 import { actorIdOf } from '../../../common/http/request-actor.js';
@@ -41,6 +42,7 @@ import {
   SetInstallationAnswerUseCase,
   WithdrawTrenchMarkUseCase,
 } from '../application/installation.use-cases.js';
+import { DRAWING_FLOW } from '../cad.tokens.js';
 import { toAnswerDto, toInstallationStateDto, toTrenchMarkDto } from './installation.presenter.js';
 
 /** The General's installation question and trench marks (ADR-042 part D). */
@@ -56,6 +58,7 @@ export class InstallationController {
     @Inject(WithdrawTrenchMarkUseCase) private readonly withdrawMark: WithdrawTrenchMarkUseCase,
     @Inject(GetRevisionInstallationUseCase)
     private readonly revisionReport: GetRevisionInstallationUseCase,
+    @Inject(DRAWING_FLOW) private readonly flow: DrawingFlow,
   ) {}
 
   @Get('cad-files/:cadFileId/installation')
@@ -65,7 +68,7 @@ export class InstallationController {
     @ProjectIdParam() projectId: string,
     @Param('cadFileId', UuidParamPipe) cadFileId: string,
   ): Promise<InstallationState> {
-    return toInstallationStateDto(await this.getState.execute(projectId, cadFileId));
+    return toInstallationStateDto(await this.getState.execute(projectId, cadFileId), this.flow);
   }
 
   @Put('cad-files/:cadFileId/installation/answer')

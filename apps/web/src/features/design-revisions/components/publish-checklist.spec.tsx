@@ -46,6 +46,7 @@ function readiness(
     warningCount: 0,
     installation: null,
     boxTypes: null,
+    switchedOff: [],
   };
 }
 
@@ -360,5 +361,40 @@ describe('PublishChecklist box types row (ADR-043)', () => {
   it('says the types are set on the Secondary when this is the General', () => {
     setup(readiness());
     expect(screen.getByText('Box types are set on the Secondary drawing.')).toBeInTheDocument();
+  });
+
+  describe('switched-off steps (ADR-045)', () => {
+    it('hides the ok rows and the texts of the steps the API switched off', () => {
+      setup({ ...readiness(), switchedOff: ['installation', 'box_types'] });
+      expect(screen.queryByText(/installation/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('Every box shape has a work-order line')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Box types are set on the Secondary drawing.'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Coordinates: source CRS chosen')).toBeInTheDocument();
+    });
+
+    it('keeps a switched-off box_types row that is not ok, with its issue', () => {
+      const base = readiness(['box_types'], { box_types: 1 });
+      setup({
+        ...base,
+        drawingKind: 'secondary',
+        switchedOff: ['installation', 'box_types'],
+        boxTypes: {
+          applies: true,
+          gallery: null,
+          frozen: null,
+          ok: false,
+          issueCount: 1,
+          issues: [
+            { code: 'READING_ROLES_MISSING', shape: null, boxCount: null, workOrderLineId: null },
+          ],
+          totals: null,
+          changedSinceBuild: false,
+        } as BoxTypesReport,
+      });
+      expect(screen.getByText('Every box shape has a work-order line')).toBeInTheDocument();
+      expect(screen.getByText('(Not done)')).toBeInTheDocument();
+    });
   });
 });

@@ -4,6 +4,8 @@ import {
   MappingRuleSchema,
   type BoxShapeGallery,
   type DrawingKind,
+  DRAWING_FLOW_ALL_ON,
+  DRAWING_FLOW_DEFAULT,
 } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../../common/app-error.js';
@@ -130,7 +132,7 @@ const set = (
   options: { cadFileId?: string; fromPreviousVersion?: boolean } = {},
 ) => {
   clock.advanceMinutes(1);
-  return new SetBoxTypesUseCase(uow, lines, clock, ids).execute({
+  return new SetBoxTypesUseCase(uow, lines, clock, ids, DRAWING_FLOW_ALL_ON).execute({
     projectId: PROJECT,
     cadFileId: options.cadFileId ?? SECONDARY,
     actorId: ACTOR,
@@ -138,7 +140,7 @@ const set = (
   });
 };
 const state = (cadFileId = SECONDARY, project = PROJECT) =>
-  new GetBoxTypeStateUseCase(uow).execute(project, cadFileId);
+  new GetBoxTypeStateUseCase(uow, DRAWING_FLOW_ALL_ON).execute(project, cadFileId);
 const refusal = async (promise: Promise<unknown>) => {
   const error = await promise.then(
     () => null,
@@ -253,7 +255,7 @@ describe('set box types (ADR-043)', () => {
 
   it('refuses another project (the file is not found)', async () => {
     const error = await refusal(
-      new SetBoxTypesUseCase(uow, lines, clock, ids).execute({
+      new SetBoxTypesUseCase(uow, lines, clock, ids, DRAWING_FLOW_ALL_ON).execute({
         projectId: OTHER_PROJECT,
         cadFileId: SECONDARY,
         actorId: ACTOR,
@@ -349,7 +351,7 @@ describe('freezing and checking (ADR-043)', () => {
       { shape: SHAPE_1, workOrderLineId: LINE_A },
     ]);
     const frozen = await uow.run((tx) =>
-      freezeBoxTypes(tx, lines, file(SECONDARY, 'secondary'), ROLES_RULES),
+      freezeBoxTypes(tx, lines, file(SECONDARY, 'secondary'), ROLES_RULES, DRAWING_FLOW_ALL_ON),
     );
     expect(frozen?.choices.map((c) => [c.shape, c.workOrderLineId, c.line?.code])).toEqual([
       [SHAPE_1, LINE_A, '1.1'],
@@ -361,7 +363,7 @@ describe('freezing and checking (ADR-043)', () => {
   it('freezes null for a General and for legacy reading mode, empty when nothing is chosen', async () => {
     await set([{ shape: SHAPE_1, workOrderLineId: LINE_A }]);
     const run = (f: CadFile, rules: typeof ROLES_RULES) =>
-      uow.run((tx) => freezeBoxTypes(tx, lines, f, rules));
+      uow.run((tx) => freezeBoxTypes(tx, lines, f, rules, DRAWING_FLOW_ALL_ON));
     expect(await run(file(GENERAL, 'general'), ROLES_RULES)).toBeNull();
     expect(await run(file(SECONDARY, 'secondary'), [])).toBeNull();
     expect(await run(file(OLD_SECONDARY, 'secondary'), ROLES_RULES)).toEqual({ choices: [] });
@@ -371,7 +373,7 @@ describe('freezing and checking (ADR-043)', () => {
     await set([{ shape: SHAPE_1, workOrderLineId: LINE_A }]);
     lines.lines = [];
     const frozen = await uow.run((tx) =>
-      freezeBoxTypes(tx, lines, file(SECONDARY, 'secondary'), ROLES_RULES),
+      freezeBoxTypes(tx, lines, file(SECONDARY, 'secondary'), ROLES_RULES, DRAWING_FLOW_ALL_ON),
     );
     expect(frozen?.choices[0]?.line).toBeNull();
   });
@@ -380,7 +382,14 @@ describe('freezing and checking (ADR-043)', () => {
     rolesMapping();
     await set([{ shape: SHAPE_1, workOrderLineId: LINE_A }]);
     const queue = new RecordingJobQueue();
-    const revision = await new CreateDesignRevisionUseCase(uow, queue, clock, ids, lines).execute({
+    const revision = await new CreateDesignRevisionUseCase(
+      uow,
+      queue,
+      clock,
+      ids,
+      lines,
+      DRAWING_FLOW_ALL_ON,
+    ).execute({
       projectId: PROJECT,
       actorId: ACTOR,
       request: { cadFileId: SECONDARY, mappingVersion: 1 },
@@ -398,7 +407,10 @@ describe('freezing and checking (ADR-043)', () => {
     };
     uow.revisions.rows.set(draft.id, draft);
 
-    const report = await new GetRevisionBoxTypesUseCase(uow, lines).execute(PROJECT, draft.id);
+    const report = await new GetRevisionBoxTypesUseCase(uow, lines, DRAWING_FLOW_ALL_ON).execute(
+      PROJECT,
+      draft.id,
+    );
     expect(report).toMatchObject({
       applies: true,
       ok: false,
@@ -408,7 +420,10 @@ describe('freezing and checking (ADR-043)', () => {
       changedSinceBuild: false,
     });
 
-    const readiness = await new GetPublishReadinessUseCase(uow, lines).execute(PROJECT, draft.id);
+    const readiness = await new GetPublishReadinessUseCase(uow, lines, DRAWING_FLOW_ALL_ON).execute(
+      PROJECT,
+      draft.id,
+    );
     expect(readiness.checks.find((c) => c.key === 'box_types')).toEqual({
       key: 'box_types',
       ok: false,
@@ -421,8 +436,12 @@ describe('freezing and checking (ADR-043)', () => {
     // A later choice is a change since the build; choosing both makes it ok with totals.
     await set([{ shape: SHAPE_2, workOrderLineId: LINE_A }]);
     expect(
-      (await new GetRevisionBoxTypesUseCase(uow, lines).execute(PROJECT, draft.id))
-        .changedSinceBuild,
+      (
+        await new GetRevisionBoxTypesUseCase(uow, lines, DRAWING_FLOW_ALL_ON).execute(
+          PROJECT,
+          draft.id,
+        )
+      ).changedSinceBuild,
     ).toBe(true);
   });
 
@@ -468,7 +487,10 @@ describe('freezing and checking (ADR-043)', () => {
     const run = async (patch: Partial<DesignRevision>) => {
       const revision = make(patch);
       uow.revisions.rows.set(revision.id, revision);
-      return new GetRevisionBoxTypesUseCase(uow, lines).execute(PROJECT, revision.id);
+      return new GetRevisionBoxTypesUseCase(uow, lines, DRAWING_FLOW_ALL_ON).execute(
+        PROJECT,
+        revision.id,
+      );
     };
     const frozen = (shape: string, lineId: string) => ({
       choiceId: ids.next(),
@@ -533,5 +555,32 @@ describe('freezing and checking (ADR-043)', () => {
         shapes: [SHAPE_1, SHAPE_2],
       },
     ]);
+  });
+});
+
+describe('box types switched off (ADR-045)', () => {
+  it('shows no state, refuses choices like on a General and freezes nothing', async () => {
+    await set([{ shape: SHAPE_1, workOrderLineId: LINE_A }]);
+    const off = DRAWING_FLOW_DEFAULT;
+    const shown = await new GetBoxTypeStateUseCase(uow, off).execute(PROJECT, SECONDARY);
+    expect(shown).toMatchObject({ applies: false, history: [], previousVersion: null });
+
+    const refused = await refusal(
+      new SetBoxTypesUseCase(uow, lines, clock, ids, off).execute({
+        projectId: PROJECT,
+        cadFileId: SECONDARY,
+        actorId: ACTOR,
+        request: {
+          choices: [{ shape: SHAPE_2, workOrderLineId: LINE_A }],
+          fromPreviousVersion: false,
+        },
+      }),
+    );
+    expect(refused.details).toMatchObject({ reason: 'NOT_SECONDARY_DRAWING' });
+    expect(
+      await uow.run((tx) =>
+        freezeBoxTypes(tx, lines, file(SECONDARY, 'secondary'), ROLES_RULES, off),
+      ),
+    ).toBeNull();
   });
 });

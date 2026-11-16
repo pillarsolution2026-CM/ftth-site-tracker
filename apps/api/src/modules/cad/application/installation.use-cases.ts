@@ -7,6 +7,7 @@ import {
   evaluateInstallation,
   installationQuestionApplies,
   type CreateTrenchMarkRequest,
+  type DrawingFlow,
   type InstallationReport,
   type SetInstallationAnswerRequest,
 } from '@ftth/shared';
@@ -29,14 +30,19 @@ export interface InstallationStateModel {
 }
 
 export class GetInstallationUseCase {
-  constructor(private readonly uow: CadUnitOfWork) {}
+  constructor(
+    private readonly uow: CadUnitOfWork,
+    private readonly flow: DrawingFlow,
+  ) {}
 
   execute(projectId: string, cadFileId: string): Promise<InstallationStateModel> {
     return this.uow.run(async (tx) => {
       const file = await tx.files.find(projectId, cadFileId);
       if (!file) throw new AppError('NOT_FOUND', 'CAD file not found');
-      // A Secondary is never asked: nothing to read (and the tables refuse its rows).
-      if (!installationQuestionApplies(file.drawingKind)) return { file, answers: [], marks: [] };
+      // A Secondary (or any file while the step is switched off, ADR-045) is never asked: nothing
+      // to read (and the tables refuse its rows). Stored rows are kept, just not shown.
+      if (!installationQuestionApplies(file.drawingKind, this.flow))
+        return { file, answers: [], marks: [] };
       const [answers, marks] = await Promise.all([
         tx.installation.listAnswers(projectId, cadFileId),
         tx.installation.listMarks(projectId, cadFileId),
@@ -51,12 +57,13 @@ async function lockCurrentGeneral(
   tx: CadTx,
   projectId: string,
   cadFileId: string,
+  flow: DrawingFlow,
 ): Promise<CadFile> {
   // The file row lock serialises with revision creation (which freezes the installation) and with
   // other writes (the caps).
   const file = await tx.files.find(projectId, cadFileId, { lock: true });
   if (!file) throw new AppError('NOT_FOUND', 'CAD file not found');
-  if (!installationQuestionApplies(file.drawingKind)) {
+  if (!installationQuestionApplies(file.drawingKind, flow)) {
     throw conflict(
       'NOT_GENERAL_DRAWING',
       'Only a General drawing has an installation question (a Secondary is all trench)',
@@ -75,6 +82,7 @@ export class SetInstallationAnswerUseCase {
     private readonly uow: CadUnitOfWork,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -86,7 +94,7 @@ export class SetInstallationAnswerUseCase {
     const { projectId, cadFileId, actorId, request } = input;
     const id = this.ids.next();
     return this.uow.run(async (tx) => {
-      await lockCurrentGeneral(tx, projectId, cadFileId);
+      await lockCurrentGeneral(tx, projectId, cadFileId, this.flow);
       const [latest] = await tx.installation.listAnswers(projectId, cadFileId);
       // The same answer again changes nothing: no new row, no event.
       if (latest?.answer === request.answer) return latest;
@@ -142,6 +150,7 @@ export class AddTrenchMarkUseCase {
     private readonly uow: CadUnitOfWork,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -153,7 +162,7 @@ export class AddTrenchMarkUseCase {
     const { projectId, cadFileId, actorId, request } = input;
     const id = this.ids.next();
     return this.uow.run(async (tx) => {
-      const file = await lockCurrentGeneral(tx, projectId, cadFileId);
+      const file = await lockCurrentGeneral(tx, projectId, cadFileId, this.flow);
       if (file.status !== 'processed') {
         throw conflict('NOT_PROCESSED', 'The CAD file is not processed yet', {
           status: file.status,
@@ -214,6 +223,7 @@ export class WithdrawTrenchMarkUseCase {
   constructor(
     private readonly uow: CadUnitOfWork,
     private readonly clock: Clock,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -226,7 +236,7 @@ export class WithdrawTrenchMarkUseCase {
     return this.uow.run(async (tx) => {
       // Same lock as creating a revision: a revision freezes either before or after, never between.
       // The same rules as adding: a current General (L3).
-      await lockCurrentGeneral(tx, projectId, cadFileId);
+      await lockCurrentGeneral(tx, projectId, cadFileId, this.flow);
       const current = await tx.installation.findMark(projectId, cadFileId, markId, { lock: true });
       if (!current) throw new AppError('NOT_FOUND', 'Trench mark not found');
       const done = await tx.installation.withdrawMark(
@@ -260,13 +270,15 @@ export class WithdrawTrenchMarkUseCase {
 export async function installationReportOf(
   tx: { revisions: CadTx['revisions'] },
   revision: DesignRevision,
+  flow: DrawingFlow,
 ): Promise<InstallationReport> {
-  if (!installationQuestionApplies(revision.drawingKind)) {
+  if (!installationQuestionApplies(revision.drawingKind, flow)) {
     return evaluateInstallation({
       drawingKind: revision.drawingKind,
       frozen: null,
       routes: [],
       merges: [],
+      flow,
     });
   }
   const built = hasBuiltContent(revision);
@@ -281,17 +293,21 @@ export async function installationReportOf(
     frozen: revision.installation,
     routes,
     merges,
+    flow,
   });
 }
 
 /** GET …/design-revisions/:r/installation. */
 export class GetRevisionInstallationUseCase {
-  constructor(private readonly uow: CadUnitOfWork) {}
+  constructor(
+    private readonly uow: CadUnitOfWork,
+    private readonly flow: DrawingFlow,
+  ) {}
 
   execute(projectId: string, revisionId: string): Promise<InstallationReport> {
     return this.uow.run(async (tx) => {
       const revision = await requireRevision(tx.revisions, projectId, revisionId);
-      return installationReportOf(tx, revision);
+      return installationReportOf(tx, revision, this.flow);
     });
   }
 }

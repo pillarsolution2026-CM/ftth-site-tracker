@@ -3,6 +3,7 @@ import {
   compareCabinets,
   type BoxTypesReport,
   type CabinetsComparison,
+  type DrawingFlow,
   type DrawingKind,
   type InstallationReport,
   type Placement,
@@ -67,7 +68,11 @@ const unmatchedCabinets = (c: CabinetsComparison): number =>
  * this drawing's; `open_items` sums both drawings; `other_drawing` is ok when the other kind has a
  * draft that passes its own first three checks (ADR-040).
  */
-export function publishReadiness(facts: PublishFacts, other: OtherDraft | null): PublishReadiness {
+export function publishReadiness(
+  facts: PublishFacts,
+  other: OtherDraft | null,
+  flow: DrawingFlow,
+): PublishReadiness {
   const inUse = pointsInUse(facts.placement);
   const openTotal = openTotalOf(facts.open) + (other ? openTotalOf(other.facts.open) : 0);
   const cabinets = other ? cabinetsOf(facts, other.facts) : null;
@@ -108,6 +113,11 @@ export function publishReadiness(facts: PublishFacts, other: OtherDraft | null):
     warningCount: facts.warningTotal,
     installation: facts.installation.applies ? facts.installation : null,
     boxTypes: facts.boxTypes.applies ? facts.boxTypes : null,
+    // ADR-045: the checks of the steps switched off; the web hides them while they are ok.
+    switchedOff: [
+      ...(flow.installationQuestion ? [] : (['installation'] as const)),
+      ...(flow.boxTypes ? [] : (['box_types'] as const)),
+    ],
   };
 }
 

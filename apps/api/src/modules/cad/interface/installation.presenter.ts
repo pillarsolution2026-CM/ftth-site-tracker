@@ -1,6 +1,7 @@
 import {
   installationQuestionApplies,
   metresToMm,
+  type DrawingFlow,
   mmToMetres,
   type InstallationAnswerRecord,
   type InstallationState,
@@ -32,14 +33,17 @@ export function toTrenchMarkDto(record: TrenchMarkRecord): TrenchMark {
   };
 }
 
-export function toInstallationStateDto(model: InstallationStateModel): InstallationState {
+export function toInstallationStateDto(
+  model: InstallationStateModel,
+  flow: DrawingFlow,
+): InstallationState {
   const active = model.marks.filter((mark) => mark.withdrawnAt === null);
   const trenchMm = active.reduce((sum, mark) => sum + metresToMm(mark.lengthM), 0n);
   const answers = model.answers.map(toAnswerDto);
   return {
     cadFileId: model.file.id,
     drawingKind: model.file.drawingKind,
-    asked: installationQuestionApplies(model.file.drawingKind),
+    asked: installationQuestionApplies(model.file.drawingKind, flow),
     answer: answers[0] ?? null,
     answerHistory: answers,
     marks: model.marks.map(toTrenchMarkDto),

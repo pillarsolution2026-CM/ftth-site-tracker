@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DrawingKindSchema, type DrawingKind } from './drawing-kind.schemas.js';
+import type { DrawingFlow } from './drawing-flow.js';
 import { writtenMetres3 } from './text-roles.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { readingOf } from '../design/feature-reading.schemas.js';
@@ -32,9 +33,9 @@ export const DEFAULT_INSTALLATION_METHOD: Readonly<Record<DrawingKind, Installat
   secondary: 'trench',
 };
 
-/** Only the General is asked (ADR-040). */
-export function installationQuestionApplies(kind: DrawingKind): boolean {
-  return kind === 'general';
+/** Only the General is asked (ADR-040), and only while the step is switched on (ADR-045). */
+export function installationQuestionApplies(kind: DrawingKind, flow: DrawingFlow): boolean {
+  return flow.installationQuestion && kind === 'general';
 }
 
 /** `pull_only`: no new pipes anywhere; `has_trench`: some parts need trenching and new pipes. */
@@ -347,9 +348,11 @@ export function evaluateInstallation(input: {
   routes: readonly InstallationRoute[];
   /** `handles` of the revision's frozen `merge_routes` corrections. */
   merges: readonly (readonly string[])[];
+  /** The drawing-flow switches (ADR-045); the question off → not applicable, ok. */
+  flow: DrawingFlow;
 }): InstallationReport {
   const { drawingKind, frozen, routes, merges } = input;
-  if (!installationQuestionApplies(drawingKind)) {
+  if (!installationQuestionApplies(drawingKind, input.flow)) {
     return { applies: false, frozen: null, ok: true, issueCount: 0, issues: [], totals: null };
   }
   const issues: InstallationIssue[] = [];

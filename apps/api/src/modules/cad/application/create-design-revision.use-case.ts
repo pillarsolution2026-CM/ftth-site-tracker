@@ -2,8 +2,10 @@ import { Logger } from '@nestjs/common';
 import {
   EVENT_ENTITIES,
   EVENT_TYPES,
+  installationQuestionApplies,
   type CadBuildRevisionJob,
   type CreateDesignRevisionRequest,
+  type DrawingFlow,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
@@ -36,6 +38,7 @@ export async function createRevisionInTx(
   tx: CadTx,
   input: NewRevisionInput,
   workOrderLines: WorkOrderLines,
+  flow: DrawingFlow,
 ): Promise<void> {
   const { projectId, actorId, cadFileId, mappingVersion, revisionId, jobId, now } = input;
   const file = await tx.files.find(projectId, cadFileId, { lock: true });
@@ -64,10 +67,12 @@ export async function createRevisionInTx(
   // The file row is locked above, so no correction can be added or withdrawn while this reads.
   const corrections = await tx.corrections.listActiveFrozen(projectId, cadFileId);
   // Same lock: the General's installation answer and marks in force are frozen with them (ADR-042).
-  const installation =
-    file.drawingKind === 'general' ? await tx.installation.frozen(projectId, cadFileId) : null;
+  // Switched off (ADR-045): nothing is frozen; the stored answer and marks stay untouched.
+  const installation = installationQuestionApplies(file.drawingKind, flow)
+    ? await tx.installation.frozen(projectId, cadFileId)
+    : null;
   // Same lock: the Secondary's box-type choices in force, with a snapshot of their lines (ADR-043).
-  const boxTypes = await freezeBoxTypes(tx, workOrderLines, file, mapping.rules);
+  const boxTypes = await freezeBoxTypes(tx, workOrderLines, file, mapping.rules, flow);
   await tx.revisions.insert({
     id: revisionId,
     projectId,
@@ -154,6 +159,7 @@ export class CreateDesignRevisionUseCase {
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
     private readonly workOrderLines: WorkOrderLines,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -172,7 +178,7 @@ export class CreateDesignRevisionUseCase {
       now: this.clock.now(),
     };
 
-    await this.uow.run((tx) => createRevisionInTx(tx, created, this.workOrderLines));
+    await this.uow.run((tx) => createRevisionInTx(tx, created, this.workOrderLines, this.flow));
     await enqueueBuildAfterCommit(this.uow, this.queue, created);
     const revision = await this.uow.run((tx) => tx.revisions.find(projectId, created.revisionId));
     if (!revision) throw new AppError('INTERNAL', 'The design revision disappeared');

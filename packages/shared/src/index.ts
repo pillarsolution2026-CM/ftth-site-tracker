@@ -21,6 +21,7 @@ export * from './cad/text-roles.js';
 export * from './cad/cad-mapping.schemas.js';
 export * from './cad/placement.schemas.js';
 export * from './cad/secondary-placement.schemas.js';
+export * from './cad/drawing-flow.js';
 export * from './cad/installation.schemas.js';
 export * from './cad/box-types.schemas.js';
 export * from './cad/gps-proposal.schemas.js';

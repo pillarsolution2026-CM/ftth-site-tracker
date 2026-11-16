@@ -1,5 +1,5 @@
 import { Inject, Module, type OnApplicationShutdown, type Provider } from '@nestjs/common';
-import type { ApiEnv } from '@ftth/shared';
+import { drawingFlowFromEnv, type ApiEnv, type DrawingFlow } from '@ftth/shared';
 import { systemClock, uuidGenerator } from '../../common/clock.js';
 import { maxUploadBytes } from '../../common/http/multipart-payload.js';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.port.js';
@@ -98,6 +98,7 @@ import {
   JOB_QUEUE,
   PROJECT_EPSG_LOOKUP,
   WORK_ORDER_LINES,
+  DRAWING_FLOW,
   TILE_CONFIG,
 } from './cad.tokens.js';
 import type {
@@ -147,6 +148,11 @@ const providers: Provider[] = [
     useFactory: () => new FixedWindowRateLimiter(systemClock, 10 * 60_000),
   },
   { provide: DRAWING_VIEW_RATE_BUDGET, useValue: 10 },
+  {
+    provide: DRAWING_FLOW,
+    inject: [APP_ENV],
+    useFactory: (env: ApiEnv): DrawingFlow => drawingFlowFromEnv(env),
+  },
   {
     provide: JOB_QUEUE,
     inject: [APP_ENV],
@@ -329,9 +335,9 @@ const providers: Provider[] = [
   },
   {
     provide: CreateDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES],
-    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines) =>
-      new CreateDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines),
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new CreateDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines, flow),
   },
   {
     provide: ListDesignRevisionsUseCase,
@@ -375,15 +381,15 @@ const providers: Provider[] = [
   },
   {
     provide: GetPublishReadinessUseCase,
-    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
-    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
-      new GetPublishReadinessUseCase(uow, lines),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new GetPublishReadinessUseCase(uow, lines, flow),
   },
   {
     provide: PublishDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
-    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
-      new PublishDesignRevisionUseCase(uow, systemClock, lines),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new PublishDesignRevisionUseCase(uow, systemClock, lines, flow),
   },
   {
     provide: DiscardDesignRevisionUseCase,
@@ -393,9 +399,9 @@ const providers: Provider[] = [
   },
   {
     provide: RebuildDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES],
-    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines) =>
-      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines),
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines, flow),
   },
   {
     provide: ListDrawingCorrectionsUseCase,
@@ -415,46 +421,49 @@ const providers: Provider[] = [
   },
   {
     provide: GetInstallationUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new GetInstallationUseCase(uow),
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) => new GetInstallationUseCase(uow, flow),
   },
   {
     provide: SetInstallationAnswerUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) =>
-      new SetInstallationAnswerUseCase(uow, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new SetInstallationAnswerUseCase(uow, systemClock, uuidGenerator, flow),
   },
   {
     provide: AddTrenchMarkUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new AddTrenchMarkUseCase(uow, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new AddTrenchMarkUseCase(uow, systemClock, uuidGenerator, flow),
   },
   {
     provide: WithdrawTrenchMarkUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new WithdrawTrenchMarkUseCase(uow, systemClock),
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new WithdrawTrenchMarkUseCase(uow, systemClock, flow),
   },
   {
     provide: GetRevisionInstallationUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new GetRevisionInstallationUseCase(uow),
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new GetRevisionInstallationUseCase(uow, flow),
   },
   {
     provide: GetBoxTypeStateUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new GetBoxTypeStateUseCase(uow),
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) => new GetBoxTypeStateUseCase(uow, flow),
   },
   {
     provide: SetBoxTypesUseCase,
-    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
-    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
-      new SetBoxTypesUseCase(uow, lines, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new SetBoxTypesUseCase(uow, lines, systemClock, uuidGenerator, flow),
   },
   {
     provide: GetRevisionBoxTypesUseCase,
-    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES],
-    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines) =>
-      new GetRevisionBoxTypesUseCase(uow, lines),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new GetRevisionBoxTypesUseCase(uow, lines, flow),
   },
   {
     provide: GetSecondaryPlacementSuggestionUseCase,

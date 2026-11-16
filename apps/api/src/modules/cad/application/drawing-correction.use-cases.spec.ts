@@ -2,6 +2,7 @@ import {
   MAX_CORRECTION_ROWS_PER_FILE,
   MAX_CORRECTIONS_PER_FILE,
   type CadMappingInput,
+  DRAWING_FLOW_ALL_ON,
 } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
@@ -121,13 +122,27 @@ const save = () =>
     mapping: MAPPING,
   });
 const create = () =>
-  new CreateDesignRevisionUseCase(uow, queue, clock, ids, new InMemoryWorkOrderLines()).execute({
+  new CreateDesignRevisionUseCase(
+    uow,
+    queue,
+    clock,
+    ids,
+    new InMemoryWorkOrderLines(),
+    DRAWING_FLOW_ALL_ON,
+  ).execute({
     projectId: PROJECT,
     actorId: ACTOR,
     request: { cadFileId: FILE, mappingVersion: 1 },
   });
 const rebuild = (revisionId: string, mappingVersion = 1) =>
-  new RebuildDesignRevisionUseCase(uow, queue, clock, ids, new InMemoryWorkOrderLines()).execute({
+  new RebuildDesignRevisionUseCase(
+    uow,
+    queue,
+    clock,
+    ids,
+    new InMemoryWorkOrderLines(),
+    DRAWING_FLOW_ALL_ON,
+  ).execute({
     projectId: PROJECT,
     revisionId,
     actorId: ACTOR,
@@ -389,6 +404,7 @@ describe('rebuild', () => {
         clock,
         ids,
         new InMemoryWorkOrderLines(),
+        DRAWING_FLOW_ALL_ON,
       ).execute({
         projectId: OTHER_PROJECT,
         revisionId: old.id,

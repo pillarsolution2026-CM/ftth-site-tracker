@@ -1,4 +1,4 @@
-import type { RebuildDesignRevisionRequest } from '@ftth/shared';
+import type { DrawingFlow, RebuildDesignRevisionRequest } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import type { CadUnitOfWork } from '../domain/cad-file.repository.js';
@@ -23,6 +23,7 @@ export class RebuildDesignRevisionUseCase {
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
     private readonly workOrderLines: WorkOrderLines,
+    private readonly flow: DrawingFlow,
   ) {}
 
   async execute(input: {
@@ -55,7 +56,7 @@ export class RebuildDesignRevisionUseCase {
         jobId,
         now,
       };
-      await createRevisionInTx(tx, next, this.workOrderLines);
+      await createRevisionInTx(tx, next, this.workOrderLines, this.flow);
       return next;
     });
 

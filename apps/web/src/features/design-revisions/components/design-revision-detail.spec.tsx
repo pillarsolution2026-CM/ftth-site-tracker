@@ -67,6 +67,7 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
     warningCount: 0,
     installation: null,
     boxTypes: null,
+    switchedOff: [],
     ...overrides,
   };
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DRAWING_FLOW_ALL_ON, DRAWING_FLOW_DEFAULT } from './drawing-flow.js';
 import {
   BOX_SHAPE_NONE,
   BOX_TYPE_LABEL_MAX,
@@ -85,9 +86,23 @@ describe('box shape signature', () => {
   });
 
   it('applies to a roles-mode Secondary only', () => {
-    expect(boxTypesApply('secondary', 'roles')).toBe(true);
-    expect(boxTypesApply('secondary', 'legacy')).toBe(false);
-    expect(boxTypesApply('general', 'roles')).toBe(false);
+    expect(boxTypesApply('secondary', 'roles', DRAWING_FLOW_ALL_ON)).toBe(true);
+    expect(boxTypesApply('secondary', 'legacy', DRAWING_FLOW_ALL_ON)).toBe(false);
+    expect(boxTypesApply('general', 'roles', DRAWING_FLOW_ALL_ON)).toBe(false);
+  });
+
+  it('does not apply while the step is switched off (ADR-045)', () => {
+    expect(boxTypesApply('secondary', 'roles', DRAWING_FLOW_DEFAULT)).toBe(false);
+    expect(boxTypesApply('secondary', 'roles', { ...DRAWING_FLOW_ALL_ON, boxTypes: false })).toBe(
+      false,
+    );
+    // The other switches do not matter.
+    expect(
+      boxTypesApply('secondary', 'roles', {
+        ...DRAWING_FLOW_DEFAULT,
+        boxTypes: true,
+      }),
+    ).toBe(true);
   });
 });
 
