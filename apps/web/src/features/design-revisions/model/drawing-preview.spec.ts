@@ -114,3 +114,25 @@ describe('correction preview', () => {
     expect(defaultTextHeight(null)).toBe(2.5);
   });
 });
+
+describe('moves and turns in the preview (ADR-047)', () => {
+  it('move_item then rotate_item give the entity one transform, in that order', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction({ kind: 'move_item', handle: 'B', dx: 0, dy: 10 }),
+        correction(
+          { kind: 'rotate_item', handle: 'B', x: 50, y: 35, angle: 90 },
+          { createdAt: '2026-11-09T10:00:01+00:00' },
+        ),
+      ],
+      2.5,
+    );
+    const t = preview.transformOf.get(1);
+    expect(t).toBeDefined();
+    // (50, 25) → moved to (50, 35) → the turn point stays.
+    expect((t?.[0] ?? 0) * 50 + (t?.[2] ?? 0) * 25 + (t?.[4] ?? 0)).toBeCloseTo(50, 9);
+    expect((t?.[1] ?? 0) * 50 + (t?.[3] ?? 0) * 25 + (t?.[5] ?? 0)).toBeCloseTo(35, 9);
+    expect(preview.transformOf.has(0)).toBe(false);
+  });
+});

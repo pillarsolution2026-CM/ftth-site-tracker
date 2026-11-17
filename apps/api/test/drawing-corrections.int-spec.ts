@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   DesignRevisionSummarySchema,
   DrawingCorrectionListSchema,
+  DrawingCorrectionsSavedSchema,
   DrawingCorrectionSchema,
   FrozenDrawingCorrectionSchema,
 } from '@ftth/shared';
@@ -281,6 +282,45 @@ describe('corrections routes', () => {
       'drawing_correction.added',
       'drawing_correction.withdrawn',
     ]);
+  });
+
+  it('saves the edits of the drawing all at once, or none of them (ADR-047)', async () => {
+    const fileId = await insertDrawing();
+    expect((await saveMapping(fileId)).status).toBe(200);
+    const batch = (items: object[], token = pm) =>
+      as(token)(http().post(`${correctionsUrl(fileId)}/batch`)).send({ items });
+
+    const saved = await batch([
+      { correction: { kind: 'move_layer', handle: 'C1', toLayer: 'L' } },
+      { correction: { kind: 'set_text', handle: 'T1', text: '7way 7/3.5' } },
+      { correction: { kind: 'move_item', handle: 'I1', dx: 1.5, dy: -2 } },
+      { correction: { kind: 'rotate_item', handle: 'C2', x: 0, y: 0, angle: 90 } },
+    ]);
+    expect(saved.status).toBe(201);
+    const items = DrawingCorrectionsSavedSchema.parse(saved.body).items;
+    expect(items.map((item) => item.correction.kind)).toEqual([
+      'move_layer',
+      'set_text',
+      'move_item',
+      'rotate_item',
+    ]);
+
+    const refused = await batch([
+      { correction: { kind: 'set_text', handle: 'T1', text: 'again' } },
+      { correction: { kind: 'move_layer', handle: 'ZZ', toLayer: 'L' } },
+    ]);
+    expect(refused.status).toBe(422);
+    expect(refused.body.details).toMatchObject({ reason: 'HANDLE_NOT_FOUND', handles: ['ZZ'] });
+    expect((await batch([])).status).toBe(400);
+    expect(
+      (await batch([{ correction: { kind: 'set_text', handle: 'T1', text: 'x' } }], supervisor))
+        .status,
+    ).toBe(403);
+
+    const list = DrawingCorrectionListSchema.parse(
+      (await as(pm)(http().get(correctionsUrl(fileId)))).body,
+    );
+    expect(list.activeCount).toBe(4);
   });
 
   it('validates the references against the extracted rows', async () => {

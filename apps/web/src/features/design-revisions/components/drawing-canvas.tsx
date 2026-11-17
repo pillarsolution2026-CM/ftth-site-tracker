@@ -71,6 +71,10 @@ export function DrawingCanvas({
   const pinch = useRef<{ distance: number } | null>(null);
   const forceFull = useRef(false);
   const zoomRef = useRef(viewer.zoomBy);
+  /** Edit mode, layer tool: a left drag draws a selection box instead of panning (ADR-047). */
+  const bandFrom = useRef<{ x: number; y: number } | null>(null);
+  const boxing = viewer.edit.boxing;
+  const picking = viewer.edit.editing && viewer.edit.tool !== null;
 
   // Canvas size follows the (resizable) container.
   useEffect(() => {
@@ -186,8 +190,11 @@ export function DrawingCanvas({
     if (pointers.current.size === 1) {
       downAt.current = p;
       moved.current = false;
+      bandFrom.current = boxing && event.button === 0 ? toWorld(transform, size, p.x, p.y) : null;
     } else {
       moved.current = true;
+      bandFrom.current = null;
+      viewer.edit.setBand(null);
       const [a, b] = [...pointers.current.values()];
       pinch.current = a && b ? { distance: Math.hypot(a.x - b.x, a.y - b.y) } : null;
     }
@@ -197,6 +204,7 @@ export function DrawingCanvas({
     const p = local(event);
     const world = toWorld(transform, size, p.x, p.y);
     setCursor({ x: world.x, y: world.y });
+    if (viewer.edit.tracking) viewer.edit.hover(world);
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
     pointers.current.set(event.pointerId, p);
@@ -219,7 +227,10 @@ export function DrawingCanvas({
     }
     const start = downAt.current;
     if (start && Math.hypot(p.x - start.x, p.y - start.y) > CLICK_SLOP_PX) moved.current = true;
-    if (moved.current) viewer.pan(p.x - previous.x, p.y - previous.y);
+    if (!moved.current) return;
+    const from = bandFrom.current;
+    if (from) viewer.edit.setBand({ x0: from.x, y0: from.y, x1: world.x, y1: world.y });
+    else viewer.pan(p.x - previous.x, p.y - previous.y);
   };
 
   const onPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -227,7 +238,15 @@ export function DrawingCanvas({
     const p = local(event);
     pointers.current.delete(event.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
-    if (wasSingle && !moved.current) viewer.click(p.x, p.y);
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    const from = bandFrom.current;
+    if (wasSingle && from && moved.current) {
+      const world = toWorld(transform, size, p.x, p.y);
+      viewer.edit.pickBand({ x0: from.x, y0: from.y, x1: world.x, y1: world.y }, additive);
+    } else if (wasSingle && !moved.current) {
+      viewer.click(p.x, p.y, additive);
+    }
+    bandFrom.current = null;
     if (pointers.current.size === 0) downAt.current = null;
   };
 
@@ -260,6 +279,7 @@ export function DrawingCanvas({
         break;
       case 'Escape':
         viewer.closePopover();
+        viewer.edit.clearChosen();
         return;
       default:
         return;
@@ -279,7 +299,7 @@ export function DrawingCanvas({
         tabIndex={0}
         aria-label={t('design.viewer.canvasLabel')}
         aria-describedby="drawing-canvas-help"
-        className="block size-full cursor-grab touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
+        className={`block size-full touch-none ${picking ? 'cursor-crosshair' : 'cursor-grab'} focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)`}
         style={{ width: '100%', height: '100%' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -1408,7 +1408,9 @@
         "add_text": "Add a label",
         "add_item": "Add an item",
         "merge_routes": "Merge routes",
-        "dismiss_problem": "Dismiss an error"
+        "dismiss_problem": "Dismiss an error",
+        "move_item": "Move an item",
+        "rotate_item": "Rotate an item"
       },
       "values": {
         "move_layer": "Move",
@@ -1576,6 +1578,44 @@
         "BOX_TYPE_UNSET": "Shape {shape} ({count} boxes) has no work-order line.",
         "BOX_TYPE_LINE_MISSING": "The line chosen for shape {shape} ({count} boxes) is no longer in the work order. Choose another line."
       }
+    },
+    "edit": {
+      "title": "Edit the drawing",
+      "start": "Edit the drawing",
+      "tools": "Edit tools",
+      "tool": {
+        "layer": "Move to layer",
+        "text": "Edit text",
+        "move": "Move",
+        "rotate": "Rotate"
+      },
+      "pickTool": "Choose a tool.",
+      "pickItems": "Pick items: click one, or drag a box around several. Shift or Ctrl adds to the selection.",
+      "chosen": "{count} items picked",
+      "newLayer": "New layer",
+      "applyLayer": "Move to this layer",
+      "clearChosen": "Clear selection",
+      "pickText": "Pick the text to edit.",
+      "notText": "That is not a text. Pick a text.",
+      "newText": "New text",
+      "applyText": "Apply",
+      "unsaved": "{count} edits not saved yet",
+      "saveCount": "Save ({count})",
+      "done": "Exit",
+      "saving": "Saving…",
+      "saveHint": "Saves every edit as a correction of the drawing. The original file is not changed.",
+      "cancel": "Cancel",
+      "cancelHint": "Drops every unsaved edit",
+      "refresh": "Refresh errors",
+      "refreshing": "Refreshing…",
+      "refreshHint": "Rebuilds the drawing with the saved corrections and checks the errors again (about a minute).",
+      "saveFirst": "Save the drawing edits first.",
+      "chooseBase": "Pick the base point",
+      "pickBase": "Click the base point on the drawing.",
+      "pickTarget": "Click the new place. The items follow the pointer.",
+      "pickAngle": "Point in the direction and click, or type the angle (counter-clockwise).",
+      "angle": "Angle (degrees)",
+      "applyAngle": "Apply the rotation"
     }
   },
   "asbuilt": {

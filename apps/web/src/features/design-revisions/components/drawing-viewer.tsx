@@ -9,6 +9,7 @@ import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { TrenchMarksPanel } from '@/features/installation/components/trench-marks-panel';
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
+import { EditPanel, EditToolbarButtons } from './canvas-edit-panel';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerPanel } from './layer-panel';
@@ -27,6 +28,7 @@ export function DrawingViewer({
   isGeneral = false,
   isSecondary = false,
   onShowOnDrawing,
+  onUnsavedChange,
   focus,
 }: {
   projectId: string;
@@ -42,6 +44,8 @@ export function DrawingViewer({
   /** The drawing is a Secondary: the type text next to each box (ADR-043). */
   isSecondary?: boolean;
   onShowOnDrawing?: (place: Omit<ShowPlace, 'nonce'>) => void;
+  /** Number of unsaved edits of the edit mode (ADR-047): the page's refresh waits for «حفظ». */
+  onUnsavedChange?: (count: number) => void;
   focus: ShowPlace | null;
 }) {
   const { t } = useI18n();
@@ -62,6 +66,10 @@ export function DrawingViewer({
     if (nonce !== null)
       sectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }, [nonce]);
+  const unsaved = viewer.edit.edits.length;
+  useEffect(() => {
+    onUnsavedChange?.(unsaved);
+  }, [unsaved, onUnsavedChange]);
 
   const { status, model } = viewer;
   return (
@@ -118,7 +126,9 @@ export function DrawingViewer({
                   <ToolButton label={t('design.viewer.fit')} onClick={viewer.fit}>
                     ⤢
                   </ToolButton>
+                  <EditToolbarButtons edit={viewer.edit} />
                 </div>
+                <EditPanel edit={viewer.edit} />
                 <CanvasPopover viewer={viewer} />
               </DrawingCanvas>
               <p className="mt-1 text-sm opacity-80">{t('design.viewer.legend')}</p>

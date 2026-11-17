@@ -24,6 +24,8 @@ const handleNotFound = (handles: string[]) =>
 function references(input: DrawingCorrectionInput): { handles: string[]; kinds: HandleKind[] } {
   switch (input.kind) {
     case 'move_layer':
+    case 'move_item':
+    case 'rotate_item':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
     case 'set_text':
       return { handles: [input.handle], kinds: ['text'] };
@@ -64,8 +66,23 @@ export class CreateDrawingCorrectionUseCase {
     actorId: string;
     request: CreateDrawingCorrectionRequest;
   }): Promise<DrawingCorrectionRecord> {
-    const { projectId, cadFileId, actorId, request } = input;
-    const id = this.ids.next();
+    const [created] = await this.executeMany({ ...input, requests: [input.request] });
+    if (!created) throw new AppError('INTERNAL', 'The correction disappeared');
+    return created;
+  }
+
+  /**
+   * Adds several corrections in one transaction (ADR-047, the drawing's edit mode): all are kept or
+   * none. They are recorded one millisecond apart, in the given order, so they apply in that order.
+   */
+  async executeMany(input: {
+    projectId: string;
+    cadFileId: string;
+    actorId: string;
+    requests: readonly CreateDrawingCorrectionRequest[];
+  }): Promise<DrawingCorrectionRecord[]> {
+    const { projectId, cadFileId, actorId, requests } = input;
+    const ids = requests.map(() => this.ids.next());
     return this.uow.run(async (tx) => {
       // The file row lock serialises with revision creation (which freezes the corrections) and
       // with other additions (the cap).
@@ -83,69 +100,85 @@ export class CreateDrawingCorrectionUseCase {
         tx.corrections.countActive(projectId, cadFileId),
         tx.corrections.countAll(projectId, cadFileId),
       ]);
-      if (active >= MAX_CORRECTIONS_PER_FILE || all >= MAX_CORRECTION_ROWS_PER_FILE) {
+      if (
+        active + requests.length > MAX_CORRECTIONS_PER_FILE ||
+        all + requests.length > MAX_CORRECTION_ROWS_PER_FILE
+      ) {
         throw new AppError('CONFLICT', 'The file has too many corrections', {
           reason: 'TOO_MANY_CORRECTIONS',
           max: MAX_CORRECTIONS_PER_FILE,
         });
       }
 
-      const { handles, kinds } = references(request.correction);
-      if (handles.length > 0) {
-        const found = await tx.corrections.handleKinds(projectId, cadFileId, handles);
-        const missing = handles.filter((handle) => {
-          const have = found.get(handle);
-          return !have || !kinds.some((kind) => have.has(kind));
-        });
-        if (missing.length > 0) throw handleNotFound(missing);
+      const wanted = requests.map((request) => references(request.correction));
+      const allHandles = [...new Set(wanted.flatMap((ref) => ref.handles))];
+      if (allHandles.length > 0) {
+        const found = await tx.corrections.handleKinds(projectId, cadFileId, allHandles);
+        const missing = new Set<string>();
+        for (const { handles, kinds } of wanted) {
+          for (const handle of handles) {
+            const have = found.get(handle);
+            if (!have || !kinds.some((kind) => have.has(kind))) missing.add(handle);
+          }
+        }
+        if (missing.size > 0) throw handleNotFound([...missing]);
       }
 
       // Owner 2026-11-09: a move only to a layer whose saved rule makes it a feature type or a
       // label; otherwise the item would drop out before the checks and its error would vanish.
-      if (request.correction.kind === 'move_layer') {
+      const moves = requests.flatMap((request) =>
+        request.correction.kind === 'move_layer' ? [request.correction.toLayer] : [],
+      );
+      if (moves.length > 0) {
         const mapping = await tx.mappings.find(projectId, cadFileId);
-        if (!moveLayerTargets(mapping?.rules ?? []).has(request.correction.toLayer)) {
+        const targets = moveLayerTargets(mapping?.rules ?? []);
+        const refused = moves.find((layer) => !targets.has(layer));
+        if (refused !== undefined) {
           throw new AppError(
             'VALIDATION_FAILED',
             'The target layer has no rule that makes it a drawing item or label',
-            { reason: 'LAYER_HAS_NO_RULE', layer: request.correction.toLayer },
+            { reason: 'LAYER_HAS_NO_RULE', layer: refused },
             422,
           );
         }
       }
 
-      // A dismissal is about one problem place (ADR-046): that place is its context.
-      const problem =
-        request.correction.kind === 'dismiss_problem'
-          ? { code: request.correction.code, handle: request.correction.handle }
-          : request.problem;
-
-      const now = this.clock.now();
-      await tx.corrections.insert({
-        id,
-        projectId,
-        cadFileId,
-        correction: request.correction,
-        problem,
-        createdAt: now,
-        createdById: actorId,
-      });
-      await tx.events.append({
-        projectId,
-        entity: EVENT_ENTITIES.drawingCorrection,
-        entityId: id,
-        type: EVENT_TYPES.drawingCorrectionAdded,
-        actorId,
-        payload: {
+      const now = this.clock.now().getTime();
+      const out: DrawingCorrectionRecord[] = [];
+      for (const [i, request] of requests.entries()) {
+        const id = ids[i] as string;
+        // A dismissal is about one problem place (ADR-046): that place is its context.
+        const problem =
+          request.correction.kind === 'dismiss_problem'
+            ? { code: request.correction.code, handle: request.correction.handle }
+            : request.problem;
+        await tx.corrections.insert({
+          id,
+          projectId,
           cadFileId,
-          kind: request.correction.kind,
           correction: request.correction,
           problem,
-        },
-      });
-      const created = await tx.corrections.find(projectId, cadFileId, id);
-      if (!created) throw new AppError('INTERNAL', 'The correction disappeared');
-      return created;
+          createdAt: new Date(now + i),
+          createdById: actorId,
+        });
+        await tx.events.append({
+          projectId,
+          entity: EVENT_ENTITIES.drawingCorrection,
+          entityId: id,
+          type: EVENT_TYPES.drawingCorrectionAdded,
+          actorId,
+          payload: {
+            cadFileId,
+            kind: request.correction.kind,
+            correction: request.correction,
+            problem,
+          },
+        });
+        const created = await tx.corrections.find(projectId, cadFileId, id);
+        if (!created) throw new AppError('INTERNAL', 'The correction disappeared');
+        out.push(created);
+      }
+      return out;
     });
   }
 }
