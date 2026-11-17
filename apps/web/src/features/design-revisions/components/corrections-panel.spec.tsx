@@ -97,6 +97,29 @@ describe('CorrectionsSection', () => {
     expect(screen.getAllByRole('button', { name: 'Withdraw the correction' })).toHaveLength(1);
   });
 
+  it('shows a dismissed error with its problem, place and reason (ADR-046)', async () => {
+    api.listCorrections.mockResolvedValue({
+      items: [
+        item(ACTIVE, {
+          correction: {
+            kind: 'dismiss_problem',
+            code: 'LABEL_MISSING',
+            handle: '220D',
+            reason: 'cable has no label here',
+          },
+          problem: { code: 'LABEL_MISSING', handle: '220D' },
+        }),
+      ],
+      activeCount: 1,
+    });
+    renderPanel();
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Dismiss an error')).toBeInTheDocument();
+    expect(within(table).getByText('cable has no label here')).toBeInTheDocument();
+    expect(within(table).getAllByText('220D').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Withdraw the correction' })).toBeInTheDocument();
+  });
+
   it('withdraws after a confirmation', async () => {
     const user = userEvent.setup();
     api.withdrawCorrection.mockResolvedValue(item(ACTIVE));

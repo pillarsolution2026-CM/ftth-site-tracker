@@ -13,10 +13,13 @@ import { DesignRevisionSummarySchema } from '../design/design-revision.schemas.j
  * One tool per problem:
  * - `WRONG_LAYER` → `move_layer` (insert, text or curve to another layer);
  * - `LABEL_MISSING` → `add_text` (a label on the layer of the item's type, next to it);
- * - `LABEL_TYPE_MISMATCH` → `set_text` (edit the label) or `add_item` (an item of the label's type);
+ * - `LABEL_TYPE_MISMATCH` → `set_text` (edit the label), `add_item` (an item of the label's type)
+ *   or `move_layer` of the item (the label is right, the item is on the wrong layer; ADR-046);
  * - `LABEL_LENGTH_MISSING` → `set_text` (write the length into the label);
  * - `ROUTE_SPLIT` → `merge_routes` (pieces meeting end to end become one route).
  * `RING_LABEL_MISMATCH` and a route that needs a new path are fixed in AutoCAD (part 3).
+ * Any problem place the build misread can be dismissed by a PM with a reason (`dismiss_problem`,
+ * ADR-046): it no longer counts at the next build, so it no longer blocks publishing.
  */
 
 /** |x|, |y| of added texts / items, drawing units (security review: no inf / NaN geometry). */
@@ -42,11 +45,13 @@ export const DRAWING_CORRECTION_KINDS = [
   'add_text',
   'add_item',
   'merge_routes',
+  'dismiss_problem',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
 
 export const MAX_TEXT_LENGTH = 255;
+export const MAX_DISMISS_REASON_LENGTH = 255;
 /** Pieces one merge may join; technical cap, not a rule. */
 export const MAX_MERGE_PIECES = 50;
 export const MAX_CORRECTIONS_PER_FILE = 5000;
@@ -93,6 +98,17 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
       .min(2)
       .max(MAX_MERGE_PIECES)
       .refine((h) => new Set(h).size === h.length, 'Duplicate handle'),
+  }),
+  /**
+   * A problem place the build misread is dismissed (ADR-046): the next build drops that place
+   * (`code` + `handle`, as the problem list gives it, cut to 64 characters) from the problems.
+   * Recorded with who, when and why; withdrawable like any correction.
+   */
+  z.strictObject({
+    kind: z.literal('dismiss_problem'),
+    code: DrawingProblemCodeSchema,
+    handle: Handle,
+    reason: Text.max(MAX_DISMISS_REASON_LENGTH),
   }),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;

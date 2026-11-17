@@ -201,6 +201,61 @@ describe('fix tools', () => {
     });
   });
 
+  it('LABEL_TYPE_MISMATCH: the label is right, moves the item to another point layer (ADR-046)', async () => {
+    const user = await show('LABEL_TYPE_MISMATCH', [{ text: '7way 7/3.5', layer: 'JOINT' }]);
+    await user.click(screen.getByRole('radio', { name: /move the item to another layer/ }));
+    const picker = await screen.findByLabelText('Move the item to (its right type)');
+    // Point layers only, without the one the item is on.
+    expect(screen.queryByRole('option', { name: 'JOINT — Joint' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Notes/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move the item' })).toBeDisabled();
+    await user.selectOptions(picker, 'Cab');
+    await user.click(screen.getByRole('button', { name: 'Move the item' }));
+    expect(api.createCorrection).toHaveBeenCalledWith(PROJECT, FILE, {
+      correction: { kind: 'move_layer', handle: 'A1', toLayer: 'Cab' },
+      problem: { code: 'LABEL_TYPE_MISMATCH', handle: 'A1' },
+    });
+  });
+
+  it('dismisses a misread place with a required reason (ADR-046)', async () => {
+    api.listDrawingProblems.mockResolvedValue(problems('LABEL_MISSING'));
+    renderScreen(
+      <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /Dismiss this error/ }));
+    const confirm = screen.getByRole('button', { name: 'Dismiss the error' });
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText('Reason (required)'), '   ');
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText('Reason (required)'), 'cable has no label here');
+    await user.click(confirm);
+    expect(api.createCorrection).toHaveBeenCalledWith(PROJECT, FILE, {
+      correction: {
+        kind: 'dismiss_problem',
+        code: 'LABEL_MISSING',
+        handle: 'A1',
+        reason: 'cable has no label here',
+      },
+      problem: { code: 'LABEL_MISSING', handle: 'A1' },
+    });
+  });
+
+  it('can dismiss even a place fixed in AutoCAD; a long place handle is cut to 64', async () => {
+    const handle = Array.from({ length: 20 }, (_, i) => `P${i}`).join('/');
+    api.listDrawingProblems.mockResolvedValue(problems('RING_LABEL_MISMATCH', [{ handle }]));
+    renderScreen(
+      <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /Dismiss this error/ }));
+    await user.type(screen.getByLabelText('Reason (required)'), 'misread');
+    await user.click(screen.getByRole('button', { name: 'Dismiss the error' }));
+    const sent = api.createCorrection.mock.calls[0]?.[2];
+    expect(sent.correction.handle).toBe(handle.slice(0, 64));
+    expect(sent.problem.handle).toBe(handle.slice(0, 64));
+  });
+
   it('LABEL_LENGTH_MISSING: edits the label with a hint to add the length', async () => {
     const user = await show('LABEL_LENGTH_MISSING', [{ text: 'F 24' }]);
     expect(screen.getByText('Add the length to the label.')).toBeInTheDocument();

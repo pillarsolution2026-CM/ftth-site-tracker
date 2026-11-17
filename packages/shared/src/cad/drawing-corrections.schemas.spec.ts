@@ -39,6 +39,31 @@ describe('DrawingCorrectionInputSchema (security review limits)', () => {
   });
 });
 
+describe('dismiss_problem (ADR-046)', () => {
+  const dismiss = {
+    kind: 'dismiss_problem',
+    code: 'LABEL_MISSING',
+    handle: '220D',
+    reason: 'cable without its own label here',
+  };
+
+  it('accepts a known problem code, a handle and a reason', () => {
+    expect(DrawingCorrectionInputSchema.parse(dismiss)).toEqual(dismiss);
+  });
+
+  it('requires a reason and refuses unknown codes and extra fields', () => {
+    const bad = [
+      { ...dismiss, reason: '   ' },
+      { ...dismiss, code: 'NOT_A_CODE' },
+      { ...dismiss, handle: 'x'.repeat(65) },
+      { ...dismiss, extra: 1 },
+    ];
+    for (const input of bad) {
+      expect(DrawingCorrectionInputSchema.safeParse(input).success).toBe(false);
+    }
+  });
+});
+
 describe('moveLayerTargets (owner 2026-11-09: only layers with a rule)', () => {
   it('keeps layers mapped to a feature type or label, never ignore / background / block rules', () => {
     const targets = moveLayerTargets([

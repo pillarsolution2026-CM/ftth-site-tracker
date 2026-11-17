@@ -203,5 +203,12 @@ function Values({ item }: { item: DrawingCorrection }) {
           <Ltr>{c.handles.join(' / ')}</Ltr>
         </>
       );
+    case 'dismiss_problem':
+      return (
+        <>
+          {t(`design.problems.code.${c.code}`)} <Ltr>{c.handle}</Ltr> —{' '}
+          {t('design.corrections.values.dismiss_problem')}: <bdi>{c.reason}</bdi>
+        </>
+      );
   }
 }

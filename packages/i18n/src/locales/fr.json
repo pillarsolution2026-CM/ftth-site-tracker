@@ -1381,7 +1381,14 @@
       "confirmTypeSave": "Confirmer et enregistrer dans le mappage",
       "confirmTypeScope": "Cette confirmation s’applique à toutes les chambres écrites « {found} » dans ce plan.",
       "confirmTypeDone": "Confirmation enregistrée. Appuyez sur « Appliquer les corrections et reconstruire » pour l’appliquer.",
-      "confirmTypeNoRule": "Aucun calque du mappage ne lit le type de chambre (handhole_type). Définissez d’abord le sens des textes sur l’écran de mappage."
+      "confirmTypeNoRule": "Aucun calque du mappage ne lit le type de chambre (handhole_type). Définissez d’abord le sens des textes sur l’écran de mappage.",
+      "modeMove": "L'étiquette est juste : déplacer l'élément vers un autre calque",
+      "itemNewLayer": "Déplacer l'élément vers (son bon type)",
+      "moveItem": "Déplacer l'élément",
+      "dismiss": "Ignorer cette erreur",
+      "dismissHint": "Seulement si le programme a mal lu cet endroit et que rien n'est à corriger. Après la reconstruction, elle ne bloque plus la publication ; elle reste enregistrée avec votre nom et la raison, et peut être retirée.",
+      "dismissReason": "Raison (obligatoire)",
+      "dismissConfirm": "Ignorer l'erreur"
     },
     "corrections": {
       "title": "Corrections",
@@ -1400,12 +1407,14 @@
         "set_text": "Modifier une étiquette",
         "add_text": "Ajouter une étiquette",
         "add_item": "Ajouter un élément",
-        "merge_routes": "Fusionner des tracés"
+        "merge_routes": "Fusionner des tracés",
+        "dismiss_problem": "Ignorer une erreur"
       },
       "values": {
         "move_layer": "Déplacer",
         "set_text": "Définir le texte de",
-        "merge_routes": "{count} tronçons :"
+        "merge_routes": "{count} tronçons :",
+        "dismiss_problem": "ignorée, raison"
       },
       "withdraw": "Retirer la correction",
       "withdrawTitle": "Retirer cette correction ?",

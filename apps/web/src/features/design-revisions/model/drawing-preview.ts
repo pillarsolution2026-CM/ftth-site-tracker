@@ -106,6 +106,8 @@ export function applyCorrections(
           for (const index of scene.byHandle.get(handle) ?? []) merged.add(index);
         }
         break;
+      case 'dismiss_problem':
+        break; // changes nothing on the drawing (ADR-046)
     }
   }
   return { layerOf, textOf, extraTexts, extraItems, merged };

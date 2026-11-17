@@ -42,21 +42,50 @@ export function FixTool({
       </p>
     );
   }
-  if (form.tool === 'none') {
-    return <p className="mt-2 text-sm">{t('design.fix.inAutocad')}</p>;
-  }
   const id = `fix-${code}-${place.handle}`;
   return (
     <div className="mt-2 flex flex-col gap-2">
+      {form.tool === 'none' ? (
+        <p className="text-sm">{t('design.fix.inAutocad')}</p>
+      ) : (
+        <Button
+          variant="outline"
+          aria-expanded={form.open}
+          aria-controls={`${id}-form`}
+          onClick={form.toggle}
+        >
+          {form.open ? t('design.fix.close') : t('design.fix.open')}
+        </Button>
+      )}
       <Button
         variant="outline"
-        aria-expanded={form.open}
-        aria-controls={`${id}-form`}
-        onClick={form.toggle}
+        aria-expanded={form.dismissOpen}
+        aria-controls={`${id}-dismiss`}
+        onClick={form.toggleDismiss}
       >
-        {form.open ? t('design.fix.close') : t('design.fix.open')}
+        <span aria-hidden="true">✕ </span>
+        {t('design.fix.dismiss')}
       </Button>
-      {form.open ? (
+      {form.dismissOpen ? (
+        <div
+          id={`${id}-dismiss`}
+          className="flex flex-col gap-3 rounded-md border border-(--color-border) p-3"
+        >
+          <p className="text-sm">{t('design.fix.dismissHint')}</p>
+          <Input
+            id={`${id}-reason`}
+            label={t('design.fix.dismissReason')}
+            value={form.reason}
+            maxLength={255}
+            onChange={(event) => form.setReason(event.target.value)}
+          />
+          <Button onClick={form.dismiss} disabled={!form.canDismiss}>
+            {form.saving ? t('design.fix.saving') : t('design.fix.dismissConfirm')}
+          </Button>
+          {form.error ? <Notice kind="error">{t(form.error.key, form.error.params)}</Notice> : null}
+        </div>
+      ) : null}
+      {form.open && form.tool !== 'none' ? (
         <div
           id={`${id}-form`}
           className="flex flex-col gap-3 rounded-md border border-(--color-border) p-3"
@@ -192,6 +221,16 @@ function FixFields({
               />
               {t('design.fix.modeItem')}
             </label>
+            <label className="inline-flex min-h-11 items-center gap-2">
+              <input
+                type="radio"
+                name={`${id}-mode`}
+                className="size-5"
+                checked={form.mismatchMode === 'move'}
+                onChange={() => form.setMismatchMode('move')}
+              />
+              {t('design.fix.modeMove')}
+            </label>
           </fieldset>
           {form.mismatchMode === 'edit' ? (
             <TextEditor
@@ -202,6 +241,22 @@ function FixFields({
             />
           ) : tools.pointLayers.length === 0 ? (
             <Notice kind="info">{t('design.fix.noPointLayers')}</Notice>
+          ) : form.mismatchMode === 'move' ? (
+            <>
+              <LayerPicker
+                id={`${id}-move-layer`}
+                label={t('design.fix.itemNewLayer')}
+                value={form.layer}
+                onChange={form.setLayer}
+                options={form.itemLayers.map((point) => ({
+                  value: point.layer,
+                  label: `${point.layer} — ${t(`featureType.${point.type}`)}`,
+                }))}
+              />
+              <Button onClick={form.moveItem} disabled={form.saving || !form.layer}>
+                {saveLabel ?? t('design.fix.moveItem')}
+              </Button>
+            </>
           ) : (
             <>
               <LayerPicker

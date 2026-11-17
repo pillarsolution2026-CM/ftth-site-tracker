@@ -41,9 +41,11 @@ from cad_worker.domain.box_shapes import (
     parse_frozen_box_types,
 )
 from cad_worker.domain.corrections import (
+    MAX_HANDLE_LENGTH,
     CorrectionInvalidError,
     apply_corrections,
     curve_handles,
+    dismissed_places,
     parse_corrections,
 )
 from cad_worker.domain.design import (
@@ -183,6 +185,7 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
         except CorrectionInvalidError as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         base = tx.load_base()
+        dismissed = dismissed_places(corrections)
         previews = tx.load_shape_previews() if box_types_apply(kind, rules) else {}
         design = compose_design(
             drawing,
@@ -193,6 +196,7 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
             kind,
             box_types=box_types,
             shape_previews=previews,
+            dismissed=dismissed,
         )
         route_length = tx.write(design.rows)
         built_s = time.monotonic() - started
@@ -206,6 +210,7 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
                 key,
                 [
                     f"corrections: {len(corrections)} applied",
+                    f"dismissed problem places: {len(dismissed)}",
                     *([f"reading: {design.reading_log}"] if design.reading_log else []),
                     f"build: {built_s:.1f}s",
                     tiles_log,
@@ -231,13 +236,17 @@ def compose_design(
     *,
     box_types: Mapping[str, BoxTypeOnBox] | None = None,
     shape_previews: Mapping[str, Mapping[str, object]] | None = None,
+    dismissed: frozenset[tuple[str, str]] = frozenset(),
 ) -> DesignBuild:
     """Rules -> features -> text links -> box codes -> match against the base. Pure.
 
     In `roles` reading mode (ADR-041) the role texts are read by meaning: feature codes come
     from them (box "cabinet/number", handhole number, cabinet name), each box / route / hhi /
     cabinet keeps its reading in `attrs.reading`, the drawing kind's checks run and the totals
-    go to `counts.reading`. `legacy` mode is exactly Phase 1."""
+    go to `counts.reading`. `legacy` mode is exactly Phase 1.
+
+    `dismissed`: (code, place handle) a PM dismissed as misread (ADR-046); those places
+    are not problems."""
     built = build_features(drawing, rules, place)
     links = link_texts(built.link_texts, built.features)
     linked = linked_texts_by_kind(links)
@@ -296,6 +305,11 @@ def compose_design(
             f"roles ({drawing_kind}), {len(reading.texts)} role texts read, "
             f"{len(reading.text_feature)} linked, {reading.unread_texts} unread"
         )
+    if dismissed:
+        found = {
+            code: [i for i in items if (code, i.handle[:MAX_HANDLE_LENGTH]) not in dismissed]
+            for code, items in found.items()
+        }
     return DesignBuild(
         rows=rows,
         background=built.background,
