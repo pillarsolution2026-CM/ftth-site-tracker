@@ -99,3 +99,26 @@ describe('CreateDrawingCorrectionsRequestSchema (ADR-047)', () => {
     }
   });
 });
+
+describe('move_item and rotate_item (ADR-047)', () => {
+  it('accepts a move and a turn within the bounds', () => {
+    for (const input of [
+      { kind: 'move_item', handle: 'C1', dx: -2.5, dy: 10 },
+      { kind: 'rotate_item', handle: 'C1', x: 1, y: 2, angle: -360 },
+      { kind: 'rotate_item', handle: 'C1', x: 1, y: 2, angle: 45.5 },
+    ]) {
+      expect(DrawingCorrectionInputSchema.safeParse(input).success).toBe(true);
+    }
+  });
+  it('refuses missing fields, a turn past a full one, infinite moves and extra fields', () => {
+    for (const input of [
+      { kind: 'move_item', handle: 'C1', dx: 1 },
+      { kind: 'move_item', handle: 'C1', dx: 1, dy: Number.POSITIVE_INFINITY },
+      { kind: 'rotate_item', handle: 'C1', x: 0, y: 0, angle: 360.5 },
+      { kind: 'rotate_item', handle: 'C1', x: 0, y: 0, angle: 10, extra: 1 },
+      { kind: 'move_item', handle: '', dx: 0, dy: 0 },
+    ]) {
+      expect(DrawingCorrectionInputSchema.safeParse(input).success).toBe(false);
+    }
+  });
+});

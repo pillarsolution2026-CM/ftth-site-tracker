@@ -55,7 +55,7 @@ export function EditToolbarButtons({ edit }: { edit: CanvasEditState }) {
   );
 }
 
-const TOOLS: readonly EditTool[] = ['layer', 'text'];
+const TOOLS: readonly EditTool[] = ['layer', 'text', 'move', 'rotate'];
 
 /** The tools of the edit mode and the step the user is on. */
 export function EditPanel({ edit }: { edit: CanvasEditState }) {
@@ -82,6 +82,7 @@ export function EditPanel({ edit }: { edit: CanvasEditState }) {
       {edit.tool === null ? <p className="text-sm">{t('design.edit.pickTool')}</p> : null}
       {edit.tool === 'layer' ? <LayerStep edit={edit} /> : null}
       {edit.tool === 'text' ? <TextStep edit={edit} /> : null}
+      {edit.tool === 'move' || edit.tool === 'rotate' ? <PointsStep edit={edit} /> : null}
       {edit.edits.length > 0 ? (
         <p className="text-sm" aria-live="polite">
           {t('design.edit.unsaved', { count: ltr(edit.edits.length) })}
@@ -153,6 +154,74 @@ function TextStep({ edit }: { edit: CanvasEditState }) {
         <Button onClick={edit.applyText} disabled={edit.text.trim() === ''}>
           {t('design.edit.applyText')}
         </Button>
+        <Button variant="outline" onClick={edit.clearChosen}>
+          {t('design.edit.clearChosen')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Move and rotate: pick, then the base point, then the second point (or a typed angle). */
+function PointsStep({ edit }: { edit: CanvasEditState }) {
+  const { t } = useI18n();
+  if (edit.step === 'base') {
+    return (
+      <p className="text-sm" aria-live="polite">
+        {t('design.edit.pickBase')}
+      </p>
+    );
+  }
+  if (edit.step === 'second') {
+    if (edit.tool === 'move') {
+      return (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm" aria-live="polite">
+            {t('design.edit.pickTarget')}
+          </p>
+          <Button variant="outline" onClick={edit.clearChosen}>
+            {t('design.edit.clearChosen')}
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm" aria-live="polite">
+          {t('design.edit.pickAngle')}
+        </p>
+        <Input
+          id="edit-angle"
+          label={t('design.edit.angle')}
+          dir="ltr"
+          inputMode="decimal"
+          value={edit.angle}
+          onChange={(event) => edit.setAngle(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') edit.applyAngle();
+          }}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={edit.applyAngle} disabled={!edit.canApplyAngle}>
+            {t('design.edit.applyAngle')}
+          </Button>
+          <Button variant="outline" onClick={edit.clearChosen}>
+            {t('design.edit.clearChosen')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (edit.chosenCount === 0) {
+    return <p className="text-sm">{t('design.edit.pickItems')}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm" aria-live="polite">
+        {t('design.edit.chosen', { count: ltr(edit.chosenCount) })}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={edit.startPoints}>{t('design.edit.chooseBase')}</Button>
         <Button variant="outline" onClick={edit.clearChosen}>
           {t('design.edit.clearChosen')}
         </Button>

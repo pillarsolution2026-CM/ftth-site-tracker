@@ -1,4 +1,5 @@
 import type { DrawingCorrection } from '@ftth/shared';
+import { compose, IDENTITY, rotationAbout, translation, type Affine } from './affine';
 import type { DrawingScene } from './drawing-scene';
 
 /** Colour of a preview shape whose layer is not in the drawing view. */
@@ -34,6 +35,8 @@ export interface DrawingPreview {
   extraItems: readonly PreviewItem[];
   /** Entities joined by a merge_routes correction. */
   merged: ReadonlySet<number>;
+  /** Entity → how it was moved / turned (move_item, rotate_item; ADR-047), drawn there. */
+  transformOf: ReadonlyMap<number, Affine>;
 }
 
 export const EMPTY_PREVIEW: DrawingPreview = {
@@ -42,6 +45,7 @@ export const EMPTY_PREVIEW: DrawingPreview = {
   extraTexts: [],
   extraItems: [],
   merged: new Set(),
+  transformOf: new Map(),
 };
 
 /** Text height of an added label that has none: 0.25 m, or 2.5 drawing units without a scale. */
@@ -64,6 +68,7 @@ export function applyCorrections(
   const extraTexts: PreviewText[] = [];
   const extraItems: PreviewItem[] = [];
   const merged = new Set<number>();
+  const transformOf = new Map<number, Affine>();
   const layers = scene.view.layers;
   const layerIndex = (name: string) => scene.layerByName.get(name) ?? -1;
   const colorOf = (index: number) => layers[index]?.color ?? FALLBACK_COLOR;
@@ -108,9 +113,37 @@ export function applyCorrections(
         break;
       case 'dismiss_problem':
         break; // changes nothing on the drawing (ADR-046)
+      case 'move_item':
+        moveEntities(
+          scene,
+          transformOf,
+          correction.handle,
+          translation(correction.dx, correction.dy),
+        );
+        break;
+      case 'rotate_item':
+        moveEntities(
+          scene,
+          transformOf,
+          correction.handle,
+          rotationAbout(correction.x, correction.y, correction.angle),
+        );
+        break;
     }
   }
-  return { layerOf, textOf, extraTexts, extraItems, merged };
+  return { layerOf, textOf, extraTexts, extraItems, merged, transformOf };
+}
+
+/** The entities of a handle get `step` after what moved them already. */
+export function moveEntities(
+  scene: DrawingScene,
+  transformOf: Map<number, Affine>,
+  handle: string,
+  step: Affine,
+): void {
+  for (const index of scene.byHandle.get(handle) ?? []) {
+    transformOf.set(index, compose(transformOf.get(index) ?? IDENTITY, step));
+  }
 }
 
 /** Layer an entity is on now: the correction's target, else its own. */

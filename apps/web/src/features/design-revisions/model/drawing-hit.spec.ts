@@ -30,6 +30,12 @@ describe('hit testing', () => {
     expect(hitEntity(scene, 25, 10, 2, always)).toBeNull();
   });
 
+  it('hits a moved entity where it is drawn now (ADR-047)', () => {
+    const moved = new Map([[0, [1, 0, 0, 1, 0, 10] as const]]);
+    expect(hitEntity(scene, 25, 11, 2, always, moved)).toBe(0);
+    expect(hitEntity(scene, 25, 1, 2, always, moved)).toBeNull();
+  });
+
   it('ignores entities that are not shown', () => {
     expect(hitEntity(scene, 25, 1, 2, (i) => i !== 0)).toBeNull();
     expect(hitEntity(scene, 50, 40, 1, (i) => i !== 4)).toBeNull();

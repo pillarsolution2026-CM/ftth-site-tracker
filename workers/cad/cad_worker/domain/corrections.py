@@ -20,7 +20,11 @@ drawing units.
   handle (string order), pieces reversed as needed, in the direction of the key piece. Ends that
   are not exactly equal are joined by the short gap between them; equal ends share one vertex;
 - `dismiss_problem {code, handle, reason}`: changes no row; the build drops that problem place
-  (code + handle cut to 64 characters, as the problem list gives it) from the problems (ADR-046).
+  (code + handle cut to 64 characters, as the problem list gives it) from the problems (ADR-046);
+- `move_item {handle, dx, dy}`: the insert's or text's point, or every point of the curve, moves by
+  (dx, dy) (ADR-047);
+- `rotate_item {handle, x, y, angle}`: the same points turn by `angle` degrees counter-clockwise
+  about (x, y) (ADR-047). Only points are read: an insert or text keeps no orientation here.
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -35,7 +39,7 @@ import dataclasses
 import math
 import re
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -57,6 +61,8 @@ MAX_MERGE_PIECES = 50
 MAX_CORRECTIONS = 5000
 # |x| and |y| of an added text or item, drawing units (technical cap, as the contract).
 MAX_CORRECTION_COORD = 1_000_000_000
+# |angle| of a rotation, degrees (as the contract).
+MAX_ROTATION_DEG = 360.0
 # Control characters U+0000-U+001F are refused in handles, layers and texts (as the contract).
 _CONTROL = re.compile(r"[\x00-\x1f]")
 FIX_HANDLE_PREFIX = "FIX-"
@@ -111,7 +117,24 @@ class DismissProblem:
     reason: str
 
 
-Correction = MoveLayer | SetText | AddText | AddItem | MergeRoutes | DismissProblem
+@dataclass(frozen=True, slots=True)
+class MoveItem:
+    handle: str
+    dx: float
+    dy: float
+
+
+@dataclass(frozen=True, slots=True)
+class RotateItem:
+    handle: str
+    x: float
+    y: float
+    angle: float
+
+
+Correction = (
+    MoveLayer | SetText | AddText | AddItem | MergeRoutes | DismissProblem | MoveItem | RotateItem
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +157,8 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "add_item": frozenset({"kind", "layer", "x", "y"}),
     "merge_routes": frozenset({"kind", "handles"}),
     "dismiss_problem": frozenset({"kind", "code", "handle", "reason"}),
+    "move_item": frozenset({"kind", "handle", "dx", "dy"}),
+    "rotate_item": frozenset({"kind", "handle", "x", "y", "angle"}),
 }
 
 
@@ -198,6 +223,22 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
             raise CorrectionInvalidError(f"correction {cid}: unknown problem code {code!r}")
         handle = _handle(cid, body.get("handle"))
         return DismissProblem(str(code), handle, _text(cid, body, "reason"))
+    if kind == "move_item":
+        return MoveItem(
+            _handle(cid, body.get("handle")), _finite(cid, body, "dx"), _finite(cid, body, "dy")
+        )
+    if kind == "rotate_item":
+        angle = _number(body.get("angle"))
+        if angle is None or abs(angle) > MAX_ROTATION_DEG:
+            raise CorrectionInvalidError(
+                f"correction {cid}: `angle` must be a number within ±{MAX_ROTATION_DEG:g}"
+            )
+        return RotateItem(
+            _handle(cid, body.get("handle")),
+            _finite(cid, body, "x"),
+            _finite(cid, body, "y"),
+            angle,
+        )
     handles = body.get("handles")
     if not isinstance(handles, list) or not 2 <= len(handles) <= MAX_MERGE_PIECES:
         raise CorrectionInvalidError(
@@ -276,7 +317,7 @@ def curve_handles(corrections: Iterable[FrozenCorrection]) -> frozenset[str]:
     out: set[str] = set()
     for fc in corrections:
         c = fc.correction
-        if isinstance(c, MoveLayer):
+        if isinstance(c, MoveLayer | MoveItem | RotateItem):
             out.add(c.handle)
         elif isinstance(c, MergeRoutes):
             out.update(c.handles)
@@ -383,6 +424,17 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
         rows.inserts[fc.fix_handle] = SourceInsert(fc.fix_handle, c.layer, FIX_BLOCK, (c.x, c.y))
     elif isinstance(c, DismissProblem):
         return  # changes no row: the checks drop the place (dismissed_places)
+    elif isinstance(c, MoveItem):
+        _transform(rows, c.handle, lambda p: (p[0] + c.dx, p[1] + c.dy), where)
+    elif isinstance(c, RotateItem):
+        rad = math.radians(c.angle)
+        cos, sin = math.cos(rad), math.sin(rad)
+
+        def turn(p: Xy) -> Xy:
+            dx, dy = p[0] - c.x, p[1] - c.y
+            return (c.x + dx * cos - dy * sin, c.y + dx * sin + dy * cos)
+
+        _transform(rows, c.handle, turn, where)
     else:
         merged = merge_curves([_piece(rows, h, where) for h in c.handles], touch, where)
         for h in c.handles:
@@ -400,6 +452,20 @@ def _move_layer(rows: _Rows, c: MoveLayer, where: str) -> None:
         rows.curves[c.handle] = dataclasses.replace(curve, layer=c.to_layer)
     else:
         raise CorrectionInvalidError(f"{where}: no item with handle {c.handle} in the drawing")
+
+
+def _transform(rows: _Rows, handle: str, move: Callable[[Xy], Xy], where: str) -> None:
+    """Moves the points of the insert, text or curve with this handle (ADR-047)."""
+    if (insert := rows.inserts.get(handle)) is not None:
+        rows.inserts[handle] = dataclasses.replace(insert, position=move(insert.position))
+    elif (text := rows.texts.get(handle)) is not None:
+        rows.put_text(dataclasses.replace(text, position=move(text.position)))
+    elif (curve := rows.curves.get(handle)) is not None:
+        rows.curves[handle] = dataclasses.replace(
+            curve, points=tuple(move(p) for p in curve.points)
+        )
+    else:
+        raise CorrectionInvalidError(f"{where}: no item with handle {handle} in the drawing")
 
 
 def _check_free(rows: _Rows, handle: str, where: str) -> None:

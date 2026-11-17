@@ -362,11 +362,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             boxLabels: showBoxTypes ? boxLabels : [],
             chosen: edit.chosen,
             band: edit.band,
+            ghost: edit.ghost,
           }
         : null,
     [
       edit.chosen,
       edit.band,
+      edit.ghost,
       scene,
       shownPreview,
       isShown,
@@ -383,12 +385,17 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     if (!scene || !shownPreview) return;
     if (edit.editing && edit.tool !== null) {
       const world = toWorld(transform, size, sx, sy);
-      const hit = hitEntity(scene, world.x, world.y, ENTITY_HIT_PX / transform.scale, (index) =>
-        isShown(effectiveLayer(scene, shownPreview, index)),
+      const hit = hitEntity(
+        scene,
+        world.x,
+        world.y,
+        ENTITY_HIT_PX / transform.scale,
+        (index) => isShown(effectiveLayer(scene, shownPreview, index)),
+        shownPreview.transformOf,
       );
       setPopover(null);
       setSelected(null);
-      edit.pick(hit, additive);
+      edit.pick(hit, world, additive);
       return;
     }
     const marker = hitMarker(markers, transform, size, sx, sy, MARKER_HIT_PX);
@@ -398,8 +405,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       return;
     }
     const world = toWorld(transform, size, sx, sy);
-    const entity = hitEntity(scene, world.x, world.y, ENTITY_HIT_PX / transform.scale, (index) =>
-      isShown(effectiveLayer(scene, shownPreview, index)),
+    const entity = hitEntity(
+      scene,
+      world.x,
+      world.y,
+      ENTITY_HIT_PX / transform.scale,
+      (index) => isShown(effectiveLayer(scene, shownPreview, index)),
+      shownPreview.transformOf,
     );
     if (entity === null) {
       setSelected(null);

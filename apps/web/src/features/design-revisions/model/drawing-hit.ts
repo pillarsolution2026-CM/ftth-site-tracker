@@ -1,7 +1,10 @@
 import type { DrawingViewEntity } from '@ftth/shared';
 import type { DrawingProblemCode, DrawingProblemItem, DrawingProblemView } from '@ftth/shared';
 import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
+import { applyAffine, invert, type Affine } from './affine';
 import { placeKey } from './corrections';
+
+const NO_TRANSFORMS: ReadonlyMap<number, Affine> = new Map();
 import { toScreen, type Size, type ViewTransform } from './view-transform';
 
 export function distToSegment(
@@ -64,15 +67,22 @@ export function distToEntity(entity: DrawingViewEntity, x: number, y: number): n
  */
 export function hitEntity(
   scene: DrawingScene,
-  x: number,
-  y: number,
+  px: number,
+  py: number,
   tolerance: number,
   isShown: (index: number) => boolean,
+  /** Moved / turned entities (ADR-047) are hit where they are drawn now. */
+  transformOf: ReadonlyMap<number, Affine> = NO_TRANSFORMS,
 ): number | null {
   let best: number | null = null;
   let bestDistance = tolerance;
   const entities = scene.view.entities;
   for (let i = 0; i < entities.length; i++) {
+    const moved = transformOf.get(i);
+    // A rigid move keeps distances: test the point moved back instead of the entity moved on.
+    const at = moved ? applyAffine(invert(moved), px, py) : { x: px, y: py };
+    const x = at.x;
+    const y = at.y;
     const box = boxOf(scene, i);
     if (
       x < box.minX - tolerance ||

@@ -24,6 +24,8 @@ const handleNotFound = (handles: string[]) =>
 function references(input: DrawingCorrectionInput): { handles: string[]; kinds: HandleKind[] } {
   switch (input.kind) {
     case 'move_layer':
+    case 'move_item':
+    case 'rotate_item':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
     case 'set_text':
       return { handles: [input.handle], kinds: ['text'] };

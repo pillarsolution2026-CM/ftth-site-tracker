@@ -1,4 +1,5 @@
 import type { DrawingViewEntity } from '@ftth/shared';
+import { angleOf, applyAffine, boxThrough, compose, IDENTITY, type Affine } from './affine';
 import { isCrossing, type Band } from './canvas-edit';
 import { effectiveLayer, type DrawingPreview } from './drawing-preview';
 import type { ProblemMarker } from './drawing-hit';
@@ -58,6 +59,8 @@ export interface DrawModel {
   chosen?: ReadonlySet<number>;
   /** The selection box being dragged in the edit mode, in drawing coordinates. */
   band?: Band | null;
+  /** Picked entities shown where a move / turn in progress would put them (ADR-047). */
+  ghost?: { indexes: readonly number[]; step: Affine } | null;
 }
 
 export interface Viewport extends Size {
@@ -147,6 +150,11 @@ export function drawBase(
   ctx.fillRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
 
   const candidates = cullEntities(scene, visibleBounds(tf, vp));
+  // Moved entities are culled by where they were drawn: add them so they show where they are now.
+  if (preview.transformOf.size > 0) {
+    const seen = new Set(candidates);
+    for (const index of preview.transformOf.keys()) if (!seen.has(index)) candidates.push(index);
+  }
   const shown: number[] = [];
   for (const index of candidates) {
     if (model.layerShown(effectiveLayer(scene, preview, index))) shown.push(index);
@@ -176,7 +184,7 @@ export function drawBase(
       ctx.strokeStyle = color;
       current = color;
     }
-    ctx.stroke(cache.get(index));
+    strokeEntity(ctx, model, cache, index);
   }
 
   setScreenTransform(ctx, vp);
@@ -194,15 +202,17 @@ export function drawBase(
       current = color;
     }
     const replaced = preview.textOf.get(index);
+    const turned = preview.transformOf.get(index);
     entity.texts.forEach((text, i) => {
+      const at = turned ? applyAffine(turned, text.x, text.y) : text;
       fillTextAt(
         ctx,
         tf,
         vp,
-        text.x,
-        text.y,
+        at.x,
+        at.y,
         text.height,
-        text.rotation,
+        text.rotation + (turned ? angleOf(turned) : 0),
         i === 0 && replaced !== undefined ? replaced : text.text,
       );
     });
@@ -222,7 +232,7 @@ function boxOutline(
   index: number,
   color: string,
 ) {
-  const box = boxOf(model.scene, index);
+  const box = shownBox(model, index);
   const a = toScreen(tf, vp, box.minX, box.maxY);
   const b = toScreen(tf, vp, box.maxX, box.minY);
   const pad = 5;
@@ -388,7 +398,7 @@ export function drawOverlay(
     ctx.setLineDash([8 / tf.scale, 5 / tf.scale]);
     for (const index of preview.merged) {
       if (inView(index) && shown(index) && scene.view.entities[index]?.paths.length) {
-        ctx.stroke(cache.get(index));
+        strokeEntity(ctx, model, cache, index);
       }
     }
     ctx.setLineDash([]);
@@ -399,7 +409,7 @@ export function drawOverlay(
     ctx.setLineDash([12 / tf.scale, 6 / tf.scale]);
     for (const index of model.trench.keys()) {
       if (inView(index) && shown(index) && scene.view.entities[index]?.paths.length) {
-        ctx.stroke(cache.get(index));
+        strokeEntity(ctx, model, cache, index);
       }
     }
     ctx.setLineDash([]);
@@ -409,11 +419,11 @@ export function drawOverlay(
     ctx.globalAlpha = 0.55;
     ctx.strokeStyle = HIGHLIGHT_HALO;
     ctx.lineWidth = 10 / tf.scale;
-    ctx.stroke(cache.get(index));
+    strokeEntity(ctx, model, cache, index);
     ctx.globalAlpha = 1;
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 2.5 / tf.scale;
-    ctx.stroke(cache.get(index));
+    strokeEntity(ctx, model, cache, index);
   }
   if (
     model.selected !== null &&
@@ -422,7 +432,7 @@ export function drawOverlay(
   ) {
     ctx.strokeStyle = SELECTED_COLOR;
     ctx.lineWidth = 3 / tf.scale;
-    ctx.stroke(cache.get(model.selected));
+    strokeEntity(ctx, model, cache, model.selected);
   }
 
   setScreenTransform(ctx, vp);
@@ -434,6 +444,7 @@ export function drawOverlay(
   }
   if (model.chosen && model.chosen.size > 0) drawChosen(ctx, model, cache, tf, vp);
   if (model.band) drawBand(ctx, model.band, tf, vp);
+  if (model.ghost) drawGhost(ctx, model, cache, tf, vp, model.ghost);
 
   if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
   if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
@@ -478,7 +489,7 @@ function drawChosen(
   ctx.strokeStyle = CHOSEN_COLOR;
   ctx.lineWidth = 3 / tf.scale;
   for (const index of chosen) {
-    if (scene.view.entities[index]?.paths.length) ctx.stroke(cache.get(index));
+    if (scene.view.entities[index]?.paths.length) strokeEntity(ctx, model, cache, index);
   }
   setScreenTransform(ctx, vp);
   for (const index of chosen) boxOutline(ctx, model, tf, vp, index, CHOSEN_COLOR);
@@ -505,5 +516,73 @@ function drawBand(
   const h = Math.abs(a.y - b.y);
   ctx.fillRect(x, y, w, h);
   ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+}
+
+/** An entity's box where the preview draws it. */
+function shownBox(model: DrawModel, index: number) {
+  const box = boxOf(model.scene, index);
+  const moved = model.preview.transformOf.get(index);
+  return moved ? boxThrough(moved, box) : box;
+}
+
+/** Strokes an entity where the preview puts it (ADR-047); the world transform must be set. */
+function strokeEntity(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  index: number,
+  extra?: Affine,
+): void {
+  const saved = model.preview.transformOf.get(index);
+  const t = extra ? compose(saved ?? IDENTITY, extra) : saved;
+  if (!t) {
+    ctx.stroke(cache.get(index));
+    return;
+  }
+  // Paths are relative to the scene origin o: local' = A·(local + o) + t − o.
+  const { x: ox, y: oy } = model.scene.origin;
+  ctx.save();
+  ctx.transform(
+    t[0],
+    t[1],
+    t[2],
+    t[3],
+    t[0] * ox + t[2] * oy + t[4] - ox,
+    t[1] * ox + t[3] * oy + t[5] - oy,
+  );
+  ctx.stroke(cache.get(index));
+  ctx.restore();
+}
+
+/** The picked entities, dashed, where the move / turn in progress would put them. */
+function drawGhost(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  tf: ViewTransform,
+  vp: Viewport,
+  ghost: { indexes: readonly number[]; step: Affine },
+): void {
+  const { scene } = model;
+  setWorldTransform(ctx, scene, tf, vp);
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 2 / tf.scale;
+  ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
+  for (const index of ghost.indexes) {
+    if (scene.view.entities[index]?.paths.length)
+      strokeEntity(ctx, model, cache, index, ghost.step);
+  }
+  ctx.setLineDash([]);
+  setScreenTransform(ctx, vp);
+  for (const index of ghost.indexes) {
+    const box = boxThrough(ghost.step, shownBox(model, index));
+    const a = toScreen(tf, vp, box.minX, box.maxY);
+    const b = toScreen(tf, vp, box.maxX, box.minY);
+    ctx.strokeStyle = CHOSEN_COLOR;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
+  }
   ctx.setLineDash([]);
 }

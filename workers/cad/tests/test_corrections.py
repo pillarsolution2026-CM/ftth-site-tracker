@@ -18,7 +18,9 @@ from cad_worker.domain.corrections import (
     DismissProblem,
     FrozenCorrection,
     MergeRoutes,
+    MoveItem,
     MoveLayer,
+    RotateItem,
     SetText,
     apply_corrections,
     curve_handles,
@@ -561,3 +563,75 @@ def test_dismissing_every_place_leaves_no_problem() -> None:
     other = frozenset({("WRONG_LAYER", "j3")})
     kept = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed=other)
     assert [p["code"] for p in kept.problems] == ["LABEL_MISSING"]
+
+
+# ---------- move and rotate (ADR-047) ----------
+
+
+def test_move_and_rotate_are_parsed_strictly() -> None:
+    parsed = parse_corrections(
+        [
+            {"id": ID1, "correction": {"kind": "move_item", "handle": "c1", "dx": 2, "dy": -1.5}},
+            {
+                "id": ID2,
+                "correction": {"kind": "rotate_item", "handle": "c1", "x": 1, "y": 2, "angle": 90},
+            },
+        ]
+    )
+    assert [p.correction for p in parsed] == [MoveItem("c1", 2.0, -1.5), RotateItem("c1", 1, 2, 90)]
+    for body in (
+        {"kind": "move_item", "handle": "c1", "dx": 1},
+        {"kind": "move_item", "handle": "c1", "dx": 1, "dy": float("inf")},
+        {"kind": "rotate_item", "handle": "c1", "x": 0, "y": 0, "angle": 361},
+        {"kind": "rotate_item", "handle": "c1", "x": 0, "y": 0, "angle": True},
+        {"kind": "rotate_item", "handle": "c1", "x": 0, "y": 0, "angle": 1, "extra": 1},
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])
+
+
+def test_move_item_moves_an_insert_a_text_and_every_point_of_a_curve() -> None:
+    attribute = SourceAttribute("N", "S1", "S1", True)
+    drawing = empty(
+        curves=(line("c1", "road", (0, 0), (10, 0)),),
+        inserts=(SourceInsert("i1", "Sap", "Sap", (5, 5), (attribute,)),),
+        texts=(label("t1", "jont 36", "Joint 144", (1, 1)),),
+    )
+    out = apply(drawing, MoveItem("i1", 3, -2), MoveItem("t1", 1, 1), MoveItem("c1", 0, 4))
+    assert out.inserts == (SourceInsert("i1", "Sap", "Sap", (8, 3), (attribute,)),)
+    assert out.texts[0].position == (2, 2) and out.texts[0].text == "Joint 144"
+    assert out.curves[0].points == ((0, 4), (10, 4))
+    assert drawing.curves[0].points == ((0, 0), (10, 0))  # the input is not changed
+
+
+def test_rotate_item_turns_points_counter_clockwise_about_the_base_point() -> None:
+    drawing = empty(
+        curves=(line("c1", "road", (1, 0), (3, 0)),),
+        inserts=(insert("i1", "Sap", "Sap", (2, 1)),),
+    )
+    out = apply(drawing, RotateItem("c1", 1, 0, 90), RotateItem("i1", 2, 1, 45))
+    (a, b) = out.curves[0].points
+    assert a == pytest.approx((1, 0)) and b == pytest.approx((1, 2))
+    assert out.inserts[0].position == pytest.approx((2, 1))  # about its own point: stays
+
+
+def test_a_moved_label_reaches_its_item_again() -> None:
+    # A text far from every item is not a label of anything; moved next to the box it is.
+    far = empty(
+        inserts=(insert("i1", "jont 36", "J", (0, 0)),),
+        texts=(label("t1", "jont 36", "Joint 36", (500, 500)),),
+    )
+    near = apply(far, MoveItem("t1", -499, -499))
+    assert near.texts[0].position == (1, 1)
+    assert problems(near) != problems(far)
+
+
+@pytest.mark.parametrize("correction", [MoveItem("missing", 1, 1), RotateItem("missing", 0, 0, 10)])
+def test_moving_a_missing_handle_fails_loudly(correction: Any) -> None:
+    with pytest.raises(CorrectionInvalidError, match="no item with handle missing"):
+        apply(empty(), correction)
+
+
+def test_moved_and_rotated_curves_are_read_even_without_a_rule() -> None:
+    frozen = [fix(MoveItem("c1", 1, 1), ID1), fix(RotateItem("c2", 0, 0, 5), ID2)]
+    assert curve_handles(frozen) == frozenset({"c1", "c2"})

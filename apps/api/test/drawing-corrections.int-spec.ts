@@ -293,10 +293,17 @@ describe('corrections routes', () => {
     const saved = await batch([
       { correction: { kind: 'move_layer', handle: 'C1', toLayer: 'L' } },
       { correction: { kind: 'set_text', handle: 'T1', text: '7way 7/3.5' } },
+      { correction: { kind: 'move_item', handle: 'I1', dx: 1.5, dy: -2 } },
+      { correction: { kind: 'rotate_item', handle: 'C2', x: 0, y: 0, angle: 90 } },
     ]);
     expect(saved.status).toBe(201);
     const items = DrawingCorrectionsSavedSchema.parse(saved.body).items;
-    expect(items.map((item) => item.correction.kind)).toEqual(['move_layer', 'set_text']);
+    expect(items.map((item) => item.correction.kind)).toEqual([
+      'move_layer',
+      'set_text',
+      'move_item',
+      'rotate_item',
+    ]);
 
     const refused = await batch([
       { correction: { kind: 'set_text', handle: 'T1', text: 'again' } },
@@ -313,7 +320,7 @@ describe('corrections routes', () => {
     const list = DrawingCorrectionListSchema.parse(
       (await as(pm)(http().get(correctionsUrl(fileId)))).body,
     );
-    expect(list.activeCount).toBe(2);
+    expect(list.activeCount).toBe(4);
   });
 
   it('validates the references against the extracted rows', async () => {

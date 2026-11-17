@@ -245,6 +245,20 @@ describe('adding a correction', () => {
     ).rejects.toMatchObject({ details: { reason: 'TOO_MANY_CORRECTIONS' } });
   });
 
+  it('moves and turns an insert, a text or a curve, and refuses an unknown handle (ADR-047)', async () => {
+    for (const handle of ['A1', 'A2', 'C1']) {
+      await add({ correction: { kind: 'move_item', handle, dx: 1, dy: 2 }, problem: null });
+      await add({
+        correction: { kind: 'rotate_item', handle, x: 0, y: 0, angle: 90 },
+        problem: null,
+      });
+    }
+    expect(uow.corrections.rows.size).toBe(6);
+    await expect(
+      add({ correction: { kind: 'move_item', handle: 'NOPE', dx: 1, dy: 1 }, problem: null }),
+    ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['NOPE'] } });
+  });
+
   it('accepts add_text and add_item without any handle', async () => {
     await add({
       correction: { kind: 'add_text', layer: 'L', x: 1, y: 2, text: 'MH-1', height: null },

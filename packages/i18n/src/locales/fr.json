@@ -1408,7 +1408,9 @@
         "add_text": "Ajouter une étiquette",
         "add_item": "Ajouter un élément",
         "merge_routes": "Fusionner des tracés",
-        "dismiss_problem": "Ignorer une erreur"
+        "dismiss_problem": "Ignorer une erreur",
+        "move_item": "Déplacer un élément",
+        "rotate_item": "Faire pivoter un élément"
       },
       "values": {
         "move_layer": "Déplacer",
@@ -1583,13 +1585,15 @@
       "tools": "Outils de modification",
       "tool": {
         "layer": "Changer de calque",
-        "text": "Modifier le texte"
+        "text": "Modifier le texte",
+        "move": "Déplacer",
+        "rotate": "Faire pivoter"
       },
       "pickTool": "Choisissez un outil.",
       "pickItems": "Choisissez les éléments : cliquez sur un élément, ou tracez un cadre autour de plusieurs. Maj ou Ctrl ajoute à la sélection.",
       "chosen": "{count} éléments choisis",
       "newLayer": "Nouveau calque",
-      "applyLayer": "Déplacer",
+      "applyLayer": "Mettre sur ce calque",
       "clearChosen": "Annuler la sélection",
       "pickText": "Choisissez le texte à modifier.",
       "notText": "Ce n'est pas un texte. Choisissez un texte.",
@@ -1605,7 +1609,13 @@
       "refresh": "Actualiser les erreurs",
       "refreshing": "Actualisation…",
       "refreshHint": "Reconstruit le dessin avec les corrections enregistrées et vérifie à nouveau les erreurs (environ une minute).",
-      "saveFirst": "Enregistrez d'abord les modifications du dessin."
+      "saveFirst": "Enregistrez d'abord les modifications du dessin.",
+      "chooseBase": "Choisir le point de base",
+      "pickBase": "Cliquez sur le point de base sur le dessin.",
+      "pickTarget": "Cliquez sur le nouvel emplacement. Les éléments suivent le pointeur.",
+      "pickAngle": "Pointez dans la direction et cliquez, ou saisissez l'angle (sens antihoraire).",
+      "angle": "Angle (degrés)",
+      "applyAngle": "Appliquer la rotation"
     }
   },
   "asbuilt": {

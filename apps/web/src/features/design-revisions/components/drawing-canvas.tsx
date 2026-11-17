@@ -73,7 +73,7 @@ export function DrawingCanvas({
   const zoomRef = useRef(viewer.zoomBy);
   /** Edit mode, layer tool: a left drag draws a selection box instead of panning (ADR-047). */
   const bandFrom = useRef<{ x: number; y: number } | null>(null);
-  const boxing = viewer.edit.editing && viewer.edit.tool === 'layer';
+  const boxing = viewer.edit.boxing;
   const picking = viewer.edit.editing && viewer.edit.tool !== null;
 
   // Canvas size follows the (resizable) container.
@@ -204,6 +204,7 @@ export function DrawingCanvas({
     const p = local(event);
     const world = toWorld(transform, size, p.x, p.y);
     setCursor({ x: world.x, y: world.y });
+    if (viewer.edit.tracking) viewer.edit.hover(world);
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
     pointers.current.set(event.pointerId, p);

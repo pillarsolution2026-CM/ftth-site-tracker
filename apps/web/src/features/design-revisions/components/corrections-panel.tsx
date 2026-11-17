@@ -210,5 +210,23 @@ function Values({ item }: { item: DrawingCorrection }) {
           {t('design.corrections.values.dismiss_problem')}: <bdi>{c.reason}</bdi>
         </>
       );
+    case 'move_item':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            (Δx {round(c.dx)}, Δy {round(c.dy)})
+          </Ltr>
+        </>
+      );
+    case 'rotate_item':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            {round(c.angle)}° @ ({round(c.x)}, {round(c.y)})
+          </Ltr>
+        </>
+      );
   }
 }

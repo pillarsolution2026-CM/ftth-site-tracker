@@ -1,5 +1,6 @@
 import type { CreateDrawingCorrectionRequest } from '@ftth/shared';
-import type { DrawingPreview } from './drawing-preview';
+import { boxThrough, rotationAbout, translation, type Affine } from './affine';
+import { moveEntities, type DrawingPreview } from './drawing-preview';
 import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
 import type { Bounds } from './view-transform';
 
@@ -8,11 +9,13 @@ import type { Bounds } from './view-transform';
  * them; the edits stay in the page (drawn at once) until «حفظ» sends them as corrections, all at
  * once, or «إلغاء» drops them. The original drawing is never changed.
  */
-export type EditTool = 'layer' | 'text';
+export type EditTool = 'layer' | 'text' | 'move' | 'rotate';
 
 export type CanvasEdit =
   | { kind: 'move_layer'; handle: string; toLayer: string }
-  | { kind: 'set_text'; handle: string; text: string };
+  | { kind: 'set_text'; handle: string; text: string }
+  | { kind: 'move_item'; handle: string; dx: number; dy: number }
+  | { kind: 'rotate_item'; handle: string; x: number; y: number; angle: number };
 
 /** DXF types whose text a `set_text` may replace (the extraction keeps these as texts). */
 const TEXT_KINDS = new Set(['TEXT', 'MTEXT']);
@@ -22,21 +25,56 @@ export function isTextEntity(scene: DrawingScene, index: number): boolean {
   return entity !== undefined && TEXT_KINDS.has(entity.kind) && entity.texts.length > 0;
 }
 
-/** One edit per kind and handle: a later edit of the same thing replaces the earlier one. */
+/** The move / turn an edit makes, or null for an edit that moves nothing. */
+export function stepOf(edit: CanvasEdit): Affine | null {
+  if (edit.kind === 'move_item') return translation(edit.dx, edit.dy);
+  if (edit.kind === 'rotate_item') return rotationAbout(edit.x, edit.y, edit.angle);
+  return null;
+}
+
+/**
+ * A later layer or text edit of the same handle replaces the earlier one; moves and turns add up
+ * (each is kept, in order).
+ */
 export function addEdits(edits: readonly CanvasEdit[], added: readonly CanvasEdit[]): CanvasEdit[] {
   const key = (edit: CanvasEdit) => `${edit.kind}\u0000${edit.handle}`;
-  const replaced = new Set(added.map(key));
+  const replaced = new Set(added.filter((edit) => stepOf(edit) === null).map(key));
   return [...edits.filter((edit) => !replaced.has(key(edit))), ...added];
 }
 
 /** The edits as correction requests, in the order made. */
 export function editRequests(edits: readonly CanvasEdit[]): CreateDrawingCorrectionRequest[] {
-  return edits.map((edit) => ({
-    correction:
-      edit.kind === 'move_layer'
-        ? { kind: 'move_layer', handle: edit.handle, toLayer: edit.toLayer }
-        : { kind: 'set_text', handle: edit.handle, text: edit.text },
-    problem: null,
+  return edits.map((edit) => ({ correction: { ...edit }, problem: null }));
+}
+
+/** Rounds a coordinate or angle to what a drawing keeps (micro-units), so requests stay short. */
+export const roundCoord = (value: number) => Math.round(value * 1e6) / 1e6;
+
+/** One move edit per handle. */
+export function moveEdits(handles: readonly string[], dx: number, dy: number): CanvasEdit[] {
+  return handles.map((handle) => ({
+    kind: 'move_item',
+    handle,
+    dx: roundCoord(dx),
+    dy: roundCoord(dy),
+  }));
+}
+
+/** One turn edit per handle, the angle brought into ±360. */
+export function rotateEdits(
+  handles: readonly string[],
+  x: number,
+  y: number,
+  angle: number,
+): CanvasEdit[] {
+  const turned = roundCoord(((angle % 360) + 360) % 360);
+  const normal = turned > 180 ? turned - 360 : turned;
+  return handles.map((handle) => ({
+    kind: 'rotate_item',
+    handle,
+    x: roundCoord(x),
+    y: roundCoord(y),
+    angle: normal,
   }));
 }
 
@@ -68,6 +106,8 @@ export function entitiesInBand(
   scene: DrawingScene,
   band: Band,
   isShown: (index: number) => boolean,
+  /** Moved / turned entities are picked where they are drawn now. */
+  transformOf: ReadonlyMap<number, Affine> = new Map(),
 ): number[] {
   const minX = Math.min(band.x0, band.x1);
   const maxX = Math.max(band.x0, band.x1);
@@ -77,8 +117,10 @@ export function entitiesInBand(
   const out: number[] = [];
   const count = scene.view.entities.length;
   for (let index = 0; index < count; index++) {
-    const box = tightBox(scene, index);
-    if (box === null) continue;
+    const drawn = tightBox(scene, index);
+    if (drawn === null) continue;
+    const moved = transformOf.get(index);
+    const box = moved ? boxThrough(moved, drawn) : drawn;
     const inside = box.minX >= minX && box.maxX <= maxX && box.minY >= minY && box.maxY <= maxY;
     const touches = box.maxX >= minX && box.minX <= maxX && box.maxY >= minY && box.minY <= maxY;
     if ((crossing ? touches : inside) && isShown(index)) out.push(index);
@@ -133,15 +175,19 @@ export function previewWithEdits(
   if (edits.length === 0) return preview;
   const layerOf = new Map(preview.layerOf);
   const textOf = new Map(preview.textOf);
+  const transformOf = new Map(preview.transformOf);
   for (const edit of edits) {
     const indexes = scene.byHandle.get(edit.handle) ?? [];
-    if (edit.kind === 'move_layer') {
+    const step = stepOf(edit);
+    if (step) {
+      moveEntities(scene, transformOf, edit.handle, step);
+    } else if (edit.kind === 'move_layer') {
       const target = scene.layerByName.get(edit.toLayer);
       if (target === undefined) continue;
       for (const index of indexes) layerOf.set(index, target);
-    } else {
+    } else if (edit.kind === 'set_text') {
       for (const index of indexes) textOf.set(index, edit.text);
     }
   }
-  return { ...preview, layerOf, textOf };
+  return { ...preview, layerOf, textOf, transformOf };
 }

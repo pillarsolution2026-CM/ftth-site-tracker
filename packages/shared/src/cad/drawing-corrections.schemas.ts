@@ -20,6 +20,8 @@ import { DesignRevisionSummarySchema } from '../design/design-revision.schemas.j
  * `RING_LABEL_MISMATCH` and a route that needs a new path are fixed in AutoCAD (part 3).
  * Any problem place the build misread can be dismissed by a PM with a reason (`dismiss_problem`,
  * ADR-046): it no longer counts at the next build, so it no longer blocks publishing.
+ * The edit mode of the drawing (ADR-047) also moves (`move_item`) and rotates (`rotate_item`)
+ * an insert, text or curve.
  */
 
 /** |x|, |y| of added texts / items, drawing units (security review: no inf / NaN geometry). */
@@ -46,6 +48,8 @@ export const DRAWING_CORRECTION_KINDS = [
   'add_item',
   'merge_routes',
   'dismiss_problem',
+  'move_item',
+  'rotate_item',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
@@ -57,6 +61,8 @@ export const MAX_MERGE_PIECES = 50;
 export const MAX_CORRECTIONS_PER_FILE = 5000;
 /** Rows per file including withdrawn ones (security review: add + withdraw loops stay bounded). */
 export const MAX_CORRECTION_ROWS_PER_FILE = 4 * MAX_CORRECTIONS_PER_FILE;
+/** A rotation in degrees, counter-clockwise as in CAD; one turn at most either way. */
+export const MAX_ROTATION_DEG = 360;
 
 export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   /** An insert, text or curve moves to another layer (its rule then decides what it is). */
@@ -109,6 +115,32 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
     code: DrawingProblemCodeSchema,
     handle: Handle,
     reason: Text.max(MAX_DISMISS_REASON_LENGTH),
+  }),
+  /**
+   * An insert, text or curve is moved by (dx, dy) drawing units (ADR-047): an insert's or text's
+   * point, every point of a curve.
+   */
+  z.strictObject({
+    kind: z.literal('move_item'),
+    handle: Handle,
+    dx: Coord,
+    dy: Coord,
+  }),
+  /**
+   * An insert, text or curve is turned by `angle` degrees (counter-clockwise) about (x, y)
+   * (ADR-047). The build reads points: an insert's or text's point turns about (x, y), and so do
+   * the points of a curve.
+   */
+  z.strictObject({
+    kind: z.literal('rotate_item'),
+    handle: Handle,
+    x: Coord,
+    y: Coord,
+    angle: z
+      .number()
+      .refine(Number.isFinite, 'Must be a finite number')
+      .min(-MAX_ROTATION_DEG)
+      .max(MAX_ROTATION_DEG),
   }),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;
