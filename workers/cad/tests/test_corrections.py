@@ -15,12 +15,14 @@ from cad_worker.domain.corrections import (
     AddItem,
     AddText,
     CorrectionInvalidError,
+    DismissProblem,
     FrozenCorrection,
     MergeRoutes,
     MoveLayer,
     SetText,
     apply_corrections,
     curve_handles,
+    dismissed_places,
     parse_corrections,
 )
 from cad_worker.domain.design_build import (
@@ -503,3 +505,56 @@ def test_a_handle_missing_from_the_drawing_fails_loudly(correction: Any) -> None
     drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)),))
     with pytest.raises(CorrectionInvalidError, match=f"drawing correction {ID1}: no .* gone"):
         apply_corrections(drawing, [fix(correction)], metres_per_unit=1.0)
+
+
+# ---------- dismissing a misread problem place (ADR-040) ----------
+
+
+def test_dismiss_is_parsed_strictly() -> None:
+    body = {"kind": "dismiss_problem", "code": "LABEL_MISSING", "handle": "j3", "reason": " ok "}
+    [parsed] = parse_corrections([{"id": ID1, "correction": body}])
+    assert parsed.correction == DismissProblem("LABEL_MISSING", "j3", "ok")
+    for bad in (
+        {**body, "code": "NOT_A_CODE"},
+        {**body, "reason": "  "},
+        {**body, "handle": "x" * 65},
+        {**body, "extra": 1},
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": bad}])
+
+
+def test_dismiss_changes_no_row_and_drops_only_its_place() -> None:
+    drawing = empty(
+        curves=(
+            square("j1", "jont 144", 0, 0),
+            square("j3", "jont 144", 200, 0),
+            square("j4", "jont 144", 400, 0),
+        ),
+        texts=(label("t1", "jont 144", "J 144", (3, 3)),),
+    )
+    dismissal = fix(DismissProblem("LABEL_MISSING", "j3", "no label needed here"))
+    assert apply_corrections(drawing, [dismissal], metres_per_unit=1.0) == drawing
+    assert dismissed_places([dismissal]) == frozenset({("LABEL_MISSING", "j3")})
+
+    design = compose_design(
+        drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed_places([dismissal])
+    )
+    [problem] = design.problems
+    assert problem["code"] == "LABEL_MISSING" and problem["count"] == 1
+    items = problem["items"]
+    assert isinstance(items, list) and [i["handle"] for i in items] == ["j4"]
+
+
+def test_dismissing_every_place_leaves_no_problem() -> None:
+    drawing = empty(
+        curves=(square("j1", "jont 144", 0, 0), square("j3", "jont 144", 200, 0)),
+        texts=(label("t1", "jont 144", "J 144", (3, 3)),),
+    )
+    dismissed = frozenset({("LABEL_MISSING", "j3")})
+    design = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed)
+    assert design.problems == []
+    # Another code at the same handle is not dismissed.
+    other = frozenset({("WRONG_LAYER", "j3")})
+    kept = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, other)
+    assert [p["code"] for p in kept.problems] == ["LABEL_MISSING"]

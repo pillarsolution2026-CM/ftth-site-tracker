@@ -35,9 +35,11 @@ from cad_worker.application.ports import (
     TileLimitError,
 )
 from cad_worker.domain.corrections import (
+    MAX_HANDLE_LENGTH,
     CorrectionInvalidError,
     apply_corrections,
     curve_handles,
+    dismissed_places,
     parse_corrections,
 )
 from cad_worker.domain.design import (
@@ -160,7 +162,8 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
         except CorrectionInvalidError as exc:
             raise BuildFailure("MAPPING_INVALID", str(exc)) from exc
         base = tx.load_base()
-        design = compose_design(drawing, rules, place, base, deps.new_id)
+        dismissed = dismissed_places(corrections)
+        design = compose_design(drawing, rules, place, base, deps.new_id, dismissed)
         route_length = tx.write(design.rows)
         built_s = time.monotonic() - started
         key, tiles_log = _tiles(job, tx, deps, design.background)
@@ -173,6 +176,7 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
                 key,
                 [
                     f"corrections: {len(corrections)} applied",
+                    f"dismissed problem places: {len(dismissed)}",
                     f"build: {built_s:.1f}s",
                     tiles_log,
                     f"total: {time.monotonic() - started:.1f}s",
@@ -188,8 +192,10 @@ def compose_design(
     place: Placer,
     base: Sequence[BaseFeature],
     new_id: Callable[[], UUID],
+    dismissed: frozenset[tuple[str, str]] = frozenset(),
 ) -> DesignBuild:
-    """Rules -> features -> text links -> box codes -> match against the base. Pure."""
+    """Rules -> features -> text links -> box codes -> match against the base. Pure.
+    `dismissed`: (code, place handle) a PM dismissed (ADR-040); those places are not problems."""
     built = build_features(drawing, rules, place)
     links = link_texts(built.link_texts, built.features)
     codes = box_codes(links, built.features)
@@ -216,6 +222,11 @@ def compose_design(
     )
     by_type = Counter(f.feature_type for f in features)
     found, names = check_drawing(features, drawing.texts, rules, place)
+    if dismissed:
+        found = {
+            code: [i for i in items if (code, i.handle[:MAX_HANDLE_LENGTH]) not in dismissed]
+            for code, items in found.items()
+        }
     return DesignBuild(
         rows=rows,
         background=built.background,

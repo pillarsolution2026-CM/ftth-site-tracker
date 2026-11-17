@@ -13,6 +13,7 @@ import {
   addItemRequest,
   addTextRequest,
   correctionError,
+  dismissRequest,
   layerNamesOf,
   mergeRoutesRequest,
   metresPerUnitOf,
@@ -71,9 +72,14 @@ export interface FixForm {
   setText: (value: string) => void;
   layer: string;
   setLayer: (value: string) => void;
-  /** LABEL_TYPE_MISMATCH: edit the label or place an item. */
-  mismatchMode: 'edit' | 'item';
-  setMismatchMode: (mode: 'edit' | 'item') => void;
+  /**
+   * LABEL_TYPE_MISMATCH: edit the label, place an item of the label's type, or move the item to
+   * another layer (the label is right, the item is on the wrong layer; ADR-040).
+   */
+  mismatchMode: MismatchMode;
+  setMismatchMode: (mode: MismatchMode) => void;
+  /** Point layers the item may move to (not the one it is on). */
+  itemLayers: PointLayer[];
   pieces: number;
   saving: boolean;
   error: ErrorMessage | null;
@@ -84,8 +90,18 @@ export interface FixForm {
   moveToLayer: () => void;
   saveText: () => void;
   placeItem: () => void;
+  moveItem: () => void;
   merge: () => void;
+  /** Dismiss the place as misread (ADR-040): a reason is required. */
+  dismissOpen: boolean;
+  toggleDismiss: () => void;
+  reason: string;
+  setReason: (value: string) => void;
+  canDismiss: boolean;
+  dismiss: () => void;
 }
+
+export type MismatchMode = 'edit' | 'item' | 'move';
 
 /** The form state of one problem place: which tool, what was typed or picked, saving and errors. */
 export function useFixForm(
@@ -98,7 +114,9 @@ export function useFixForm(
   const [open, setOpen] = useState(initiallyOpen);
   const [text, setText] = useState(tool === 'add_text' ? '' : (place.text ?? ''));
   const [layer, setLayer] = useState('');
-  const [mismatchMode, setMismatchMode] = useState<'edit' | 'item'>('edit');
+  const [mismatchMode, setMismatchMode] = useState<MismatchMode>('edit');
+  const [dismissOpen, setDismissOpen] = useState(false);
+  const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ErrorMessage | null>(null);
 
@@ -108,6 +126,7 @@ export function useFixForm(
     try {
       await tools.submit(request);
       setOpen(false);
+      setDismissOpen(false);
     } catch (caught) {
       setError(correctionError(errorCodeOf(caught), errorReasonOf(caught)));
     } finally {
@@ -125,7 +144,11 @@ export function useFixForm(
     layer,
     setLayer,
     mismatchMode,
-    setMismatchMode,
+    setMismatchMode: (mode) => {
+      setMismatchMode(mode);
+      setLayer('');
+    },
+    itemLayers: tools.pointLayers.filter((point) => point.layer !== place.layer),
     pieces: routePieces(place.handle).length,
     saving,
     error,
@@ -148,8 +171,22 @@ export function useFixForm(
     placeItem: () => {
       if (layer) void run(addItemRequest(code, place, layer));
     },
+    moveItem: () => {
+      if (layer) void run(moveLayerRequest(code, place, layer));
+    },
     merge: () => {
       if (routePieces(place.handle).length >= 2) void run(mergeRoutesRequest(code, place));
+    },
+    dismissOpen,
+    toggleDismiss: () => {
+      setDismissOpen((value) => !value);
+      setError(null);
+    },
+    reason,
+    setReason,
+    canDismiss: reason.trim().length > 0 && !saving,
+    dismiss: () => {
+      if (reason.trim().length > 0) void run(dismissRequest(code, place, reason));
     },
   };
 }

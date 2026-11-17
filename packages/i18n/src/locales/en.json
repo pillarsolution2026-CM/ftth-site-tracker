@@ -1165,7 +1165,14 @@
       "placeItem": "Place the item here",
       "noPointLayers": "No layer is mapped to an item type yet. Save the mapping first.",
       "mergePieces": "{count} pieces will be joined into one cable.",
-      "merge": "Merge the pieces into one cable"
+      "merge": "Merge the pieces into one cable",
+      "modeMove": "The label is right: move the item to another layer",
+      "itemNewLayer": "Move the item to (its right type)",
+      "moveItem": "Move the item",
+      "dismiss": "Dismiss this error",
+      "dismissHint": "Only if the program misread this place and nothing needs fixing. It no longer blocks publishing after the rebuild; it stays recorded with your name and reason, and can be withdrawn.",
+      "dismissReason": "Reason (required)",
+      "dismissConfirm": "Dismiss the error"
     },
     "corrections": {
       "title": "Corrections",
@@ -1184,12 +1191,14 @@
         "set_text": "Edit a label",
         "add_text": "Add a label",
         "add_item": "Add an item",
-        "merge_routes": "Merge routes"
+        "merge_routes": "Merge routes",
+        "dismiss_problem": "Dismiss an error"
       },
       "values": {
         "move_layer": "Move",
         "set_text": "Set the text of",
-        "merge_routes": "{count} pieces:"
+        "merge_routes": "{count} pieces:",
+        "dismiss_problem": "dismissed, reason"
       },
       "withdraw": "Withdraw the correction",
       "withdrawTitle": "Withdraw this correction?",

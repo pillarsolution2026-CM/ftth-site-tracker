@@ -114,13 +114,19 @@ export class CreateDrawingCorrectionUseCase {
         }
       }
 
+      // A dismissal is about one problem place (ADR-040): that place is its context.
+      const problem =
+        request.correction.kind === 'dismiss_problem'
+          ? { code: request.correction.code, handle: request.correction.handle }
+          : request.problem;
+
       const now = this.clock.now();
       await tx.corrections.insert({
         id,
         projectId,
         cadFileId,
         correction: request.correction,
-        problem: request.problem,
+        problem,
         createdAt: now,
         createdById: actorId,
       });
@@ -134,7 +140,7 @@ export class CreateDrawingCorrectionUseCase {
           cadFileId,
           kind: request.correction.kind,
           correction: request.correction,
-          problem: request.problem,
+          problem,
         },
       });
       const created = await tx.corrections.find(projectId, cadFileId, id);

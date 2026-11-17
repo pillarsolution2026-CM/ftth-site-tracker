@@ -155,6 +155,20 @@ describe('adding a correction', () => {
     expect(uow.events.types()).toEqual(['cad_mapping.saved', 'drawing_correction.added']);
   });
 
+  it('dismisses a misread place with its reason; the place is its problem (ADR-040)', async () => {
+    const created = await add({
+      correction: {
+        kind: 'dismiss_problem',
+        code: 'LABEL_MISSING',
+        handle: '220D',
+        reason: 'cable without its own label here',
+      },
+      problem: null,
+    });
+    expect(created.problem).toEqual({ code: 'LABEL_MISSING', handle: '220D' });
+    expect(uow.events.types()).toEqual(['cad_mapping.saved', 'drawing_correction.added']);
+  });
+
   it('accepts add_text and add_item without any handle', async () => {
     await add({
       correction: { kind: 'add_text', layer: 'L', x: 1, y: 2, text: 'MH-1', height: null },

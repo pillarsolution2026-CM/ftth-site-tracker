@@ -106,6 +106,19 @@ export const addItemRequest = (
 export const mergeRoutesRequest = (code: DrawingProblemCode, place: DrawingProblemItem) =>
   request(code, place, { kind: 'merge_routes', handles: routePieces(place.handle) });
 
+/** A place the build misread, dismissed by a PM with a reason (ADR-040). */
+export const dismissRequest = (
+  code: DrawingProblemCode,
+  place: DrawingProblemItem,
+  reason: string,
+) =>
+  request(code, place, {
+    kind: 'dismiss_problem',
+    code,
+    handle: problemHandle(place.handle),
+    reason: reason.trim(),
+  });
+
 export interface PointLayer {
   layer: string;
   type: PointFeatureType;

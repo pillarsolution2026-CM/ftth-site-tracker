@@ -1165,7 +1165,14 @@
       "placeItem": "Placer l'élément ici",
       "noPointLayers": "Aucun calque n'est encore associé à un type d'élément. Enregistrez d'abord l'association.",
       "mergePieces": "{count} tronçons seront réunis en un seul câble.",
-      "merge": "Fusionner les tronçons en un seul câble"
+      "merge": "Fusionner les tronçons en un seul câble",
+      "modeMove": "L'étiquette est juste : déplacer l'élément vers un autre calque",
+      "itemNewLayer": "Déplacer l'élément vers (son bon type)",
+      "moveItem": "Déplacer l'élément",
+      "dismiss": "Ignorer cette erreur",
+      "dismissHint": "Seulement si le programme a mal lu cet endroit et que rien n'est à corriger. Après la reconstruction, elle ne bloque plus la publication ; elle reste enregistrée avec votre nom et la raison, et peut être retirée.",
+      "dismissReason": "Raison (obligatoire)",
+      "dismissConfirm": "Ignorer l'erreur"
     },
     "corrections": {
       "title": "Corrections",
@@ -1184,12 +1191,14 @@
         "set_text": "Modifier une étiquette",
         "add_text": "Ajouter une étiquette",
         "add_item": "Ajouter un élément",
-        "merge_routes": "Fusionner des tracés"
+        "merge_routes": "Fusionner des tracés",
+        "dismiss_problem": "Ignorer une erreur"
       },
       "values": {
         "move_layer": "Déplacer",
         "set_text": "Définir le texte de",
-        "merge_routes": "{count} tronçons :"
+        "merge_routes": "{count} tronçons :",
+        "dismiss_problem": "ignorée, raison"
       },
       "withdraw": "Retirer la correction",
       "withdrawTitle": "Retirer cette correction ?",

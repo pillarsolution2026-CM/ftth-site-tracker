@@ -18,7 +18,9 @@ drawing units.
 - `merge_routes {handles}`: open lines / polylines of one layer meeting end to end (ends within
   `ROUTE_END_TOUCH_M`, as the `ROUTE_SPLIT` check) are joined into one curve keyed by the smallest
   handle (string order), pieces reversed as needed, in the direction of the key piece. Ends that
-  are not exactly equal are joined by the short gap between them; equal ends share one vertex.
+  are not exactly equal are joined by the short gap between them; equal ends share one vertex;
+- `dismiss_problem {code, handle, reason}`: changes no row; the build drops that problem place
+  (code + handle cut to 64 characters, as the problem list gives it) from the problems (ADR-040).
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -45,7 +47,7 @@ from cad_worker.domain.design_build import (
     SourceInsert,
     SourceText,
 )
-from cad_worker.domain.drawing_checks import ROUTE_END_TOUCH_M
+from cad_worker.domain.drawing_checks import PROBLEM_CODES, ROUTE_END_TOUCH_M
 
 MAX_HANDLE_LENGTH = 64
 MAX_LAYER_LENGTH = 255
@@ -102,7 +104,14 @@ class MergeRoutes:
     handles: tuple[str, ...]
 
 
-Correction = MoveLayer | SetText | AddText | AddItem | MergeRoutes
+@dataclass(frozen=True, slots=True)
+class DismissProblem:
+    code: str
+    handle: str
+    reason: str
+
+
+Correction = MoveLayer | SetText | AddText | AddItem | MergeRoutes | DismissProblem
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +133,7 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "add_text": frozenset({"kind", "layer", "x", "y", "text", "height"}),
     "add_item": frozenset({"kind", "layer", "x", "y"}),
     "merge_routes": frozenset({"kind", "handles"}),
+    "dismiss_problem": frozenset({"kind", "code", "handle", "reason"}),
 }
 
 
@@ -182,6 +192,12 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         )
     if kind == "add_item":
         return AddItem(_layer(cid, body, "layer"), _finite(cid, body, "x"), _finite(cid, body, "y"))
+    if kind == "dismiss_problem":
+        code = body.get("code")
+        if code not in PROBLEM_CODES:
+            raise CorrectionInvalidError(f"correction {cid}: unknown problem code {code!r}")
+        handle = _handle(cid, body.get("handle"))
+        return DismissProblem(str(code), handle, _text(cid, body, "reason"))
     handles = body.get("handles")
     if not isinstance(handles, list) or not 2 <= len(handles) <= MAX_MERGE_PIECES:
         raise CorrectionInvalidError(
@@ -212,13 +228,13 @@ def _layer(cid: str, body: Mapping[str, object], key: str) -> str:
     return value
 
 
-def _text(cid: str, body: Mapping[str, object]) -> str:
-    value = body.get("text")
+def _text(cid: str, body: Mapping[str, object], key: str = "text") -> str:
+    value = body.get(key)
     text = value.strip() if isinstance(value, str) else ""
     if not 1 <= len(text) <= MAX_TEXT_LENGTH:
-        raise CorrectionInvalidError(f"correction {cid}: `text` must be 1-255 characters")
+        raise CorrectionInvalidError(f"correction {cid}: `{key}` must be 1-255 characters")
     if _CONTROL.search(text):
-        raise CorrectionInvalidError(f"correction {cid}: `text` has a control character")
+        raise CorrectionInvalidError(f"correction {cid}: `{key}` has a control character")
     return text
 
 
@@ -245,6 +261,13 @@ def _height(cid: str, value: object) -> float | None:
     if number is None or not 0 < number <= MAX_HEIGHT:
         raise CorrectionInvalidError(f"correction {cid}: `height` must be positive or null")
     return number
+
+
+def dismissed_places(corrections: Iterable[FrozenCorrection]) -> frozenset[tuple[str, str]]:
+    """(problem code, place handle) of the problem places dismissed by a PM (ADR-040)."""
+    return frozenset(
+        (c.code, c.handle) for fc in corrections if isinstance(c := fc.correction, DismissProblem)
+    )
 
 
 def curve_handles(corrections: Iterable[FrozenCorrection]) -> frozenset[str]:
@@ -358,6 +381,8 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
     elif isinstance(c, AddItem):
         _check_free(rows, fc.fix_handle, where)
         rows.inserts[fc.fix_handle] = SourceInsert(fc.fix_handle, c.layer, FIX_BLOCK, (c.x, c.y))
+    elif isinstance(c, DismissProblem):
+        return  # changes no row: the checks drop the place (dismissed_places)
     else:
         merged = merge_curves([_piece(rows, h, where) for h in c.handles], touch, where)
         for h in c.handles:

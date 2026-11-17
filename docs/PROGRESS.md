@@ -225,6 +225,12 @@ The owner replaced Qalyub (known drawing problems) and the Darawish trial with *
 - **Tests:** shared, API unit, web unit and Playwright `work-orders-cad`, worker unit (bombs, caps, child process); DB tests on CI. Palm Plaza view: 4 s, 309 KB gzip.
 - **Not done:** trial on staging with Rabaa by the owner (Rabaa stays at 131 errors until he fixes it by hand); performance on a real browser not measured yet.
 
+#### Dismiss a misread error; fix a mismatch by moving the item (ADR-040; branch `feat/fix-tools-move-ignore`)
+- **Owner 2026-11-17** (Rabaa on staging): a `LABEL_TYPE_MISMATCH` whose label is right but whose item is on the wrong layer; places the build misread (a cable without its own label reported as missing).
+- **Done:** correction kind `dismiss_problem {code, handle, reason}` (shared, API records the place as its problem, worker drops dismissed places from the problems after the checks, so they no longer block publishing); web: ✕ «تجاهل الخطأ ده» with a required reason on every error place (PM), shown in the corrections list and withdrawable; third mismatch choice «التسمية صح: انقل العنصر لطبقة تانية» (`move_layer` of the item to a point layer). ar / en / fr.
+- **Tests:** shared (contract), API unit (dismissal stored with its place), worker (parse, no row changed, only that place dropped, other codes kept), web (move the item, dismiss with a required reason, long place handle cut to 64, list shows the dismissal).
+- **Not done:** trial on staging with Rabaa by the owner after merge.
+
 ### Phase 3 — Supervisor app (offline) — started before Phase 2 (ADR-023)
 Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_rules`, zones UI), which was not built. Phase 1b is still awaiting approval; neither 1b nor 2 is marked approved here. Contracts: `docs/phase-3-contracts.md`. ADRs: 023 (order of phases), 024 (sync design), 025 (on-device encryption). Migration `0006`.
 - **Done:**
