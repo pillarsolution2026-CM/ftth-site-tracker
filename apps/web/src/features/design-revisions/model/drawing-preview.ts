@@ -107,7 +107,7 @@ export function applyCorrections(
         }
         break;
       case 'dismiss_problem':
-        break; // changes nothing on the drawing (ADR-040)
+        break; // changes nothing on the drawing (ADR-046)
     }
   }
   return { layerOf, textOf, extraTexts, extraItems, merged };

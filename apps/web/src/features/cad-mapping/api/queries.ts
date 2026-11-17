@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CadMappingInput } from '@ftth/shared';
-import { getMapping, getPlacementDrawing, saveMapping } from './mapping-api';
+import { getGeneralCabinets, getMapping, getPlacementDrawing, saveMapping } from './mapping-api';
 import { acceptGpsProposal, listGpsProposals, rejectGpsProposal } from './proposals-api';
+
+/** Read-only suggestion (nothing is saved): a mutation so it runs on demand and on the first visit. */
+export function useFetchGeneralCabinets(projectId: string, cadFileId: string) {
+  return useMutation({ mutationFn: () => getGeneralCabinets(projectId, cadFileId) });
+}
 
 export const mappingKey = (projectId: string, cadFileId: string) =>
   ['cad-mapping', projectId, cadFileId] as const;

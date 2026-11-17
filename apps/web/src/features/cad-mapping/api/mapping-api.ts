@@ -2,10 +2,12 @@ import {
   CadMappingSchema,
   CadMappingViewSchema,
   PlacementDrawingSchema,
+  SecondaryPlacementSuggestionSchema,
   type CadMapping,
   type CadMappingInput,
   type CadMappingView,
   type PlacementDrawing,
+  type SecondaryPlacementSuggestion,
 } from '@ftth/shared';
 import { bffJson, projectApiPath } from '@/shared/api/bff-client';
 
@@ -33,4 +35,18 @@ export function getPlacementDrawing(
   cadFileId: string,
 ): Promise<PlacementDrawing> {
   return bffJson(`${mappingPath(projectId, cadFileId)}/placement-drawing`, PlacementDrawingSchema);
+}
+
+/** ADR-042 part G: control points from the cabinets shared with the placed General. */
+export function getGeneralCabinets(
+  projectId: string,
+  cadFileId: string,
+): Promise<SecondaryPlacementSuggestion> {
+  return bffJson(
+    projectApiPath(
+      projectId,
+      `/cad-files/${encodeURIComponent(cadFileId)}/placement/general-cabinets`,
+    ),
+    SecondaryPlacementSuggestionSchema,
+  );
 }

@@ -29,6 +29,7 @@ export function createMockContext() {
     rotate: vi.fn(),
     setLineDash: vi.fn(),
     drawImage: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
   };
   return ctx;
 }

@@ -39,6 +39,9 @@ import {
   WorkOrderImportPreviewResponseSchema,
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
+  KindExistsDetailsSchema,
+  UploadCadFileQuerySchema,
+  type DrawingKind,
 } from '@ftth/shared';
 import {
   ADMIN_ACCESS,
@@ -64,7 +67,11 @@ import {
 } from './mock-contractors.ts';
 import {
   MOCK_DETECTION,
+  provideOrderLines,
+  handleBoxTypes,
   handleDesignRevisions,
+  handleGeneralCabinets,
+  handleInstallation,
   handleMapping,
   type Helpers,
   type MockCadFile,
@@ -207,6 +214,17 @@ interface WorkOrderRecord {
 }
 
 const workOrders = new Map<string, WorkOrderRecord>();
+
+// ADR-043: the box-type mock reads the project's work-order lines (the type list).
+provideOrderLines(() => {
+  const own = [...workOrders.values()].filter((w) => w.projectId === PROJECT_ID);
+  return {
+    exists: own.length > 0,
+    lines: own.flatMap((w) =>
+      w.items.map((item) => ({ id: item.id, code: item.code, description: item.description })),
+    ),
+  };
+});
 
 function itemOut(workOrderId: string, item: ItemRecord) {
   const now = new Date().toISOString();
@@ -471,6 +489,73 @@ function parsePreview(
     const issues: unknown[] = [];
     // A heading row (owner, 2026-10-31): no unit, no price, quantity and amount empty or zero.
     const zeroOrEmpty = (value: string | null) => value === null || Number(value) === 0;
+    if (against) {
+      // Work-order import (ADR-044): only the code and the quantity are taken from the file; the
+      // other columns are compared with the contract below (warnings).
+      const base = {
+        rowNumber: index + 2,
+        raw,
+        code: raw.code,
+        description: raw.description,
+        unit: raw.unit,
+        quantity: null as string | null,
+        unitPrice: null as string | null,
+        workType: null as WorkType | null,
+        sheetAmount: raw.amount,
+        amount: null as string | null,
+      };
+      const skipped = (skipIssues: unknown[] = []) => ({
+        ...base,
+        kind: 'skipped' as 'heading' | 'item' | 'skipped',
+        issues: skipIssues,
+      });
+      // Rows without a code (totals, tax), contract headings and headings of the file only (code
+      // unknown to the contract, no unit) with an empty or zero quantity are skipped silently.
+      if (raw.code === null) return skipped();
+      const code = raw.code;
+      const fileHeading =
+        raw.unit === null &&
+        !against.contract.headingCodes.includes(code) &&
+        !against.contract.lines.some((candidate) => candidate.code === code);
+      if (
+        (against.contract.headingCodes.includes(code) || fileHeading) &&
+        zeroOrEmpty(raw.quantity)
+      ) {
+        return skipped();
+      }
+      if (raw.quantity === null) {
+        return skipped([
+          { code: 'EMPTY_QUANTITY_SKIPPED', severity: 'warning', field: 'quantity' },
+        ]);
+      }
+      const issues: unknown[] = [];
+      let quantity: string | null = null;
+      if (!/^\d+(\.\d+)?$/.test(raw.quantity)) {
+        issues.push({ code: 'INVALID_NUMBER', severity: 'error', field: 'quantity' });
+      } else {
+        // More than 4 decimals are rounded half-up to 4 without a warning (Excel float noise).
+        const [whole = '0', fraction = ''] = raw.quantity.split('.');
+        const scaled = BigInt(whole + fraction.padEnd(4, '0').slice(0, 4));
+        const round = fraction.length > 4 && Number(fraction[4]) >= 5 ? 1n : 0n;
+        const total = (scaled + round).toString().padStart(5, '0');
+        quantity = `${total.slice(0, -4)}.${total.slice(-4)}`.replace(/0+$/, '').replace(/\.$/, '');
+      }
+      const typeText = raw.workType === null ? null : normalise(raw.workType);
+      const workType =
+        typeText === null
+          ? null
+          : (WORK_TYPES.find((type) =>
+              WORK_TYPE_SYNONYMS[type].map(normalise).includes(typeText),
+            ) ?? null);
+      return {
+        ...base,
+        kind: 'item' as 'heading' | 'item' | 'skipped',
+        quantity,
+        unitPrice: raw.unitPrice,
+        workType,
+        issues,
+      };
+    }
     if (
       raw.unit === null &&
       raw.unitPrice === null &&
@@ -552,7 +637,7 @@ function parsePreview(
   const duplicateCodes = against ? [] : repeated;
   for (const duplicate of repeated) {
     for (const row of rows) {
-      if (row.code !== duplicate.code) continue;
+      if (row.code !== duplicate.code || row.kind === 'skipped') continue;
       row.issues.push({
         code: against ? 'CODE_REPEATED' : 'DUPLICATE_CODE',
         severity: against ? 'error' : 'warning',
@@ -570,10 +655,12 @@ function parsePreview(
         row.issues.push({ code: 'NOT_IN_CONTRACT', severity: 'error', field: 'code' });
         continue;
       }
+      // Only the quantity is the file's; the amount is that quantity at the contract price.
+      row.amount = row.quantity !== null ? mulDec(row.quantity, line.unitPrice) : null;
       const mismatch = (field: string, contractValue: string) =>
         row.issues.push({
           code: 'CONTRACT_MISMATCH',
-          severity: 'error',
+          severity: 'warning',
           field,
           params: { contractValue },
         });
@@ -607,7 +694,7 @@ function parsePreview(
   // The same unit typed differently (spaces / line breaks): warn, keep the value as typed.
   const unitGroups = new Map<string, typeof rows>();
   for (const row of rows) {
-    if (row.kind !== 'item' || row.unit === null) continue;
+    if (against || row.kind !== 'item' || row.unit === null) continue;
     const key = row.unit.replace(/\s+/g, ' ').trim();
     unitGroups.set(key, [...(unitGroups.get(key) ?? []), row]);
   }
@@ -658,6 +745,7 @@ function parsePreview(
       summary: {
         rowCount: rows.length,
         headingCount: rows.filter((row) => row.kind === 'heading').length,
+        skippedCount: rows.filter((row) => row.kind === 'skipped').length,
         errorRowCount: rows.filter(hasError).length,
         warningRowCount: rows.filter(hasWarning).length,
         duplicateCodes,
@@ -680,6 +768,9 @@ interface CadRecord {
   sizeBytes: number;
   sha256: string;
   data: Buffer | null;
+  drawingKind: DrawingKind;
+  supersededAt: string | null;
+  supersededById: string | null;
   createdAt: string;
   queuedAt: number;
 }
@@ -712,6 +803,9 @@ function cadSummary(file: CadRecord) {
     sizeBytes: Math.max(1, file.sizeBytes),
     sha256: file.sha256,
     status,
+    drawingKind: file.drawingKind,
+    supersededAt: file.supersededAt,
+    supersededById: file.supersededById,
     uploadedById: ME.id,
     counts: processed ? { layers: LAYERS.length, inserts: 2, texts: 3, curves: 4 } : null,
     warningCount: processed ? 1 : 0,
@@ -833,6 +927,8 @@ function mockCad(file: CadRecord): MockCadFile {
     projectId: PROJECT_ID,
     originalName: file.originalName,
     processed: cadStatus(file) === 'processed',
+    drawingKind: file.drawingKind,
+    superseded: file.supersededAt !== null,
     userId: ME.id,
     layers: LAYERS.map((layer) => ({
       name: layer.name,
@@ -858,7 +954,7 @@ async function handleProject(
   url: URL,
   segments: string[],
 ): Promise<void> {
-  const [, projectId, resource, id, sub, subId, subSub] = segments;
+  const [, projectId, resource, id, sub, subId, subSub, subSubSub] = segments;
   if (projectId === undefined || !(projectId in PROJECT_CONTRACTS)) {
     return sendError(res, 404, 'NOT_FOUND');
   }
@@ -875,7 +971,8 @@ async function handleProject(
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
-  if (resource === 'cad-files') return handleCad(req, res, url, method, [id, sub, subId]);
+  if (resource === 'cad-files')
+    return handleCad(req, res, url, method, [id, sub, subId, subSub, subSubSub]);
   if (resource === 'design-revisions') {
     return handleDesignRevisions(req, res, url, method, [id, sub, subId], helpers, (cadId) => {
       const record = cadFiles.get(cadId);
@@ -1132,19 +1229,23 @@ function commitImport(
   }
 
   const workOrder = newWorkOrder(projectId, payload.workOrder ?? {}, 'import');
-  workOrder.items = included.map((row, index) => ({
-    id: randomUUID(),
-    lineNo: index + 1,
-    code: row.code as string,
-    description: row.description as string,
-    unit: row.unit as string,
-    quantity: row.quantity as string,
-    unitPrice: row.unitPrice as string,
-    workType: row.workType,
-    contractItemId: parsed.contractLines.find((line) => line.code === row.code)?.id ?? null,
-    source: 'import',
-    sourceRow: row.rowNumber,
-  }));
+  // Description, unit, price and work type come from the contract item (ADR-044).
+  workOrder.items = included.map((row, index) => {
+    const line = parsed.contractLines.find((candidate) => candidate.code === row.code);
+    return {
+      id: randomUUID(),
+      lineNo: index + 1,
+      code: row.code as string,
+      description: line?.description ?? (row.description as string),
+      unit: line?.unit ?? (row.unit as string),
+      quantity: row.quantity as string,
+      unitPrice: line?.unitPrice ?? (row.unitPrice as string),
+      workType: line?.workType ?? row.workType,
+      contractItemId: line?.id ?? null,
+      source: 'import',
+      sourceRow: row.rowNumber,
+    };
+  });
   workOrder.attachments.push({
     id: randomUUID(),
     kind: 'import_source',
@@ -1170,17 +1271,43 @@ async function handleCad(
   res: ServerResponse,
   url: URL,
   method: string,
-  [id, sub, subId]: (string | undefined)[],
+  [id, sub, subId, subSub, subSubSub]: (string | undefined)[],
 ): Promise<void> {
   if (id === undefined) {
     if (method === 'GET') {
-      const items = [...cadFiles.values()].reverse().map(cadSummary);
+      // Older versions are history: not listed (owner 2026-11-11).
+      const items = [...cadFiles.values()]
+        .filter((file) => file.supersededAt === null)
+        .reverse()
+        .map(cadSummary);
       return send(res, 200, CadFileListResponseSchema.parse({ items }));
     }
     if (method === 'POST') {
       const file = (await readMultipart(req)).find((part) => part.name === 'file');
       const name = file?.filename ?? '';
+      // ADR-040: the kind is required; a second current file of a kind needs newVersion=true.
+      const query = UploadCadFileQuerySchema.safeParse({
+        kind: url.searchParams.get('kind') ?? undefined,
+        newVersion: url.searchParams.get('newVersion') ?? undefined,
+      });
+      if (!query.success) return sendError(res, 422, 'VALIDATION_FAILED');
       if (!file || !/\.(dxf|dwg)$/i.test(name)) return sendError(res, 415, 'UNSUPPORTED_FILE');
+      const current = [...cadFiles.values()].find(
+        (candidate) => candidate.drawingKind === query.data.kind && candidate.supersededAt === null,
+      );
+      if (current && !query.data.newVersion) {
+        return sendError(
+          res,
+          409,
+          'CONFLICT',
+          KindExistsDetailsSchema.parse({
+            reason: 'KIND_EXISTS',
+            kind: query.data.kind,
+            currentFileId: current.id,
+            currentFileName: current.originalName,
+          }),
+        );
+      }
       const record: CadRecord = {
         id: randomUUID(),
         originalName: name,
@@ -1189,9 +1316,16 @@ async function handleCad(
         sizeBytes: file.data.length,
         sha256: createHash('sha256').update(file.data).digest('hex'),
         data: file.data.length < 1_000_000 ? file.data : null,
+        drawingKind: query.data.kind,
+        supersededAt: null,
+        supersededById: null,
         createdAt: new Date().toISOString(),
         queuedAt: Date.now(),
       };
+      if (current) {
+        current.supersededAt = record.createdAt;
+        current.supersededById = record.id;
+      }
       cadFiles.set(record.id, record);
       return send(res, 201, CadFileSummarySchema.parse(cadSummary(record)));
     }
@@ -1210,6 +1344,14 @@ async function handleCad(
     return void res.end(file.data ?? Buffer.alloc(0));
   }
   if (sub === 'mapping') return handleMapping(req, res, method, mockCad(file), helpers);
+  // ADR-042: the General's installation question and trench marks; the Secondary's points.
+  if (sub === 'box-types') return handleBoxTypes(req, res, method, mockCad(file), helpers);
+  if (sub === 'installation') {
+    return handleInstallation(req, res, method, mockCad(file), [subId, subSub, subSubSub], helpers);
+  }
+  if (sub === 'placement' && subId === 'general-cabinets' && method === 'GET') {
+    return handleGeneralCabinets(res, mockCad(file), helpers);
+  }
   if (sub === 'corrections' && method === 'GET')
     return send(res, 200, { items: [], activeCount: 0 });
   // Drawing viewer (ADR-039): the mock has no rendered view; the page offers «Prepare the view».

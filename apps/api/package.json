@@ -16,6 +16,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1157.0",
     "@aws-sdk/lib-storage": "3.1157.0",
+    "@ftth/geo": "workspace:*",
     "@ftth/shared": "workspace:*",
     "@nestjs/common": "12.3.1",
     "@nestjs/core": "12.3.1",

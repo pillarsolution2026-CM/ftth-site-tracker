@@ -21,3 +21,18 @@ export interface TileConfig {
   /** Base URL of Martin behind Caddy, without a trailing slash. */
   publicUrl: string;
 }
+
+/** One line of a project's work order as the box types need it (ADR-043). */
+export interface WorkOrderLineRef {
+  id: string;
+  code: string;
+  description: string;
+}
+
+/**
+ * The project's work order lines, read through the work-orders module's exported application
+ * service (ADR-043). `exists` is false when the project has no work order yet.
+ */
+export interface WorkOrderLines {
+  findLinesOfProject(projectId: string): Promise<{ exists: boolean; lines: WorkOrderLineRef[] }>;
+}

@@ -3,9 +3,13 @@ import type {
   DesignFeaturePage,
   DiffListQuery,
   DiffPage,
+  DrawingKind,
   DrawingUnit,
   FeatureType,
   FrozenDrawingCorrection,
+  FrozenBoxTypes,
+  FrozenInstallation,
+  InstallationRoute,
   MappingRule,
   Placement,
   PlacementDrawing,
@@ -35,10 +39,22 @@ export interface CadMappingRepository {
   ): Promise<CadMappingRecord | null>;
 }
 
+/** A sub cabinet feature of a revision (ADR-042 part G). */
+export interface SubCabinetPosition {
+  code: string | null;
+  sourceHandle: string;
+  /** Position in the revision CRS (metres). */
+  x: number;
+  y: number;
+  attrs: Record<string, unknown>;
+}
+
 export interface NewDesignRevision {
   id: string;
   projectId: string;
   cadFileId: string;
+  /** Kind of the source file (ADR-040); the database checks it matches. */
+  drawingKind: DrawingKind;
   currentJobId: string;
   baseRevisionId: string | null;
   rules: MappingRule[];
@@ -49,6 +65,10 @@ export interface NewDesignRevision {
   placement: Placement | null;
   /** The file's corrections in force, in creation order (ADR-038). */
   corrections: FrozenDrawingCorrection[];
+  /** The General's installation answer and marks in force (ADR-042); null for a Secondary. */
+  installation: FrozenInstallation | null;
+  /** The Secondary's box-type choices in force with a snapshot of their lines (ADR-043). */
+  boxTypes: FrozenBoxTypes | null;
   insUnits: number | null;
   unitsConflict: boolean;
   createdById: string;
@@ -63,10 +83,32 @@ export interface DesignRevisionRepository {
     revisionId: string,
     options?: { lock?: boolean },
   ): Promise<DesignRevision | null>;
-  /** Id of the project's latest `published` revision (highest rev_no), if any. */
-  findLatestPublishedId(projectId: string): Promise<string | null>;
-  /** True while the project has a queued, building or draft revision (at most one may exist). */
-  hasOpen(projectId: string): Promise<boolean>;
+  /** Id of the latest `published` revision of the kind (highest rev_no), if any. */
+  findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null>;
+  /** True while the project has a queued, building or draft revision of the kind (at most one). */
+  hasOpen(projectId: string, kind: DrawingKind): Promise<boolean>;
+  /** The open (queued, building or draft) revision of the kind, if any. */
+  findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null>;
+  /**
+   * `code` of each `sub` cabinet feature of the revision (feature_type 'cabinet', attrs.role
+   * 'sub'), null when unnamed; ordered by source handle. ADR-041.
+   */
+  subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]>;
+  /** The route features of the revision as the installation check needs them (ADR-042). */
+  installationRoutes(projectId: string, revisionId: string): Promise<InstallationRoute[]>;
+  /** `handles` of the revision's frozen `merge_routes` corrections (ADR-038). */
+  frozenMergeHandles(projectId: string, revisionId: string): Promise<string[][]>;
+  /** The newest draft or published revision built from the file; null when there is none. */
+  findLatestBuiltOfFile(projectId: string, cadFileId: string): Promise<DesignRevision | null>;
+  /**
+   * The `sub` cabinet features of the revision with their position in the revision CRS (metres)
+   * and attrs, ordered by source handle. ADR-042 part G.
+   */
+  subCabinetPositions(
+    projectId: string,
+    revisionId: string,
+    limit: number,
+  ): Promise<SubCabinetPosition[]>;
   /** True while a revision built from this file is queued or building. */
   hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean>;
   /**
@@ -81,8 +123,11 @@ export interface DesignRevisionRepository {
     jobId: string,
     message: string,
   ): Promise<boolean>;
-  /** draft → published with rev_no = highest rev_no of the project + 1; returns that number. */
-  publish(projectId: string, revisionId: string, actorId: string, at: Date): Promise<number>;
+  /**
+   * draft → published for every given revision (the pair, ADR-040) with the SAME rev_no = highest
+   * rev_no of the project over both kinds + 1; returns that number.
+   */
+  publish(projectId: string, revisionIds: string[], actorId: string, at: Date): Promise<number>;
   /** → discarded; also replaces the job id so a still-running worker is superseded. */
   discard(projectId: string, revisionId: string, supersedingJobId: string): Promise<void>;
 }

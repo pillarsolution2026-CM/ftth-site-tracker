@@ -312,6 +312,18 @@ describe('recording As-Built edits through sync push', () => {
     expect(await code(move(f, f.boxA, E0, N0, 0, { revisionId: foreign }))).toBe(
       'REVISION_NOT_PUBLISHED',
     );
+    // A published SECONDARY revision is not writable until the supervisor's choice exists (ADR-040).
+    const secondaryFeature = randomUUID();
+    const secondary = await publishRevision(
+      ctx.pool,
+      f.projectId,
+      [{ id: secondaryFeature, type: 'box', wkt: `POINT(${E0 + 60} ${N0 + 6})`, isNew: true }],
+      7,
+      'secondary',
+    );
+    expect(
+      await code(move(f, secondaryFeature, E0 + 61, N0 + 6, 0, { revisionId: secondary })),
+    ).toBe('REVISION_NOT_PUBLISHED');
     expect(await code(label(f, randomUUID(), 'x'))).toBe('FEATURE_NOT_FOUND');
     expect(await code(addSymbol(f, E0, N0))).toBeNull(); // sanity: a valid add applies
     expect(

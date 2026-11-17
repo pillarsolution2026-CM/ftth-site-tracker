@@ -1,11 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import type { PublishCheck, PublishCheckKey, PublishReadiness } from '@ftth/shared';
+import type {
+  BoxTypesReport,
+  CabinetsComparison,
+  InstallationReport,
+  PublishCheck,
+  PublishCheckKey,
+  PublishReadiness,
+} from '@ftth/shared';
 import { ltr } from '@ftth/i18n';
+import { otherDrawingKind, type DrawingKind } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
+import { Ltr } from '@/shared/ui/ltr';
 import { Checkbox } from '@/shared/ui/form-controls';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { issueMessage } from '@/features/installation/model/installation-model';
+import { BoxTypeIssueList } from '@/features/box-types/components/box-type-issues';
 
 interface PublishChecklistProps {
   readiness: PublishReadiness | null;
@@ -17,8 +28,12 @@ interface PublishChecklistProps {
   allowed: boolean;
   /** Where the CAD file's coordinate mapping (placement panel) lives; null when unknown. */
   mappingHref: string | null;
+  /** The other drawing's open draft (published together with this one); null when there is none. */
+  otherRevisionHref: string | null;
   onAcknowledgedChange: (value: boolean) => void;
   onPublish: () => void;
+  /** Zoom the drawing to a route (the installation issues); omitted when there is no viewer. */
+  onShowRoute?: (routeHandle: string) => void;
 }
 
 const COORDINATE_CHECKS: readonly PublishCheckKey[] = ['crs_known', 'control_point'];
@@ -36,8 +51,10 @@ export function PublishChecklist({
   publishing,
   allowed,
   mappingHref,
+  otherRevisionHref,
   onAcknowledgedChange,
   onPublish,
+  onShowRoute,
 }: PublishChecklistProps) {
   const { t } = useI18n();
   return (
@@ -52,10 +69,30 @@ export function PublishChecklist({
       {failed ? <p role="alert">{t('design.publish.loadFailed')}</p> : null}
       {readiness ? (
         <ul className="flex flex-col gap-2">
-          {readiness.checks.map((check) => (
-            <CheckRow key={check.key} check={check} mappingHref={mappingHref} />
-          ))}
+          {readiness.checks
+            .filter((check) => !(readiness.switchedOff.includes(check.key) && check.ok))
+            .map((check) => (
+              <CheckRow
+                key={check.key}
+                check={check}
+                cabinets={readiness.cabinets}
+                installation={readiness.installation}
+                boxTypes={readiness.boxTypes}
+                drawingKind={readiness.drawingKind}
+                switchedOff={readiness.switchedOff.includes(check.key)}
+                onShowRoute={onShowRoute}
+                mappingHref={mappingHref}
+                otherRevisionHref={otherRevisionHref}
+                otherKind={otherDrawingKind(readiness.drawingKind)}
+              />
+            ))}
         </ul>
+      ) : null}
+      {readiness && readiness.warningCount > 0 ? (
+        <p id="publish-warnings" className="text-sm">
+          <span aria-hidden="true">⚠ </span>
+          {t('design.publish.warnings', { count: ltr(readiness.warningCount) })}
+        </p>
       ) : null}
       {readiness?.needsAcknowledgement ? (
         <>
@@ -68,13 +105,25 @@ export function PublishChecklist({
           />
         </>
       ) : null}
+      {readiness ? (
+        <p id="publish-pair" className="text-sm font-semibold">
+          {t('design.publish.pairNote', {
+            first: t(`drawingKind.${readiness.drawingKind}`),
+            second: t(`drawingKind.${otherDrawingKind(readiness.drawingKind)}`),
+          })}
+        </p>
+      ) : null}
       {readiness && !readiness.canPublish ? (
         <p id="publish-locked" className="text-sm">
           {t('design.publish.lockedHint')}
         </p>
       ) : null}
       <div>
-        <Button onClick={onPublish} disabled={!allowed}>
+        <Button
+          onClick={onPublish}
+          disabled={!allowed}
+          aria-describedby={readiness ? 'publish-pair' : undefined}
+        >
           {publishing ? t('design.actions.publishing') : t('design.actions.publish')}
         </Button>
       </div>
@@ -82,11 +131,121 @@ export function PublishChecklist({
   );
 }
 
-function CheckRow({ check, mappingHref }: { check: PublishCheck; mappingHref: string | null }) {
+/** Cabinet names that exist in one drawing only, so the PM sees which one to fix (ADR-041). */
+function CabinetsDetail({ cabinets }: { cabinets: CabinetsComparison }) {
   const { t } = useI18n();
+  const rows = [['general', cabinets.general] as const, ['secondary', cabinets.secondary] as const];
+  return (
+    <div className="ms-7 flex w-full flex-col gap-1 text-sm">
+      <p>
+        {t('design.publish.cabinetsCounts', {
+          general: ltr(cabinets.general.count),
+          secondary: ltr(cabinets.secondary.count),
+        })}
+      </p>
+      {rows.map(([kind, side]) =>
+        side.missingInOther.length > 0 ? (
+          <p key={kind}>
+            {t(`design.publish.cabinetsOnly.${kind}`)}:{' '}
+            {side.missingInOther.map((name, index) => (
+              <span key={name}>
+                {index > 0 ? '، ' : ''}
+                <Ltr>{name}</Ltr>
+              </span>
+            ))}
+          </p>
+        ) : null,
+      )}
+      {cabinets.general.unnamed + cabinets.secondary.unnamed > 0 ? (
+        <p>
+          {t('design.publish.cabinetsUnnamed', {
+            count: ltr(cabinets.general.unnamed + cabinets.secondary.unnamed),
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The General's installation issues, each with the route it is about (ADR-042 part D). */
+function InstallationDetail({
+  report,
+  onShowRoute,
+}: {
+  report: InstallationReport;
+  onShowRoute: ((routeHandle: string) => void) | undefined;
+}) {
+  const { t } = useI18n();
+  return (
+    <ul className="ms-7 flex w-full flex-col gap-1 text-sm">
+      {report.issues.map((issue, index) => {
+        const message = issueMessage(issue);
+        return (
+          <li
+            key={`${issue.code}-${issue.routeHandle ?? ''}-${index}`}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{t(message.key, message.params)}</span>
+            {issue.routeHandle !== null && onShowRoute ? (
+              <Button variant="outline" onClick={() => onShowRoute(issue.routeHandle as string)}>
+                {t('design.viewer.showOnDrawing')}
+              </Button>
+            ) : null}
+          </li>
+        );
+      })}
+      {report.issueCount > report.issues.length ? (
+        <li>
+          …{' '}
+          {t('design.installation.moreIssues', {
+            count: ltr(report.issueCount - report.issues.length),
+          })}
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
+function CheckRow({
+  check,
+  cabinets,
+  installation,
+  boxTypes,
+  drawingKind,
+  switchedOff,
+  onShowRoute,
+  mappingHref,
+  otherRevisionHref,
+  otherKind,
+}: {
+  check: PublishCheck;
+  cabinets: CabinetsComparison | null;
+  installation: InstallationReport | null;
+  boxTypes: BoxTypesReport | null;
+  drawingKind: DrawingKind;
+  switchedOff: boolean;
+  onShowRoute: ((routeHandle: string) => void) | undefined;
+  mappingHref: string | null;
+  otherRevisionHref: string | null;
+  otherKind: DrawingKind;
+}) {
+  const { t } = useI18n();
+  const drawing = t(`drawingKind.${otherKind}`);
+  const isOther = check.key === 'other_drawing';
   const label = t(`design.publish.checks.${check.key}`, {
     count: check.count === null ? '' : ltr(check.count),
+    drawing,
   });
+  // The other drawing: say why it is not ready (no draft yet, or N errors left in it).
+  const otherReason =
+    isOther && !check.ok
+      ? check.count === null
+        ? t('design.publish.otherNoDraft', { drawing })
+        : t('design.publish.otherErrors', { count: ltr(check.count) })
+      : null;
+  const linkClass =
+    'inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span aria-hidden="true">{check.ok ? '✅' : '❌'}</span>
@@ -94,13 +253,42 @@ function CheckRow({ check, mappingHref }: { check: PublishCheck; mappingHref: st
       <span className="text-sm opacity-80">
         ({check.ok ? t('design.publish.done') : t('design.publish.notDone')})
       </span>
+      {otherReason ? <span className="text-sm">{otherReason}</span> : null}
       {!check.ok && mappingHref && COORDINATE_CHECKS.includes(check.key) ? (
-        <Link
-          href={mappingHref}
-          className="inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)"
-        >
+        <Link href={mappingHref} className={linkClass}>
           {t('design.publish.fixCoordinates')}
         </Link>
+      ) : null}
+      {isOther && otherRevisionHref ? (
+        <Link href={otherRevisionHref} className={linkClass}>
+          {t('design.publish.openOther', { drawing })}
+        </Link>
+      ) : null}
+      {check.key === 'installation' && drawingKind === 'secondary' && !switchedOff ? (
+        <span className="text-sm">{t('design.installation.secondaryOk')}</span>
+      ) : null}
+      {check.key === 'installation' && !check.ok && installation ? (
+        <InstallationDetail report={installation} onShowRoute={onShowRoute} />
+      ) : null}
+      {check.key === 'box_types' && drawingKind === 'general' && !switchedOff ? (
+        <span className="text-sm">{t('design.boxTypes.generalOk')}</span>
+      ) : null}
+      {check.key === 'box_types' && !check.ok && boxTypes ? (
+        <div className="ms-7 w-full">
+          <BoxTypeIssueList
+            issues={boxTypes.issues}
+            issueCount={boxTypes.issueCount}
+            gallery={boxTypes.gallery}
+            onShowHandle={onShowRoute}
+          />
+        </div>
+      ) : null}
+      {check.key === 'cabinets_match' && !check.ok ? (
+        cabinets ? (
+          <CabinetsDetail cabinets={cabinets} />
+        ) : (
+          <span className="text-sm">{t('design.publish.cabinetsNoOther', { drawing })}</span>
+        )
       ) : null}
     </li>
   );

@@ -3,7 +3,11 @@ import {
   type DesignRevisionCounts,
   type DesignRevisionStatus,
   type DiffCounts,
+  type DrawingKind,
+  type BoxShapeGallery,
   type DrawingUnit,
+  type FrozenBoxTypes,
+  type FrozenInstallation,
   type MappingRule,
   type Placement,
   type TextLinkCounts,
@@ -16,6 +20,8 @@ export interface DesignRevision {
   projectId: string;
   cadFileId: string;
   cadFileName: string;
+  /** Kind of the source file (ADR-040). */
+  drawingKind: DrawingKind;
   /** Assigned on publish. */
   revNo: number | null;
   status: DesignRevisionStatus;
@@ -30,6 +36,12 @@ export interface DesignRevision {
   metresPerUnit: string;
   /** Frozen copy of the mapping's placement (ADR-035); null = as drawn. */
   placement: Placement | null;
+  /** Frozen installation answer and trench marks (ADR-042); null on a Secondary / before 0022. */
+  installation: FrozenInstallation | null;
+  /** Frozen box-type choices (ADR-043); null on a General, in legacy mode / before 0023. */
+  boxTypes: FrozenBoxTypes | null;
+  /** The worker's shape gallery of the built Secondary (ADR-043); null otherwise. */
+  boxShapes: BoxShapeGallery | null;
   insUnits: number | null;
   unitsConflict: boolean;
   counts: DesignRevisionCounts | null;

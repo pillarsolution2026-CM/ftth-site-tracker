@@ -3,11 +3,13 @@
 import { useMemo, useState } from 'react';
 import type {
   CreateDrawingCorrectionRequest,
+  HandholeType,
   DrawingProblemCode,
   DrawingProblemItem,
 } from '@ftth/shared';
 import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
-import { useMapping } from '@/features/cad-mapping/api/queries';
+import { useMapping, useSaveMapping } from '@/features/cad-mapping/api/queries';
+import { mappingWithAlias } from '@/features/cad-mapping/model/layer-meaning';
 import { useCorrections, useCreateCorrection } from '../api/queries';
 import {
   addItemRequest,
@@ -41,6 +43,10 @@ export interface FixTools {
   metresPerUnit: number | null;
   loading: boolean;
   submit: (request: CreateDrawingCorrectionRequest) => Promise<void>;
+  /** The mapping has a layer rule that reads `handhole_type` (where a confirmed type is kept). */
+  canConfirmType: (layer: string) => boolean;
+  /** Keep «found means type» in the file's mapping (Q2); applies to every handhole so written. */
+  confirmType: (layer: string, found: string, type: HandholeType) => Promise<void>;
 }
 
 /** What the fix tools of one problem list share: pending places, the file's layers, saving. */
@@ -48,6 +54,7 @@ export function useFixTools(projectId: string, cadFileId: string, enabled: boole
   const corrections = useCorrections(projectId, cadFileId, enabled);
   const mapping = useMapping(projectId, cadFileId, enabled);
   const create = useCreateCorrection(projectId, cadFileId);
+  const saveMapping = useSaveMapping(projectId, cadFileId);
   const pending = useMemo(() => pendingPlaces(corrections.data?.items ?? []), [corrections.data]);
   const layers = useMemo(() => layerNamesOf(mapping.data), [mapping.data]);
   const pointLayers = useMemo(() => pointLayersOf(mapping.data), [mapping.data]);
@@ -60,6 +67,12 @@ export function useFixTools(projectId: string, cadFileId: string, enabled: boole
     loading: corrections.isLoading || mapping.isLoading,
     submit: async (request) => {
       await create.mutateAsync(request);
+    },
+    canConfirmType: (layer) => mappingWithAlias(mapping.data, layer, 'x', 'DH') !== null,
+    confirmType: async (layer, found, type) => {
+      const input = mappingWithAlias(mapping.data, layer, found, type);
+      if (input === null) return;
+      await saveMapping.mutateAsync(input);
     },
   };
 }
@@ -74,7 +87,7 @@ export interface FixForm {
   setLayer: (value: string) => void;
   /**
    * LABEL_TYPE_MISMATCH: edit the label, place an item of the label's type, or move the item to
-   * another layer (the label is right, the item is on the wrong layer; ADR-040).
+   * another layer (the label is right, the item is on the wrong layer; ADR-046).
    */
   mismatchMode: MismatchMode;
   setMismatchMode: (mode: MismatchMode) => void;
@@ -92,13 +105,18 @@ export interface FixForm {
   placeItem: () => void;
   moveItem: () => void;
   merge: () => void;
-  /** Dismiss the place as misread (ADR-040): a reason is required. */
+  /** Dismiss the place as misread (ADR-046): a reason is required. */
   dismissOpen: boolean;
   toggleDismiss: () => void;
   reason: string;
   setReason: (value: string) => void;
   canDismiss: boolean;
   dismiss: () => void;
+  /** HANDHOLE_TYPE_UNKNOWN: the type being confirmed, saving state, and the saved/ error notice. */
+  confirmChoice: HandholeType | '';
+  setConfirmChoice: (value: HandholeType | '') => void;
+  confirmed: boolean;
+  confirm: () => void;
 }
 
 export type MismatchMode = 'edit' | 'item' | 'move';
@@ -110,15 +128,22 @@ export function useFixForm(
   tools: FixTools,
   initiallyOpen = false,
 ): FixForm {
-  const tool = toolOf(code);
+  const tool = toolOf(code, place);
   const [open, setOpen] = useState(initiallyOpen);
-  const [text, setText] = useState(tool === 'add_text' ? '' : (place.text ?? ''));
+  // A cabinet with no «nB» is offered the boxes drawn under it (ADR-041 owner answers).
+  const suggestedText =
+    code === 'LABEL_MISSING' && place.params?.field === 'box_count' && place.params.suggested
+      ? `${place.params.suggested}B`
+      : '';
+  const [text, setText] = useState(tool === 'add_text' ? suggestedText : (place.text ?? ''));
   const [layer, setLayer] = useState('');
   const [mismatchMode, setMismatchMode] = useState<MismatchMode>('edit');
   const [dismissOpen, setDismissOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ErrorMessage | null>(null);
+  const [confirmChoice, setConfirmChoice] = useState<HandholeType | ''>('');
+  const [confirmed, setConfirmed] = useState(false);
 
   async function run(request: CreateDrawingCorrectionRequest) {
     setSaving(true);
@@ -173,6 +198,22 @@ export function useFixForm(
     },
     moveItem: () => {
       if (layer) void run(moveLayerRequest(code, place, layer));
+    },
+    confirmChoice,
+    setConfirmChoice,
+    confirmed,
+    confirm: () => {
+      const found = place.params?.found;
+      if (found === undefined || confirmChoice === '') return;
+      setSaving(true);
+      setError(null);
+      tools
+        .confirmType(place.layer, found, confirmChoice)
+        .then(() => setConfirmed(true))
+        .catch((caught: unknown) =>
+          setError(correctionError(errorCodeOf(caught), errorReasonOf(caught))),
+        )
+        .finally(() => setSaving(false));
     },
     merge: () => {
       if (routePieces(place.handle).length >= 2) void run(mergeRoutesRequest(code, place));

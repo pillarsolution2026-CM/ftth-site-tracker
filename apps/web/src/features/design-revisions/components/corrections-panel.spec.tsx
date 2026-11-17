@@ -97,7 +97,7 @@ describe('CorrectionsSection', () => {
     expect(screen.getAllByRole('button', { name: 'Withdraw the correction' })).toHaveLength(1);
   });
 
-  it('shows a dismissed error with its problem, place and reason (ADR-040)', async () => {
+  it('shows a dismissed error with its problem, place and reason (ADR-046)', async () => {
     api.listCorrections.mockResolvedValue({
       items: [
         item(ACTIVE, {

@@ -172,6 +172,23 @@ export class DrizzleWorkOrderRepository implements WorkOrderRepository {
     return row !== undefined;
   }
 
+  async findLinesOfProject(projectId: string): Promise<{
+    exists: boolean;
+    lines: { id: string; code: string; description: string }[];
+  }> {
+    const lines = await this.db
+      .select({
+        id: workOrderItems.id,
+        code: workOrderItems.code,
+        description: workOrderItems.description,
+      })
+      .from(workOrderItems)
+      .innerJoin(workOrders, eq(workOrders.id, workOrderItems.workOrderId))
+      .where(eq(workOrders.projectId, projectId))
+      .orderBy(asc(workOrderItems.lineNo), asc(workOrderItems.id));
+    return { exists: lines.length > 0 || (await this.existsForProject(projectId)), lines };
+  }
+
   async lineIdsByContractItem(projectId: string): Promise<Map<string, string>> {
     const rows = await this.db
       .select({ id: workOrderItems.id, contractItemId: workOrderItems.contractItemId })

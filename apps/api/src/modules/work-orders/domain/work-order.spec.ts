@@ -40,6 +40,7 @@ const contract: ApprovedContract = {
     contractItem('ci-b', 'B', '10.5', '33.3333'),
     contractItem('ci-c', 'C', '12.5', '4'),
   ],
+  headingCodes: [],
 };
 
 const line = (itemId: string, quantity: string): NewItem =>

@@ -383,7 +383,8 @@
       "usedTwice": "This column is used for more than one field",
       "reread": "Re-read the file with these settings",
       "unapplied": "Your changes are not applied to the rows yet",
-      "requiredHint": "Fields marked with * are required."
+      "requiredHint": "Fields marked with * are required.",
+      "workOrderNote": "Only the code and the quantity are taken from the file. Description, unit, price and work type come from the contract; any of those columns here is for comparison only."
     },
     "fields": {
       "code": "Code",
@@ -402,7 +403,8 @@
       "errors": "Rows with errors",
       "warnings": "Rows with warnings",
       "computedTotal": "Computed total",
-      "headings": "Heading rows"
+      "headings": "Heading rows",
+      "skipped": "Skipped rows"
     },
     "duplicates": {
       "title": "Repeated codes",
@@ -432,7 +434,9 @@
       "issues": "Issues",
       "ok": "OK",
       "headingBadge": "Section heading",
-      "headingNote": "Section heading: no quantity, no price"
+      "headingNote": "Section heading: no quantity, no price",
+      "skippedBadge": "Skipped",
+      "skippedNote": "Row skipped: it is not added to the work order"
     },
     "severity": {
       "error": "Error",
@@ -477,7 +481,7 @@
       "AMOUNT_MISMATCH": "The amount in the sheet differs from quantity × unit price",
       "UNIT_FORM_VARIANT": "The same unit is typed differently in rows {otherRows}",
       "NOT_IN_CONTRACT": "The code is not in the contract",
-      "CONTRACT_MISMATCH": "{field} differs from the contract ({contractValue})",
+      "CONTRACT_MISMATCH": "{field} differs from the contract — the contract value is used: {contractValue}",
       "CODE_REPEATED": "The code is repeated in rows {otherRows}; an item appears once",
       "QUANTITY_EXCEEDS_CONTRACT": "The quantity is above what is available in the contract (available {availableQuantity} of {contractQuantity})",
       "EMPTY_QUANTITY_SKIPPED": "Quantity is empty: the row is skipped and not added to the work order",
@@ -506,7 +510,9 @@
     "upload": {
       "label": "Upload a CAD file",
       "hint": "DWG or DXF files",
-      "uploading": "Uploading"
+      "uploading": "Uploading",
+      "kindLegend": "Drawing kind",
+      "pickKindFirst": "Choose the drawing kind first (General or Secondary), then the file"
     },
     "fileName": "File name",
     "format": "Format",
@@ -628,7 +634,34 @@
       "closed": "Closed",
       "approximated": "Approximated"
     },
-    "mappingLink": "Mapping"
+    "mappingLink": "Mapping",
+    "kindExists": {
+      "title": {
+        "general": "Is this a new version of the General?",
+        "secondary": "Is this a new version of the Secondary?"
+      },
+      "text": {
+        "general": "This work order already has a General:",
+        "secondary": "This work order already has a Secondary:"
+      },
+      "yes": "Yes, a new version",
+      "no": "No",
+      "declined": {
+        "general": "A work order has only one General — the file was not uploaded",
+        "secondary": "A work order has only one Secondary — the file was not uploaded"
+      }
+    },
+    "section": {
+      "general": "General (main)",
+      "secondary": "Secondary"
+    },
+    "sectionEmpty": {
+      "general": "No General has been uploaded yet",
+      "secondary": "No Secondary has been uploaded yet"
+    },
+    "superseded": "Old version",
+    "supersededNotice": "This file is an old version; a newer one of the same kind exists.",
+    "openNewer": "Open the newer version"
   },
   "featureType": {
     "route": "Route",
@@ -647,7 +680,8 @@
     "target": {
       "label": "Label (text links)",
       "background": "Background",
-      "ignore": "Ignore"
+      "ignore": "Ignore",
+      "zone": "Cabinet zone"
     },
     "crs": {
       "title": "Coordinate system",
@@ -741,7 +775,10 @@
       "NO_MAPPING": "Save the mapping before building a revision",
       "MAPPING_VERSION_MISMATCH": "The mapping changed since you opened it. Reload and build again.",
       "REVISION_IN_PROGRESS": "Another revision of this project is still being built or waiting for review",
-      "reload": "Reload"
+      "reload": "Reload",
+      "NOT_CURRENT_VERSION": "This file is an old version, so nothing can be built from it. Build from the newer version of the same kind.",
+      "ROLE_NOT_FOR_KIND": "A layer has a text meaning that this kind of drawing (General or Secondary) does not read. Untick the one marked with a warning and save again.",
+      "ZONE_NOT_FOR_KIND": "The cabinet zone layer exists in the Secondary drawing only. Change the layer target and save again."
     },
     "role": {
       "label": "Cabinet role",
@@ -829,7 +866,8 @@
       "from": {
         "typed": "Typed",
         "kml": "KML / KMZ",
-        "gps": "GPS point from supervisor"
+        "gps": "GPS point from supervisor",
+        "general_cabinet": "Cabinet from the General"
       },
       "outlier": "Far from the other points: check it or leave it out",
       "remove": "Remove {id}",
@@ -897,6 +935,69 @@
         "rotationDeg": "Rotation (°)",
         "scale": "Scale",
         "reset": "Remove hand adjustment"
+      },
+      "cabinets": {
+        "title": "From the General’s cabinets",
+        "hint": "Fetches control points from the cabinets shared by name with the placed General drawing. Points are only added here; save as usual afterwards.",
+        "button": "From the General’s cabinets",
+        "fetching": "Fetching the General’s cabinets…",
+        "applied": "{count} points added from the General’s cabinets. Not saved yet — check the errors and save.",
+        "dropped": "{count} points could not be added because the control point limit was exceeded.",
+        "truncated": "More shared cabinets than the point limit: only some were added ({matched} matched).",
+        "noMatch": "No cabinet is shared by name between the two drawings, so no point was added.",
+        "general": "General drawing: {state}{rev}",
+        "generalState": {
+          "draft": "draft",
+          "published": "published"
+        },
+        "readOnly": "Points from the General’s cabinets can only be left out or removed, not edited.",
+        "unmatchedTitle": "Cabinets that did not match",
+        "onlyInSecondary": "In the Secondary only",
+        "onlyInGeneral": "In the General only",
+        "duplicateInSecondary": "Duplicated in the Secondary (not used)",
+        "duplicateInGeneral": "Duplicated in the General (not used)",
+        "unnamed": "Cabinets with no name: Secondary {secondary} / General {general}",
+        "withoutDrawingPosition": "Secondary cabinets with no drawing position (rebuild the Secondary): {names}",
+        "unusable": "Cabinets that cannot become a control point (name too long or bad position)",
+        "listCapped": "Too many cabinets: only the first 5000 of each drawing were read.",
+        "failed": "Could not fetch the General’s cabinets. Try again.",
+        "refusal": {
+          "NOT_SECONDARY": "This feature is for the Secondary drawing only.",
+          "NOT_CURRENT": "A newer version of the Secondary exists. Open the newer one.",
+          "SECONDARY_BUILDING": "The Secondary is still being built. Wait until it finishes.",
+          "SECONDARY_NOT_BUILT": "The Secondary has not been built yet. Build it first so the cabinet names can be read.",
+          "SECONDARY_REBUILD_NEEDED": "The Secondary was built by an older version (no cabinet positions). Rebuild it.",
+          "GENERAL_BUILDING": "The General is still being built. Wait until it finishes.",
+          "GENERAL_NOT_BUILT": "There is no built General (draft or published). Upload and build it first.",
+          "GENERAL_NOT_PLACED": "The General has no control point in use. Place the General first."
+        }
+      }
+    },
+    "supersededNotice": "This file is an old version, so a revision cannot be built from it. Open the newer version and build from that.",
+    "meaning": {
+      "label": "What the texts mean",
+      "intro": "Say what the texts on each layer mean. The choices are suggested from the texts in the file; check them before saving. A layer with no meaning is read as before.",
+      "suggest": "Suggest meanings",
+      "notForKind": "not read in this drawing",
+      "ways": "Number of ways",
+      "waysPlaceholder": "e.g. 12",
+      "waysInvalid": "Enter a whole number from 1 to 288",
+      "waysRequired": "Number of ways must be a number from 1 to 288 on: {names}",
+      "aliases": "Confirmed handhole types",
+      "aliasRemove": "Remove",
+      "aliasRemoveOne": "Remove the confirmation «{found}»",
+      "role": {
+        "box_number": "Box number",
+        "box_cabinet": "Box cabinet",
+        "box_cable_type": "Box cable type (F4C)",
+        "box_cable_length": "Box cable length",
+        "bundle_label": "Bundle text (type / size / length)",
+        "bundle_spare": "Bundle spare SPn",
+        "cable_label": "Cable text (length / cores)",
+        "cable_spare": "Cable spare SP",
+        "handhole_number": "Handhole number",
+        "handhole_type": "Handhole type",
+        "cabinet_info": "Cabinet data (name / type / box count)"
       }
     }
   },
@@ -984,18 +1085,38 @@
         "crs_known": "Coordinates: source CRS chosen",
         "control_point": "At least one control point in use ({count})",
         "no_problems": "No drawing errors ({count} left)",
-        "open_items": "Open items reviewed ({count})"
+        "open_items": "Open items reviewed ({count})",
+        "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set",
+        "cabinets_match": "Cabinets match in both drawings (name and count)",
+        "installation": "Installation method (pull / trench) is clear",
+        "box_types": "Every box shape has a work-order line"
       },
       "fixCoordinates": "Open the coordinates screen",
-      "lockedHint": "Publishing is locked until the first three checks are done.",
+      "lockedHint": "Publishing is locked until all checks except open items are done.",
       "openItemsText": "Open items remain. Publishing locks the revision as it is.",
       "acknowledge": "I understand and want to publish with open items",
       "blocked": {
-        "CRS_UNKNOWN": "The source coordinate system of the drawing was never chosen. Choose it on the coordinates screen first.",
-        "PLACEMENT_MISSING": "The placement has no control point in use. Add or include a control point first.",
-        "PROBLEMS_OPEN": "{count} drawing errors are left. Fix them all before publishing.",
-        "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first."
-      }
+        "CRS_UNKNOWN": "The source coordinate system of the {drawing} drawing was never chosen. Choose it first on the coordinates screen.",
+        "PLACEMENT_MISSING": "The {drawing} drawing has no control point in use. Add or include a control point first.",
+        "PROBLEMS_OPEN": "{count} drawing errors are left in the {drawing} drawing. Fix all of them before publishing.",
+        "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
+        "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together.",
+        "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing.",
+        "INSTALLATION_UNCLEAR": "The installation method of the {drawing} drawing is unclear ({count} issues): {issues}",
+        "BOX_TYPES_UNCLEAR": "The box types of the {drawing} drawing are unclear ({count} issues): {issues}"
+      },
+      "otherNoDraft": "There is no draft for the {drawing} yet",
+      "otherErrors": "{count} errors in it",
+      "openOther": "Open the {drawing} draft",
+      "pairNote": "Publishing covers both drawings together ({first} + {second}) with the same revision number.",
+      "warnings": "{count} warning(s) in this drawing — they do not block publishing.",
+      "cabinetsCounts": "Cabinets: General {general} / Secondary {secondary}",
+      "cabinetsOnly": {
+        "general": "Only in the General",
+        "secondary": "Only in the Secondary"
+      },
+      "cabinetsUnnamed": "Cabinets with no name: {count}",
+      "cabinetsNoOther": "There is no draft for the {drawing} to compare with"
     },
     "error": {
       "NOT_DRAFT": "Only a draft revision can be published",
@@ -1087,7 +1208,20 @@
         "WRONG_LAYER": "On the wrong layer",
         "LABEL_MISSING": "Symbol without a label",
         "LABEL_TYPE_MISMATCH": "Symbol and label disagree",
-        "LABEL_LENGTH_MISSING": "Cable label without a length"
+        "LABEL_LENGTH_MISSING": "Cable label without a length",
+        "HANDHOLE_TYPE_MISSING": "Handhole without a type",
+        "HANDHOLE_TYPE_UNKNOWN": "Unknown handhole type",
+        "HANDHOLE_NOT_DRAWN": "Handhole name with no drawing",
+        "BOX_NUMBER_DUPLICATE": "Duplicate box number",
+        "BOX_NOT_REACHED": "Box no bundle reaches",
+        "CABINET_BOX_COUNT_MISMATCH": "Box count differs from the written one",
+        "CABINET_ZONE_MISSING": "Cabinet without a zone",
+        "SPARE_CORES_MISMATCH": "Spare cores do not add up",
+        "CABLE_SLACK_TOO_SHORT": "Cable spare under 15 m",
+        "CABLE_SLACK_TOO_LONG": "Cable spare over 30 m",
+        "BOX_CABINET_UNKNOWN": "Box names an unknown cabinet",
+        "CABINET_NAME_DUPLICATE": "Two cabinets with the same name",
+        "CONNECTOR_SIZE_MISSING": "1way bundle without duct size"
       },
       "ROUTE_SPLIT": {
         "description": "A cable is drawn as separate pieces that meet end to end away from any item, so the system cannot read it as one route.",
@@ -1112,7 +1246,78 @@
       "LABEL_LENGTH_MISSING": {
         "description": "A cable label gives its type but no length.",
         "fix": "Write the length in the label."
-      }
+      },
+      "HANDHOLE_TYPE_MISSING": {
+        "description": "The handhole is drawn but no text next to it says its type (DH, HH-I, HH-II or MH-I to MH-IV).",
+        "fix": "Type the handhole type next to it."
+      },
+      "HANDHOLE_TYPE_UNKNOWN": {
+        "description": "The text next to the handhole is not an accepted type: DH, HH-I (HH1), HH-II (CH) or MH-I to MH-IV.",
+        "fix": "Correct the text to one of the accepted types."
+      },
+      "HANDHOLE_NOT_DRAWN": {
+        "description": "A handhole name is written (like 04A or CH01) but no handhole symbol is drawn at it.",
+        "fix": "Draw the handhole at the name (or add it with the tool here on a handhole layer), or delete the name if it is not needed."
+      },
+      "BOX_NUMBER_DUPLICATE": {
+        "description": "Two boxes in the same cabinet have the same number; a box number must be unique inside its cabinet.",
+        "fix": "Change the number of one of the two boxes to the right one."
+      },
+      "BOX_NOT_REACHED": {
+        "description": "No 1way bundle ends at this box, so it is not clear where it is connected from.",
+        "fix": "Fix the drawing in AutoCAD: connect a 1way bundle to the box."
+      },
+      "CABINET_BOX_COUNT_MISMATCH": {
+        "description": "The box count written on the cabinet (like 22B) differs from the number of boxes drawn under it.",
+        "fix": "Correct the number written on the cabinet, or fix the drawn boxes in AutoCAD."
+      },
+      "CABINET_ZONE_MISSING": {
+        "description": "There is no zone line (the cabinet area) around this cabinet.",
+        "fix": "Draw the zone line around the cabinet and its boxes in AutoCAD, or map the zone layer on the mapping screen."
+      },
+      "SPARE_CORES_MISMATCH": {
+        "description": "The spare «SP n» is not the main cable cores minus the sum of the branch cable cores.",
+        "fix": "Correct the spare number to the right result (written next to each place)."
+      },
+      "CABLE_SLACK_TOO_SHORT": {
+        "description": "The written cable is not at least 15 m longer than its bundle (or it is shorter than the bundle itself).",
+        "fix": "Correct the cable length in its label."
+      },
+      "CABLE_SLACK_TOO_LONG": {
+        "description": "The written cable is more than 30 m longer than its bundle. This is a warning only and does not block publishing.",
+        "fix": "Check the cable length if the number is wrong; if it is right, leave it as it is."
+      },
+      "BOX_CABINET_UNKNOWN": {
+        "description": "A box names a cabinet that is not in the drawing. The name may have a typo.",
+        "fix": "Fix the cabinet name written on the box so it matches a cabinet in the drawing."
+      },
+      "CABINET_NAME_DUPLICATE": {
+        "description": "Two cabinets in the drawing have the same name; each cabinet needs one unique name.",
+        "fix": "Rename one of the two cabinets."
+      },
+      "CONNECTOR_SIZE_MISSING": {
+        "description": "A 1way bundle label has no duct size, so the connector and end-cap size is unknown.",
+        "fix": "Write the duct size in the bundle label (e.g. 1way 20/16)."
+      },
+      "detail": {
+        "LABEL_MISSING": "Missing text: {role}",
+        "LABEL_TYPE_MISMATCH": "The layer says {expected} ways but the text says {found} ways",
+        "HANDHOLE_TYPE_UNKNOWN": "Written «{found}» is not an accepted type",
+        "BOX_NUMBER_DUPLICATE": "Number {number} is repeated in cabinet {cabinet}",
+        "CABINET_BOX_COUNT_MISMATCH": "Cabinet {cabinet}: {written} boxes written, {drawn} drawn",
+        "SPARE_CORES_MISMATCH": "Should be SP {expected} (main cable {mainCores} cores) but {found} is written",
+        "CABLE_SLACK_TOO_SHORT": "Cable {cable} m, bundle {bundle} m, difference {slack} m (minimum 15 m)",
+        "CABLE_SLACK_TOO_LONG": "Cable {cable} m, bundle {bundle} m, difference {slack} m (over 30 m)",
+        "BOX_CABINET_UNKNOWN": "The box names cabinet «{cabinet}», which is not in the drawing. Check the spelling",
+        "CABINET_NAME_DUPLICATE": "The name «{cabinet}» is written on more than one cabinet",
+        "CONNECTOR_SIZE_MISSING": "1way bundle without a duct size, so the connector and end-cap size is unknown",
+        "LABEL_MISSING_BOX_COUNT": "The cabinet has no box count. Suggestion: {suggested} boxes (drawn under the cabinet)",
+        "LABEL_MISSING_BOX_COUNT_NO_SUGGESTION": "The cabinet has no box count (for example 22B)",
+        "BOX_NUMBER_DUPLICATE_FORMS": "Number {number} is repeated in cabinet {cabinet} (written in more than one form: {found})"
+      },
+      "warningsHeading": "Warnings: {total}",
+      "warningNote": "Warning — does not block publishing",
+      "typeOn": "Type the text on layer"
     },
     "viewer": {
       "title": "Drawing viewer",
@@ -1141,7 +1346,10 @@
       "entityInfo": "Drawing item",
       "closePopover": "Close",
       "entityLayer": "Layer",
-      "entityKind": "Type"
+      "entityKind": "Type",
+      "trenchLegend": "Parts marked for trench are drawn with a dashed purple line and their length.",
+      "boxTypesToggle": "Show the type of each box ({count})",
+      "boxTypesLegend": "The type is written next to each box: the code, then the line description. “Not built yet” means the choice is saved but not applied; “No type” means the box has no line."
     },
     "fix": {
       "open": "Fix this place",
@@ -1166,6 +1374,14 @@
       "noPointLayers": "No layer is mapped to an item type yet. Save the mapping first.",
       "mergePieces": "{count} pieces will be joined into one cable.",
       "merge": "Merge the pieces into one cable",
+      "noHandholeLayers": "No layer is mapped to handholes. Map one on the mapping screen first.",
+      "confirmTypeOpen": "Confirm the type",
+      "confirmTypeLabel": "The type meant by the written «{found}»",
+      "confirmTypeChoose": "Choose the type",
+      "confirmTypeSave": "Confirm and save in the mapping",
+      "confirmTypeScope": "This confirmation applies to every handhole written «{found}» in this drawing.",
+      "confirmTypeDone": "Confirmation saved. Press «Apply the corrections and rebuild» to apply it.",
+      "confirmTypeNoRule": "No layer in the mapping reads the handhole type (handhole_type). Set the text meaning on the mapping screen first.",
       "modeMove": "The label is right: move the item to another layer",
       "itemNewLayer": "Move the item to (its right type)",
       "moveItem": "Move the item",
@@ -1220,6 +1436,145 @@
         "LAYER_HAS_NO_RULE": "The chosen layer has no rule that makes it a drawing item or label. Pick a layer with a rule.",
         "VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again.",
         "MAPPING_VERSION_MISMATCH": "The mapping changed meanwhile. It was reloaded; try again."
+      }
+    },
+    "kind": "Kind",
+    "reading": {
+      "title": "What was read from the drawing",
+      "hint": "Lengths are the WRITTEN ones, not measured. Shown when the mapping gives the texts a meaning.",
+      "bundles": "Bundles by type",
+      "type": "Type",
+      "ductSize": "Duct size",
+      "count": "Count",
+      "writtenLength": "Written length (m)",
+      "withoutLength": "Without a written length",
+      "ways": "{count} way",
+      "none": "—",
+      "fittings": "Connectors and spares",
+      "item": "Item",
+      "connectors": "Connectors",
+      "spares": "Spares (SPn)",
+      "endCaps": "End caps",
+      "cables": "Cables by cores",
+      "cores": "Cores",
+      "handholes": "Handholes by type",
+      "handholeType": "Type",
+      "untyped": "No type"
+    },
+    "installation": {
+      "title": "Installation method",
+      "question": "Is the whole route pulled through old pipes, or does part of it need digging and new pipes?",
+      "answer": {
+        "pull_only": "All pulled through old pipes",
+        "has_trench": "Part needs digging and new pipes"
+      },
+      "current": "Current answer: {answer}",
+      "unanswered": "This question is not answered yet — publishing stays locked until it is.",
+      "saving": "Saving…",
+      "hasTrenchHint": "Mark the trench parts in the drawing viewer with the «New trench» tool and type the length of each in metres.",
+      "rebuildNeeded": "Rebuild so the marks are applied",
+      "readOnly": "You can see the answer only. The project manager changes it.",
+      "error": {
+        "NOT_GENERAL_DRAWING": "This question is for the General drawing only. The Secondary is all trench.",
+        "FILE_SUPERSEDED": "A newer version of the General exists. Answer on the newer one.",
+        "NOT_PROCESSED": "The file is not processed yet. Wait until it finishes and try again.",
+        "ANSWER_NOT_TRENCH": "First choose «Part needs digging and new pipes» before marking trench.",
+        "TRENCH_MARKS_ACTIVE": "Trench marks are in force. Withdraw them all before choosing «All pulled».",
+        "ROUTE_NOT_FOUND": "That piece is not a route of the drawing. Pick the route line itself.",
+        "TOO_MANY_MARKS": "The maximum number of trench marks for this file is reached.",
+        "TOO_MANY_ANSWERS": "The maximum number of answer changes for this file is reached.",
+        "ALREADY_WITHDRAWN": "This mark was already withdrawn."
+      },
+      "marks": {
+        "heading": "Trench marks ({count})",
+        "hint": "Each mark is a route plus the length that needs digging. The rest of the route is pulled through old pipes.",
+        "none": "No trench marks yet.",
+        "total": "Total marked trench: {length} m",
+        "colRoute": "Route",
+        "colLength": "Length (m)",
+        "colMadeBy": "Made by",
+        "colState": "State",
+        "active": "In force",
+        "withdrawn": "Withdrawn",
+        "withdraw": "Withdraw mark",
+        "withdrawing": "Withdrawing…",
+        "withdrawLabel": "Withdraw the trench mark on route {route}",
+        "show": "Show on the drawing"
+      },
+      "tool": {
+        "button": "New trench",
+        "on": "«New trench» is on: click a piece of a route on the drawing.",
+        "off": "Stop the tool",
+        "unavailable": "The «New trench» tool appears when the answer is «Part needs digging and new pipes».",
+        "title": "New trench on the route",
+        "route": "Route",
+        "length": "Trench length (metres)",
+        "lengthHint": "Type the length in metres, for example 25.5",
+        "lengthInvalid": "Type a length in metres above 0 and up to 100000, with at most 3 decimals.",
+        "save": "Save the trench mark",
+        "saving": "Saving…",
+        "saved": "The trench mark is saved. Rebuild to apply it.",
+        "marked": "Trench: {length} m"
+      },
+      "issue": {
+        "QUESTION_UNANSWERED": "The installation question is not answered (or was answered after the build — rebuild).",
+        "TRENCH_NOT_MARKED": "You said there is digging but marked no part. Mark the trench parts.",
+        "MARKS_WITH_PULL_ONLY": "The answer is «All pulled» but there are trench marks. Withdraw the marks or change the answer.",
+        "MARK_ROUTE_MISSING": "The trench mark on route {route} has no route in the built drawing. Withdraw it and mark again.",
+        "ROUTE_LENGTH_UNKNOWN": "Route {route} has no written length, so the trench length cannot be compared. Write the route length in the drawing.",
+        "TRENCH_LONGER_THAN_ROUTE": "The trench marked on route {route} ({marked} m) is longer than the written route length ({length} m)."
+      },
+      "secondaryOk": "The Secondary is all trench — no question.",
+      "moreIssues": "… and {count} more issues not shown"
+    },
+    "boxTypes": {
+      "title": "Box types",
+      "hint": "The program groups the boxes by the shape of the drawn symbol (not by block name). Choose a work-order line for each shape, then rebuild.",
+      "summary": "{boxes} boxes in {shapes} different shapes",
+      "linesFailed": "Could not read the work-order lines. Try again.",
+      "stateFailed": "Could not read the current choices. Try again.",
+      "rebuildNeeded": "Rebuild so the types are applied",
+      "readOnly": "You can see the types only. The project manager chooses them.",
+      "usePrevious": "Use the previous version’s choices",
+      "previousHint": "The previous Secondary has {count} choices that fit these shapes.",
+      "allClear": "Every box shape has a work-order line.",
+      "save": "Save choices",
+      "saving": "Saving…",
+      "unsaved": "{count} choices not saved yet",
+      "shapeName": "Shape {shape}",
+      "count": "Boxes: {count}",
+      "blocks": "Block names",
+      "chosen": "Has a line",
+      "unset": "No line",
+      "pick": "Choose a work-order line",
+      "noLine": "— No line —",
+      "lineMissingCard": "This line is no longer in the work order. Choose another line.",
+      "showOnDrawing": "Show on the drawing",
+      "choose": "Choose the line",
+      "moreIssues": "… and {count} more issues not shown",
+      "generalOk": "Box types are set on the Secondary drawing.",
+      "problemsHint": "These are not drawing errors. Choose the work-order line of each box shape.",
+      "label": {
+        "pending": "Not built yet",
+        "none": "No type"
+      },
+      "error": {
+        "NOT_SECONDARY_DRAWING": "Box types are set on the Secondary drawing only.",
+        "FILE_SUPERSEDED": "A newer version of the Secondary exists. Choose on the newer one.",
+        "NOT_BUILT": "The drawing is not built yet. Build it first, then choose the types.",
+        "NO_WORK_ORDER": "The project has no work order. Create the work order first.",
+        "SHAPE_NOT_FOUND": "One of the shapes is not in the latest build. Refresh the page and try again.",
+        "LINE_NOT_IN_WORK_ORDER": "One of the lines is not in the project’s work order. Refresh the page and try again.",
+        "TOO_MANY_CHOICES": "The maximum number of box-type choices for this file is reached."
+      },
+      "issue": {
+        "READING_ROLES_MISSING": "The Secondary was mapped without «text meaning». Set the meaning of the layers' texts on the mapping screen and rebuild.",
+        "WORK_ORDER_MISSING": "The project has no work order, so no line can be chosen. Create the work order first.",
+        "BOX_SHAPES_NOT_READ": "The box shapes were not read yet. Rebuild the drawing.",
+        "BOX_SHAPE_UNKNOWN": "{count} boxes have an unread shape. Reprocess the file, then rebuild.",
+        "BOX_SHAPES_TOO_MANY": "Too many box shapes (more than 200). Unify the symbols in AutoCAD.",
+        "BOX_TYPE_UNSET": "Shape {shape} ({count} boxes) has no work-order line.",
+        "BOX_TYPE_LINE_MISSING": "The line chosen for shape {shape} ({count} boxes) is no longer in the work order. Choose another line."
       }
     }
   },
@@ -1667,6 +2022,14 @@
       "commit": "Register the lines",
       "committing": "Saving…",
       "mappingNote": "Scope of work is optional; work type is not used."
+    }
+  },
+  "drawingKind": {
+    "general": "General (main)",
+    "secondary": "Secondary",
+    "badge": {
+      "general": "Main",
+      "secondary": "Secondary"
     }
   }
 }

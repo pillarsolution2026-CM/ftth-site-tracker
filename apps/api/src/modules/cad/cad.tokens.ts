@@ -14,3 +14,6 @@ export const TILE_CONFIG = 'CAD_TILE_CONFIG';
 /** Per-user limiter of POST …/view (security review L5), 10 per 10 minutes. */
 export const DRAWING_VIEW_RATE_LIMITER = 'CAD_DRAWING_VIEW_RATE_LIMITER';
 export const DRAWING_VIEW_RATE_BUDGET = 'CAD_DRAWING_VIEW_RATE_BUDGET';
+export const WORK_ORDER_LINES = 'CAD_WORK_ORDER_LINES';
+/** `DrawingFlow` built once from the API env (ADR-045): which drawing-flow steps are switched on. */
+export const DRAWING_FLOW = 'CAD_DRAWING_FLOW';

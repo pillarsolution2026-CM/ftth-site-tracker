@@ -11,6 +11,9 @@ export function toSummaryDto(file: CadFile): CadFileSummary {
     sizeBytes: file.sizeBytes,
     sha256: file.sha256,
     status: file.status,
+    drawingKind: file.drawingKind,
+    supersededAt: file.supersededAt?.toISOString() ?? null,
+    supersededById: file.supersededById,
     uploadedById: file.uploadedById,
     // Counts of an earlier run stay in the row while a reprocess is in flight; only show final ones.
     counts: file.status === 'processed' ? file.counts : null,

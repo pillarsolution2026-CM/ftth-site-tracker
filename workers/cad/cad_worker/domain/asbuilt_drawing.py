@@ -9,12 +9,15 @@ an adapter writes with ezdxf:
 - approved As-Built geometry of a design feature on `ASBUILT_EDITS` (the design entity stays on its
   layer underneath), a label-only change as TEXT on `ASBUILT_EDITS`, and a status text
   `AS-BUILT G<geometryVersion> L<labelVersion>`;
-- approved added features on `ASBUILT_ADDED` with their label and the status text `AS-BUILT ADDED`.
+- approved added features on `ASBUILT_ADDED` with their label and the status text `AS-BUILT ADDED`;
+- ADR-043: for every box with a type (the work-order line frozen on a Secondary revision,
+  `attrs.reading.boxType`), one MTEXT `code\\Plabel` on `BOX_TYPE` next to the box.
 
 Security: every layer name read from the database is checked (control characters, reserved names,
 the characters AutoCAD refuses, plus the injected ezdxf validator) and replaced by
 `INVALID_LAYER_<n>` when it fails; every text is stripped of control characters and `%%` control
-codes are neutralised. Only single-line TEXT is produced (never MTEXT).
+codes are neutralised. Only single-line TEXT is produced, except the box-type MTEXT whose two
+parts are escaped for MTEXT (`\\`, `{`, `}`, `^`) so no formatting code can be injected.
 """
 
 from __future__ import annotations
@@ -31,6 +34,9 @@ from cad_worker.domain.design import FeatureType, Xy
 # Layer names of the export (packages/shared ASBUILT_DXF_LAYERS).
 LAYER_EDITS = "ASBUILT_EDITS"
 LAYER_ADDED = "ASBUILT_ADDED"
+# ADR-043 (packages/shared BOX_TYPE_DXF_LAYER).
+LAYER_BOX_TYPE = "BOX_TYPE"
+COLOR_BOX_TYPE = 5  # blue
 # Distinct ACI colours for the two As-Built layers (presentation only).
 COLOR_EDITS = 1  # red
 COLOR_ADDED = 3  # green
@@ -59,7 +65,7 @@ MAX_ABS_COORDINATE = 100_000_000.0
 _FORBIDDEN_LAYER_CHARS = frozenset('<>/\\":;?*|,=`')
 # C0, DEL, C1, and the Unicode line/paragraph separators.
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]+")
-_RESERVED_LAYERS = frozenset(n.casefold() for n in (LAYER_EDITS, LAYER_ADDED))
+_RESERVED_LAYERS = frozenset(n.casefold() for n in (LAYER_EDITS, LAYER_ADDED, LAYER_BOX_TYPE))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +75,8 @@ class DesignFeatureIn:
     layer: str
     code: str | None
     coords: tuple[Xy, ...]  # routes: the polyline; points: one position
+    # ADR-043: (work-order line code, label) of a typed box; None = no type.
+    box_type: tuple[str | None, str | None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +119,17 @@ class TextEntity:
     height: float = TEXT_HEIGHT_M
 
 
-Entity = PolylineEntity | SymbolEntity | TextEntity
+@dataclass(frozen=True, slots=True)
+class MTextEntity:
+    """Multi-line text, top-left at `position`; `text` is already escaped for MTEXT."""
+
+    layer: str
+    text: str
+    position: Xy
+    height: float = TEXT_HEIGHT_M
+
+
+Entity = PolylineEntity | SymbolEntity | TextEntity | MTextEntity
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +177,21 @@ def sanitize_text(value: str) -> str:
 
 def _escape_percent(value: str) -> str:
     return value.replace("%%", "%%%%%%")
+
+
+def _mtext_part(value: str | None) -> str:
+    """One inert MTEXT paragraph: control characters flattened, MTEXT codes escaped."""
+    if value is None:
+        return ""
+    flat = _CONTROL.sub(" ", value).strip()[:MAX_TEXT]
+    flat = flat.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    return _escape_percent(flat.replace("^", "^ "))
+
+
+def box_type_mtext(code: str | None, label: str | None) -> str | None:
+    """`code\\Plabel` (code first, LTR), or one part when the other is missing."""
+    parts = [p for p in (_mtext_part(code), _mtext_part(label)) if p]
+    return "\\P".join(parts) if parts else None
 
 
 def layer_name_problem(name: str, validator: Callable[[str], bool]) -> str | None:
@@ -239,6 +272,11 @@ def _status_at(p: Xy) -> Xy:
     return _offset(p, TEXT_HEIGHT_M, -2.0 * TEXT_HEIGHT_M)
 
 
+def _box_type_at(p: Xy) -> Xy:
+    """Top-left of the type text: under the status text line."""
+    return _offset(p, TEXT_HEIGHT_M, -2.5 * TEXT_HEIGHT_M)
+
+
 def _check_coords(feature_type: FeatureType, coords: Sequence[Xy], what: str) -> None:
     if feature_type == "route":
         if len(coords) < 2:
@@ -283,6 +321,7 @@ def build_drawing(
     entities: list[Entity] = []
     blocks: set[str] = set()
     design_by_id: dict[UUID, DesignFeatureIn] = {}
+    typed_boxes = 0
 
     for f in sorted(design, key=lambda d: str(d.feature_id)):
         _check_coords(f.feature_type, f.coords, f"design feature {f.feature_id}")
@@ -290,6 +329,11 @@ def build_drawing(
         design_by_id[f.feature_id] = f
         entities.append(_shape(layer, f.feature_type, f.coords))
         entities.extend(_text(layer, f.code, _code_at(anchor(f.feature_type, f.coords))))
+        if f.feature_type == "box" and f.box_type is not None:
+            content = box_type_mtext(*f.box_type)
+            if content is not None:
+                entities.append(MTextEntity(LAYER_BOX_TYPE, content, _box_type_at(f.coords[0])))
+                typed_boxes += 1
 
     edited = added = not_in_revision = 0
     for s in sorted(asbuilt, key=lambda a: str(a.feature_id)):
@@ -325,6 +369,8 @@ def build_drawing(
 
     layers = [LayerSpec(n, DESIGN_LAYER_COLOR) for n in names.names]
     layers += [LayerSpec(LAYER_EDITS, COLOR_EDITS), LayerSpec(LAYER_ADDED, COLOR_ADDED)]
+    if typed_boxes:
+        layers.append(LayerSpec(LAYER_BOX_TYPE, COLOR_BOX_TYPE))
     warnings: list[dict[str, object]] = []
     if names.invalid:
         warnings.append({"code": "INVALID_LAYER_NAME", "count": names.invalid})

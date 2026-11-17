@@ -17,7 +17,9 @@ export async function approvedContractFromSheet(): Promise<ApprovedContract> {
     {},
   );
   const items: ContractItemInfo[] = [];
+  const headingCodes: string[] = [];
   for (const row of parsed.rows) {
+    if (row.kind === 'heading' && row.code !== null) headingCodes.push(row.code);
     if (row.kind !== 'item') continue;
     items.push({
       id: itemIdOfRow(row.rowNumber),
@@ -30,5 +32,5 @@ export async function approvedContractFromSheet(): Promise<ApprovedContract> {
       quantity: Decimal.parse(row.quantity ?? '0'),
     });
   }
-  return { id: CONTRACT_ID, number: 'C-1', items };
+  return { id: CONTRACT_ID, number: 'C-1', items, headingCodes };
 }

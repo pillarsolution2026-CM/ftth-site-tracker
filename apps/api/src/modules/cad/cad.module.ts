@@ -1,5 +1,5 @@
 import { Inject, Module, type OnApplicationShutdown, type Provider } from '@nestjs/common';
-import type { ApiEnv } from '@ftth/shared';
+import { drawingFlowFromEnv, type ApiEnv, type DrawingFlow } from '@ftth/shared';
 import { systemClock, uuidGenerator } from '../../common/clock.js';
 import { maxUploadBytes } from '../../common/http/multipart-payload.js';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../common/object-storage.port.js';
@@ -10,6 +10,9 @@ import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rat
 import { IdentityModule } from '../identity/identity.module.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
+import type { FindWorkOrderLinesUseCase } from '../work-orders/application/work-order-lines.js';
+import { FIND_WORK_ORDER_LINES } from '../work-orders/work-orders.tokens.js';
+import { WorkOrdersModule } from '../work-orders/work-orders.module.js';
 import { GET_PROJECT_USE_CASE } from '../projects/projects.tokens.js';
 import {
   CadExtractionUseCases,
@@ -44,7 +47,29 @@ import {
   WithdrawDrawingCorrectionUseCase,
 } from './application/drawing-correction.use-cases.js';
 import { DrawingCorrectionsController } from './interface/drawing-corrections.controller.js';
-import type { JobQueue, ProjectEpsgLookup, TileConfig } from './application/ports.js';
+import {
+  AddTrenchMarkUseCase,
+  GetInstallationUseCase,
+  GetRevisionInstallationUseCase,
+  SetInstallationAnswerUseCase,
+  WithdrawTrenchMarkUseCase,
+} from './application/installation.use-cases.js';
+import { GetSecondaryPlacementSuggestionUseCase } from './application/secondary-placement.use-case.js';
+import { InstallationController } from './interface/installation.controller.js';
+import { SecondaryPlacementController } from './interface/secondary-placement.controller.js';
+import {
+  GetBoxTypeStateUseCase,
+  GetRevisionBoxTypesUseCase,
+  SetBoxTypesUseCase,
+} from './application/box-types.use-cases.js';
+import { BoxTypesController } from './interface/box-types.controller.js';
+import { WorkOrdersServiceLines } from './infrastructure/work-orders-service-lines.js';
+import type {
+  JobQueue,
+  ProjectEpsgLookup,
+  TileConfig,
+  WorkOrderLines,
+} from './application/ports.js';
 import {
   GetPublishReadinessUseCase,
   PublishDesignRevisionUseCase,
@@ -72,6 +97,8 @@ import {
   GPS_PROPOSAL_REPOSITORY,
   JOB_QUEUE,
   PROJECT_EPSG_LOOKUP,
+  WORK_ORDER_LINES,
+  DRAWING_FLOW,
   TILE_CONFIG,
 } from './cad.tokens.js';
 import type {
@@ -122,6 +149,11 @@ const providers: Provider[] = [
   },
   { provide: DRAWING_VIEW_RATE_BUDGET, useValue: 10 },
   {
+    provide: DRAWING_FLOW,
+    inject: [APP_ENV],
+    useFactory: (env: ApiEnv): DrawingFlow => drawingFlowFromEnv(env),
+  },
+  {
     provide: JOB_QUEUE,
     inject: [APP_ENV],
     useFactory: (env: ApiEnv) => new RedisJobQueue(env.REDIS_URL),
@@ -138,6 +170,11 @@ const providers: Provider[] = [
     provide: PROJECT_EPSG_LOOKUP,
     inject: [GET_PROJECT_USE_CASE],
     useFactory: (getProject: GetProjectUseCase) => new ProjectsServiceEpsgLookup(getProject),
+  },
+  {
+    provide: WORK_ORDER_LINES,
+    inject: [FIND_WORK_ORDER_LINES],
+    useFactory: (find: FindWorkOrderLinesUseCase) => new WorkOrdersServiceLines(find),
   },
   {
     provide: CAD_FILE_REPOSITORY,
@@ -298,9 +335,9 @@ const providers: Provider[] = [
   },
   {
     provide: CreateDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
-    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
-      new CreateDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new CreateDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines, flow),
   },
   {
     provide: ListDesignRevisionsUseCase,
@@ -344,13 +381,15 @@ const providers: Provider[] = [
   },
   {
     provide: GetPublishReadinessUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new GetPublishReadinessUseCase(uow),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new GetPublishReadinessUseCase(uow, lines, flow),
   },
   {
     provide: PublishDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK],
-    useFactory: (uow: CadUnitOfWork) => new PublishDesignRevisionUseCase(uow, systemClock),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new PublishDesignRevisionUseCase(uow, systemClock, lines, flow),
   },
   {
     provide: DiscardDesignRevisionUseCase,
@@ -360,9 +399,9 @@ const providers: Provider[] = [
   },
   {
     provide: RebuildDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE],
-    useFactory: (uow: CadUnitOfWork, queue: JobQueue) =>
-      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator),
+    inject: [CAD_UNIT_OF_WORK, JOB_QUEUE, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, queue: JobQueue, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new RebuildDesignRevisionUseCase(uow, queue, systemClock, uuidGenerator, lines, flow),
   },
   {
     provide: ListDrawingCorrectionsUseCase,
@@ -379,6 +418,57 @@ const providers: Provider[] = [
     provide: WithdrawDrawingCorrectionUseCase,
     inject: [CAD_UNIT_OF_WORK],
     useFactory: (uow: CadUnitOfWork) => new WithdrawDrawingCorrectionUseCase(uow, systemClock),
+  },
+  {
+    provide: GetInstallationUseCase,
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) => new GetInstallationUseCase(uow, flow),
+  },
+  {
+    provide: SetInstallationAnswerUseCase,
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new SetInstallationAnswerUseCase(uow, systemClock, uuidGenerator, flow),
+  },
+  {
+    provide: AddTrenchMarkUseCase,
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new AddTrenchMarkUseCase(uow, systemClock, uuidGenerator, flow),
+  },
+  {
+    provide: WithdrawTrenchMarkUseCase,
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new WithdrawTrenchMarkUseCase(uow, systemClock, flow),
+  },
+  {
+    provide: GetRevisionInstallationUseCase,
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) =>
+      new GetRevisionInstallationUseCase(uow, flow),
+  },
+  {
+    provide: GetBoxTypeStateUseCase,
+    inject: [CAD_UNIT_OF_WORK, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, flow: DrawingFlow) => new GetBoxTypeStateUseCase(uow, flow),
+  },
+  {
+    provide: SetBoxTypesUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new SetBoxTypesUseCase(uow, lines, systemClock, uuidGenerator, flow),
+  },
+  {
+    provide: GetRevisionBoxTypesUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
+    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
+      new GetRevisionBoxTypesUseCase(uow, lines, flow),
+  },
+  {
+    provide: GetSecondaryPlacementSuggestionUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) => new GetSecondaryPlacementSuggestionUseCase(uow),
   },
   {
     provide: GetRevisionTilesUseCase,
@@ -400,12 +490,15 @@ const providers: Provider[] = [
 ];
 
 @Module({
-  imports: [IdentityModule, ProjectsModule],
+  imports: [IdentityModule, ProjectsModule, WorkOrdersModule],
   controllers: [
     CadFilesController,
     CadExtractionController,
     CadMappingController,
     DrawingCorrectionsController,
+    InstallationController,
+    BoxTypesController,
+    SecondaryPlacementController,
     DrawingViewController,
     GpsProposalsController,
     DesignRevisionsController,

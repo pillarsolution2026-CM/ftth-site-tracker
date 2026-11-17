@@ -6,6 +6,7 @@ import {
   type CadFormat,
   type CadWarning,
   type CrsDetection,
+  type DrawingKind,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 
@@ -20,6 +21,11 @@ export interface CadFile {
   storageKey: string;
   convertedStorageKey: string | null;
   status: CadFileStatus;
+  /** General or Secondary (ADR-040); chosen at upload, never changes. */
+  drawingKind: DrawingKind;
+  /** Set with `supersededById` when a newer version of the same kind was uploaded. */
+  supersededAt: Date | null;
+  supersededById: string | null;
   /** The only job allowed to change this row; a newer reprocess supersedes older jobs. */
   currentJobId: string | null;
   converter: 'oda' | 'libredwg' | 'none' | null;

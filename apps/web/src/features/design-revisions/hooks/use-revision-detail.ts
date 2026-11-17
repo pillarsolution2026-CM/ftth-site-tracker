@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
+import { useI18n } from '@/shared/i18n/locale-provider';
 import { useProject } from '@/features/projects/hooks/project-access-context';
 import {
   useDesignRevision,
@@ -25,6 +26,7 @@ import {
  * and refetches the checklist.
  */
 export function useRevisionDetail(projectId: string, revisionId: string) {
+  const { locale } = useI18n();
   const { can } = useProject();
   const canRead = can('design:read');
   const canWrite = can('design:write');
@@ -45,7 +47,7 @@ export function useRevisionDetail(projectId: string, revisionId: string) {
   const blocked = publishError ? publishBlockedOf(publishError) : null;
   const actionError = publishError ?? discard.error;
   const actionMessage: ErrorMessage | null = blocked
-    ? publishBlockedMessage(blocked)
+    ? publishBlockedMessage(blocked, locale)
     : actionError
       ? {
           key: revisionErrorKey(errorCodeOf(actionError), errorReasonOf(actionError)),

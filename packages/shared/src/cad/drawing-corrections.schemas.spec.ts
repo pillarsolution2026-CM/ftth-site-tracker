@@ -39,7 +39,7 @@ describe('DrawingCorrectionInputSchema (security review limits)', () => {
   });
 });
 
-describe('dismiss_problem (ADR-040)', () => {
+describe('dismiss_problem (ADR-046)', () => {
   const dismiss = {
     kind: 'dismiss_problem',
     code: 'LABEL_MISSING',

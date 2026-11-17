@@ -50,6 +50,7 @@ import {
   type TextLinkListQuery,
   type TextLinkPage,
   type TileUrlResponse,
+  type DrawingFlow,
 } from '@ftth/shared';
 import { sendRangedObject } from '../../../common/http/download.js';
 import { ProjectIdParam } from '../../../common/http/params.js';
@@ -61,6 +62,7 @@ import { ZodValidationPipe } from '../../../common/zod-validation.pipe.js';
 import type { AuthenticatedRequest } from '../../identity/interface/auth-request.js';
 import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
+import { DRAWING_FLOW } from '../cad.tokens.js';
 import { CreateDesignRevisionUseCase } from '../application/create-design-revision.use-case.js';
 import {
   GetDesignRevisionUseCase,
@@ -102,13 +104,16 @@ export class DesignRevisionsController {
     @Inject(RebuildDesignRevisionUseCase) private readonly rebuild: RebuildDesignRevisionUseCase,
     @Inject(GetRevisionTilesUseCase) private readonly tiles: GetRevisionTilesUseCase,
     @Inject(CreateTileUrlUseCase) private readonly tileUrl: CreateTileUrlUseCase,
+    @Inject(DRAWING_FLOW) private readonly flow: DrawingFlow,
   ) {}
 
   @Get()
   @RequirePermission('design:read')
   @ApiOkResponse({ schema: openApiSchema(DesignRevisionListResponseSchema) })
   async listAll(@ProjectIdParam() projectId: string): Promise<DesignRevisionListResponse> {
-    return { items: (await this.list.execute(projectId)).map(toRevisionSummaryDto) };
+    return {
+      items: (await this.list.execute(projectId)).map((r) => toRevisionSummaryDto(r, this.flow)),
+    };
   }
 
   @Post()
@@ -126,7 +131,7 @@ export class DesignRevisionsController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toRevisionSummaryDto(revision);
+    return toRevisionSummaryDto(revision, this.flow);
   }
 
   /** Discards the draft and builds a new revision of the same file in one step (ADR-038). */
@@ -147,7 +152,7 @@ export class DesignRevisionsController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toRevisionSummaryDto(revision);
+    return toRevisionSummaryDto(revision, this.flow);
   }
 
   @Get(':revisionId')
@@ -157,7 +162,7 @@ export class DesignRevisionsController {
     @ProjectIdParam() projectId: string,
     @Param('revisionId', UuidParamPipe) revisionId: string,
   ): Promise<DesignRevisionDetail> {
-    return toRevisionDetailDto(await this.get.execute(projectId, revisionId));
+    return toRevisionDetailDto(await this.get.execute(projectId, revisionId), this.flow);
   }
 
   @Get(':revisionId/features')
@@ -250,7 +255,7 @@ export class DesignRevisionsController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toRevisionDetailDto(revision);
+    return toRevisionDetailDto(revision, this.flow);
   }
 
   @Post(':revisionId/discard')
@@ -267,7 +272,7 @@ export class DesignRevisionsController {
       revisionId,
       actorId: actorIdOf(request),
     });
-    return toRevisionDetailDto(revision);
+    return toRevisionDetailDto(revision, this.flow);
   }
 
   @Get(':revisionId/tiles.pmtiles')

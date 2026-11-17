@@ -158,7 +158,15 @@ export function ImportRowsTable({
                     </>
                   )}
                   <Td className={hasErrors(row) ? 'min-w-64' : 'min-w-48'}>
-                    {row.issues.length === 0 ? (
+                    {row.issues.length === 0 && row.kind === 'skipped' ? (
+                      <span>
+                        <span aria-hidden="true">– </span>
+                        <span className="rounded border border-(--color-border) px-1 text-xs">
+                          {t('import.rows.skippedBadge')}
+                        </span>
+                        <span className="sr-only"> — {t('import.rows.skippedNote')}</span>
+                      </span>
+                    ) : row.issues.length === 0 ? (
                       <span>
                         <span aria-hidden="true">✓ </span>
                         {t('import.rows.ok')}

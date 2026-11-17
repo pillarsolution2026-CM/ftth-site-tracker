@@ -114,7 +114,7 @@ export class CreateDrawingCorrectionUseCase {
         }
       }
 
-      // A dismissal is about one problem place (ADR-040): that place is its context.
+      // A dismissal is about one problem place (ADR-046): that place is its context.
       const problem =
         request.correction.kind === 'dismiss_problem'
           ? { code: request.correction.code, handle: request.correction.handle }

@@ -383,7 +383,10 @@ def test_add_item_is_counted_as_its_layers_type() -> None:
     design = compose_design(drawing, rules, unit_placer(1.0), (), uuid.uuid4)
     assert design.feature_counts["joint"] == 1
     [row] = design.rows.features
-    assert row.coords == ((50.0, 60.0),) and row.attrs == {"kind": "144"}
+    assert row.coords == ((50.0, 60.0),) and row.attrs == {
+        "kind": "144",
+        "drawingAt": {"x": 50.0, "y": 60.0},  # the corrected position, in drawing units
+    }
     assert row.source_kind == "insert" and row.source_handle == f"FIX-{uuid.UUID(int=1)}"
 
 
@@ -507,7 +510,7 @@ def test_a_handle_missing_from_the_drawing_fails_loudly(correction: Any) -> None
         apply_corrections(drawing, [fix(correction)], metres_per_unit=1.0)
 
 
-# ---------- dismissing a misread problem place (ADR-040) ----------
+# ---------- dismissing a misread problem place (ADR-046) ----------
 
 
 def test_dismiss_is_parsed_strictly() -> None:
@@ -538,7 +541,7 @@ def test_dismiss_changes_no_row_and_drops_only_its_place() -> None:
     assert dismissed_places([dismissal]) == frozenset({("LABEL_MISSING", "j3")})
 
     design = compose_design(
-        drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed_places([dismissal])
+        drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed=dismissed_places([dismissal])
     )
     [problem] = design.problems
     assert problem["code"] == "LABEL_MISSING" and problem["count"] == 1
@@ -552,9 +555,9 @@ def test_dismissing_every_place_leaves_no_problem() -> None:
         texts=(label("t1", "jont 144", "J 144", (3, 3)),),
     )
     dismissed = frozenset({("LABEL_MISSING", "j3")})
-    design = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed)
+    design = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed=dismissed)
     assert design.problems == []
     # Another code at the same handle is not dismissed.
     other = frozenset({("WRONG_LAYER", "j3")})
-    kept = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, other)
+    kept = compose_design(drawing, RULES, unit_placer(1.0), (), uuid.uuid4, dismissed=other)
     assert [p["code"] for p in kept.problems] == ["LABEL_MISSING"]

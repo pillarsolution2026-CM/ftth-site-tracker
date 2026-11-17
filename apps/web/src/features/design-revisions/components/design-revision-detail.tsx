@@ -5,9 +5,12 @@ import { useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { ErrorNotice } from '@/shared/ui/error-notice';
+import { DrawingKindBadge } from '@/shared/ui/drawing-kind-badge';
 import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader } from '@/shared/ui/table';
+import { BoxTypesSection } from '@/features/box-types/components/box-types-section';
+import { InstallationQuestionCard } from '@/features/installation/components/installation-question-card';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { ShowPlace } from '../hooks/use-drawing-viewer';
 import { useDiffView } from '../hooks/use-diff-view';
@@ -63,6 +66,7 @@ export function DesignRevisionDetailScreen({
         </Link>
       </PageHeader>
       <div className="flex flex-wrap items-center gap-3">
+        <DrawingKindBadge kind={revision.drawingKind} />
         <RevisionStatusBadge status={revision.status} />
         {isBuilding(revision.status) ? (
           <span aria-live="polite">{t('design.autoRefresh')}</span>
@@ -77,6 +81,15 @@ export function DesignRevisionDetailScreen({
           </Button>
         ) : null}
       </div>
+      {revision.drawingKind === 'general' ? (
+        <InstallationQuestionCard
+          projectId={projectId}
+          cadFileId={revision.cadFileId}
+          enabled={state.canRead}
+          canWrite={state.canReview}
+          frozen={state.canReview ? revision.installation : undefined}
+        />
+      ) : null}
       {state.built ? (
         <Card>
           <DrawingViewer
@@ -86,6 +99,9 @@ export function DesignRevisionDetailScreen({
             enabled={state.canRead && state.built}
             canWrite={state.canWrite}
             canFix={state.canReview}
+            isGeneral={revision.drawingKind === 'general'}
+            isSecondary={revision.drawingKind === 'secondary'}
+            onShowOnDrawing={showOnDrawing}
             focus={focus}
           />
         </Card>
@@ -102,8 +118,14 @@ export function DesignRevisionDetailScreen({
           publishing={state.publishing}
           allowed={state.publishAllowed}
           mappingHref={`${cadFilesPath}/${revision.cadFileId}/mapping`}
+          otherRevisionHref={
+            state.readiness?.otherRevisionId
+              ? `${listPath}/${state.readiness.otherRevisionId}`
+              : null
+          }
           onAcknowledgedChange={state.setAcknowledged}
           onPublish={state.publish}
+          onShowRoute={(handle) => showOnDrawing({ code: null, handle, x: null, y: null })}
         />
       ) : null}
       {state.confirmingDiscard ? (
@@ -143,6 +165,18 @@ export function DesignRevisionDetailScreen({
               onShowOnDrawing={showOnDrawing}
             />
           </Card>
+          {revision.drawingKind === 'secondary' ? (
+            <Card>
+              <BoxTypesSection
+                projectId={projectId}
+                revisionId={revisionId}
+                cadFileId={revision.cadFileId}
+                enabled={state.canRead && state.built}
+                canEdit={state.canReview}
+                onShowHandle={(handle) => showOnDrawing({ code: null, handle, x: null, y: null })}
+              />
+            </Card>
+          ) : null}
           <Card>
             <CorrectionsSection
               projectId={projectId}

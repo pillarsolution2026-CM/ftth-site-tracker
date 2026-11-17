@@ -1,6 +1,6 @@
 import type { DrawingProblemView } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { drawBase, drawOverlay, PathCache, type DrawModel } from './drawing-draw';
+import { drawBase, drawOverlay, PathCache, TRENCH_COLOR, type DrawModel } from './drawing-draw';
 import { buildMarkers } from './drawing-hit';
 import { applyCorrections, EMPTY_PREVIEW } from './drawing-preview';
 import { buildScene } from './drawing-scene';
@@ -253,5 +253,96 @@ describe('drawOverlay', () => {
     expect(ctx.arc).toHaveBeenCalledTimes(1);
     expect(ctx.lineTo).toHaveBeenCalledTimes(2);
     expect(ctx.strokeStyle).toBe('#0000ff');
+  });
+});
+
+describe('drawOverlay trench marks (ADR-042)', () => {
+  it('strokes a marked route dashed in the trench colour and writes its length on it', () => {
+    const ctx = createMockContext();
+    drawOverlay(
+      asCtx(ctx),
+      model({ trench: new Map([[0, 'Trench: 25.000 m']]) }),
+      new PathCache(scene),
+      { cx: 50, cy: 25, scale: 4 },
+      vp,
+    );
+    expect(ctx.stroke).toHaveBeenCalled();
+    expect(ctx.setLineDash).toHaveBeenCalledWith(expect.any(Array));
+    expect(ctx.fillText).toHaveBeenCalledWith(
+      'Trench: 25.000 m',
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(ctx.fillStyle).toBe(TRENCH_COLOR);
+  });
+
+  it('draws nothing extra without marks', () => {
+    const ctx = createMockContext();
+    drawOverlay(asCtx(ctx), model(), new PathCache(scene), { cx: 50, cy: 25, scale: 4 }, vp);
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+});
+
+describe('drawOverlay box type texts (ADR-043)', () => {
+  const view = { cx: 50, cy: 25, scale: 4 };
+  const label = (kind: 'built' | 'pending' | 'none', lines: string[], x = 50) => ({
+    x,
+    y: 25,
+    kind,
+    lines,
+  });
+
+  it('writes the code and the description under a box, and the status words for the rest', () => {
+    const ctx = createMockContext();
+    drawOverlay(
+      asCtx(ctx),
+      model({
+        boxLabels: [
+          label('built', ['BX-8', 'Box 8 ways'], 40),
+          label('pending', ['BX-4', 'Box 4 ways', 'Not built yet'], 50),
+          label('none', ['No type'], 60),
+        ],
+      }),
+      new PathCache(scene),
+      view,
+      vp,
+    );
+    const written = ctx.fillText.mock.calls.map((call) => call[0]);
+    expect(written).toEqual([
+      'BX-8',
+      'Box 8 ways',
+      'BX-4',
+      'Box 4 ways',
+      'Not built yet',
+      'No type',
+    ]);
+    // Not built yet and no type are drawn dashed, not by colour alone.
+    expect(ctx.setLineDash).toHaveBeenCalledWith([4, 3]);
+  });
+
+  it('writes only the first line when many boxes are on screen', () => {
+    const ctx = createMockContext();
+    const many = Array.from({ length: 41 }, (_, i) =>
+      label('built', ['BX-8', 'Box 8 ways'], 40 + i / 10),
+    );
+    drawOverlay(asCtx(ctx), model({ boxLabels: many }), new PathCache(scene), view, vp);
+    expect(ctx.fillText).toHaveBeenCalledTimes(41);
+    expect(ctx.fillText).not.toHaveBeenCalledWith(
+      'Box 8 ways',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('draws nothing for a box outside the window', () => {
+    const ctx = createMockContext();
+    drawOverlay(
+      asCtx(ctx),
+      model({ boxLabels: [label('built', ['BX-8'], 5000)] }),
+      new PathCache(scene),
+      view,
+      vp,
+    );
+    expect(ctx.fillText).not.toHaveBeenCalled();
   });
 });

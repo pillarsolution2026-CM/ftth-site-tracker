@@ -7,11 +7,12 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from ezdxf import bbox, recover
+from ezdxf import recover
 from ezdxf.math import Vec3
 from ezdxf.tools.text import plain_mtext
 
 from cad_worker.adapters.ezdxf_curves import CURVE_TYPES, curve_from_entity, to_wcs
+from cad_worker.adapters.ezdxf_shapes import InsertShapes, drawn_centre
 from cad_worker.application.ports import DrawingSource, ImportFailure
 from cad_worker.domain.flatten import FLATTEN_TOLERANCE
 from cad_worker.domain.model import (
@@ -56,6 +57,7 @@ class EzdxfSource:
         self._decoder = decoder
         self._tolerance = tolerance
         self._fonts = {s.dxf.name.lower(): str(s.dxf.get("font", "")) or None for s in doc.styles}
+        self._shapes = InsertShapes()
 
     def features(self) -> Iterator[Feature]:
         for entity in self._doc.modelspace():
@@ -86,6 +88,11 @@ class EzdxfSource:
 
     def _insert(self, e: Any) -> InsertRow:
         attributes = tuple(self._attribute(a) for a in e.attribs)
+        # What the symbol looks like (ADR-043), then where it draws (ADR-032): both within one
+        # explosion budget; a symbol too complex for it has no shape and keeps its insertion
+        # point (security review M1).
+        shape = self._shapes.read(e)
+        centre, heavy = (None, True) if shape.too_complex else drawn_centre(e, self._shapes.budget)
         return InsertRow(
             handle=str(e.dxf.handle),
             layer=_clean(str(e.dxf.layer)),
@@ -99,7 +106,10 @@ class EzdxfSource:
             ),
             aci_color=_aci(e),
             attributes=attributes,
-            centre=_drawn_centre(e),
+            centre=centre,
+            shape_signature=shape.signature,
+            shape_preview=shape.preview,
+            too_complex=shape.too_complex or heavy,
         )
 
     def _attribute(self, a: Any) -> Attribute:
@@ -141,21 +151,6 @@ class EzdxfSource:
             font=_clean(font) if font else None,
             aci_color=_aci(e),
         )
-
-
-def _drawn_centre(e: Any) -> Xyz | None:
-    """Centre of what the INSERT draws (ADR-032): a block's base point can be far from its
-    geometry (Palm Plaza `new-box`: ~1,000 km), so the insertion point is not the symbol's place.
-    Attributes are left out: a long label must not pull the centre away."""
-    try:
-        box = bbox.extents(e.virtual_entities(), fast=True)
-    except Exception:
-        return None
-    if not box.has_data:
-        return None
-    c = box.center
-    point = (float(c.x), float(c.y), float(c.z))
-    return point if all(math.isfinite(v) for v in point) else None
 
 
 def _text_anchor(e: Any) -> Any:

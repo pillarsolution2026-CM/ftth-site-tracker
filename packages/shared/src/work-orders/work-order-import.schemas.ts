@@ -48,6 +48,13 @@ export const REQUIRED_IMPORT_FIELDS: readonly ImportField[] = [
 ];
 
 /**
+ * Work-order import (ADR-044, owner 2026-11-12): only the code and the quantity are taken from the
+ * file; description, unit, unit price and work type come from the contract item with that code.
+ * The other columns are optional and only compared with the contract (warnings).
+ */
+export const WORK_ORDER_REQUIRED_IMPORT_FIELDS: readonly ImportField[] = ['code', 'quantity'];
+
+/**
  * Cell values accepted for each work type, compared after the same normalisation as headers.
  * Arabic labels are the owner's terms (ADR-016); the codes and the English/French labels shown
  * by the app are accepted too.
@@ -112,6 +119,29 @@ export const ConfirmedColumnMappingSchema = z
   });
 export type ConfirmedColumnMapping = z.infer<typeof ConfirmedColumnMappingSchema>;
 
+/**
+ * Mapping confirmed for a work-order commit (ADR-044): `code` and `quantity` required, every other
+ * field optional (compared with the contract only). Accepts the full contract mapping too.
+ */
+export const WorkOrderConfirmedColumnMappingSchema = z
+  .object({
+    code: ColumnIndexSchema,
+    quantity: ColumnIndexSchema,
+    description: ColumnIndexSchema.nullable().default(null),
+    unit: ColumnIndexSchema.nullable().default(null),
+    unitPrice: ColumnIndexSchema.nullable().default(null),
+    workType: ColumnIndexSchema.nullable().default(null),
+    amount: ColumnIndexSchema.nullable().default(null),
+    scope: ColumnIndexSchema.nullable().default(null),
+  })
+  .superRefine((mapping, ctx) => {
+    const used = Object.values(mapping).filter((value): value is number => value !== null);
+    if (new Set(used).size !== used.length) {
+      ctx.addIssue({ code: 'custom', message: 'A column is mapped to more than one field' });
+    }
+  });
+export type WorkOrderConfirmedColumnMapping = z.infer<typeof WorkOrderConfirmedColumnMappingSchema>;
+
 // ---------- issues ----------
 
 export const IMPORT_ROW_ISSUE_CODES = [
@@ -174,9 +204,10 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
     /**
      * The row differs from the contract item with the same code. One issue per differing field
      * (`description`, `unit`, `unitPrice`, `workType`); `params.contractValue` = the contract's
-     * value. Never corrected automatically: the file must be fixed.
+     * value. Informative only since ADR-044 (owner 2026-11-12): the line always takes the
+     * contract's values; only the code and the quantity come from the file.
      */
-    CONTRACT_MISMATCH: 'error',
+    CONTRACT_MISMATCH: 'warning',
     /** The code is on another row too (a contract item at most once per work order). `params.otherRows`. */
     CODE_REPEATED: 'error',
     /**
@@ -226,9 +257,10 @@ export const IMPORT_ROW_ISSUE_SEVERITY: Readonly<Record<ImportRowIssueCode, Impo
  * Kind of a data row. `heading` = a section title: the unit and the unit price are both empty and
  * the quantity and amount are empty or zero (owner, 2026-10-31). A heading needs only a code; it has
  * no other checks, is not counted in the total, and is never stored as a work-order item (the
- * contract import stores it as a heading line). `skipped` = work-order import only: an item row
- * whose quantity cell is empty (`EMPTY_QUANTITY_SKIPPED`); it is never stored. Every other row is
- * an `item`.
+ * contract import stores it as a heading line). `skipped` = work-order import only, never stored: an item
+ * row whose quantity cell is empty (`EMPTY_QUANTITY_SKIPPED`), and since ADR-044 a row without a
+ * code or whose code is a contract heading with an empty or zero quantity (no issue at all).
+ * Every other row is an `item`.
  */
 export const IMPORT_ROW_KINDS = ['item', 'heading', 'skipped'] as const;
 export const ImportRowKindSchema = z.enum(IMPORT_ROW_KINDS);
@@ -339,6 +371,11 @@ export const WorkOrderImportPreviewResponseSchema = z.object({
     rowCount: z.number().int().min(0),
     /** Rows of kind `heading` (included in rowCount). */
     headingCount: z.number().int().min(0),
+    /**
+     * Rows of kind `skipped` (included in rowCount): empty quantity, and in a work-order import
+     * rows without a code and contract headings (ADR-044).
+     */
+    skippedCount: z.number().int().min(0).default(0),
     errorRowCount: z.number().int().min(0),
     warningRowCount: z.number().int().min(0),
     duplicateCodes: z.array(
@@ -357,7 +394,8 @@ export const WorkOrderImportCommitPayloadSchema = z.object({
   fileSha256: z.string().regex(/^[0-9a-f]{64}$/),
   sheetName: z.string().min(1).max(255),
   headerRow: z.number().int().min(1),
-  mapping: ConfirmedColumnMappingSchema,
+  /** ADR-044: only `code` and `quantity` must be mapped. */
+  mapping: WorkOrderConfirmedColumnMappingSchema,
   /** Rows the user chose to leave out. Every included row must be free of errors. */
   excludedRowNumbers: z.array(z.number().int().min(1)).default([]),
   /**

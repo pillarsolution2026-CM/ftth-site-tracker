@@ -2,11 +2,17 @@ import {
   MAX_CORRECTION_ROWS_PER_FILE,
   MAX_CORRECTIONS_PER_FILE,
   type CadMappingInput,
+  DRAWING_FLOW_ALL_ON,
 } from '@ftth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
 import type { CadFile } from '../domain/cad-file.js';
-import { FakeClock, InMemoryCadUnitOfWork, RecordingJobQueue } from '../testing/in-memory.js';
+import {
+  FakeClock,
+  InMemoryCadUnitOfWork,
+  InMemoryWorkOrderLines,
+  RecordingJobQueue,
+} from '../testing/in-memory.js';
 import { SaveCadMappingUseCase } from './cad-mapping.use-cases.js';
 import { CreateDesignRevisionUseCase } from './create-design-revision.use-case.js';
 import {
@@ -51,6 +57,9 @@ function processedFile(overrides: Partial<CadFile> = {}): CadFile {
     storageKey: 'k',
     convertedStorageKey: null,
     status: 'processed',
+    drawingKind: 'general',
+    supersededAt: null,
+    supersededById: null,
     currentJobId: '44444444-4444-4444-8444-444444444444',
     converter: 'none',
     converterVersion: null,
@@ -113,13 +122,27 @@ const save = () =>
     mapping: MAPPING,
   });
 const create = () =>
-  new CreateDesignRevisionUseCase(uow, queue, clock, ids).execute({
+  new CreateDesignRevisionUseCase(
+    uow,
+    queue,
+    clock,
+    ids,
+    new InMemoryWorkOrderLines(),
+    DRAWING_FLOW_ALL_ON,
+  ).execute({
     projectId: PROJECT,
     actorId: ACTOR,
     request: { cadFileId: FILE, mappingVersion: 1 },
   });
 const rebuild = (revisionId: string, mappingVersion = 1) =>
-  new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+  new RebuildDesignRevisionUseCase(
+    uow,
+    queue,
+    clock,
+    ids,
+    new InMemoryWorkOrderLines(),
+    DRAWING_FLOW_ALL_ON,
+  ).execute({
     projectId: PROJECT,
     revisionId,
     actorId: ACTOR,
@@ -155,7 +178,7 @@ describe('adding a correction', () => {
     expect(uow.events.types()).toEqual(['cad_mapping.saved', 'drawing_correction.added']);
   });
 
-  it('dismisses a misread place with its reason; the place is its problem (ADR-040)', async () => {
+  it('dismisses a misread place with its reason; the place is its problem (ADR-046)', async () => {
     const created = await add({
       correction: {
         kind: 'dismiss_problem',
@@ -389,7 +412,14 @@ describe('rebuild', () => {
   it('does not know the revisions of another project', async () => {
     const old = await draft();
     await expect(
-      new RebuildDesignRevisionUseCase(uow, queue, clock, ids).execute({
+      new RebuildDesignRevisionUseCase(
+        uow,
+        queue,
+        clock,
+        ids,
+        new InMemoryWorkOrderLines(),
+        DRAWING_FLOW_ALL_ON,
+      ).execute({
         projectId: OTHER_PROJECT,
         revisionId: old.id,
         actorId: ACTOR,

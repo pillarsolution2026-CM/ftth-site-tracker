@@ -5,6 +5,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -27,6 +28,8 @@ import {
   type CadFileListResponse,
   type CadFileLogResponse,
   type CadFileSummary,
+  type UploadCadFileQuery,
+  UploadCadFileQuerySchema,
 } from '@ftth/shared';
 import { sendDownload } from '../../../common/http/download.js';
 import { receiveStreamedFile } from '../../../common/http/multipart.js';
@@ -35,6 +38,7 @@ import { ProjectIdParam } from '../../../common/http/params.js';
 import { actorIdOf } from '../../../common/http/request-actor.js';
 import { UuidParamPipe } from '../../../common/http/uuid-param.pipe.js';
 import { openApiSchema } from '../../../common/openapi.js';
+import { ZodValidationPipe } from '../../../common/zod-validation.pipe.js';
 import { PermissionGuard, RequirePermission } from '../../../common/permission.guard.js';
 import { APP_ENV } from '../../../config/config.module.js';
 import type { AuthenticatedRequest } from '../../identity/interface/auth-request.js';
@@ -71,11 +75,18 @@ export class CadFilesController {
   @ApiCreatedResponse({ schema: openApiSchema(CadFileSummarySchema) })
   async uploadOne(
     @ProjectIdParam() projectId: string,
+    @Query(new ZodValidationPipe(UploadCadFileQuerySchema)) query: UploadCadFileQuery,
     @Req() request: AuthenticatedRequest,
   ): Promise<CadFileSummary> {
     const { file } = await receiveStreamedFile(request, maxUploadBytes(this.env.MAX_UPLOAD_MB));
     try {
-      const created = await this.upload.execute({ projectId, actorId: actorIdOf(request), file });
+      const created = await this.upload.execute({
+        projectId,
+        actorId: actorIdOf(request),
+        file,
+        kind: query.kind,
+        newVersion: query.newVersion,
+      });
       return toSummaryDto(created);
     } finally {
       file.stream.resume(); // drain whatever the use case did not read (e.g. a rejected file)

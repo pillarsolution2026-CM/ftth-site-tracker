@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CadFileStatus } from '@ftth/shared';
+import type { CadFileStatus, DrawingKind } from '@ftth/shared';
 import {
   getCadFile,
   getCadLog,
@@ -109,8 +109,13 @@ export function useCadCurves(
 export function useUploadCadFile(projectId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { file: File; onProgress?: (fraction: number) => void }) =>
-      uploadCadFile(projectId, input.file, {
+    mutationFn: (input: {
+      file: File;
+      kind: DrawingKind;
+      newVersion?: boolean;
+      onProgress?: (fraction: number) => void;
+    }) =>
+      uploadCadFile(projectId, input.file, input.kind, input.newVersion === true, {
         ...(input.onProgress ? { onProgress: input.onProgress } : {}),
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: cadFilesKey(projectId) }),

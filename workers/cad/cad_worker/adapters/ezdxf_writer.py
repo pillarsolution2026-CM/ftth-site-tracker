@@ -1,7 +1,8 @@
 """DxfWriter with ezdxf: renders an `AsBuiltDrawing` as DXF R2018 (UTF-8, metres).
 
 All decisions (layers, names, texts) are made in the domain; this adapter only draws. Texts are
-written as single-line TEXT (never MTEXT) with a TrueType style so Arabic labels can be shown.
+written as single-line TEXT with a TrueType style so Arabic labels can be shown; the box-type
+texts (ADR-043) are MTEXT with the same style.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from cad_worker.domain.asbuilt_drawing import (
     SYMBOL_BLOCKS,
     SYMBOL_SIZE_M,
     AsBuiltDrawing,
+    MTextEntity,
     PolylineEntity,
     SymbolEntity,
     TextEntity,
@@ -26,6 +28,7 @@ DXF_VERSION = "R2018"
 INSUNITS_METRES = 6
 TEXT_STYLE = "FTTH_TEXT"
 TEXT_FONT = "arial.ttf"  # TrueType font with Arabic glyphs on Windows/AutoCAD
+MTEXT_TOP_LEFT = 1
 
 
 def _define_symbols(doc: Drawing, used: tuple[str, ...]) -> None:
@@ -76,6 +79,17 @@ class EzdxfDxfWriter:
                     e.text,
                     height=e.height,
                     dxfattribs={"layer": e.layer, "style": TEXT_STYLE, "insert": e.position},
+                )
+            elif isinstance(e, MTextEntity):
+                msp.add_mtext(
+                    e.text,
+                    dxfattribs={
+                        "layer": e.layer,
+                        "style": TEXT_STYLE,
+                        "insert": e.position,
+                        "char_height": e.height,
+                        "attachment_point": MTEXT_TOP_LEFT,
+                    },
                 )
         stream = io.StringIO()
         doc.write(stream)

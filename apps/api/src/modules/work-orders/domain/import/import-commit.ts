@@ -39,6 +39,12 @@ export function selectRowsForCommit(
   payload: Pick<WorkOrderImportCommitPayload, 'excludedRowNumbers' | 'acceptedDuplicateCodes'>,
   /** `skip` (work orders): heading rows are never stored. `keep` (contracts): stored as headings. */
   headings: 'skip' | 'keep' = 'skip',
+  /**
+   * `file`: every value of an item comes from the row (contract and contractor imports).
+   * `contract` (work orders, ADR-044): only the code and the quantity come from the row; the other
+   * values are placeholders the caller replaces with the contract item's.
+   */
+  itemValues: 'file' | 'contract' = 'file',
 ): CommitSelection {
   if (parsed.fileIssues.length > 0)
     return invalid('FILE_ISSUES', { fileIssues: parsed.fileIssues });
@@ -70,13 +76,13 @@ export function selectRowsForCommit(
   if (included.length === 0) return invalid('NO_ROWS_INCLUDED');
   return {
     ok: true,
-    lines: included.map(toLine),
+    lines: included.map((row) => toLine(row, itemValues)),
     excludedCount: parsed.rows.filter((row) => excluded.has(row.rowNumber)).length,
     headingCount: included.filter((row) => row.kind === 'heading').length,
   };
 }
 
-function toLine(row: ImportPreviewRow): CommitLine {
+function toLine(row: ImportPreviewRow, itemValues: 'file' | 'contract'): CommitLine {
   if (row.kind === 'heading') {
     return {
       kind: 'heading',
@@ -85,11 +91,11 @@ function toLine(row: ImportPreviewRow): CommitLine {
       sourceRow: row.rowNumber,
     };
   }
-  return { kind: 'item', ...toNewItem(row) };
+  return { kind: 'item', ...toNewItem(row, itemValues) };
 }
 
 /** Rows without errors have every field set; the fallbacks only satisfy the type checker. */
-function toNewItem(row: ImportPreviewRow): ParsedItem {
+function toNewItem(row: ImportPreviewRow, itemValues: 'file' | 'contract'): ParsedItem {
   return {
     code: row.code ?? '',
     description: row.description ?? '',
@@ -99,9 +105,11 @@ function toNewItem(row: ImportPreviewRow): ParsedItem {
     // Never defaulted: a work type is a business value (ADR-016). Rows without errors have one.
     workType:
       row.workType ??
-      (() => {
-        throw new Error(`Row ${row.rowNumber} has no work type`);
-      })(),
+      (itemValues === 'contract'
+        ? 'civil' // placeholder, never stored: the line takes the contract item's work type
+        : (() => {
+            throw new Error(`Row ${row.rowNumber} has no work type`);
+          })()),
     sourceRow: row.rowNumber,
   };
 }

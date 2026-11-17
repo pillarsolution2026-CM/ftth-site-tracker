@@ -13,6 +13,13 @@ const api = vi.hoisted(() => ({
   publishDesignRevision: vi.fn(),
 }));
 vi.mock('../api/design-revisions-api', () => api);
+const installationApi = vi.hoisted(() => ({
+  getInstallation: vi.fn(),
+  setInstallationAnswer: vi.fn(),
+  createTrenchMark: vi.fn(),
+  withdrawTrenchMark: vi.fn(),
+}));
+vi.mock('@/features/installation/api/installation-api', () => installationApi);
 vi.mock('../hooks/use-text-review', () => ({ useTextReview: () => ({}) }));
 vi.mock('../hooks/use-diff-view', () => ({ useDiffView: () => ({}) }));
 vi.mock('./text-review', () => ({ TextReviewView: () => null }));
@@ -21,6 +28,10 @@ const sections = vi.hoisted(() => ({
   problems: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   corrections: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   viewer: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+  boxTypes: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+}));
+vi.mock('@/features/box-types/components/box-types-section', () => ({
+  BoxTypesSection: sections.boxTypes,
 }));
 vi.mock('./drawing-viewer', () => ({ DrawingViewer: sections.viewer }));
 vi.mock('./problems-section', () => ({ ProblemsSection: sections.problems }));
@@ -31,6 +42,7 @@ const CAD_FILE = '33333333-3333-4333-8333-333333333333';
 const revision = {
   id: '22222222-2222-4222-8222-222222222222',
   cadFileId: CAD_FILE,
+  drawingKind: 'general',
   revNo: null,
   status: 'draft',
 };
@@ -42,9 +54,34 @@ function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness 
       { key: 'control_point', ok: true, count: 1 },
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: true, count: 0 },
+      { key: 'other_drawing', ok: true, count: 0 },
+      { key: 'cabinets_match', ok: true, count: 0 },
+      { key: 'installation', ok: true, count: 0 },
+      { key: 'box_types', ok: true, count: null },
     ],
     canPublish: true,
+    drawingKind: 'general',
+    otherRevisionId: null,
     needsAcknowledgement: false,
+    cabinets: null,
+    warningCount: 0,
+    installation: null,
+    boxTypes: null,
+    switchedOff: [],
+    ...overrides,
+  };
+}
+
+function liveInstallation(overrides: Record<string, unknown> = {}) {
+  return {
+    cadFileId: CAD_FILE,
+    drawingKind: 'general',
+    asked: true,
+    answer: null,
+    answerHistory: [],
+    marks: [],
+    activeMarkCount: 0,
+    activeTrenchM: '0.000',
     ...overrides,
   };
 }
@@ -64,9 +101,12 @@ function renderDetail(access?: ProjectAccess) {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
   api.getDesignRevision.mockResolvedValue(revision);
+  Object.values(installationApi).forEach((fn) => fn.mockReset());
+  installationApi.getInstallation.mockResolvedValue(liveInstallation());
   sections.problems.mockClear();
   sections.corrections.mockClear();
   sections.viewer.mockClear();
+  sections.boxTypes.mockClear();
 });
 
 describe('DesignRevisionDetailScreen publish checklist', () => {
@@ -123,14 +163,156 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     const user = userEvent.setup();
     api.getPublishReadiness.mockResolvedValue(readiness());
     api.publishDesignRevision.mockRejectedValue(
-      new ApiClientError('CONFLICT', 409, { reason: 'PROBLEMS_OPEN', problemCount: 4 }),
+      new ApiClientError('CONFLICT', 409, {
+        reason: 'PROBLEMS_OPEN',
+        drawingKind: 'secondary',
+        problemCount: 4,
+      }),
     );
     renderDetail();
     const button = await screen.findByRole('button', { name: 'Publish' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
-    expect(await screen.findByText(/4.* drawing errors are left/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/4.* drawing errors are left in the Secondary drawing/),
+    ).toBeInTheDocument();
     await waitFor(() => expect(api.getPublishReadiness).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
+  it('asks the installation question on a General draft and answers it', async () => {
+    const user = userEvent.setup();
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    installationApi.setInstallationAnswer.mockResolvedValue({});
+    renderDetail();
+    const answer = await screen.findByRole('button', { name: 'All pulled through old pipes' });
+    await user.click(answer);
+    await waitFor(() =>
+      expect(installationApi.setInstallationAnswer).toHaveBeenCalledWith('p', CAD_FILE, {
+        answer: 'pull_only',
+      }),
+    );
+  });
+
+  it('tells to rebuild when the answer is newer than the draft', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    api.getDesignRevision.mockResolvedValue({
+      ...revision,
+      installation: { answer: null, answerId: null, marks: [] },
+    });
+    installationApi.getInstallation.mockResolvedValue(
+      liveInstallation({
+        answer: {
+          id: '44444444-4444-4444-8444-444444444444',
+          cadFileId: CAD_FILE,
+          answer: 'pull_only',
+          answeredBy: null,
+          answeredAt: '2026-11-12T10:00:00.000Z',
+        },
+      }),
+    );
+    renderDetail();
+    expect(await screen.findByText('Rebuild so the marks are applied')).toBeInTheDocument();
+  });
+
+  it('does not ask on a Secondary', async () => {
+    api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
+    api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
+    renderDetail();
+    await screen.findByRole('button', { name: 'Publish' });
+    expect(installationApi.getInstallation).not.toHaveBeenCalled();
+    expect(screen.queryByText(/pulled through old pipes/)).not.toBeInTheDocument();
+  });
+
+  it('tells the viewer the drawing is a General, and shows the route of an issue', async () => {
+    api.getPublishReadiness.mockResolvedValue(
+      readiness({
+        canPublish: false,
+        checks: readiness().checks.map((c) =>
+          c.key === 'installation' ? { ...c, ok: false, count: 1 } : c,
+        ),
+        installation: {
+          applies: true,
+          frozen: null,
+          ok: false,
+          issueCount: 1,
+          issues: [
+            {
+              code: 'MARK_ROUTE_MISSING',
+              markIds: [],
+              routeHandle: 'A1F',
+              featureId: null,
+              markedM: null,
+              routeLengthM: null,
+            },
+          ],
+          totals: null,
+        },
+      }),
+    );
+    renderDetail();
+    const show = await screen.findByRole('button', { name: 'Show the place on the drawing' });
+    await waitFor(() => expect(sections.viewer).toHaveBeenCalled());
+    const props = () =>
+      (sections.viewer.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+    expect(props()).toMatchObject({ isGeneral: true });
+    await userEvent.setup().click(show);
+    expect(props().focus).toEqual({ code: null, handle: 'A1F', x: null, y: null, nonce: 1 });
+  });
+
+  it('explains a refused publish with every installation issue', async () => {
+    const user = userEvent.setup();
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    api.publishDesignRevision.mockRejectedValue(
+      new ApiClientError('CONFLICT', 409, {
+        reason: 'INSTALLATION_UNCLEAR',
+        drawingKind: 'general',
+        issueCount: 1,
+        issues: [
+          {
+            code: 'QUESTION_UNANSWERED',
+            markIds: [],
+            routeHandle: null,
+            featureId: null,
+            markedM: null,
+            routeLengthM: null,
+          },
+        ],
+      }),
+    );
+    renderDetail();
+    const button = await screen.findByRole('button', { name: 'Publish' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    expect(
+      await screen.findByText(
+        /installation method of the General \(main\) drawing is unclear.*installation question is not answered/,
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('DesignRevisionDetailScreen pair publishing', () => {
+  it('explains the other drawing and links to its draft', async () => {
+    const other = '44444444-4444-4444-8444-444444444444';
+    api.getPublishReadiness.mockResolvedValue(
+      readiness({
+        checks: [
+          { key: 'crs_known', ok: true, count: null },
+          { key: 'control_point', ok: true, count: 1 },
+          { key: 'no_problems', ok: true, count: 0 },
+          { key: 'open_items', ok: true, count: 0 },
+          { key: 'other_drawing', ok: false, count: 3 },
+        ],
+        canPublish: false,
+        otherRevisionId: other,
+      }),
+    );
+    renderDetail();
+    const link = await screen.findByRole('link', { name: 'Open the Secondary draft' });
+    expect(link).toHaveAttribute('href', `/en/projects/p/design-revisions/${other}`);
+    expect(screen.getByText(/3.* errors in it/)).toBeInTheDocument();
   });
 });
 
@@ -204,5 +386,56 @@ describe('DesignRevisionDetailScreen drawing viewer', () => {
     renderDetail();
     await screen.findByText(/once the build has finished/);
     expect(sections.viewer).not.toHaveBeenCalled();
+  });
+});
+
+describe('DesignRevisionDetailScreen box types (ADR-043)', () => {
+  const lastProps = (fn: typeof sections.boxTypes) =>
+    (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+
+  it('shows «Box types» on a Secondary draft, editable by who can write designs', async () => {
+    api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
+    api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
+    renderDetail();
+    await waitFor(() => expect(sections.boxTypes).toHaveBeenCalled());
+    expect(lastProps(sections.boxTypes)).toMatchObject({ cadFileId: CAD_FILE, canEdit: true });
+    expect(lastProps(sections.viewer)).toMatchObject({ isSecondary: true, isGeneral: false });
+  });
+
+  it('does not show it on a General', async () => {
+    api.getPublishReadiness.mockResolvedValue(readiness());
+    renderDetail();
+    await waitFor(() => expect(sections.viewer).toHaveBeenCalled());
+    expect(sections.boxTypes).not.toHaveBeenCalled();
+  });
+
+  it('explains a refused publish with the box-type issues', async () => {
+    const user = userEvent.setup();
+    api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
+    api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
+    api.publishDesignRevision.mockRejectedValue(
+      new ApiClientError('CONFLICT', 409, {
+        reason: 'BOX_TYPES_UNCLEAR',
+        drawingKind: 'secondary',
+        issueCount: 1,
+        issues: [
+          {
+            code: 'BOX_TYPE_UNSET',
+            shape: `v1-${'a'.repeat(64)}`,
+            boxCount: 197,
+            workOrderLineId: null,
+          },
+        ],
+      }),
+    );
+    renderDetail();
+    const button = await screen.findByRole('button', { name: 'Publish' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    expect(
+      await screen.findByText(
+        /box types of the Secondary drawing are unclear.*has no work-order line/,
+      ),
+    ).toBeInTheDocument();
   });
 });

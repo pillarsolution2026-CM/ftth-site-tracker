@@ -34,6 +34,14 @@ export interface WorkOrderRepository {
   exists(projectId: string, workOrderId: string): Promise<boolean>;
   /** True when the project already has its (single) work order. */
   existsForProject(projectId: string): Promise<boolean>;
+  /**
+   * The lines (id, code, description) of the project's single work order, in line order, and
+   * whether the work order exists. Read by other modules through `FindWorkOrderLinesUseCase`.
+   */
+  findLinesOfProject(projectId: string): Promise<{
+    exists: boolean;
+    lines: { id: string; code: string; description: string }[];
+  }>;
   /** Line of the project's work order for each contract item it uses: contract item id → line id. */
   lineIdsByContractItem(projectId: string): Promise<Map<string, string>>;
   /** `lock` takes a row lock (SELECT … FOR UPDATE) for the rest of the transaction. */

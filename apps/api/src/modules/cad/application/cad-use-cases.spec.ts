@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
-import { CadImportJobSchema, CAD_STALE_AFTER_MINUTES } from '@ftth/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { CadImportJobSchema, CAD_STALE_AFTER_MINUTES, type DrawingKind } from '@ftth/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
 import { InMemoryObjectStorage } from '../../../common/testing/in-memory-object-storage.js';
 import { FakeClock, InMemoryCadUnitOfWork, RecordingJobQueue } from '../testing/in-memory.js';
@@ -33,11 +33,17 @@ beforeEach(() => {
   reprocess = new ReprocessCadFileUseCase(uow, queue, clock, ids);
 });
 
-const send = (fileName: string, content: string | Buffer) =>
+const send = (
+  fileName: string,
+  content: string | Buffer,
+  options: { kind?: DrawingKind; newVersion?: boolean } = {},
+) =>
   upload.execute({
     projectId: PROJECT,
     actorId: ACTOR,
     file: { fileName, stream: Readable.from([Buffer.from(content)]) },
+    kind: options.kind ?? 'general',
+    newVersion: options.newVersion ?? false,
   });
 
 describe('UploadCadFileUseCase', () => {
@@ -115,6 +121,106 @@ describe('UploadCadFileUseCase', () => {
     expect(retried).toMatchObject({ status: 'queued', errorCode: null, errorMessage: null });
     expect(retried.currentJobId).not.toBe(file.currentJobId);
     expect(queue.jobs).toHaveLength(1);
+  });
+
+  describe('drawing kinds (ADR-040)', () => {
+    it('stores the kind and records it on the uploaded event', async () => {
+      const file = await send('sec.dxf', DXF, { kind: 'secondary' });
+      expect(file).toMatchObject({ drawingKind: 'secondary', supersededAt: null });
+      expect(uow.events.events[0]?.payload).toMatchObject({
+        drawingKind: 'secondary',
+        supersededFileIds: [],
+      });
+    });
+
+    it('refuses a second file of the kind without newVersion and stores nothing for it', async () => {
+      const first = await send('a.dxf', DXF);
+      await expect(send('b.dxf', DXF)).rejects.toMatchObject({
+        code: 'CONFLICT',
+        details: {
+          reason: 'KIND_EXISTS',
+          kind: 'general',
+          currentFileId: first.id,
+          currentFileName: 'a.dxf',
+        },
+      });
+      expect(storage.objects.size).toBe(1);
+      expect(uow.files.rows.size).toBe(1);
+    });
+
+    it('supersedes the current file with newVersion and keeps it as history', async () => {
+      const first = await send('a.dxf', DXF);
+      clock.advanceMinutes(1);
+      const second = await send('b.dxf', DXF, { newVersion: true });
+
+      expect(uow.files.rows.get(first.id)).toMatchObject({
+        supersededAt: clock.now(),
+        supersededById: second.id,
+      });
+      expect(second.supersededAt).toBeNull();
+      const uploaded = uow.events.events.filter((e) => e.type === 'cad_file.uploaded');
+      expect(uploaded[1]?.payload).toMatchObject({ supersededFileIds: [first.id] });
+    });
+
+    it('lets each kind have its own current file', async () => {
+      await send('g.dxf', DXF, { kind: 'general' });
+      const secondary = await send('s.dxf', DXF, { kind: 'secondary' });
+      expect(secondary.drawingKind).toBe('secondary');
+      expect(uow.files.rows.size).toBe(2);
+    });
+
+    it('does not store the file when the kind already exists (pre-check before storage)', async () => {
+      await send('a.dxf', DXF);
+      const put = vi.spyOn(storage, 'put');
+      await expect(send('b.dxf', DXF)).rejects.toMatchObject({
+        details: { reason: 'KIND_EXISTS' },
+      });
+      expect(put).not.toHaveBeenCalled();
+    });
+
+    it.each(['queued', 'building', 'draft'] as const)(
+      'discards the open %s revision of the kind on a new version, with a new job id, and no other',
+      async (status) => {
+        const first = await send('a.dxf', DXF);
+        const sec = await send('s.dxf', DXF, { kind: 'secondary' });
+        const revision = (id: string, cadFileId: string, drawingKind: DrawingKind) =>
+          ({
+            id,
+            projectId: PROJECT,
+            cadFileId,
+            drawingKind,
+            status,
+            currentJobId: 'job-old',
+            errorCode: null,
+          }) as never;
+        uow.revisions.rows.set('rev-g', revision('rev-g', first.id, 'general'));
+        uow.revisions.rows.set('rev-s', revision('rev-s', sec.id, 'secondary'));
+        uow.events.events.length = 0;
+
+        const next = await send('b.dxf', DXF, { newVersion: true });
+
+        expect(uow.revisions.rows.get('rev-g')).toMatchObject({ status: 'discarded' });
+        expect(uow.revisions.rows.get('rev-g')?.currentJobId).not.toBe('job-old');
+        expect(uow.revisions.rows.get('rev-s')).toMatchObject({ status, currentJobId: 'job-old' });
+        const uploaded = uow.events.events.find(
+          (e) => e.type === 'cad_file.uploaded' && e.entityId === next.id,
+        );
+        expect(uploaded?.payload).toMatchObject({ discardedRevisionId: 'rev-g' });
+        expect(uow.events.types()).toContain('design_revision.discarded');
+      },
+    );
+
+    it('records a null discardedRevisionId when no revision is open', async () => {
+      await send('a.dxf', DXF);
+      await send('b.dxf', DXF, { newVersion: true });
+      const uploaded = uow.events.events.filter((e) => e.type === 'cad_file.uploaded');
+      expect(uploaded[1]?.payload).toMatchObject({ discardedRevisionId: null });
+    });
+
+    it('ignores newVersion when the kind has no file yet', async () => {
+      const file = await send('s.dxf', DXF, { kind: 'secondary', newVersion: true });
+      expect(file.supersededAt).toBeNull();
+    });
   });
 });
 

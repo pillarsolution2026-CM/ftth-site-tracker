@@ -1,10 +1,13 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { ltr } from '@ftth/i18n';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/form-controls';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { TrenchMarksPanel } from '@/features/installation/components/trench-marks-panel';
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
@@ -21,6 +24,9 @@ export function DrawingViewer({
   enabled,
   canWrite,
   canFix,
+  isGeneral = false,
+  isSecondary = false,
+  onShowOnDrawing,
   focus,
 }: {
   projectId: string;
@@ -31,6 +37,11 @@ export function DrawingViewer({
   canWrite: boolean;
   /** Draft and design:write — the fix tools show in the floating panel. */
   canFix: boolean;
+  /** The drawing is a General: «حفر جديد» and its trench marks (ADR-042). */
+  isGeneral?: boolean;
+  /** The drawing is a Secondary: the type text next to each box (ADR-043). */
+  isSecondary?: boolean;
+  onShowOnDrawing?: (place: Omit<ShowPlace, 'nonce'>) => void;
   focus: ShowPlace | null;
 }) {
   const { t } = useI18n();
@@ -41,6 +52,8 @@ export function DrawingViewer({
     enabled,
     canWrite,
     canFix,
+    isGeneral,
+    isSecondary,
     focus,
   });
   const sectionRef = useRef<HTMLElement>(null);
@@ -109,6 +122,20 @@ export function DrawingViewer({
                 <CanvasPopover viewer={viewer} />
               </DrawingCanvas>
               <p className="mt-1 text-sm opacity-80">{t('design.viewer.legend')}</p>
+              {viewer.trench.visible ? (
+                <p className="text-sm opacity-80">{t('design.viewer.trenchLegend')}</p>
+              ) : null}
+              {viewer.boxTypes.available ? (
+                <div className="mt-1 flex flex-col gap-1">
+                  <Checkbox
+                    id="viewer-box-types"
+                    label={t('design.viewer.boxTypesToggle', { count: ltr(viewer.boxTypes.count) })}
+                    checked={viewer.boxTypes.shown}
+                    onChange={(event) => viewer.boxTypes.setShown(event.target.checked)}
+                  />
+                  <p className="text-sm opacity-80">{t('design.viewer.boxTypesLegend')}</p>
+                </div>
+              ) : null}
             </div>
             <div className="lg:w-72 lg:shrink-0">
               <LayerPanel
@@ -120,6 +147,16 @@ export function DrawingViewer({
               />
             </div>
           </div>
+          {viewer.trench.visible ? (
+            <TrenchMarksPanel
+              tool={viewer.trench}
+              onShow={
+                onShowOnDrawing
+                  ? (handle) => onShowOnDrawing({ code: null, handle, x: null, y: null })
+                  : undefined
+              }
+            />
+          ) : null}
         </>
       ) : null}
     </section>

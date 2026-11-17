@@ -10,19 +10,21 @@ WORKDIR /repo
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/shared/package.json packages/shared/
+COPY packages/geo/package.json packages/geo/
 # Dev dependency of the API's sync tests; pnpm needs every workspace package it names.
 COPY packages/sync/package.json packages/sync/
 COPY apps/api/package.json apps/api/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @ftth/api... --store-dir /pnpm/store
 
-# ---- build: compile @ftth/shared, then the API ----
+# ---- build: compile @ftth/shared and @ftth/geo, then the API ----
 FROM deps AS build
 COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
+COPY packages/geo packages/geo
 COPY packages/sync packages/sync
 COPY apps/api apps/api
-RUN pnpm --filter @ftth/shared build && pnpm --filter @ftth/api build
+RUN pnpm --filter @ftth/shared --filter @ftth/geo build && pnpm --filter @ftth/api build
 # Self-contained production tree (workspace packages are copied in, dev dependencies dropped).
 RUN pnpm --filter @ftth/api deploy --legacy --prod /out \
  && cp -r apps/api/dist /out/dist

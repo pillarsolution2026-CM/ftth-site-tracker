@@ -44,6 +44,7 @@ function problems(
 ): DrawingProblemList {
   return {
     total: items.length,
+    warningTotal: 0,
     items: [
       {
         code,
@@ -200,7 +201,7 @@ describe('fix tools', () => {
     });
   });
 
-  it('LABEL_TYPE_MISMATCH: the label is right, moves the item to another point layer (ADR-040)', async () => {
+  it('LABEL_TYPE_MISMATCH: the label is right, moves the item to another point layer (ADR-046)', async () => {
     const user = await show('LABEL_TYPE_MISMATCH', [{ text: '7way 7/3.5', layer: 'JOINT' }]);
     await user.click(screen.getByRole('radio', { name: /move the item to another layer/ }));
     const picker = await screen.findByLabelText('Move the item to (its right type)');
@@ -216,7 +217,7 @@ describe('fix tools', () => {
     });
   });
 
-  it('dismisses a misread place with a required reason (ADR-040)', async () => {
+  it('dismisses a misread place with a required reason (ADR-046)', async () => {
     api.listDrawingProblems.mockResolvedValue(problems('LABEL_MISSING'));
     renderScreen(
       <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,

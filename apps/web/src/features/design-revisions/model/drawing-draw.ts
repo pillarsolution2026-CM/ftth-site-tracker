@@ -18,6 +18,26 @@ export const MARKER_ERROR_COLOR = '#d32f2f';
 export const MARKER_FIXED_COLOR = '#2e7d32';
 const HIGHLIGHT_HALO = '#ffb300';
 const SELECTED_COLOR = '#0277bd';
+/** Routes marked for trench (ADR-042): dashed purple, never colour alone (also a text label). */
+export const TRENCH_COLOR = '#6a1b9a';
+
+/** The type text next to a box (ADR-043), placed at the box's drawn centre. */
+export interface BoxLabel {
+  x: number;
+  y: number;
+  /** built: frozen on the draft; pending: chosen, not built yet; none: no type. */
+  kind: 'built' | 'pending' | 'none';
+  /** First line: the code (or the status word); then the cut description and a status note. */
+  lines: readonly string[];
+}
+
+/** More labels than this on screen: only the first line of each is drawn. */
+const COMPACT_BOX_LABELS = 40;
+/** More than this on screen: none (they would be a smear), until the user zooms in. */
+const MAX_BOX_LABELS = 400;
+const BOX_LABEL_COLOR = '#1b5e20';
+const BOX_LABEL_PENDING_COLOR = '#e65100';
+const BOX_LABEL_NONE_COLOR = '#b71c1c';
 
 export interface DrawModel {
   scene: DrawingScene;
@@ -29,6 +49,10 @@ export interface DrawModel {
   highlighted: ReadonlySet<number>;
   /** The clicked entity. */
   selected: number | null;
+  /** Entities marked for trench → the text drawn on them (e.g. «Trench: 25.000 m»). */
+  trench?: ReadonlyMap<number, string>;
+  /** The type text of each box (ADR-043); undefined/empty: not shown. */
+  boxLabels?: readonly BoxLabel[];
 }
 
 export interface Viewport extends Size {
@@ -209,6 +233,79 @@ function boxOutline(
   ctx.setLineDash([]);
 }
 
+/** The written trench length at the middle of each marked route (screen text, LTR digits). */
+function drawTrenchLabels(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+  inView: (index: number) => boolean,
+  shown: (index: number) => boolean,
+) {
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const [index, text] of model.trench ?? []) {
+    if (!inView(index) || !shown(index)) continue;
+    const box = boxOf(model.scene, index);
+    const p = toScreen(tf, vp, (box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2);
+    const width = ctx.measureText(text).width + 10;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(p.x - width / 2, p.y - 10, width, 20);
+    ctx.strokeStyle = TRENCH_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(p.x - width / 2, p.y - 10, width, 20);
+    ctx.fillStyle = TRENCH_COLOR;
+    ctx.fillText(text, p.x, p.y);
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** The type text under each box: code, description, and the status for «not built» / «no type». */
+function drawBoxLabels(
+  ctx: CanvasRenderingContext2D,
+  labels: readonly BoxLabel[],
+  tf: ViewTransform,
+  vp: Viewport,
+) {
+  const visible: { label: BoxLabel; sx: number; sy: number }[] = [];
+  for (const label of labels) {
+    const p = toScreen(tf, vp, label.x, label.y);
+    if (p.x < -120 || p.y < -40 || p.x > vp.width + 120 || p.y > vp.height + 40) continue;
+    visible.push({ label, sx: p.x, sy: p.y });
+  }
+  if (visible.length === 0 || visible.length > MAX_BOX_LABELS) return;
+  const compact = visible.length > COMPACT_BOX_LABELS;
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const LINE = 14;
+  for (const { label, sx, sy } of visible) {
+    const lines = compact ? label.lines.slice(0, 1) : label.lines;
+    const color =
+      label.kind === 'built'
+        ? BOX_LABEL_COLOR
+        : label.kind === 'pending'
+          ? BOX_LABEL_PENDING_COLOR
+          : BOX_LABEL_NONE_COLOR;
+    const width = Math.max(...lines.map((line) => ctx.measureText(line).width)) + 10;
+    const height = lines.length * LINE + 4;
+    const top = sy + 12;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - width / 2, top, width, height);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash(label.kind === 'built' ? [] : [4, 3]);
+    ctx.strokeRect(sx - width / 2, top, width, height);
+    ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    lines.forEach((line, index) => ctx.fillText(line, sx, top + 2 + LINE / 2 + index * LINE));
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
 function drawMarker(
   ctx: CanvasRenderingContext2D,
   marker: ProblemMarker,
@@ -291,6 +388,17 @@ export function drawOverlay(
     }
     ctx.setLineDash([]);
   }
+  if (model.trench && model.trench.size > 0) {
+    ctx.strokeStyle = TRENCH_COLOR;
+    ctx.lineWidth = 4 / tf.scale;
+    ctx.setLineDash([12 / tf.scale, 6 / tf.scale]);
+    for (const index of model.trench.keys()) {
+      if (inView(index) && shown(index) && scene.view.entities[index]?.paths.length) {
+        ctx.stroke(cache.get(index));
+      }
+    }
+    ctx.setLineDash([]);
+  }
   for (const index of model.highlighted) {
     if (!shown(index) || !scene.view.entities[index]?.paths.length) continue;
     ctx.globalAlpha = 0.55;
@@ -319,6 +427,9 @@ export function drawOverlay(
   if (model.selected !== null && shown(model.selected)) {
     boxOutline(ctx, model, tf, vp, model.selected, SELECTED_COLOR);
   }
+
+  if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
+  if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
 
   for (const item of preview.extraItems) {
     if (!model.layerShown(item.layer)) continue;

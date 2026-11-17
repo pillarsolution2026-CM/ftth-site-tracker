@@ -24,8 +24,12 @@ test('upload a DXF and watch it go queued, processing, processed; inspect layers
 }) => {
   await login(page);
   await openProject(page, 'CAD files');
-  await expect(page.getByText('No CAD files yet')).toBeVisible();
+  await expect(page.getByText('No General has been uploaded yet')).toBeVisible();
+  await expect(page.getByText('No Secondary has been uploaded yet')).toBeVisible();
 
+  // The kind comes first: the file input stays locked until General or Secondary is chosen.
+  await expect(page.locator('#cad-file-input')).toBeDisabled();
+  await page.getByRole('radio', { name: 'General (main)' }).check();
   await page.locator('#cad-file-input').setInputFiles({
     name: 'route-14.dxf',
     mimeType: 'application/octet-stream',
@@ -65,18 +69,44 @@ test('the proxy streams a 20 MB upload, rejects CSRF and unknown paths', async (
   await login(page);
   const size = 20 * 1024 * 1024;
 
-  const upload = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files`, {
-    headers: { origin: BASE },
-    multipart: {
-      file: {
-        name: 'big.dxf',
-        mimeType: 'application/octet-stream',
-        buffer: Buffer.alloc(size, 0x41),
+  const upload = await page.request.post(
+    `/api/projects/${PROJECT_ID}/cad-files?kind=general&newVersion=true`,
+    {
+      headers: { origin: BASE },
+      multipart: {
+        file: {
+          name: 'big.dxf',
+          mimeType: 'application/octet-stream',
+          buffer: Buffer.alloc(size, 0x41),
+        },
       },
     },
-  });
+  );
   expect(upload.status()).toBe(201);
   expect((await upload.json()).sizeBytes).toBe(size); // the whole file reached the API
+  expect((await upload.json()).drawingKind).toBe('general'); // the query string reached the API
+
+  // The kind is required, and a kind that already has a current file asks first (ADR-040).
+  const small = {
+    name: 'x.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('0\nEOF\n'),
+  };
+  const noKind = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files`, {
+    headers: { origin: BASE },
+    multipart: { file: small },
+  });
+  expect(noKind.status()).toBe(422);
+  const exists = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files?kind=general`, {
+    headers: { origin: BASE },
+    multipart: { file: small },
+  });
+  expect(exists.status()).toBe(409);
+  expect((await exists.json()).details).toMatchObject({
+    reason: 'KIND_EXISTS',
+    kind: 'general',
+    currentFileName: 'big.dxf',
+  });
 
   const noOrigin = await page.request.post(`/api/projects/${PROJECT_ID}/work-orders`, {
     data: { number: 'X' },
@@ -105,14 +135,36 @@ test('Arabic is right-to-left with the sidebar and navigation', async ({ page })
 test('mapping to a published design revision: unit, save, build, review, publish', async ({
   page,
 }) => {
+  // Two builds of the General (the first one is left unanswered, ADR-042) plus the Secondary.
+  test.setTimeout(90_000);
   await login(page);
   await openProject(page, 'CAD files');
+
+  // The work order already has a General (big.dxf): the PM is asked if this is a new version.
+  const dxf = Buffer.from('0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n');
+  await page.getByRole('radio', { name: 'General (main)' }).check();
+  await page.locator('#cad-file-input').setInputFiles({
+    name: 'mapping-1.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: dxf,
+  });
+  const question = page.getByRole('alertdialog');
+  await expect(question).toContainText('Is this a new version of the General?');
+  await expect(question).toContainText('big.dxf');
+  await question.getByRole('button', { name: 'No' }).click();
+  await expect(
+    page.getByText('A work order has only one General — the file was not uploaded'),
+  ).toBeVisible();
+  await expect(page.getByRole('row', { name: /mapping-1\.dxf/ })).toHaveCount(0);
 
   await page.locator('#cad-file-input').setInputFiles({
     name: 'mapping-1.dxf',
     mimeType: 'application/octet-stream',
-    buffer: Buffer.from('0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n'),
+    buffer: dxf,
   });
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Yes, a new version' }).click();
+  // The older General stays as history in the system but is no longer listed (owner 2026-11-11).
+  await expect(page.getByRole('row', { name: /big\.dxf/ })).toHaveCount(0);
   const row = page.getByRole('row', { name: /mapping-1\.dxf/ });
   await expect(row.getByText('Processed')).toBeVisible({ timeout: 20_000 });
   await row.getByRole('link', { name: 'mapping-1.dxf' }).click();
@@ -130,6 +182,11 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(page.getByRole('heading', { name: 'Place the drawing on the map' })).toBeVisible();
   await expect(page.getByText(/No control points yet/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save mapping' })).toBeEnabled();
+  // ADR-042: the General is asked how its bundles are installed; «من كبائن الرئيسي» is a Secondary's.
+  await expect(page.getByRole('region', { name: 'Installation method' })).toContainText(
+    'Is the whole route pulled through old pipes, or does part of it need digging and new pipes?',
+  );
+  await expect(page.getByRole('button', { name: 'From the General’s cabinets' })).toHaveCount(0);
 
   await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
   await expect(page.getByRole('button', { name: 'Build revision' })).toBeDisabled();
@@ -139,6 +196,30 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await page.getByRole('button', { name: 'Build revision' }).click();
   await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
   await expect(page.getByText('Refreshing automatically every 3 seconds')).toBeVisible();
+
+  // ADR-042: the question was never answered, so this draft says the installation is unclear.
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  const unclear = page.getByRole('region', { name: 'Before publishing' });
+  await expect(unclear).toContainText('Installation method (pull / trench) is clear');
+  await expect(unclear).toContainText('The installation question is not answered');
+  await expect(unclear.getByRole('button', { name: 'Publish', exact: true })).toBeDisabled();
+  const installation = page.getByRole('region', { name: 'Installation method' });
+  await installation.getByRole('button', { name: 'All pulled through old pipes' }).click();
+  await expect(
+    installation.getByText('Current answer: All pulled through old pipes'),
+  ).toBeVisible();
+  // The draft froze no answer: it must be built again to apply it.
+  await expect(installation.getByText('Rebuild so the marks are applied')).toBeVisible();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard revision' }).click();
+  await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page
+    .getByRole('row', { name: /mapping-1\.dxf/ })
+    .getByRole('link', { name: 'mapping-1.dxf' })
+    .click();
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
 
   // Draft: counts, units warning, text review in "needs review", diff.
   await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
@@ -162,16 +243,132 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(checklist).toContainText('Coordinates: source CRS chosen');
   await expect(checklist).toContainText('No drawing errors');
   await expect(checklist).toContainText('Open items reviewed');
-  await expect(checklist.getByText('❌')).toHaveCount(1);
+  // The answer was frozen by the second build: the installation row is done.
+  await expect(checklist).toContainText('Installation method (pull / trench) is clear');
+  // The other drawing has no draft yet: publishing is locked and says so (ADR-040).
+  await expect(checklist.getByText('❌')).toHaveCount(3);
+  await expect(checklist).toContainText('Cabinets match in both drawings (name and count)');
+  await expect(checklist).toContainText('There is no draft for the Secondary to compare with');
+  await expect(checklist).toContainText('There is no draft for the Secondary yet');
+  await expect(checklist).toContainText('both drawings together');
   const publish = checklist.getByRole('button', { name: 'Publish', exact: true });
   await expect(publish).toBeDisabled();
-  await checklist.getByLabel(/I understand/).check();
-  await expect(publish).toBeEnabled();
-  await publish.click();
+
+  // Upload the Secondary, map it and build its draft.
+  await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page.getByRole('radio', { name: 'Secondary', exact: true }).check();
+  await page.locator('#cad-file-input').setInputFiles({
+    name: 'secondary-1.dxf',
+    mimeType: 'application/octet-stream',
+    buffer: dxf,
+  });
+  const secondaryRow = page.getByRole('row', { name: /secondary-1\.dxf/ });
+  await expect(secondaryRow.getByText('Processed')).toBeVisible({ timeout: 20_000 });
+  await secondaryRow.getByRole('link', { name: 'secondary-1.dxf' }).click();
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  await page.getByLabel('Becomes: ROUTE-MAIN').selectOption('route');
+
+  // ADR-042: a Secondary is not asked; its placement is filled from the General’s cabinets.
+  await expect(page.getByRole('region', { name: 'Installation method' })).toHaveCount(0);
+  await expect(page.getByText(/points added from the General’s cabinets/)).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Control points' })).toContainText('gc-1-2');
+  await expect(page.getByText('Cabinets that did not match')).toBeVisible();
+
+  // ADR-041: this is a Secondary, so the text layer can become a cabinet zone and take the
+  // Secondary text roles only; the route layer takes the number of ways.
+  const textLayer = page.getByLabel('Becomes: طبقة-النصوص');
+  await expect(textLayer.getByRole('option', { name: 'Cabinet zone' })).toHaveCount(1);
+  await textLayer.selectOption('label');
+  const textRow = page.getByRole('row', { name: /طبقة-النصوص/ });
+  await expect(textRow.getByRole('checkbox', { name: 'Handhole type' })).toHaveCount(0);
+  await textRow.getByRole('checkbox', { name: 'Box number' }).check();
+  await page.getByLabel(/Number of ways: ROUTE-MAIN/).fill('1');
+  await page.getByRole('button', { name: 'Save mapping' }).click();
+  await expect(page.getByText('Mapping saved (version 1)')).toBeVisible();
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  // The reading totals are shown because the mapping gave the texts a meaning.
+  await expect(page.getByRole('table', { name: 'Bundles by type' })).toContainText('361.500');
+
+  // ADR-043: the box types are the lines of the project's work order. Nothing is chosen yet, so
+  // the Secondary draft says the shape has no line.
+  const boxChecklist = page.getByRole('region', { name: 'Before publishing' });
+  await expect(boxChecklist).toContainText('Every box shape has a work-order line');
+  await expect(boxChecklist).toContainText('has no work-order line');
+  const boxTypes = page.getByRole('region', { name: 'Box types' });
+  await expect(boxTypes).toContainText(/boxes in .* different shapes/);
+  await expect(boxTypes.getByRole('img', { name: /Shape/ })).toBeVisible();
+
+  // Create the work order (one line from the contract), then choose the line for the shape.
+  const existing = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders`);
+  if (((await existing.json()) as { items: unknown[] }).items.length === 0) {
+    const items = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders/contract-items`);
+    const contractItem = ((await items.json()) as { items: { contractItemId: string }[] }).items[0];
+    const created = await page.request.post(`/api/projects/${PROJECT_ID}/work-orders`, {
+      headers: { origin: BASE, 'content-type': 'application/json' },
+      data: {
+        number: 'WO-BOX-1',
+        lines: [{ contractItemId: contractItem?.contractItemId, quantity: '2' }],
+      },
+    });
+    expect(created.ok()).toBe(true);
+  }
+  await page.reload();
+  const picker = page
+    .getByRole('region', { name: 'Box types' })
+    .getByRole('combobox', { name: 'Choose a work-order line' });
+  await expect(picker.getByRole('option').nth(1)).toBeAttached();
+  await picker.selectOption({ index: 1 });
+  await page.getByRole('button', { name: 'Save choices' }).click();
+  await expect(page.getByText('Has a line')).toBeVisible();
+  // The draft froze no type: it must be built again to apply it.
+  await expect(page.getByText('Rebuild so the types are applied')).toBeVisible();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard revision' }).click();
+  await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page
+    .getByRole('row', { name: /secondary-1\.dxf/ })
+    .getByRole('link', { name: 'secondary-1.dxf' })
+    .click();
+  await page.getByRole('link', { name: 'Mapping', exact: true }).click();
+  // The Secondary’s placement is filled from the General’s cabinets again: save it, then build.
+  await page.getByRole('button', { name: 'Save mapping' }).click();
+  await expect(page.getByText(/Mapping saved \(version/)).toBeVisible();
+  await page.getByRole('button', { name: 'Build revision' }).click();
+  await expect(page).toHaveURL(/\/design-revisions\/[^/]+$/);
+  await expect(page.getByText('Network features')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('table', { name: 'Bundles by type' })).toContainText('361.500');
+  await expect(page.getByText('Rebuild so the types are applied')).toHaveCount(0);
+
+  // The Secondary draft sees the General draft as the other drawing, ready, and links to it.
+  const pairChecklist = page.getByRole('region', { name: 'Before publishing' });
+  await expect(pairChecklist).toContainText('Every box shape has a work-order line');
+  await expect(
+    pairChecklist.getByRole('listitem').filter({ hasText: 'work-order line' }),
+  ).toContainText('Done');
+  await expect(pairChecklist).toContainText('The other drawing (General (main)) is ready');
+  await expect(pairChecklist).toContainText('The Secondary is all trench — no question.');
+  await expect(
+    pairChecklist.getByRole('link', { name: 'Open the General (main) draft' }),
+  ).toBeVisible();
+  const pairPublish = pairChecklist.getByRole('button', { name: 'Publish', exact: true });
+  await expect(pairPublish).toBeDisabled(); // open items of both drawings need the acknowledgement
+  await pairChecklist.getByLabel(/I understand/).check();
+  await expect(pairPublish).toBeEnabled();
+  await pairPublish.click();
 
   await expect(page.getByRole('heading', { name: /Design revision\s+#1/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
 
   await page.getByRole('link', { name: 'Design revisions', exact: true }).first().click();
-  await expect(page.getByRole('table', { name: 'Design revisions' })).toContainText('Published');
+  const revisionTable = page.getByRole('table', { name: 'Design revisions' });
+  await expect(revisionTable).toContainText('Published');
+  // Both drawings were published together and each row names its kind.
+  // …and two drafts discarded to be built again: the General (installation unanswered) and the
+  // Secondary (box types chosen after the build, ADR-043).
+  await expect(revisionTable.getByRole('row')).toHaveCount(5);
+  await expect(revisionTable).toContainText('Discarded');
+  await expect(revisionTable.locator('[data-kind="general"]').first()).toContainText('Main');
+  await expect(revisionTable.locator('[data-kind="secondary"]').first()).toContainText('Secondary');
 });

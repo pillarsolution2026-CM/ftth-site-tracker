@@ -13,6 +13,16 @@ import { CadFileStatusSchema } from './cad-file.schemas.js';
 import { CrsDetectionSchema, ProjectEpsgSchema } from './crs-detection.schemas.js';
 import { DrawingUnitSchema } from './drawing-units.js';
 import { PlacementSchema } from './placement.schemas.js';
+import type { DrawingKind } from './drawing-kind.schemas.js';
+import {
+  HandholeTypeSchema,
+  MAX_BUNDLE_WAYS,
+  TEXT_ROLES,
+  TEXT_ROLES_BY_KIND,
+  TextRoleSchema,
+  textRoleFitsTarget,
+  type TextRole,
+} from './text-roles.js';
 
 /**
  * Mapping = how a processed drawing becomes design features (ADR-017). One mapping per CAD file,
@@ -21,10 +31,12 @@ import { PlacementSchema } from './placement.schemas.js';
  * Targets:
  * - a feature type (`route` | `box` | `hhi` | `joint` | `mh` | `cabinet` | `ring`);
  * - `label`: texts on the layer are candidates for text-to-feature linking;
+ * - `zone` (ADR-041, Secondary only): lines around a cabinet and its boxes; open lines allowed;
+ *   display only, never a feature; used by the «cabinet without a zone» check;
  * - `background`: drawn in the background tiles only (buildings, roads, street names);
  * - `ignore`: not used at all. Layers without a rule are ignored.
  */
-export const MAPPING_TARGETS = [...FEATURE_TYPES, 'label', 'background', 'ignore'] as const;
+export const MAPPING_TARGETS = [...FEATURE_TYPES, 'label', 'zone', 'background', 'ignore'] as const;
 export const MappingTargetSchema = z.enum(MAPPING_TARGETS);
 export type MappingTarget = z.infer<typeof MappingTargetSchema>;
 
@@ -51,6 +63,33 @@ const FeatureAttrs = {
   status: ItemStatusSchema.optional(),
 };
 
+/**
+ * ADR-041 (reading by meaning), `layer` rules only:
+ * - `textRoles`: what the layer's texts mean (see `text-roles.ts`); allowed when the target is
+ *   `label` or the roles' feature type; unique; order is irrelevant (TEXT_ROLES order decides).
+ *   A layer may carry several roles (Al-Fath EXCH = bundle_label + cable_label + cable_spare).
+ * - `ways`: the bundle type of a `route` layer (1 = 1way … 24 = 24way); labels are compared with
+ *   it (LABEL_TYPE_MISMATCH) and 1way routes give connectors. Suggested by `suggestBundleWays`.
+ * - `handholeTypeAliases`: on a layer that reads `handhole_type`, the PM's confirmation of a type
+ *   written another way in THIS drawing (owner 2026-11-11: «HH2» → HH-II); until confirmed such a
+ *   text is HANDHOLE_TYPE_UNKNOWN. Keys are compared trimmed, case-insensitively.
+ * Rules without them read exactly as before (Phase 1, see `readingModeOf`).
+ */
+export const MAX_HANDHOLE_TYPE_ALIASES = 50;
+const LayerMeaning = {
+  textRoles: z
+    .array(TextRoleSchema)
+    .min(1)
+    .max(TEXT_ROLES.length)
+    .refine((roles) => new Set(roles).size === roles.length, 'Duplicate text role')
+    .optional(),
+  ways: z.number().int().min(1).max(MAX_BUNDLE_WAYS).optional(),
+  handholeTypeAliases: z
+    .record(z.string().trim().min(1).max(16), HandholeTypeSchema)
+    .refine((m) => Object.keys(m).length <= MAX_HANDHOLE_TYPE_ALIASES, 'Too many type aliases')
+    .optional(),
+};
+
 export const MappingRuleSchema = z
   .discriminatedUnion('source', [
     z.object({
@@ -58,6 +97,7 @@ export const MappingRuleSchema = z
       layer: Name,
       target: MappingTargetSchema,
       ...FeatureAttrs,
+      ...LayerMeaning,
     }),
     z.object({
       source: z.literal('block'),
@@ -86,8 +126,75 @@ export const MappingRuleSchema = z
         ctx.addIssue({ code: 'custom', path: [key], message: `Only feature rules have a ${key}` });
       }
     }
+    if (rule.source !== 'layer') return;
+    rule.textRoles?.forEach((role, index) => {
+      if (!textRoleFitsTarget(role, rule.target)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['textRoles', index],
+          message: `Text role ${role} does not fit target ${rule.target}`,
+        });
+      }
+    });
+    if (rule.ways !== undefined && rule.target !== 'route') {
+      ctx.addIssue({ code: 'custom', path: ['ways'], message: 'Only route rules have ways' });
+    }
+    if (rule.handholeTypeAliases !== undefined && !rule.textRoles?.includes('handhole_type')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['handholeTypeAliases'],
+        message: 'Type aliases need the handhole_type text role',
+      });
+    }
   });
 export type MappingRule = z.infer<typeof MappingRuleSchema>;
+
+/**
+ * `legacy`: no rule carries text roles or targets `zone` — the drawing is read exactly as in
+ * Phase 1 (box code = nearest N-N text, ADR-019 checks only). `roles`: the drawing kind's reading
+ * and checks of ADR-041 run. Mirrored by the worker.
+ */
+export const READING_MODES = ['legacy', 'roles'] as const;
+export type ReadingMode = (typeof READING_MODES)[number];
+
+const readsByMeaning = (rule: MappingRule): boolean =>
+  rule.source === 'layer' && (rule.textRoles !== undefined || rule.target === 'zone');
+
+export function readingModeOf(rules: readonly MappingRule[]): ReadingMode {
+  return rules.some(readsByMeaning) ? 'roles' : 'legacy';
+}
+
+/** Why the API refuses a saved mapping for the file's drawing kind (422, `details.reason`). */
+export const MAPPING_KIND_ISSUES = ['ROLE_NOT_FOR_KIND', 'ZONE_NOT_FOR_KIND'] as const;
+export type MappingKindIssue = (typeof MAPPING_KIND_ISSUES)[number];
+
+export interface MappingKindProblem {
+  index: number;
+  reason: MappingKindIssue;
+  role: TextRole | null;
+}
+
+/**
+ * Rules that do not belong to the file's drawing kind: a text role outside TEXT_ROLES_BY_KIND, or
+ * a `zone` layer in a General. Checked by the API on PUT …/mapping (the schema has no kind).
+ */
+export function mappingKindProblems(
+  rules: readonly MappingRule[],
+  kind: DrawingKind,
+): MappingKindProblem[] {
+  const allowed = TEXT_ROLES_BY_KIND[kind];
+  const out: MappingKindProblem[] = [];
+  rules.forEach((rule, index) => {
+    if (rule.source !== 'layer') return;
+    if (rule.target === 'zone' && kind !== 'secondary') {
+      out.push({ index, reason: 'ZONE_NOT_FOR_KIND', role: null });
+    }
+    for (const role of rule.textRoles ?? []) {
+      if (!allowed.includes(role)) out.push({ index, reason: 'ROLE_NOT_FOR_KIND', role });
+    }
+  });
+  return out;
+}
 
 export const MAX_MAPPING_RULES = 2000;
 

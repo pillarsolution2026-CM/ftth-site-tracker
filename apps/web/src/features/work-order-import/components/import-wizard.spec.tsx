@@ -105,6 +105,7 @@ function preview(): WorkOrderImportPreviewResponse {
     summary: {
       rowCount: 4,
       headingCount: 0,
+      skippedCount: 0,
       errorRowCount: 3,
       warningRowCount: 1,
       duplicateCodes: [],
@@ -160,6 +161,67 @@ describe('ImportWizard', () => {
     expect(screen.queryByLabelText('Keep all as separate lines')).not.toBeInTheDocument();
   });
 
+  it('takes only the code and quantity: contract differences are warnings that do not block, skipped rows are counted (ADR-044)', async () => {
+    const codeAndQuantity = {
+      ...mapping,
+      description: null,
+      unit: null,
+      unitPrice: null,
+      workType: null,
+    };
+    previewImport.mockResolvedValue({
+      ...preview(),
+      mapping: codeAndQuantity,
+      suggestedMapping: codeAndQuantity,
+      rows: [
+        row(2, 'A-1', '1', [
+          {
+            code: 'CONTRACT_MISMATCH',
+            severity: 'warning',
+            field: 'description',
+            params: { contractValue: 'Trench' },
+          },
+        ]),
+        { ...row(3, 'H-1', null), kind: 'skipped' },
+      ],
+      summary: {
+        rowCount: 2,
+        headingCount: 0,
+        skippedCount: 1,
+        errorRowCount: 0,
+        warningRowCount: 1,
+        duplicateCodes: [],
+        total: '1',
+      },
+    });
+    const user = userEvent.setup();
+    renderScreen(<ImportWizard projectId={PROJECT_ID} />);
+    await uploadFile(user);
+
+    // Only the code and the quantity are required (starred); the note says where the rest comes from.
+    expect(screen.getByLabelText(/^Code \*/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Quantity \*/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Description')).toBeInTheDocument();
+    expect(screen.getByLabelText('Unit price')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Only the code and the quantity are taken from the file/),
+    ).toBeVisible();
+    expect(screen.queryByText('Map the required columns')).not.toBeInTheDocument();
+
+    const summary = screen.getByRole('region', { name: '3. Summary' });
+    expect(within(summary).getByText('Skipped rows').nextSibling).toHaveTextContent('1');
+    expect(
+      screen.getByText(
+        'Description differs from the contract — the contract value is used: Trench',
+      ),
+    ).toBeInTheDocument();
+    // A skipped row without issues is marked as skipped, not as a warning.
+    expect(screen.getAllByText('Skipped').length).toBeGreaterThan(0);
+
+    await user.type(screen.getByLabelText(/^Number/), 'WO-80');
+    expect(screen.getByRole('button', { name: 'Create the work order' })).toBeEnabled();
+  });
+
   it('words the contract-matching issues with the contract value and the available quantity', async () => {
     previewImport.mockResolvedValue({
       ...preview(),
@@ -168,7 +230,7 @@ describe('ImportWizard', () => {
         row(3, 'X-2', '1', [
           {
             code: 'CONTRACT_MISMATCH',
-            severity: 'error',
+            severity: 'warning',
             field: 'unitPrice',
             params: { contractValue: '8000.00' },
           },
@@ -176,7 +238,7 @@ describe('ImportWizard', () => {
         row(4, 'X-3', '1', [
           {
             code: 'CONTRACT_MISMATCH',
-            severity: 'error',
+            severity: 'warning',
             field: 'workType',
             params: { contractValue: 'civil' },
           },
@@ -195,8 +257,14 @@ describe('ImportWizard', () => {
     renderScreen(<ImportWizard projectId={PROJECT_ID} />);
     await uploadFile(user);
     expect(screen.getByText('The code is not in the contract')).toBeInTheDocument();
-    expect(screen.getByText('Unit price differs from the contract (8000.00)')).toBeInTheDocument();
-    expect(screen.getByText('Work type differs from the contract (Civil)')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Unit price differs from the contract — the contract value is used: 8000.00',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Work type differs from the contract — the contract value is used: Civil'),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         'The quantity is above what is available in the contract (available 4 of 10)',
@@ -396,6 +464,7 @@ function boqPreview(): WorkOrderImportPreviewResponse {
     summary: {
       rowCount: 3,
       headingCount: 1,
+      skippedCount: 0,
       errorRowCount: 0,
       warningRowCount: 2,
       duplicateCodes: [],

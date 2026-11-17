@@ -17,6 +17,8 @@ import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { Table, Td, Th } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import type { GeneralCabinetsState } from '../hooks/use-general-cabinets';
+import { GeneralCabinetsSection } from './general-cabinets-section';
 import { readKmlBytes, type KmlError, type Placemark } from '../model/kml';
 import type { PlacementFormState, PlacementSolved } from '../model/placement-form';
 import { itemLabel, itemOption, suggestMatches } from '../model/placement-match';
@@ -33,6 +35,8 @@ export interface PlacementPanelProps {
   onUpdatePoint: (id: string, patch: Partial<Omit<ControlPoint, 'id'>>) => void;
   onRemovePoint: (id: string) => void;
   onFitScaleChange: (value: boolean) => void;
+  /** «من كبائن الرئيسي» of a Secondary (ADR-042 part G); null/omitted for a General. */
+  cabinets?: GeneralCabinetsState | null;
 }
 
 const MANUAL = '__manual__';
@@ -168,6 +172,14 @@ export function PlacementPanel(props: PlacementPanelProps) {
         ) : null}
         <PlacementSummary solved={solved} />
       </section>
+
+      {props.cabinets ? (
+        <GeneralCabinetsSection
+          state={props.cabinets}
+          disabled={disabled}
+          hasGeneralPoints={state.points.some((point) => point.source === 'general_cabinet')}
+        />
+      ) : null}
 
       {disabled ? null : (
         <>

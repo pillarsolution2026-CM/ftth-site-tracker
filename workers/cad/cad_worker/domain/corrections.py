@@ -20,7 +20,7 @@ drawing units.
   handle (string order), pieces reversed as needed, in the direction of the key piece. Ends that
   are not exactly equal are joined by the short gap between them; equal ends share one vertex;
 - `dismiss_problem {code, handle, reason}`: changes no row; the build drops that problem place
-  (code + handle cut to 64 characters, as the problem list gives it) from the problems (ADR-040).
+  (code + handle cut to 64 characters, as the problem list gives it) from the problems (ADR-046).
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -264,7 +264,7 @@ def _height(cid: str, value: object) -> float | None:
 
 
 def dismissed_places(corrections: Iterable[FrozenCorrection]) -> frozenset[tuple[str, str]]:
-    """(problem code, place handle) of the problem places dismissed by a PM (ADR-040)."""
+    """(problem code, place handle) of the problem places dismissed by a PM (ADR-046)."""
     return frozenset(
         (c.code, c.handle) for fc in corrections if isinstance(c := fc.correction, DismissProblem)
     )

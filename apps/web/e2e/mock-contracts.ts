@@ -189,6 +189,7 @@ export function contractView(contractId: string) {
     id: contract.id,
     number: contract.number,
     status: contract.status,
+    headingCodes: contract.items.filter((item) => item.kind === 'heading').map((item) => item.code),
     lines: contract.items.flatMap((item) =>
       item.kind === 'item' &&
       item.quantity !== null &&

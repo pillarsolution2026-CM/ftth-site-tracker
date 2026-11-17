@@ -21,6 +21,8 @@ export interface ApprovedContract {
   id: string;
   number: string;
   items: readonly ContractItemInfo[];
+  /** Codes of the contract's heading lines (ADR-044): a work-order row on one is skipped silently. */
+  headingCodes: readonly string[];
 }
 
 /** Σ quantity of every work-order line of each contract item (all projects), by contract item id. */

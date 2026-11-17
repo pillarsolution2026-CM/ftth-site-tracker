@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DrawingFlowSwitchSchema } from '../cad/drawing-flow.js';
 
 /** Default JWT secret shipped in infra/docker-compose.yml for local development only. */
 export const DEV_DEFAULT_JWT_ACCESS_SECRET = 'dev-only-secret-change-me-dev-only-secret-change-me';
@@ -57,6 +58,13 @@ export const ApiEnvSchema = z
     TILE_URL_SECRET: z.preprocess(emptyToUndefined, z.string().min(32).optional()),
     /** Public base URL of Martin behind Caddy, e.g. https://tiles.staging.ftthtracker.projectflow.site */
     TILES_PUBLIC_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    /**
+     * Drawing-flow switches (ADR-045): `on` brings a dropped step back. Default `off` (owner
+     * 2026-11-16): the General's installation question, box types by shape, the drawing totals.
+     */
+    DRAWING_INSTALLATION_QUESTION: DrawingFlowSwitchSchema,
+    DRAWING_BOX_TYPES: DrawingFlowSwitchSchema,
+    DRAWING_READING_TOTALS: DrawingFlowSwitchSchema,
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')

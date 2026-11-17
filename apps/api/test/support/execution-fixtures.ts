@@ -55,20 +55,29 @@ export async function publishRevision(
   projectId: string,
   features: { id: string; type: string; wkt: string; code?: string; isNew: boolean }[],
   revNo: number,
+  /** ADR-040: the General is what the mobile bundle and As-Built read; default as before. */
+  drawingKind: 'general' | 'secondary' = 'general',
 ): Promise<string> {
   const fileId = randomUUID();
   await pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at)
-     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, 'processed', $4, now())`,
-    [fileId, projectId, `projects/${projectId}/cad/${fileId}/original.dxf`, randomUUID()],
+                            status, current_job_id, processed_at, drawing_kind)
+     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, 'processed', $4, now(), $5)`,
+    [
+      fileId,
+      projectId,
+      `projects/${projectId}/cad/${fileId}/original.dxf`,
+      randomUUID(),
+      drawingKind,
+    ],
   );
   const revisionId = randomUUID();
   await pool.query(
     `INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, rules,
-                                   mapping_version, crs_epsg, drawing_unit, metres_per_unit)
-     VALUES ($1, $2, $3, 'building', $4, '[]', 1, 32636, 'm', 1)`,
-    [revisionId, projectId, fileId, randomUUID()],
+                                   mapping_version, crs_epsg, drawing_unit, metres_per_unit,
+                                   drawing_kind)
+     VALUES ($1, $2, $3, 'building', $4, '[]', 1, 32636, 'm', 1, $5)`,
+    [revisionId, projectId, fileId, randomUUID(), drawingKind],
   );
   for (const feature of features) {
     if (feature.isNew) {

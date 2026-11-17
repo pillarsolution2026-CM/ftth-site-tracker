@@ -7,6 +7,7 @@ import {
   REQUIRED_IMPORT_FIELDS,
   SCOPE_MAX_LENGTH,
   UNIT_PRICE_MAX_DECIMALS,
+  WORK_ORDER_REQUIRED_IMPORT_FIELDS,
   WORK_TYPE_SYNONYMS,
   WORK_TYPES,
   type ColumnMapping,
@@ -43,8 +44,10 @@ export type ParsedImport = Omit<WorkOrderImportPreviewResponse, 'file'>;
 /**
  * `standard`: contract and work-order sheets (work type required, no scope).
  * `contractor`: a subcontractor's sheet (ADR-036): optional scope column, no work type.
+ * `workOrder`: a work-order sheet (ADR-044): only the code and the quantity are taken; the other
+ * cells are best-effort values for comparison with the contract and never produce errors.
  */
-export type ImportProfile = 'standard' | 'contractor';
+export type ImportProfile = 'standard' | 'contractor' | 'workOrder';
 
 const CONTRACTOR_REQUIRED_FIELDS: readonly ImportField[] = [
   'code',
@@ -277,6 +280,92 @@ function headingRow(
   };
 }
 
+/** Quantity of a work-order sheet: more than 4 decimals is rounded half-up, never an error (ADR-044). */
+function workOrderQuantity(cell: RawCell | undefined): {
+  value: string | null;
+  issue?: ImportRowIssue;
+} {
+  const parsed = parseInputDecimal(cell, 40);
+  if (!parsed.ok) return { value: null, issue: issue(parsed.code, 'quantity', parsed.params) };
+  return { value: Decimal.parse(parsed.value).roundHalfUp(MAX_DECIMALS.quantity).toString() };
+}
+
+/** Optional text cell of a work-order sheet: readable text or null, no issue (ADR-044). */
+function optionalText(cell: RawCell | undefined, max: number): string | null {
+  const value = cell?.kind === 'unresolved' ? null : cellText(cell);
+  return value === null || value === '' || value.length > max ? null : value;
+}
+
+function optionalNumber(cell: RawCell | undefined, max: number): string | null {
+  const parsed = parseInputDecimal(cell, max);
+  return parsed.ok ? parsed.value : null;
+}
+
+function optionalWorkType(cell: RawCell | undefined): WorkType | null {
+  const text = cell?.kind === 'unresolved' ? null : cellText(cell);
+  return text ? (WORK_TYPE_BY_TEXT.get(normalizeHeader(text)) ?? null) : null;
+}
+
+/**
+ * A work-order row (ADR-044). No code = skipped, silently (totals, tax). Otherwise an item: the
+ * code and quantity are checked; the optional cells are only read for the comparison with the
+ * contract. Headings and empty quantities are decided later, against the contract.
+ */
+function parseWorkOrderRow(
+  rowNumber: number,
+  at: (field: keyof ColumnMapping) => RawCell | undefined,
+  mapping: ColumnMapping,
+): ImportPreviewRow {
+  const raw = (field: keyof ColumnMapping): string | null => cellText(at(field));
+  const rawAll = {
+    code: raw('code'),
+    description: raw('description'),
+    unit: raw('unit'),
+    quantity: raw('quantity'),
+    unitPrice: raw('unitPrice'),
+    workType: raw('workType'),
+    amount: raw('amount'),
+    scope: null,
+  };
+  const empty = {
+    code: null,
+    description: null,
+    unit: null,
+    quantity: null,
+    unitPrice: null,
+    workType: null,
+    scope: null,
+    sheetAmount: null,
+    amount: null,
+  };
+  const codeCell = at('code');
+  if (codeCell?.kind !== 'unresolved' && (cellText(codeCell) ?? '') === '') {
+    return { rowNumber, kind: 'skipped', raw: rawAll, ...empty, issues: [] };
+  }
+  const issues: ImportRowIssue[] = [];
+  const code = textField(codeCell, 'code');
+  if (code.issue && mapping.code !== null) issues.push(code.issue);
+  const quantity = workOrderQuantity(at('quantity'));
+  // An empty quantity is judged later (skipped, or a silent contract heading); not an error here.
+  if (quantity.issue && quantity.issue.code !== 'MISSING_VALUE' && mapping.quantity !== null) {
+    issues.push(quantity.issue);
+  }
+  return {
+    rowNumber,
+    kind: 'item',
+    raw: rawAll,
+    ...empty,
+    code: code.value,
+    description: optionalText(at('description'), TEXT_LIMITS.description),
+    unit: optionalText(at('unit'), TEXT_LIMITS.unit),
+    quantity: quantity.value,
+    unitPrice: optionalNumber(at('unitPrice'), MAX_DECIMALS.unitPrice),
+    workType: optionalWorkType(at('workType')),
+    sheetAmount: parseSheetAmount(at('amount')),
+    issues,
+  };
+}
+
 function parseRow(
   rowNumber: number,
   cells: readonly RawCell[],
@@ -287,6 +376,7 @@ function parseRow(
     const column = mapping[field];
     return column === null ? undefined : cells[column];
   };
+  if (profile === 'workOrder') return parseWorkOrderRow(rowNumber, at, mapping);
   if (isHeadingRow(at)) return headingRow(rowNumber, at, mapping);
   const mapped = (field: keyof ColumnMapping): boolean => mapping[field] !== null;
   const issues: ImportRowIssue[] = [];
@@ -424,7 +514,12 @@ export function parseImport(
   const mapping = options.mapping ? withProfile(options.mapping) : suggestedMapping;
   const { rows, fileIssues: rowFileIssues } = parseRows(sheet, headerRow, mapping, profile);
   const annotated = annotateUnitVariants(annotateDuplicateCodes(rows));
-  const required = profile === 'contractor' ? CONTRACTOR_REQUIRED_FIELDS : REQUIRED_IMPORT_FIELDS;
+  const required =
+    profile === 'contractor'
+      ? CONTRACTOR_REQUIRED_FIELDS
+      : profile === 'workOrder'
+        ? WORK_ORDER_REQUIRED_IMPORT_FIELDS
+        : REQUIRED_IMPORT_FIELDS;
   const fileIssues = [...mappingIssues(mapping, required), ...rowFileIssues];
   if (annotated.length === 0) fileIssues.push({ code: 'NO_ITEM_ROWS', field: null });
 

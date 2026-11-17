@@ -1,6 +1,12 @@
 'use client';
 
-import type { DrawingProblemCode, DrawingProblemItem } from '@ftth/shared';
+import { ltr } from '@ftth/i18n';
+import {
+  HANDHOLE_TYPES,
+  type DrawingProblemCode,
+  type DrawingProblemItem,
+  type HandholeType,
+} from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Select } from '@/shared/ui/form-controls';
 import { Input } from '@/shared/ui/input';
@@ -84,7 +90,7 @@ export function FixTool({
           id={`${id}-form`}
           className="flex flex-col gap-3 rounded-md border border-(--color-border) p-3"
         >
-          <FixFields id={id} place={place} form={form} tools={tools} />
+          <FixFields id={id} code={code} place={place} form={form} tools={tools} />
           {form.error ? <Notice kind="error">{t(form.error.key, form.error.params)}</Notice> : null}
         </div>
       ) : null}
@@ -93,11 +99,13 @@ export function FixTool({
 }
 
 function FixFields({
+  code,
   id,
   place,
   form,
   tools,
 }: {
+  code: DrawingProblemCode;
   id: string;
   place: DrawingProblemItem;
   form: FixForm;
@@ -146,14 +154,48 @@ function FixFields({
       );
     case 'set_text':
       return (
-        <TextEditor
-          id={id}
-          label={t('design.fix.editLabel')}
-          hint={t('design.fix.lengthHint')}
-          action={t('design.fix.saveLabel')}
-          form={form}
-        />
+        <>
+          <TextEditor
+            id={id}
+            label={t('design.fix.editLabel')}
+            {...(code === 'LABEL_LENGTH_MISSING' ? { hint: t('design.fix.lengthHint') } : {})}
+            action={t('design.fix.saveLabel')}
+            form={form}
+          />
+          {code === 'HANDHOLE_TYPE_UNKNOWN' && place.params?.found !== undefined ? (
+            <ConfirmType
+              id={id}
+              layer={place.layer}
+              found={place.params.found}
+              form={form}
+              tools={tools}
+            />
+          ) : null}
+        </>
       );
+    case 'add_item': {
+      // HANDHOLE_NOT_DRAWN: put the handhole at the written name, on a handhole layer.
+      const layers = tools.pointLayers.filter((point) => point.type === 'hhi');
+      return layers.length === 0 ? (
+        <Notice kind="info">{t('design.fix.noHandholeLayers')}</Notice>
+      ) : (
+        <>
+          <LayerPicker
+            id={`${id}-item-layer`}
+            label={t('design.fix.itemLayer')}
+            value={form.layer}
+            onChange={form.setLayer}
+            options={layers.map((point) => ({
+              value: point.layer,
+              label: `${point.layer} — ${t(`featureType.${point.type}`)}`,
+            }))}
+          />
+          <Button onClick={form.placeItem} disabled={form.saving || !form.layer}>
+            {saveLabel ?? t('design.fix.placeItem')}
+          </Button>
+        </>
+      );
+    }
     case 'label_type_mismatch':
       return (
         <>
@@ -246,6 +288,54 @@ function FixFields({
     case 'none':
       return null;
   }
+}
+
+/**
+ * Q2 (owner 2026-11-11): the PM says which approved type the written spelling means. It is kept in
+ * the file's mapping (so it is one decision for every handhole written so in this drawing) and
+ * takes effect at the next rebuild.
+ */
+function ConfirmType({
+  id,
+  layer,
+  found,
+  form,
+  tools,
+}: {
+  id: string;
+  /** The layer of the written text (the alias is kept on that layer's rule). */
+  layer: string;
+  found: string;
+  form: FixForm;
+  tools: FixTools;
+}) {
+  const { t } = useI18n();
+  if (!tools.canConfirmType(layer)) {
+    return <Notice kind="info">{t('design.fix.confirmTypeNoRule')}</Notice>;
+  }
+  return (
+    <div className="flex flex-col gap-2 border-t border-(--color-border) pt-3">
+      <p className="text-sm font-semibold">{t('design.fix.confirmTypeOpen')}</p>
+      <Select
+        id={`${id}-confirm-type`}
+        label={t('design.fix.confirmTypeLabel', { found: ltr(found) })}
+        value={form.confirmChoice}
+        onChange={(event) => form.setConfirmChoice(event.target.value as HandholeType | '')}
+      >
+        <option value="">{t('design.fix.confirmTypeChoose')}</option>
+        {HANDHOLE_TYPES.map((type) => (
+          <option key={type} value={type}>
+            {type}
+          </option>
+        ))}
+      </Select>
+      <p className="text-sm">{t('design.fix.confirmTypeScope', { found: ltr(found) })}</p>
+      <Button onClick={form.confirm} disabled={form.saving || form.confirmChoice === ''}>
+        {form.saving ? t('design.fix.saving') : t('design.fix.confirmTypeSave')}
+      </Button>
+      {form.confirmed ? <Notice kind="success">{t('design.fix.confirmTypeDone')}</Notice> : null}
+    </div>
+  );
 }
 
 function TextEditor({

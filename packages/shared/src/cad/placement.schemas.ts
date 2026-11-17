@@ -22,8 +22,12 @@ export const EGYPT_RED_BELT_PROJ4 =
   '+proj=tmerc +lat_0=30 +lon_0=31 +k=1 +x_0=615000 +y_0=810000 +ellps=helmert ' +
   '+towgs84=-130,110,-13,0,0,0,0 +units=m +no_defs';
 
-/** typed = Lat/Lon entered by a user; kml = a KML/KMZ placemark; gps = a supervisor's GPS fix. */
-export const CONTROL_POINT_SOURCES = ['typed', 'kml', 'gps'] as const;
+/**
+ * typed = Lat/Lon entered by a user; kml = a KML/KMZ placemark; gps = a supervisor's GPS fix;
+ * general_cabinet = a Secondary cabinet on the placed position of the General cabinet with the same
+ * name (ADR-040 Q9, ADR-042 part G; Secondary files only, see `placementKindProblems`).
+ */
+export const CONTROL_POINT_SOURCES = ['typed', 'kml', 'gps', 'general_cabinet'] as const;
 export const ControlPointSourceSchema = z.enum(CONTROL_POINT_SOURCES);
 export type ControlPointSource = z.infer<typeof ControlPointSourceSchema>;
 
@@ -58,7 +62,11 @@ export const PlacementAdjustSchema = z.object({
 });
 export type PlacementAdjust = z.infer<typeof PlacementAdjustSchema>;
 
-export const MAX_CONTROL_POINTS = 50;
+/**
+ * Technical cap. Raised from 50 (ADR-042): a Secondary takes one point per shared sub cabinet and
+ * a General may have more than 50 (Rabaa: 81).
+ */
+export const MAX_CONTROL_POINTS = 200;
 
 export const PlacementSchema = z
   .object({

@@ -95,6 +95,7 @@ export function summarize(
   return {
     rowCount: rows.length,
     headingCount: rows.filter((row) => row.kind === 'heading').length,
+    skippedCount: rows.filter((row) => row.kind === 'skipped').length,
     errorRowCount: rows.length - valid.length,
     warningRowCount: rows.filter((row) => row.issues.some((found) => found.severity === 'warning'))
       .length,

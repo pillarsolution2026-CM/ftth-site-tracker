@@ -11,6 +11,7 @@ import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { formatDateTime } from '@/shared/lib/format';
 import { formatDecimal } from '@/shared/lib/decimal';
+import { ReadingSummary } from './reading-summary';
 
 function CountGrid({ title, rows }: { title: string; rows: [string, React.ReactNode][] }) {
   return (
@@ -34,6 +35,7 @@ function CountGrid({ title, rows }: { title: string; rows: [string, React.ReactN
 export function RevisionSummary({ revision }: { revision: DesignRevisionDetail }) {
   const { t, locale } = useI18n();
   const facts: [string, React.ReactNode][] = [
+    [t('design.kind'), t(`drawingKind.${revision.drawingKind}`)],
     [t('design.crs'), <Ltr key="crs">{revision.crsEpsg}</Ltr>],
     [t('design.unit'), <Ltr key="unit">{revision.drawingUnit}</Ltr>],
     [t('design.factor'), <Ltr key="factor">{revision.metresPerUnit}</Ltr>],
@@ -114,6 +116,7 @@ export function RevisionSummary({ revision }: { revision: DesignRevisionDetail }
           })}
         />
       ) : null}
+      {revision.counts?.reading ? <ReadingSummary reading={revision.counts.reading} /> : null}
       {revision.textLinkCounts ? (
         <CountGrid
           title={t('design.linkCounts.title')}

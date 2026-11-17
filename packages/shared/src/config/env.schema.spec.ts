@@ -109,3 +109,37 @@ describe('ApiEnvSchema tile URL settings (security review L1)', () => {
     expect(result.data?.TILES_PUBLIC_URL).toBeUndefined();
   });
 });
+
+describe('ApiEnvSchema drawing-flow switches (ADR-045)', () => {
+  const minimal = {
+    ...base,
+    NODE_ENV: 'test',
+    JWT_ACCESS_SECRET: REAL_SECRET,
+  } as const;
+  const KEYS = [
+    'DRAWING_INSTALLATION_QUESTION',
+    'DRAWING_BOX_TYPES',
+    'DRAWING_READING_TOTALS',
+  ] as const;
+
+  it('defaults every switch to off', () => {
+    const result = ApiEnvSchema.safeParse(minimal);
+    expect(result.success).toBe(true);
+    for (const key of KEYS) expect(result.data?.[key]).toBe('off');
+  });
+
+  it('accepts on and off', () => {
+    for (const key of KEYS) {
+      expect(ApiEnvSchema.safeParse({ ...minimal, [key]: 'on' }).data?.[key]).toBe('on');
+      expect(ApiEnvSchema.safeParse({ ...minimal, [key]: 'off' }).data?.[key]).toBe('off');
+    }
+  });
+
+  it('rejects any other value', () => {
+    for (const key of KEYS) {
+      for (const bad of ['true', 'ON', '1', 'yes']) {
+        expect(ApiEnvSchema.safeParse({ ...minimal, [key]: bad }).success).toBe(false);
+      }
+    }
+  });
+});

@@ -106,6 +106,7 @@ class DrizzleAsBuiltExportTx implements AsBuiltExportTx {
       this.db,
       sql`SELECT id, rev_no FROM design_revisions
           WHERE project_id = ${projectId} AND status = 'published'
+            AND drawing_kind = 'general'
           ORDER BY rev_no DESC LIMIT 1`,
     );
     return row ? { id: row.id, revNo: row.rev_no } : null;

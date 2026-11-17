@@ -3,6 +3,8 @@ import {
   EVENT_TYPES,
   MAPPING_TEXT_ROWS_LIMIT,
   PLACEMENT_DRAWING_MAX_LINES,
+  mappingKindProblems,
+  placementKindProblems,
   METRES_PER_UNIT,
   suggestBlockTarget,
   suggestLayerTarget,
@@ -149,6 +151,36 @@ export class SaveCadMappingUseCase {
           reason: 'NOT_PROCESSED',
           status: file.status,
         });
+      }
+
+      // ADR-041: text roles and zone layers must suit the drawing kind of the file.
+      const kindProblems = mappingKindProblems(mapping.rules, file.drawingKind);
+      if (kindProblems.length > 0) {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'The mapping has rules that do not suit the drawing kind',
+          {
+            reason: kindProblems[0]?.reason,
+            drawingKind: file.drawingKind,
+            problems: kindProblems,
+          },
+          422,
+        );
+      }
+
+      // ADR-042: `general_cabinet` points belong to a Secondary only.
+      const badPoints = placementKindProblems(mapping.placement, file.drawingKind);
+      if (badPoints.length > 0) {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'General cabinet points are only for a Secondary drawing',
+          {
+            reason: 'POINT_SOURCE_NOT_FOR_KIND',
+            drawingKind: file.drawingKind,
+            pointIndexes: badPoints,
+          },
+          422,
+        );
       }
 
       const current = await tx.mappings.find(projectId, cadFileId, { lock: true });

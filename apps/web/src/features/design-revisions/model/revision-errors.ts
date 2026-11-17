@@ -1,5 +1,7 @@
-import { ltr, type MessageKey } from '@ftth/i18n';
+import { ltr, translate, type Locale, type MessageKey } from '@ftth/i18n';
 import { PublishBlockedDetailsSchema, type PublishBlockedDetails } from '@ftth/shared';
+import { boxTypeIssueMessage } from '@/features/box-types/model/box-types-model';
+import { issueMessage } from '@/features/installation/model/installation-model';
 import { ApiClientError, type ClientErrorCode } from '@/shared/api/bff-client';
 
 const REASONS = [
@@ -35,19 +37,67 @@ export interface ErrorMessage {
   params: Record<string, string | number>;
 }
 
-/** The clear message for each 409 refusal reason of publish (ADR-038). */
-export function publishBlockedMessage(details: PublishBlockedDetails): ErrorMessage {
+/**
+ * The clear message for each 409 refusal reason of publish (ADR-038, ADR-040). `drawing` names the
+ * drawing that blocks («الجينيرال (رئيسي)» / «الثانوي»).
+ */
+export function publishBlockedMessage(
+  details: PublishBlockedDetails,
+  locale: Locale,
+): ErrorMessage {
+  if (details.reason === 'OPEN_ITEMS') {
+    return { key: 'design.publish.blocked.OPEN_ITEMS', params: {} };
+  }
+  if (details.reason === 'CABINETS_MISMATCH') {
+    const { general, secondary } = details.cabinets;
+    const names = (list: readonly string[]) => (list.length > 0 ? list.map(ltr).join('، ') : '—');
+    return {
+      key: 'design.publish.blocked.CABINETS_MISMATCH',
+      params: {
+        generalCount: ltr(general.count),
+        secondaryCount: ltr(secondary.count),
+        onlyGeneral: names(general.missingInOther),
+        onlySecondary: names(secondary.missingInOther),
+        unnamed: ltr(general.unnamed + secondary.unnamed),
+      },
+    };
+  }
+  const drawing = translate(locale, `drawingKind.${details.drawingKind}`);
+  if (details.reason === 'INSTALLATION_UNCLEAR') {
+    const issues = details.issues
+      .map((issue) => {
+        const message = issueMessage(issue);
+        return translate(locale, message.key, message.params);
+      })
+      .join(' ');
+    return {
+      key: 'design.publish.blocked.INSTALLATION_UNCLEAR',
+      params: { drawing, count: ltr(details.issueCount), issues },
+    };
+  }
+  if (details.reason === 'BOX_TYPES_UNCLEAR') {
+    const issues = details.issues
+      .map((issue) => {
+        const message = boxTypeIssueMessage(issue);
+        return translate(locale, message.key, message.params);
+      })
+      .join(' ');
+    return {
+      key: 'design.publish.blocked.BOX_TYPES_UNCLEAR',
+      params: { drawing, count: ltr(details.issueCount), issues },
+    };
+  }
   switch (details.reason) {
+    case 'OTHER_DRAWING_MISSING':
+      return { key: 'design.publish.blocked.OTHER_DRAWING_MISSING', params: { drawing } };
     case 'CRS_UNKNOWN':
-      return { key: 'design.publish.blocked.CRS_UNKNOWN', params: {} };
+      return { key: 'design.publish.blocked.CRS_UNKNOWN', params: { drawing } };
     case 'PLACEMENT_MISSING':
-      return { key: 'design.publish.blocked.PLACEMENT_MISSING', params: {} };
+      return { key: 'design.publish.blocked.PLACEMENT_MISSING', params: { drawing } };
     case 'PROBLEMS_OPEN':
       return {
         key: 'design.publish.blocked.PROBLEMS_OPEN',
-        params: { count: ltr(details.problemCount) },
+        params: { drawing, count: ltr(details.problemCount) },
       };
-    case 'OPEN_ITEMS':
-      return { key: 'design.publish.blocked.OPEN_ITEMS', params: {} };
   }
 }

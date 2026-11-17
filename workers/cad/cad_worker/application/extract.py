@@ -49,6 +49,7 @@ def extract(
     seen: dict[str, set[str]] = {"insert": set(), "text": set(), "curve": set()}
     n_insert = n_text = n_curve = 0
     renamed = 0
+    too_complex = 0
 
     for feature in source.features():
         if isinstance(feature, SkippedEntity):
@@ -60,6 +61,7 @@ def extract(
             row = dataclasses.replace(feature, handle=handle)
             sink.add(row)
             n_insert += 1
+            too_complex += row.too_complex
             layer_counts[row.layer]["INSERT"] += 1
             # The symbol is where it draws (ADR-032): a block's base point can lie far away.
             where = row.centre if row.centre is not None else row.position
@@ -118,6 +120,10 @@ def extract(
     ]
     if renamed:
         log.append(f"duplicate handles renamed: {renamed}")
+    if too_complex:
+        log.append(
+            f"symbols too complex: {too_complex} (no shape read, insertion point used as position)"
+        )
     return ExtractionResult(
         layers=layers,
         insert_count=n_insert,

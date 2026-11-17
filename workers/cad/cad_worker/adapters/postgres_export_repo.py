@@ -34,8 +34,10 @@ WHERE e.id = %s AND e.project_id = %s AND e.current_job_id = %s AND e.status = '
 FOR UPDATE OF e
 """
 STATEMENT_TIMEOUT_SQL = "SET LOCAL statement_timeout = '120s'"
+# ADR-043: a box's type is the work-order line frozen on its (Secondary) revision.
 DESIGN_SQL = """
-SELECT feature_id, feature_type, layer, code, ST_AsBinary(ST_Force2D(geom)), ST_SRID(geom)
+SELECT feature_id, feature_type, layer, code, ST_AsBinary(ST_Force2D(geom)), ST_SRID(geom),
+  attrs -> 'reading' -> 'boxType'
 FROM design_features WHERE revision_id = %s AND project_id = %s ORDER BY feature_id
 """
 ASBUILT_SQL = """
@@ -74,6 +76,14 @@ def _feature_type(value: object) -> FeatureType:
     if value not in FEATURE_TYPES:
         raise ValueError(f"unknown feature type {value!r}")
     return value
+
+
+def _box_type(value: object) -> tuple[str | None, str | None] | None:
+    """`attrs.reading.boxType` {workOrderLineId, code, label} -> (code, label); None = untyped."""
+    if not isinstance(value, dict) or not value.get("workOrderLineId"):
+        return None
+    code, label = value.get("code"), value.get("label")
+    return (code if isinstance(code, str) else None, label if isinstance(label, str) else None)
 
 
 class PostgresExportRepository:
@@ -154,8 +164,9 @@ class PostgresExportSession:
                 layer=str(layer),
                 code=None if code is None else str(code),
                 coords=self._coords(geom, srid),
+                box_type=_box_type(box_type) if ftype == "box" else None,
             )
-            for fid, ftype, layer, code, geom, srid in rows
+            for fid, ftype, layer, code, geom, srid, box_type in rows
         )
 
     def load_asbuilt(self) -> tuple[AsBuiltFeatureIn, ...]:

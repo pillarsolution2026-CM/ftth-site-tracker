@@ -111,6 +111,36 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows the installation and the General-cabinet placement routes (ADR-042)', () => {
+    const mark = '0f8fad5b-d9cb-469f-a165-70867728950f';
+    expect(upstreamPath([PROJECT, 'cad-files', 'abc-1', 'installation'])).toBe(
+      `/projects/${PROJECT}/cad-files/abc-1/installation`,
+    );
+    expect(upstreamPath([PROJECT, 'cad-files', 'abc-1', 'installation', 'answer'])).toBe(
+      `/projects/${PROJECT}/cad-files/abc-1/installation/answer`,
+    );
+    expect(upstreamPath([PROJECT, 'cad-files', 'abc-1', 'installation', 'trench-marks'])).toBe(
+      `/projects/${PROJECT}/cad-files/abc-1/installation/trench-marks`,
+    );
+    expect(
+      upstreamPath([
+        PROJECT,
+        'cad-files',
+        'abc-1',
+        'installation',
+        'trench-marks',
+        mark,
+        'withdraw',
+      ]),
+    ).toBe(`/projects/${PROJECT}/cad-files/abc-1/installation/trench-marks/${mark}/withdraw`);
+    expect(upstreamPath([PROJECT, 'design-revisions', 'abc-1', 'installation'])).toBe(
+      `/projects/${PROJECT}/design-revisions/abc-1/installation`,
+    );
+    expect(upstreamPath([PROJECT, 'cad-files', 'abc-1', 'placement', 'general-cabinets'])).toBe(
+      `/projects/${PROJECT}/cad-files/abc-1/placement/general-cabinets`,
+    );
+  });
+
   it('allows design revisions, including the PMTiles archive', () => {
     expect(upstreamPath([PROJECT, 'design-revisions', 'abc-1', 'tiles.pmtiles'])).toBe(
       `/projects/${PROJECT}/design-revisions/abc-1/tiles.pmtiles`,
