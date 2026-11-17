@@ -6,6 +6,7 @@ import {
   DiffPageSchema,
   DrawingCorrectionListSchema,
   DrawingCorrectionSchema,
+  DrawingCorrectionsSavedSchema,
   DrawingProblemListSchema,
   DrawingViewSchema,
   DrawingViewStateSchema,
@@ -14,6 +15,8 @@ import {
   TextLinkSchema,
   type CreateDesignRevisionRequest,
   type CreateDrawingCorrectionRequest,
+  type CreateDrawingCorrectionsRequest,
+  type DrawingCorrectionsSaved,
   type DrawingCorrection,
   type DrawingCorrectionList,
   type RebuildDesignRevisionRequest,
@@ -132,6 +135,18 @@ export function createCorrection(
   body: CreateDrawingCorrectionRequest,
 ): Promise<DrawingCorrection> {
   return bffJson(correctionsPath(projectId, cadFileId), DrawingCorrectionSchema, {
+    method: 'POST',
+    body,
+  });
+}
+
+/** The edits of one «حفظ» in the drawing's edit mode (ADR-047): all are kept or none. */
+export function createCorrections(
+  projectId: string,
+  cadFileId: string,
+  body: CreateDrawingCorrectionsRequest,
+): Promise<DrawingCorrectionsSaved> {
+  return bffJson(`${correctionsPath(projectId, cadFileId)}/batch`, DrawingCorrectionsSavedSchema, {
     method: 'POST',
     body,
   });

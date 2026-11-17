@@ -12,11 +12,15 @@ import {
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import {
   CreateDrawingCorrectionRequestSchema,
+  CreateDrawingCorrectionsRequestSchema,
   DrawingCorrectionListSchema,
   DrawingCorrectionSchema,
+  DrawingCorrectionsSavedSchema,
   type CreateDrawingCorrectionRequest,
+  type CreateDrawingCorrectionsRequest,
   type DrawingCorrection,
   type DrawingCorrectionList,
+  type DrawingCorrectionsSaved,
 } from '@ftth/shared';
 import { ProjectIdParam } from '../../../common/http/params.js';
 import { actorIdOf } from '../../../common/http/request-actor.js';
@@ -75,6 +79,27 @@ export class DrawingCorrectionsController {
       request: body,
     });
     return toDrawingCorrectionDto(created);
+  }
+
+  /** The edits of one «حفظ» in the drawing's edit mode (ADR-047): all or none. */
+  @Post('batch')
+  @HttpCode(201)
+  @RequirePermission('design:write')
+  @ApiOkResponse({ schema: openApiSchema(DrawingCorrectionsSavedSchema) })
+  async addMany(
+    @ProjectIdParam() projectId: string,
+    @Param('cadFileId', UuidParamPipe) cadFileId: string,
+    @Body(new ZodValidationPipe(CreateDrawingCorrectionsRequestSchema))
+    body: CreateDrawingCorrectionsRequest,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<DrawingCorrectionsSaved> {
+    const created = await this.create.executeMany({
+      projectId,
+      cadFileId,
+      actorId: actorIdOf(request),
+      requests: body.items,
+    });
+    return { items: created.map(toDrawingCorrectionDto) };
   }
 
   @Post(':correctionId/withdraw')

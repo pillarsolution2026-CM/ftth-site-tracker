@@ -22,6 +22,7 @@ import { DiffSection } from './diff-section';
 import { DrawingViewer } from './drawing-viewer';
 import { ProblemsSection } from './problems-section';
 import { PublishChecklist } from './publish-checklist';
+import { RefreshProblemsButton } from './refresh-problems-button';
 import { RevisionStatusBadge } from './revision-status-badge';
 import { RevisionSummary } from './revision-summary';
 import { TextReviewView } from './text-review';
@@ -43,6 +44,7 @@ export function DesignRevisionDetailScreen({
   const review = useTextReview(projectId, revisionId, state.canRead && state.built);
   const diff = useDiffView(projectId, revisionId, state.canRead && state.built);
   const [focus, setFocus] = useState<ShowPlace | null>(null);
+  const [unsaved, setUnsaved] = useState(0);
   const showOnDrawing = (place: Omit<ShowPlace, 'nonce'>) =>
     setFocus((previous) => ({ ...place, nonce: (previous?.nonce ?? 0) + 1 }));
 
@@ -102,9 +104,22 @@ export function DesignRevisionDetailScreen({
             isGeneral={revision.drawingKind === 'general'}
             isSecondary={revision.drawingKind === 'secondary'}
             onShowOnDrawing={showOnDrawing}
+            onUnsavedChange={setUnsaved}
             focus={focus}
           />
         </Card>
+      ) : null}
+      {state.built && state.canReview ? (
+        <RefreshProblemsButton
+          projectId={projectId}
+          revisionId={revisionId}
+          cadFileId={revision.cadFileId}
+          builtAt={revision.builtAt}
+          listPath={listPath}
+          enabled={state.canRead && state.built}
+          canEdit={state.canReview}
+          unsaved={unsaved}
+        />
       ) : null}
       {state.actionMessage ? (
         <Notice kind="error">{t(state.actionMessage.key, state.actionMessage.params)}</Notice>

@@ -192,6 +192,59 @@ describe('adding a correction', () => {
     expect(uow.events.types()).toEqual(['cad_mapping.saved', 'drawing_correction.added']);
   });
 
+  it('saves several edits at once, in order and a millisecond apart (ADR-047)', async () => {
+    const created = await new CreateDrawingCorrectionUseCase(uow, clock, ids).executeMany({
+      projectId: PROJECT,
+      cadFileId: FILE,
+      actorId: ACTOR,
+      requests: [
+        { correction: { kind: 'move_layer', handle: 'C1', toLayer: 'N_DUC_CBL' }, problem: null },
+        { correction: { kind: 'set_text', handle: 'A1', text: '7way 7/3.5' }, problem: null },
+      ],
+    });
+    expect(created.map((item) => item.correction.kind)).toEqual(['move_layer', 'set_text']);
+    const [first, second] = created.map((item) => item.createdAt.getTime());
+    expect((second ?? 0) - (first ?? 0)).toBe(1);
+    expect(uow.events.types()).toEqual([
+      'cad_mapping.saved',
+      'drawing_correction.added',
+      'drawing_correction.added',
+    ]);
+  });
+
+  it('keeps none of the edits when one is refused', async () => {
+    await expect(
+      new CreateDrawingCorrectionUseCase(uow, clock, ids).executeMany({
+        projectId: PROJECT,
+        cadFileId: FILE,
+        actorId: ACTOR,
+        requests: [
+          { correction: { kind: 'set_text', handle: 'A1', text: 'ok' }, problem: null },
+          { correction: { kind: 'move_layer', handle: 'A2', toLayer: 'BG' }, problem: null },
+        ],
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'BG' } });
+    expect(uow.corrections.rows.size).toBe(0);
+  });
+
+  it('refuses a save that would pass the cap of corrections in force', async () => {
+    const first = await setText();
+    for (let i = 2; i < MAX_CORRECTIONS_PER_FILE; i++) {
+      uow.corrections.rows.set(`id-${i}`, { ...first, id: `id-${i}` });
+    }
+    await expect(
+      new CreateDrawingCorrectionUseCase(uow, clock, ids).executeMany({
+        projectId: PROJECT,
+        cadFileId: FILE,
+        actorId: ACTOR,
+        requests: [
+          { correction: { kind: 'set_text', handle: 'A1', text: 'a' }, problem: null },
+          { correction: { kind: 'set_text', handle: 'A1', text: 'b' }, problem: null },
+        ],
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'TOO_MANY_CORRECTIONS' } });
+  });
+
   it('accepts add_text and add_item without any handle', async () => {
     await add({
       correction: { kind: 'add_text', layer: 'L', x: 1, y: 2, text: 'MH-1', height: null },

@@ -124,6 +124,18 @@ export const CreateDrawingCorrectionRequestSchema = z.strictObject({
 });
 export type CreateDrawingCorrectionRequest = z.infer<typeof CreateDrawingCorrectionRequestSchema>;
 
+/** Corrections saved at once from the drawing's edit mode (ADR-047). */
+export const MAX_CORRECTIONS_PER_SAVE = 200;
+
+/**
+ * POST /projects/:p/cad-files/:f/corrections/batch — the edits of one «حفظ»: all are kept, in this
+ * order, or none (the first refusal is the answer).
+ */
+export const CreateDrawingCorrectionsRequestSchema = z.strictObject({
+  items: z.array(CreateDrawingCorrectionRequestSchema).min(1).max(MAX_CORRECTIONS_PER_SAVE),
+});
+export type CreateDrawingCorrectionsRequest = z.infer<typeof CreateDrawingCorrectionsRequestSchema>;
+
 export const DrawingCorrectionSchema = z.object({
   id: z.uuid(),
   cadFileId: z.uuid(),
@@ -144,6 +156,10 @@ export const DrawingCorrectionListSchema = z.object({
   activeCount: z.number().int().min(0),
 });
 export type DrawingCorrectionList = z.infer<typeof DrawingCorrectionListSchema>;
+
+/** Answer of POST …/corrections/batch: the saved corrections, in the order sent. */
+export const DrawingCorrectionsSavedSchema = z.object({ items: z.array(DrawingCorrectionSchema) });
+export type DrawingCorrectionsSaved = z.infer<typeof DrawingCorrectionsSavedSchema>;
 
 /**
  * Frozen on a design revision at creation (`design_revisions.corrections`, in id order) and read by

@@ -29,6 +29,7 @@ const sections = vi.hoisted(() => ({
   corrections: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   viewer: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   boxTypes: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+  refresh: vi.fn<(props: Record<string, unknown>) => null>(() => null),
 }));
 vi.mock('@/features/box-types/components/box-types-section', () => ({
   BoxTypesSection: sections.boxTypes,
@@ -36,6 +37,7 @@ vi.mock('@/features/box-types/components/box-types-section', () => ({
 vi.mock('./drawing-viewer', () => ({ DrawingViewer: sections.viewer }));
 vi.mock('./problems-section', () => ({ ProblemsSection: sections.problems }));
 vi.mock('./corrections-panel', () => ({ CorrectionsSection: sections.corrections }));
+vi.mock('./refresh-problems-button', () => ({ RefreshProblemsButton: sections.refresh }));
 vi.mock('./revision-summary', () => ({ RevisionSummary: () => null }));
 
 const CAD_FILE = '33333333-3333-4333-8333-333333333333';
@@ -106,6 +108,7 @@ beforeEach(() => {
   sections.problems.mockClear();
   sections.corrections.mockClear();
   sections.viewer.mockClear();
+  sections.refresh.mockClear();
   sections.boxTypes.mockClear();
 });
 
@@ -330,6 +333,11 @@ describe('DesignRevisionDetailScreen drawing corrections', () => {
       cadFileId: CAD_FILE,
       listPath: '/en/projects/p/design-revisions',
     });
+    // «تحديث الأخطاء» floats on a draft; it waits while the canvas has unsaved edits (ADR-047).
+    expect(lastProps(sections.refresh)).toMatchObject({ canEdit: true, unsaved: 0 });
+    const viewerProps = lastProps(sections.viewer) as { onUnsavedChange: (n: number) => void };
+    act(() => viewerProps.onUnsavedChange(3));
+    await waitFor(() => expect(lastProps(sections.refresh)).toMatchObject({ unsaved: 3 }));
   });
 
   it('offers neither on a published revision', async () => {
@@ -345,6 +353,7 @@ describe('DesignRevisionDetailScreen drawing corrections', () => {
     await waitFor(() => expect(sections.corrections).toHaveBeenCalled());
     expect(lastProps(sections.problems)).toMatchObject({ canFix: false });
     expect(lastProps(sections.corrections)).toMatchObject({ canEdit: false });
+    expect(sections.refresh).not.toHaveBeenCalled();
   });
 });
 

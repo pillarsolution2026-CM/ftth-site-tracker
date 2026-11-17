@@ -1,4 +1,5 @@
 import type { DrawingViewEntity } from '@ftth/shared';
+import { isCrossing, type Band } from './canvas-edit';
 import { effectiveLayer, type DrawingPreview } from './drawing-preview';
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, paperColor, resolveColor, type DrawingScene } from './drawing-scene';
@@ -53,6 +54,10 @@ export interface DrawModel {
   trench?: ReadonlyMap<number, string>;
   /** The type text of each box (ADR-043); undefined/empty: not shown. */
   boxLabels?: readonly BoxLabel[];
+  /** Entities picked in the edit mode (ADR-047). */
+  chosen?: ReadonlySet<number>;
+  /** The selection box being dragged in the edit mode, in drawing coordinates. */
+  band?: Band | null;
 }
 
 export interface Viewport extends Size {
@@ -427,6 +432,8 @@ export function drawOverlay(
   if (model.selected !== null && shown(model.selected)) {
     boxOutline(ctx, model, tf, vp, model.selected, SELECTED_COLOR);
   }
+  if (model.chosen && model.chosen.size > 0) drawChosen(ctx, model, cache, tf, vp);
+  if (model.band) drawBand(ctx, model.band, tf, vp);
 
   if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
   if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
@@ -453,4 +460,50 @@ export function drawOverlay(
   });
   const withLabel = onScreen.length <= MAX_MARKER_LABELS;
   for (const marker of onScreen) drawMarker(ctx, marker, tf, vp, withLabel);
+}
+
+const CHOSEN_COLOR = '#0057d9';
+
+/** Picked items: a thick blue stroke and a box around each (dashed for texts and blocks). */
+function drawChosen(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  const { scene } = model;
+  const chosen = model.chosen ?? new Set<number>();
+  setWorldTransform(ctx, scene, tf, vp);
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 3 / tf.scale;
+  for (const index of chosen) {
+    if (scene.view.entities[index]?.paths.length) ctx.stroke(cache.get(index));
+  }
+  setScreenTransform(ctx, vp);
+  for (const index of chosen) boxOutline(ctx, model, tf, vp, index, CHOSEN_COLOR);
+}
+
+/** Window (to the right): solid blue; crossing (to the left): dashed green, like AutoCAD. */
+function drawBand(
+  ctx: CanvasRenderingContext2D,
+  band: Band,
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  const a = toScreen(tf, vp, band.x0, band.y0);
+  const b = toScreen(tf, vp, band.x1, band.y1);
+  const crossing = isCrossing(band);
+  setScreenTransform(ctx, vp);
+  ctx.fillStyle = crossing ? 'rgba(46, 125, 50, 0.12)' : 'rgba(0, 87, 217, 0.12)';
+  ctx.strokeStyle = crossing ? '#2e7d32' : CHOSEN_COLOR;
+  ctx.lineWidth = 1;
+  ctx.setLineDash(crossing ? [6, 4] : []);
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const w = Math.abs(a.x - b.x);
+  const h = Math.abs(a.y - b.y);
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
 }

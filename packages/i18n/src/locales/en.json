@@ -1576,6 +1576,36 @@
         "BOX_TYPE_UNSET": "Shape {shape} ({count} boxes) has no work-order line.",
         "BOX_TYPE_LINE_MISSING": "The line chosen for shape {shape} ({count} boxes) is no longer in the work order. Choose another line."
       }
+    },
+    "edit": {
+      "title": "Edit the drawing",
+      "start": "Edit the drawing",
+      "tools": "Edit tools",
+      "tool": {
+        "layer": "Move to layer",
+        "text": "Edit text"
+      },
+      "pickTool": "Choose a tool.",
+      "pickItems": "Pick items: click one, or drag a box around several. Shift or Ctrl adds to the selection.",
+      "chosen": "{count} items picked",
+      "newLayer": "New layer",
+      "applyLayer": "Move",
+      "clearChosen": "Clear selection",
+      "pickText": "Pick the text to edit.",
+      "notText": "That is not a text. Pick a text.",
+      "newText": "New text",
+      "applyText": "Apply",
+      "unsaved": "{count} edits not saved yet",
+      "saveCount": "Save ({count})",
+      "done": "Exit",
+      "saving": "Saving…",
+      "saveHint": "Saves every edit as a correction of the drawing. The original file is not changed.",
+      "cancel": "Cancel",
+      "cancelHint": "Drops every unsaved edit",
+      "refresh": "Refresh errors",
+      "refreshing": "Refreshing…",
+      "refreshHint": "Rebuilds the drawing with the saved corrections and checks the errors again (about a minute).",
+      "saveFirst": "Save the drawing edits first."
     }
   },
   "asbuilt": {

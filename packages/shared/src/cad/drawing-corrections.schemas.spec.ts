@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CreateDrawingCorrectionsRequestSchema,
   DrawingCorrectionInputSchema,
+  MAX_CORRECTIONS_PER_SAVE,
   MAX_CORRECTION_COORD,
   moveLayerTargets,
 } from './drawing-corrections.schemas.js';
@@ -74,5 +76,26 @@ describe('moveLayerTargets (owner 2026-11-09: only layers with a rule)', () => {
       { source: 'block', block: 'B', target: 'box' },
     ] as Parameters<typeof moveLayerTargets>[0]);
     expect([...targets].sort()).toEqual(['CAB', 'TXT']);
+  });
+});
+
+describe('CreateDrawingCorrectionsRequestSchema (ADR-047)', () => {
+  const one = { correction: { kind: 'set_text', handle: 'T1', text: 'x' } };
+  it('takes 1 to MAX_CORRECTIONS_PER_SAVE edits, each with a problem of null by default', () => {
+    const parsed = CreateDrawingCorrectionsRequestSchema.parse({ items: [one] });
+    expect(parsed.items[0]?.problem).toBeNull();
+    const full = Array.from({ length: MAX_CORRECTIONS_PER_SAVE }, () => one);
+    expect(CreateDrawingCorrectionsRequestSchema.safeParse({ items: full }).success).toBe(true);
+  });
+  it('refuses none, too many, a bad edit or an extra field', () => {
+    const many = Array.from({ length: MAX_CORRECTIONS_PER_SAVE + 1 }, () => one);
+    for (const body of [
+      { items: [] },
+      { items: many },
+      { items: [{ correction: { kind: 'set_text', handle: 'T1', text: '' } }] },
+      { items: [one], extra: 1 },
+    ]) {
+      expect(CreateDrawingCorrectionsRequestSchema.safeParse(body).success).toBe(false);
+    }
   });
 });

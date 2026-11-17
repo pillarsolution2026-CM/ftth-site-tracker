@@ -1576,6 +1576,36 @@
         "BOX_TYPE_UNSET": "La forme {shape} ({count} boîtiers) n’a pas de ligne de l’ordre de travail.",
         "BOX_TYPE_LINE_MISSING": "La ligne choisie pour la forme {shape} ({count} boîtiers) n’est plus dans l’ordre de travail. Choisissez une autre ligne."
       }
+    },
+    "edit": {
+      "title": "Modifier le dessin",
+      "start": "Modifier le dessin",
+      "tools": "Outils de modification",
+      "tool": {
+        "layer": "Changer de calque",
+        "text": "Modifier le texte"
+      },
+      "pickTool": "Choisissez un outil.",
+      "pickItems": "Choisissez les éléments : cliquez sur un élément, ou tracez un cadre autour de plusieurs. Maj ou Ctrl ajoute à la sélection.",
+      "chosen": "{count} éléments choisis",
+      "newLayer": "Nouveau calque",
+      "applyLayer": "Déplacer",
+      "clearChosen": "Annuler la sélection",
+      "pickText": "Choisissez le texte à modifier.",
+      "notText": "Ce n'est pas un texte. Choisissez un texte.",
+      "newText": "Nouveau texte",
+      "applyText": "Appliquer",
+      "unsaved": "{count} modifications non enregistrées",
+      "saveCount": "Enregistrer ({count})",
+      "done": "Quitter",
+      "saving": "Enregistrement…",
+      "saveHint": "Enregistre chaque modification comme correction du dessin. Le fichier d'origine n'est pas modifié.",
+      "cancel": "Annuler",
+      "cancelHint": "Supprime toutes les modifications non enregistrées",
+      "refresh": "Actualiser les erreurs",
+      "refreshing": "Actualisation…",
+      "refreshHint": "Reconstruit le dessin avec les corrections enregistrées et vérifie à nouveau les erreurs (environ une minute).",
+      "saveFirst": "Enregistrez d'abord les modifications du dessin."
     }
   },
   "asbuilt": {

@@ -36,6 +36,8 @@ import {
   type Size,
   type ViewTransform,
 } from '../model/view-transform';
+import { previewWithEdits } from '../model/canvas-edit';
+import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
@@ -85,6 +87,8 @@ export interface DrawingViewer {
   cache: PathCache | null;
   scene: DrawingScene | null;
   tools: FixTools;
+  /** The edit mode of the canvas (ADR-047). */
+  edit: CanvasEditState;
   /** «حفر جديد» and the trench marks of a General (ADR-042). */
   trench: TrenchTool;
   /** The type text next to each box of a Secondary (ADR-043). */
@@ -113,7 +117,7 @@ export interface DrawingViewer {
   zoomBy: (sx: number, sy: number, factor: number) => void;
   fit: () => void;
   // Selection
-  click: (sx: number, sy: number) => void;
+  click: (sx: number, sy: number, additive?: boolean) => void;
   popover: ViewerPopover | null;
   closePopover: () => void;
   markerCount: number;
@@ -273,6 +277,20 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [layers, layerQuery],
   );
 
+  const edit = useCanvasEdit({
+    projectId,
+    cadFileId,
+    available: canFix && enabled,
+    scene,
+    preview,
+    layers: tools.layers,
+    isShown,
+  });
+  const shownPreview = useMemo(
+    () => (scene && preview ? previewWithEdits(scene, preview, edit.edits) : null),
+    [scene, preview, edit.edits],
+  );
+
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [custom, setCustom] = useState<ViewTransform | null>(null);
@@ -332,21 +350,25 @@ export function useDrawingViewer(input: Input): DrawingViewer {
 
   const model = useMemo<DrawModel | null>(
     () =>
-      scene && preview
+      scene && shownPreview
         ? {
             scene,
-            preview,
+            preview: shownPreview,
             layerShown: isShown,
             markers,
             highlighted,
             selected,
             trench: trenchLabels,
             boxLabels: showBoxTypes ? boxLabels : [],
+            chosen: edit.chosen,
+            band: edit.band,
           }
         : null,
     [
+      edit.chosen,
+      edit.band,
       scene,
-      preview,
+      shownPreview,
       isShown,
       markers,
       highlighted,
@@ -357,8 +379,18 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     ],
   );
 
-  const click = (sx: number, sy: number) => {
-    if (!scene || !preview) return;
+  const click = (sx: number, sy: number, additive = false) => {
+    if (!scene || !shownPreview) return;
+    if (edit.editing && edit.tool !== null) {
+      const world = toWorld(transform, size, sx, sy);
+      const hit = hitEntity(scene, world.x, world.y, ENTITY_HIT_PX / transform.scale, (index) =>
+        isShown(effectiveLayer(scene, shownPreview, index)),
+      );
+      setPopover(null);
+      setSelected(null);
+      edit.pick(hit, additive);
+      return;
+    }
     const marker = hitMarker(markers, transform, size, sx, sy, MARKER_HIT_PX);
     if (marker) {
       setSelected(null);
@@ -367,7 +399,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     }
     const world = toWorld(transform, size, sx, sy);
     const entity = hitEntity(scene, world.x, world.y, ENTITY_HIT_PX / transform.scale, (index) =>
-      isShown(effectiveLayer(scene, preview, index)),
+      isShown(effectiveLayer(scene, shownPreview, index)),
     );
     if (entity === null) {
       setSelected(null);
@@ -415,6 +447,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     cache,
     scene,
     tools,
+    edit,
     trench,
     boxTypes: {
       available: boxLabels.length > 0,

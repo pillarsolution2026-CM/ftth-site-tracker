@@ -2,12 +2,14 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type {
   CreateDesignRevisionRequest,
   CreateDrawingCorrectionRequest,
+  CreateDrawingCorrectionsRequest,
   PublishDesignRevisionRequest,
   RebuildDesignRevisionRequest,
   ReviewTextLinkRequest,
 } from '@ftth/shared';
 import {
   createCorrection,
+  createCorrections,
   createDesignRevision,
   listCorrections,
   rebuildDesignRevision,
@@ -177,6 +179,15 @@ export function useCreateCorrection(projectId: string, cadFileId: string) {
   return useMutation({
     mutationFn: (body: CreateDrawingCorrectionRequest) =>
       createCorrection(projectId, cadFileId, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: correctionsKey(projectId, cadFileId) }),
+  });
+}
+
+export function useSaveCorrections(projectId: string, cadFileId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateDrawingCorrectionsRequest) =>
+      createCorrections(projectId, cadFileId, body),
     onSuccess: () => client.invalidateQueries({ queryKey: correctionsKey(projectId, cadFileId) }),
   });
 }
