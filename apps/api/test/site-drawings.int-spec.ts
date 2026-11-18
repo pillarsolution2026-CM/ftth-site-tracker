@@ -23,6 +23,7 @@ import {
 } from './support/execution-fixtures.js';
 import { insertDrawing } from './support/drawing-fixtures.js';
 import { loginAs, SEED_LOGINS } from './support/helpers.js';
+import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 
@@ -34,17 +35,20 @@ import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 const MIGRATIONS_DIR = fileURLToPath(new URL('../src/db/migrations/', import.meta.url));
 const DXF = Buffer.from('  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n  0\nEOF\n');
 
+let testRedis: TestRedis;
 let ctx: TestContext;
 let admin: string;
 let fx: ExecutionFixture;
 
 beforeAll(async () => {
-  ctx = await createTestContext(inject('databaseUrl'));
+  testRedis = await startRedis();
+  ctx = await createTestContext(inject('databaseUrl'), { REDIS_URL: testRedis.url });
   admin = await loginAs(ctx, ...SEED_LOGINS.admin);
   fx = await createExecutionFixture(ctx);
 }, 180_000);
 afterAll(async () => {
   await ctx?.close();
+  await testRedis?.stop();
 });
 
 const http = () => request(ctx.app.getHttpServer());
@@ -530,7 +534,7 @@ describe('publishing a site', () => {
     const revision = created.body.id as string;
     expect(created.body).toMatchObject({ drawingId: up.body.drawingId, siteId });
     await q(
-      `UPDATE design_revisions SET status = 'building', build_started_at = now() WHERE id = $1`,
+      `UPDATE design_revisions SET status = 'building', build_started_at = now(), error_code = NULL, error_message = NULL WHERE id = $1`,
       [revision],
     );
     for (const [index, name] of cabinets.entries()) {
@@ -683,7 +687,7 @@ describe('publishing a site', () => {
     });
     // Site B renames the cabinet in a new version of both drawings: simulate by editing the names.
     await q(
-      `UPDATE design_features SET code = '6-6' WHERE revision_id = ANY($1) AND code = '1-2'`,
+      `UPDATE design_features SET code = '6-6' WHERE revision_id = ANY($1) AND code = '1 - 2'`,
       [[b.g.revision, b.s.revision]],
     );
     expect((await publish(s, a.g.revision)).status).toBe(200);

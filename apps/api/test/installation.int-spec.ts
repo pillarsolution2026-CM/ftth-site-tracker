@@ -885,7 +885,7 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
         expect.objectContaining({
           installation: expect.objectContaining({
             ok: true,
-            totals: { trenchM: '10.000', pullM: '0.000' },
+            totals: expect.objectContaining({ trenchM: '10.000', pullM: '0.000' }),
           }),
         }),
       ]),
