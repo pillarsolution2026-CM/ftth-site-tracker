@@ -993,6 +993,11 @@ async function handleProject(
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
+  if (resource === 'sites' && id === undefined && method === 'PUT') {
+    const body = (await readJson(req)) as { names?: string[] };
+    seededSites = (body.names ?? []).map((name) => ({ id: randomUUID(), name }));
+    return send(res, 200, { items: seededSites });
+  }
   if (resource === 'site-drawings')
     return handleSiteDrawings(req, res, method, projectId, [id, sub]);
   if (resource === 'sites' && sub === 'publish-readiness' && method === 'GET' && id) {
@@ -1330,10 +1335,16 @@ const viewState = (cadFileId: string, status: 'none' | 'queued') => ({
   renderedAt: null,
 });
 
-/** The sites of the project's work order (ADR-049), empty when it has none. */
-function projectSites() {
+/**
+ * Test-only sites of the project (ADR-049), set by PUT /projects/:p/sites. They let the drawing
+ * specs have a site without opening a work order, which other specs (the Excel import) need empty.
+ */
+let seededSites: { id: string; name: string }[] = [];
+
+/** The sites of the project's work order; the test-only ones while it has none. */
+function projectSites(): { id: string; name: string }[] {
   const order = [...workOrders.values()].find((w) => w.projectId === PROJECT_ID);
-  return order?.sites ?? [];
+  return order && order.sites.length > 0 ? order.sites : seededSites;
 }
 
 async function handleSiteDrawings(

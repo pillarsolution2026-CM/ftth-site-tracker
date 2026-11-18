@@ -104,6 +104,16 @@ function request(
 const jsonHeaders = { 'content-type': 'application/json', origin: ORIGIN };
 
 describe('upstreamPath (allow-list)', () => {
+  it('allows the drawings of a site (ADR-049 part B)', () => {
+    expect(upstreamPath([PROJECT, 'site-drawings'])).toBe(`/projects/${PROJECT}/site-drawings`);
+    expect(upstreamPath([PROJECT, 'site-drawings', 'd-1', 'assign-site'])).toBe(
+      `/projects/${PROJECT}/site-drawings/d-1/assign-site`,
+    );
+    expect(upstreamPath([PROJECT, 'sites', 's-1', 'publish-readiness'])).toBe(
+      `/projects/${PROJECT}/sites/s-1/publish-readiness`,
+    );
+  });
+
   it('allows work-orders and cad-files below a project', () => {
     expect(upstreamPath([PROJECT, 'work-orders'])).toBe(`/projects/${PROJECT}/work-orders`);
     expect(upstreamPath([PROJECT, 'cad-files', 'abc-1', 'layers'])).toBe(

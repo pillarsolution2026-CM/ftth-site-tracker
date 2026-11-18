@@ -18,33 +18,19 @@ async function openProject(page: Page, section: 'Work orders' | 'CAD files') {
 }
 
 /**
- * ADR-049 part B: a drawing belongs to a site of the work order. Opens the work order (one contract
- * line) with one site «Site A» when the project has none yet, and returns the site id.
+ * ADR-049 part B: a drawing belongs to a site. The mock keeps one test-only site «Site A» so no
+ * work order is needed (the Excel-import spec needs the project without one).
  */
 async function ensureSite(page: Page): Promise<string> {
   const headers = { origin: BASE, 'content-type': 'application/json' };
-  const list = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders`);
-  let order = ((await list.json()) as { items: { id: string }[] }).items[0];
-  if (!order) {
-    const items = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders/contract-items`);
-    const line = ((await items.json()) as { items: { contractItemId: string }[] }).items[0];
-    const created = await page.request.post(`/api/projects/${PROJECT_ID}/work-orders`, {
-      headers,
-      data: {
-        number: 'WO-SITE-1',
-        lines: [{ contractItemId: line?.contractItemId, quantity: '2' }],
-      },
-    });
-    expect(created.ok()).toBe(true);
-    order = (await created.json()) as { id: string };
-  }
-  const sites = await page.request.get(`/api/projects/${PROJECT_ID}/work-orders/${order.id}/sites`);
-  const current = (await sites.json()) as { version: number; items: { id: string }[] };
-  if (current.items[0]) return current.items[0].id;
-  const saved = await page.request.put(
-    `/api/projects/${PROJECT_ID}/work-orders/${order.id}/sites`,
-    { headers, data: { expectedVersion: current.version, sites: [{ name: 'Site A' }] } },
-  );
+  const listed = await page.request.get(`/api/projects/${PROJECT_ID}/site-drawings`);
+  expect(listed.status(), await listed.text()).toBe(200);
+  const existing = ((await listed.json()) as { sites: { siteId: string }[] }).sites[0];
+  if (existing) return existing.siteId;
+  const saved = await page.request.put(`/api/projects/${PROJECT_ID}/sites`, {
+    headers,
+    data: { names: ['Site A'] },
+  });
   expect(saved.ok()).toBe(true);
   return ((await saved.json()) as { items: { id: string }[] }).items[0]?.id as string;
 }
@@ -279,7 +265,7 @@ test('mapping to a published design revision: unit, save, build, review, publish
   // The answer was frozen by the second build: the installation row is done.
   await expect(checklist).toContainText('Installation method (pull / trench) is clear');
   // The site has no Secondary draft yet: publishing is locked and says so (ADR-049 part B).
-  await expect(checklist.getByText('❌')).toHaveCount(2);
+  await expect(checklist.getByText('❌')).toHaveCount(3);
   await expect(checklist).toContainText('Cabinets match in both drawings (name and count)');
   await expect(checklist).toContainText('Every drawing of the site is ready');
   await expect(checklist).toContainText('every draft of this site together');
@@ -380,11 +366,9 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(
     pairChecklist.getByRole('listitem').filter({ hasText: 'work-order line' }),
   ).toContainText('Done');
-  await expect(pairChecklist).toContainText('The other drawing (General (main)) is ready');
+  await expect(pairChecklist).toContainText('Every drawing of the site is ready');
   await expect(pairChecklist).toContainText('The Secondary is all trench — no question.');
-  await expect(
-    pairChecklist.getByRole('link', { name: 'Open the General (main) draft' }),
-  ).toBeVisible();
+  await expect(pairChecklist.getByRole('link', { name: 'Open the draft' })).toBeVisible();
   const pairPublish = pairChecklist.getByRole('button', { name: 'Publish the site', exact: true });
   await expect(pairPublish).toBeDisabled(); // open items of both drawings need the acknowledgement
   await pairChecklist.getByLabel(/I understand/).check();
