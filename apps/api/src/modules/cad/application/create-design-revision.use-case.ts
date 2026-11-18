@@ -59,7 +59,7 @@ export async function createRevisionInTx(
   if (file.status !== 'processed') {
     throw conflict('NOT_PROCESSED', 'The CAD file is not processed yet', { status: file.status });
   }
-  const drawing = await tx.drawings.find(projectId, file.drawingId);
+  const drawing = await tx.drawings.find(projectId, file.drawingId, { lock: true });
   if (!drawing || drawing.withdrawnAt !== null) {
     throw conflict('DRAWING_WITHDRAWN', 'The drawing was withdrawn from its site');
   }

@@ -87,6 +87,8 @@ export class AssignDrawingSiteUseCase {
       });
     }
     await this.uow.run(async (tx) => {
+      // Serialise with uploads and other assignments of the project (one General per site).
+      await tx.drawings.lockProject(projectId);
       const drawing = await tx.drawings.find(projectId, drawingId, { lock: true });
       if (!drawing) throw new AppError('NOT_FOUND', 'Drawing not found');
       if (drawing.siteId !== null || !isActive(drawing)) {
