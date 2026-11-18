@@ -314,6 +314,8 @@ describe('publish contracts', () => {
     const details = PublishBlockedDetailsSchema.parse({
       reason: 'BOX_TYPES_UNCLEAR',
       drawingKind: 'secondary',
+      drawingId: '11111111-1111-4111-8111-111111111111',
+      ordinal: 1,
       issueCount: 1,
       issues: [{ code: 'BOX_TYPE_UNSET', shape: A, boxCount: 197, workOrderLineId: null }],
     });
@@ -325,13 +327,22 @@ describe('publish contracts', () => {
 
   it('readiness defaults boxTypes to null', () => {
     const r = PublishReadinessSchema.parse({
+      siteId: null,
       checks: PUBLISH_CHECK_KEYS.map((key) => ({ key, ok: true, count: null })),
       canPublish: true,
-      drawingKind: 'general',
-      otherRevisionId: null,
       needsAcknowledgement: false,
+      drawings: [
+        {
+          drawingId: '11111111-1111-4111-8111-111111111111',
+          drawingKind: 'secondary',
+          ordinal: 1,
+          draftRevisionId: null,
+          state: 'published',
+          checks: [],
+        },
+      ],
     });
-    expect(r.boxTypes).toBeNull();
+    expect(r.drawings[0]?.boxTypes).toBeNull();
   });
 });
 

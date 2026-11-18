@@ -15,6 +15,7 @@ export * from './contracts/item-groups.js';
 export * from './contractors/contractor.schemas.js';
 export * from './cad/cad-file.schemas.js';
 export * from './cad/drawing-kind.schemas.js';
+export * from './cad/site-drawings.schemas.js';
 export * from './cad/cad-extraction.schemas.js';
 export * from './cad/cad-job.schemas.js';
 export * from './cad/drawing-units.js';

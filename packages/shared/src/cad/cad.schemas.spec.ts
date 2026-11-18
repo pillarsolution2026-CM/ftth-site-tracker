@@ -7,7 +7,12 @@ import {
   canTransition,
 } from './cad-file.schemas.js';
 import { CAD_JOB_MAX_ATTEMPTS, CadImportJobSchema, CadJobSchema } from './cad-job.schemas.js';
-import { otherDrawingKind, UploadCadFileQuerySchema } from './drawing-kind.schemas.js';
+import { otherDrawingKind } from './drawing-kind.schemas.js';
+import {
+  SiteDrawingsResponseSchema,
+  UploadCadFileQuerySchema,
+  UploadRefusedDetailsSchema,
+} from './site-drawings.schemas.js';
 
 const FILE_ID = '0b8f6a4e-3c1d-4a8e-9f7b-2d5c6e7f8a90';
 const PROJECT_ID = '1c9f7b5e-4d2e-4b9f-8a6c-3e6d7f8a9b01';
@@ -54,6 +59,9 @@ describe('CadFileSummarySchema', () => {
       sha256: 'f'.repeat(64),
       status: 'queued',
       drawingKind: 'general',
+      drawingId: '3b1c2f4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f',
+      siteId: null,
+      drawingOrdinal: 1,
       supersededAt: null,
       supersededById: null,
       uploadedById: null,
@@ -71,19 +79,73 @@ describe('CadFileSummarySchema', () => {
 });
 
 describe('drawing kinds (ADR-040)', () => {
-  it('reads the upload query: kind required, newVersion only when "true"', () => {
-    expect(UploadCadFileQuerySchema.parse({ kind: 'secondary' })).toEqual({
-      kind: 'secondary',
-      newVersion: false,
+  const SITE = '3b1c2f4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
+  const DRAWING = '4c2d3a5f-6b7c-4d8e-9fa0-1b2c3d4e5f60';
+
+  it('reads the upload query: site, kind and target are required', () => {
+    expect(
+      UploadCadFileQuerySchema.parse({ siteId: SITE, kind: 'secondary', target: 'new_drawing' }),
+    ).toEqual({ siteId: SITE, kind: 'secondary', target: 'new_drawing' });
+    expect(
+      UploadCadFileQuerySchema.parse({
+        siteId: SITE,
+        kind: 'general',
+        target: 'new_version',
+        drawingId: DRAWING,
+      }).drawingId,
+    ).toBe(DRAWING);
+    expect(UploadCadFileQuerySchema.safeParse({ kind: 'general' }).success).toBe(false);
+    expect(
+      UploadCadFileQuerySchema.safeParse({ siteId: SITE, kind: 'general', target: 'sideways' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('a new version names its drawing; a new drawing does not', () => {
+    expect(
+      UploadCadFileQuerySchema.safeParse({ siteId: SITE, kind: 'general', target: 'new_version' })
+        .success,
+    ).toBe(false);
+    expect(
+      UploadCadFileQuerySchema.safeParse({
+        siteId: SITE,
+        kind: 'general',
+        target: 'new_drawing',
+        drawingId: DRAWING,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('describes why an upload is refused', () => {
+    const refused = UploadRefusedDetailsSchema.parse({
+      reason: 'GENERAL_EXISTS',
+      siteId: SITE,
+      drawingId: DRAWING,
+      currentFileName: 'general.dwg',
     });
-    expect(UploadCadFileQuerySchema.parse({ kind: 'general', newVersion: 'true' })).toEqual({
+    expect(refused.reason).toBe('GENERAL_EXISTS');
+    expect(UploadRefusedDetailsSchema.safeParse({ reason: 'KIND_EXISTS' }).success).toBe(false);
+  });
+
+  it('lists the drawings of each site, then the unassigned ones', () => {
+    const drawing = {
+      id: DRAWING,
+      siteId: SITE,
+      siteName: 'أم شيحان',
       kind: 'general',
-      newVersion: true,
-    });
-    expect(UploadCadFileQuerySchema.safeParse({}).success).toBe(false);
-    expect(UploadCadFileQuerySchema.safeParse({ kind: 'general', newVersion: 'yes' }).success).toBe(
-      false,
-    );
+      ordinal: 1,
+      currentFileId: null,
+      currentFileName: null,
+      openRevision: null,
+      latestPublished: { id: DRAWING, revNo: 2, publishedAt: '2026-11-18T10:00:00.000Z' },
+      withdrawnAt: null,
+    };
+    expect(
+      SiteDrawingsResponseSchema.safeParse({
+        sites: [{ siteId: SITE, name: 'أم شيحان', drawings: [drawing] }],
+        unassigned: [{ ...drawing, siteId: null, siteName: null }],
+      }).success,
+    ).toBe(true);
   });
 
   it('pairs each kind with the other', () => {

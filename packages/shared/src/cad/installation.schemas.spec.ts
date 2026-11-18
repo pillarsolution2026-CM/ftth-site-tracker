@@ -286,6 +286,8 @@ describe('evaluateInstallation', () => {
       PublishBlockedDetailsSchema.safeParse({
         reason: 'INSTALLATION_UNCLEAR',
         drawingKind: 'general',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         issueCount: report.issueCount,
         issues: report.issues,
       }).success,
@@ -294,6 +296,8 @@ describe('evaluateInstallation', () => {
       PublishBlockedDetailsSchema.safeParse({
         reason: 'INSTALLATION_UNCLEAR',
         drawingKind: 'secondary',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         issueCount: 1,
         issues: [],
       }).success,

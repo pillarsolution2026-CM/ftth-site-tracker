@@ -201,6 +201,31 @@ export const PhotoRequirementSchema = z.object({
 });
 export type PhotoRequirement = z.infer<typeof PhotoRequirementSchema>;
 
+/**
+ * GET …/sync/bootstrap?drawingId= (ADR-049 part B): the drawing whose published revision and
+ * features the bundle carries. Without it the bundle carries the General published last (as
+ * before), so a device that does not know drawings keeps working.
+ */
+export const SyncBootstrapQuerySchema = z.object({ drawingId: z.uuid().optional() });
+export type SyncBootstrapQuery = z.infer<typeof SyncBootstrapQuerySchema>;
+
+/** A published drawing the supervisor may pick: site, kind, number and its latest revision. */
+export const OfflineDrawingSchema = z.object({
+  drawingId: z.uuid(),
+  /** null: a drawing not linked to a site yet («بدون موقع»), still published. */
+  siteId: z.uuid().nullable(),
+  siteName: z.string().nullable(),
+  kind: z.enum(['general', 'secondary']),
+  ordinal: z.number().int().min(1),
+  revision: z.object({
+    id: z.uuid(),
+    revNo: z.number().int().min(1),
+    publishedAt: z.iso.datetime({ offset: true }),
+    tilesAvailable: z.boolean(),
+  }),
+});
+export type OfflineDrawing = z.infer<typeof OfflineDrawingSchema>;
+
 export const OfflineBundleSchema = z.object({
   serverTime: z.iso.datetime({ offset: true }),
   project: z.object({ id: z.uuid(), name: z.string(), crsEpsg: z.number().int() }),
@@ -208,13 +233,20 @@ export const OfflineBundleSchema = z.object({
     z.object({ kind: z.literal('project') }),
     z.object({ kind: z.literal('zones'), zoneIds: z.array(z.uuid()) }),
   ]),
-  /** Latest published revision, or null when nothing is published yet. */
+  /** Every published drawing with its latest published revision (ADR-049 part B). */
+  drawings: z.array(OfflineDrawingSchema).default([]),
+  /**
+   * The picked drawing's latest published revision (`drawingId`), else the General published
+   * last; null when nothing is published yet.
+   */
   revision: z
     .object({
       id: z.uuid(),
       revNo: z.number().int().min(1),
       publishedAt: z.iso.datetime({ offset: true }),
       tilesAvailable: z.boolean(),
+      /** The drawing of `revision` (ADR-049 part B). */
+      drawingId: z.uuid().optional(),
     })
     .nullable(),
   /** Features of `revision` inside the caller's scope. */
