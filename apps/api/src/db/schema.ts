@@ -174,6 +174,8 @@ export const workOrders = pgTable(
     title: text('title'),
     issuedOn: date('issued_on', { mode: 'string' }),
     notes: text('notes'),
+    /** The work order's central (ADR-049). */
+    central: text('central'),
     currency: char('currency', { length: 3 }).notNull(),
     source: text('source').$type<'manual' | 'import'>().notNull().default('manual'),
     version: integer('version').notNull().default(1),
@@ -241,6 +243,30 @@ export const workOrderItems = pgTable(
     unique('work_order_items_project_id_id_key').on(table.projectId, table.id),
     index('work_order_items_order_code_idx').on(table.workOrderId, table.code),
     index('work_order_items_order_work_type_idx').on(table.workOrderId, table.workType),
+  ],
+);
+
+/** Sites of a work order (migration 0025, ADR-049). A site keeps its id when renamed. */
+export const workOrderSites = pgTable(
+  'work_order_sites',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    workOrderId: uuid('work_order_id').notNull(),
+    name: text('name').notNull(),
+    nameKey: text('name_key').notNull(),
+    position: integer('position').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'work_order_sites_order_fkey',
+      columns: [table.projectId, table.workOrderId],
+      foreignColumns: [workOrders.projectId, workOrders.id],
+    }).onDelete('cascade'),
+    unique('work_order_sites_project_id_id_key').on(table.projectId, table.id),
   ],
 );
 

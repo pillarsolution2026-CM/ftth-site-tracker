@@ -319,7 +319,21 @@
       "QUANTITY_BELOW_CONTRACTORS": "La quantité du poste {code} ne peut pas descendre sous celle des sous-traitants : demandé {requestedQuantity}, détenu par les sous-traitants {contractorsQuantity}.",
       "LINE_HAS_CONTRACTORS": "Cette ligne est confiée à un sous-traitant et ne peut pas être supprimée.",
       "WORK_ORDER_HAS_CONTRACTORS": "Des sous-traitants sont enregistrés sur cet ordre de travail. Retirez-les d’abord."
-    }
+    },
+    "central": "Central"
+  },
+  "sites": {
+    "title": "Sites",
+    "edit": "Modifier les sites",
+    "empty": "Aucun site pour le moment.",
+    "add": "Ajouter un site",
+    "nameOf": "Site {n}",
+    "repeated": "Ce site est en double",
+    "tooMany": "Un ordre de travail peut avoir au plus 500 sites.",
+    "uploadTable": "Importer un tableau des noms de sites (.xlsx)",
+    "uploadHint": "La première colonne contenant du texte de la première feuille est lue. Une première ligne comme « Nom du site » est ignorée. Les noms sont ajoutés à la liste et enregistrés seulement avec « Enregistrer ».",
+    "readingTable": "Lecture du tableau…",
+    "tableAdded": "{added} sites ajoutés depuis le tableau, {skipped} doublons écartés."
   },
   "items": {
     "title": "Lignes",

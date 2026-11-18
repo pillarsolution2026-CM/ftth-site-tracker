@@ -45,6 +45,7 @@ export class CreateWorkOrderUseCase {
           title: request.title,
           issuedOn: request.issuedOn,
           notes: request.notes,
+          central: request.central,
           currency,
           source: 'manual',
           items: lines,

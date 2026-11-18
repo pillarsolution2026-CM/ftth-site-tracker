@@ -83,6 +83,7 @@ export function toSummaryDto(summary: WorkOrderSummary): SummaryDto {
     number: header.number,
     title: header.title,
     issuedOn: header.issuedOn,
+    central: header.central,
     currency: header.currency,
     source: header.source,
     itemCount: summary.itemCount,

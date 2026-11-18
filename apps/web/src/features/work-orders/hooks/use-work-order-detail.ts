@@ -29,7 +29,7 @@ export function useWorkOrderDetail(projectId: string, workOrderId: string) {
   const removeOrder = useDeleteWorkOrder(projectId, workOrderId);
   const removeItem = useDeleteItem(projectId, workOrderId);
 
-  const form = useHeaderForm({ number: '', title: '', issuedOn: '', notes: '' });
+  const form = useHeaderForm({ number: '', title: '', issuedOn: '', notes: '', central: '' });
   const [editingHeader, setEditingHeader] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [itemEditor, setItemEditor] = useState<ItemEditor>(null);

@@ -2,6 +2,7 @@ import type { AttachmentKind, ItemGroup } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { ApprovedContract, Reservations } from './contract-lines.js';
 import type { Decimal } from './decimal.js';
+import type { SiteReplacement, WorkOrderSite } from './work-order-site.js';
 import type { HeaderPatch, WorkOrder, WorkOrderHeader, WorkOrderItem } from './work-order.js';
 
 export interface WorkOrderSummary {
@@ -103,9 +104,18 @@ export interface ContractorHoldings {
   registrationCount(workOrderId: string): Promise<number>;
 }
 
+/** Sites of a work order (ADR-049). Every method filters by `projectId` (IDOR defence). */
+export interface WorkOrderSiteRepository {
+  /** In list order. */
+  list(projectId: string, workOrderId: string): Promise<WorkOrderSite[]>;
+  /** Applies the plan (removals, updates, inserts) in the current transaction. */
+  apply(projectId: string, workOrderId: string, plan: SiteReplacement): Promise<void>;
+}
+
 /** Repositories and event log bound to one database transaction. */
 export interface WorkOrderTx {
   orders: WorkOrderRepository;
+  sites: WorkOrderSiteRepository;
   attachments: WorkOrderAttachmentRepository;
   contracts: ContractCatalog;
   contractors: ContractorHoldings;

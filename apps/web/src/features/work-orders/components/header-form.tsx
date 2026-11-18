@@ -84,6 +84,13 @@ export function HeaderFormView({
         />
       </div>
       <Input
+        id={`${idPrefix}-central`}
+        label={t('workOrders.central')}
+        value={values.central}
+        onChange={onChange('central')}
+        error={err('central')}
+      />
+      <Input
         id={`${idPrefix}-title`}
         label={t('workOrders.title')}
         value={values.title}

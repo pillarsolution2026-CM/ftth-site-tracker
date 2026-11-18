@@ -25,6 +25,7 @@ export class UpdateWorkOrderUseCase {
         ...(request.title !== undefined ? { title: request.title } : {}),
         ...(request.issuedOn !== undefined ? { issuedOn: request.issuedOn } : {}),
         ...(request.notes !== undefined ? { notes: request.notes } : {}),
+        ...(request.central !== undefined ? { central: request.central } : {}),
       };
       const updated = await tx.orders.updateHeader(projectId, workOrderId, patch);
       const { header } = order;
@@ -34,6 +35,7 @@ export class UpdateWorkOrderUseCase {
           title: header.title,
           issuedOn: header.issuedOn,
           notes: header.notes,
+          central: header.central,
         },
         { ...patch },
       );

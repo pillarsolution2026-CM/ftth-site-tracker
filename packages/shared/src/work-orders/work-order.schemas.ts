@@ -36,6 +36,8 @@ export const WorkOrderHeaderInputSchema = z.object({
   /** Calendar date `YYYY-MM-DD` printed on the work order. */
   issuedOn: z.iso.date().nullable().optional(),
   notes: optionalText(4000),
+  /** The work order's central (سنترال), one per work order (ADR-049). */
+  central: optionalText(200),
 });
 export type WorkOrderHeaderInput = z.infer<typeof WorkOrderHeaderInputSchema>;
 
@@ -119,7 +121,8 @@ export const UpdateWorkOrderRequestSchema = WorkOrderHeaderInputSchema.partial()
       request.number !== undefined ||
       request.title !== undefined ||
       request.issuedOn !== undefined ||
-      request.notes !== undefined,
+      request.notes !== undefined ||
+      request.central !== undefined,
     { message: 'Nothing to update' },
   );
 export type UpdateWorkOrderRequest = z.infer<typeof UpdateWorkOrderRequestSchema>;
@@ -255,6 +258,8 @@ export const WorkOrderSummarySchema = z.object({
   number: z.string(),
   title: z.string().nullable(),
   issuedOn: z.iso.date().nullable(),
+  /** The work order's central (ADR-049); null when not entered. */
+  central: z.string().nullable(),
   /** Copied from the project when the work order is created. */
   currency: CurrencyCodeSchema,
   source: WorkOrderSourceSchema,

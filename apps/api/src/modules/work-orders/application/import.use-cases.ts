@@ -208,6 +208,7 @@ export class CommitImportUseCase {
         title: payload.workOrder.title,
         issuedOn: payload.workOrder.issuedOn,
         notes: payload.workOrder.notes,
+        central: payload.workOrder.central,
         currency,
         source: 'import',
         items: lines,

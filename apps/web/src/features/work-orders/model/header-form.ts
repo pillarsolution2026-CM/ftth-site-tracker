@@ -6,6 +6,8 @@ export interface HeaderFormValues {
   title: string;
   issuedOn: string;
   notes: string;
+  /** The work order's central (ADR-049). */
+  central: string;
 }
 
 export type HeaderFormErrors = Partial<Record<keyof HeaderFormValues, MessageKey>>;
@@ -15,16 +17,18 @@ export const EMPTY_HEADER_FORM: HeaderFormValues = {
   title: '',
   issuedOn: '',
   notes: '',
+  central: '',
 };
 
 export function headerToFormValues(
-  workOrder: Pick<WorkOrderDetail, 'number' | 'title' | 'issuedOn' | 'notes'>,
+  workOrder: Pick<WorkOrderDetail, 'number' | 'title' | 'issuedOn' | 'notes' | 'central'>,
 ): HeaderFormValues {
   return {
     number: workOrder.number,
     title: workOrder.title ?? '',
     issuedOn: workOrder.issuedOn ?? '',
     notes: workOrder.notes ?? '',
+    central: workOrder.central ?? '',
   };
 }
 
@@ -35,6 +39,7 @@ export function validateHeader(values: HeaderFormValues): HeaderFormErrors {
   else if (number.length > 64) errors.number = 'validation.tooLong';
   if (values.title.trim().length > 200) errors.title = 'validation.tooLong';
   if (values.notes.trim().length > 4000) errors.notes = 'validation.tooLong';
+  if (values.central.trim().length > 200) errors.central = 'validation.tooLong';
   if (values.issuedOn !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(values.issuedOn)) {
     errors.issuedOn = 'validation.date';
   }
@@ -49,6 +54,7 @@ export function headerPayload(values: HeaderFormValues) {
     title: orNull(values.title),
     issuedOn: values.issuedOn === '' ? null : values.issuedOn,
     notes: orNull(values.notes),
+    central: orNull(values.central),
   };
 }
 
@@ -63,6 +69,7 @@ export function headerChanges(
   if (next.title !== current.title) changes.title = next.title;
   if (next.issuedOn !== current.issuedOn) changes.issuedOn = next.issuedOn;
   if (next.notes !== current.notes) changes.notes = next.notes;
+  if (next.central !== current.central) changes.central = next.central;
   return Object.keys(changes).length === 0
     ? null
     : { ...changes, expectedVersion: current.version };

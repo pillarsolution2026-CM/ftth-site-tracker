@@ -4,6 +4,7 @@ import type { WorkOrderTx, WorkOrderUnitOfWork } from '../domain/work-order.repo
 import { DrizzleContractCatalog } from './drizzle-contract-catalog.js';
 import { DrizzleContractorHoldings } from './drizzle-contractor-holdings.js';
 import { DrizzleWorkOrderAttachmentRepository } from './drizzle-work-order-attachment.repository.js';
+import { DrizzleWorkOrderSiteRepository } from './drizzle-work-order-site.repository.js';
 import { DrizzleWorkOrderRepository } from './drizzle-work-order.repository.js';
 
 /** One database transaction: repositories and the event log share it, so state and event commit together. */
@@ -14,6 +15,7 @@ export class DrizzleWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
     return this.db.transaction((tx) =>
       work({
         orders: new DrizzleWorkOrderRepository(tx),
+        sites: new DrizzleWorkOrderSiteRepository(tx),
         attachments: new DrizzleWorkOrderAttachmentRepository(tx),
         contracts: new DrizzleContractCatalog(tx),
         contractors: new DrizzleContractorHoldings(tx),

@@ -153,6 +153,7 @@ describe('WorkOrderSummarySchema', () => {
       number: 'WO-1',
       title: null,
       issuedOn: null,
+      central: null,
       currency: 'EGP',
       source: 'manual',
       itemCount: 1,

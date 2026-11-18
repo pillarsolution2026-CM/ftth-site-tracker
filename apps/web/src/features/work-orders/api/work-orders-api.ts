@@ -8,7 +8,12 @@ import {
   WorkOrderDetailSchema,
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
+  ReplaceWorkOrderSitesRequestSchema,
+  WorkOrderSiteListResponseSchema,
+  WorkOrderSitesPreviewResponseSchema,
   type ContractItemAvailabilityResponse,
+  type WorkOrderSiteListResponse,
+  type WorkOrderSitesPreviewResponse,
   type WorkOrderAttachment,
   type WorkOrderDetail,
   type WorkOrderItem,
@@ -27,6 +32,7 @@ export type CreateInput = z.input<typeof CreateWorkOrderRequestSchema>;
 export type UpdateInput = z.input<typeof UpdateWorkOrderRequestSchema>;
 export type AddItemInput = z.input<typeof AddWorkOrderItemRequestSchema>;
 export type UpdateItemInput = z.input<typeof UpdateWorkOrderItemRequestSchema>;
+export type ReplaceSitesInput = z.input<typeof ReplaceWorkOrderSitesRequestSchema>;
 
 const root = (projectId: string) => projectApiPath(projectId, '/work-orders');
 const one = (projectId: string, id: string) => `${root(projectId)}/${encodeURIComponent(id)}`;
@@ -129,4 +135,38 @@ export function attachmentContentUrl(
   attachmentId: string,
 ): string {
   return `${one(projectId, workOrderId)}/attachments/${encodeURIComponent(attachmentId)}/content`;
+}
+
+/** Sites of the work order (ADR-049). */
+export function getSites(
+  projectId: string,
+  workOrderId: string,
+): Promise<WorkOrderSiteListResponse> {
+  return bffJson(`${one(projectId, workOrderId)}/sites`, WorkOrderSiteListResponseSchema);
+}
+
+export function replaceSites(
+  projectId: string,
+  workOrderId: string,
+  body: ReplaceSitesInput,
+): Promise<WorkOrderSiteListResponse> {
+  return bffJson(`${one(projectId, workOrderId)}/sites`, WorkOrderSiteListResponseSchema, {
+    method: 'PUT',
+    body: ReplaceWorkOrderSitesRequestSchema.parse(body),
+  });
+}
+
+/** Reads the names of a sites table (.xlsx); nothing is saved. */
+export function previewSitesTable(
+  projectId: string,
+  workOrderId: string,
+  file: File,
+): Promise<WorkOrderSitesPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return bffUpload(
+    `${one(projectId, workOrderId)}/sites/preview`,
+    form,
+    WorkOrderSitesPreviewResponseSchema,
+  );
 }

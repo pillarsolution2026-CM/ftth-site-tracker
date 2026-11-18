@@ -34,6 +34,8 @@ export const EVENT_TYPES = {
   /** Created by an Excel import; payload includes file sha256, sheet, mapping, row counts. */
   workOrderImported: 'work_order.imported',
   workOrderUpdated: 'work_order.updated',
+  /** Sites of the work order replaced (ADR-049); payload: before and after names with ids. */
+  workOrderSitesChanged: 'work_order.sites_changed',
   /** Payload is a full snapshot of the header and items (the rows are hard-deleted). */
   workOrderDeleted: 'work_order.deleted',
   workOrderItemAdded: 'work_order_item.added',

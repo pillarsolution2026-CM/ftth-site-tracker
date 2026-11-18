@@ -13,6 +13,7 @@ import type {
   WorkOrderAttachment,
   WorkOrderAttachmentRepository,
   WorkOrderRepository,
+  WorkOrderSiteRepository,
   WorkOrderSummary,
   WorkOrderTx,
   WorkOrderUnitOfWork,
@@ -20,6 +21,7 @@ import type {
 import { reservedOf, type ApprovedContract, type Reservations } from '../domain/contract-lines.js';
 import { Decimal, sumDecimals } from '../domain/decimal.js';
 import { itemAmount } from '../domain/work-order.js';
+import type { SiteReplacement, WorkOrderSite } from '../domain/work-order-site.js';
 
 export class InMemoryEvents implements EventLog {
   readonly events: DomainEventInput[] = [];
@@ -205,9 +207,20 @@ export class InMemoryAttachments implements WorkOrderAttachmentRepository {
   }
 }
 
+export class InMemoryWorkOrderSites implements WorkOrderSiteRepository {
+  readonly byOrder = new Map<string, WorkOrderSite[]>();
+  async list(_projectId: string, workOrderId: string): Promise<WorkOrderSite[]> {
+    return [...(this.byOrder.get(workOrderId) ?? [])];
+  }
+  async apply(_projectId: string, workOrderId: string, plan: SiteReplacement): Promise<void> {
+    this.byOrder.set(workOrderId, [...plan.sites]);
+  }
+}
+
 /** Not transactional; `failOnCommit` simulates a transaction that fails after the work was done. */
 export class InMemoryWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
   readonly orders = new InMemoryWorkOrders();
+  readonly sites = new InMemoryWorkOrderSites();
   readonly attachments = new InMemoryAttachments();
   readonly contracts: InMemoryContractCatalog;
   readonly contractors = new InMemoryContractorHoldings();
@@ -221,6 +234,7 @@ export class InMemoryWorkOrderUnitOfWork implements WorkOrderUnitOfWork {
   async run<T>(work: (tx: WorkOrderTx) => Promise<T>): Promise<T> {
     const result = await work({
       orders: this.orders,
+      sites: this.sites,
       attachments: this.attachments,
       contracts: this.contracts,
       contractors: this.contractors,
