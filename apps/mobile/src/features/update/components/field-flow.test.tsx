@@ -36,6 +36,7 @@ const bundle: OfflineBundle = {
   serverTime: '2026-10-30T08:00:00.000Z',
   project: { id: PROJECT, name: 'قليوب', crsEpsg: 32636 },
   scope: { kind: 'zones', zoneIds: ['00000000-0000-4000-8000-0000000000a5'] },
+  drawings: [],
   revision: {
     id: REVISION,
     revNo: 1,

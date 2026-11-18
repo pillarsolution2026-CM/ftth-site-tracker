@@ -2111,5 +2111,17 @@
       "general": "Principal",
       "secondary": "Secondaire"
     }
+  },
+  "mobileSites": {
+    "pick": "Site et plan",
+    "chooseSite": "Choisir le site",
+    "chooseDrawing": "Choisir le plan",
+    "noSite": "Sans site",
+    "general": "Général (principal)",
+    "secondary": "Secondaire {n}",
+    "onPhone": "Sur le téléphone (révision {revNo})",
+    "onPhoneOld": "Sur le téléphone (révision {revNo}) - révision plus récente {latest} disponible",
+    "notOnPhone": "Non téléchargé - téléchargé au choix",
+    "empty": "Aucun plan n'est encore publié pour ce projet."
   }
 }

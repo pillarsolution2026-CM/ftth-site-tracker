@@ -2111,5 +2111,17 @@
       "general": "Main",
       "secondary": "Secondary"
     }
+  },
+  "mobileSites": {
+    "pick": "Site and drawing",
+    "chooseSite": "Choose the site",
+    "chooseDrawing": "Choose the drawing",
+    "noSite": "No site",
+    "general": "General (main)",
+    "secondary": "Secondary {n}",
+    "onPhone": "On the phone (revision {revNo})",
+    "onPhoneOld": "On the phone (revision {revNo}) - newer revision {latest} available",
+    "notOnPhone": "Not downloaded - downloads when chosen",
+    "empty": "No drawings are published for this project yet."
   }
 }

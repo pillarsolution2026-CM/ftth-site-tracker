@@ -27,6 +27,7 @@ import {
   type Viewport,
 } from '../model/viewport';
 import { CadCanvas } from './CadCanvas';
+import { DrawingPicker } from '../../sync/components/DrawingPicker';
 
 interface CadScreenProps {
   onUpdate: (featureId: string) => void;
@@ -41,7 +42,9 @@ interface CadScreenProps {
 export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: CadScreenProps) {
   const { t } = useI18n();
   const theme = useTheme();
-  const { bundle, bundleStatus, download, entries } = useField();
+  const { bundle, bundleStatus, download, entries, drawings, downloadedDrawings, selectDrawing } =
+    useField();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [viewport, setViewport] = useState<Viewport | null>(null);
@@ -111,6 +114,13 @@ export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: 
             ? t('field.revision', { revNo: ltr(bundle.revision.revNo) })
             : t('field.noRevision')}
         </Text>
+        {drawings.length > 0 ? (
+          <ToolButton
+            label={t('mobileSites.pick')}
+            onPress={() => setPickerOpen((open) => !open)}
+            testID="drawing-picker-toggle"
+          />
+        ) : null}
         <ToolButton
           label={t('field.cad.layers')}
           onPress={() => setLayersOpen((open) => !open)}
@@ -130,6 +140,17 @@ export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: 
           />
         ) : null}
       </View>
+      {pickerOpen && drawings.length > 0 ? (
+        <DrawingPicker
+          drawings={drawings}
+          downloaded={downloadedDrawings}
+          currentDrawingId={bundle.revision?.drawingId ?? null}
+          busy={bundleStatus === 'downloading'}
+          onSelect={(drawing) => {
+            void selectDrawing(drawing).then(() => setPickerOpen(false));
+          }}
+        />
+      ) : null}
       {layersOpen ? (
         <View style={[styles.layers, { backgroundColor: theme.background }]} testID="layers-panel">
           {FEATURE_TYPES.map((type) => {
