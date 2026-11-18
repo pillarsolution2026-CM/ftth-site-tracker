@@ -107,7 +107,10 @@ export class DrizzleCadFileRepository implements CadFileRepository {
       .from(cadFiles)
       .innerJoin(
         siteDrawings,
-        and(eq(siteDrawings.projectId, cadFiles.projectId), eq(siteDrawings.id, cadFiles.drawingId)),
+        and(
+          eq(siteDrawings.projectId, cadFiles.projectId),
+          eq(siteDrawings.id, cadFiles.drawingId),
+        ),
       );
   }
 

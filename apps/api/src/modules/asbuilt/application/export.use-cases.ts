@@ -99,7 +99,12 @@ export class RequestAsBuiltExportUseCase {
         entityId: exportId,
         type: EVENT_TYPES.asBuiltExportRequested,
         actorId: input.actorId,
-        payload: { revisionId: revision.id, revNo: revision.revNo, jobId, siteId: input.siteId ?? null },
+        payload: {
+          revisionId: revision.id,
+          revNo: revision.revNo,
+          jobId,
+          siteId: input.siteId ?? null,
+        },
       });
     });
   }

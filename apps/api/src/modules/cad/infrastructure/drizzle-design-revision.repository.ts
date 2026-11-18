@@ -211,7 +211,10 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
         .limit(1);
       const revisionId = draft?.id ?? (await this.findLatestPublishedId(projectId, general.id));
       if (revisionId === null) continue;
-      out.push({ siteId: general.siteId, names: await this.subCabinetCodes(projectId, revisionId) });
+      out.push({
+        siteId: general.siteId,
+        names: await this.subCabinetCodes(projectId, revisionId),
+      });
     }
     return out;
   }

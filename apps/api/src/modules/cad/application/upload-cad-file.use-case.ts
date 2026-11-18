@@ -236,9 +236,7 @@ export class UploadCadFileUseCase {
         kind,
         drawingId,
       );
-      const current = lock
-        ? await tx.files.lockCurrentOfDrawing(projectId, drawing.id)
-        : [];
+      const current = lock ? await tx.files.lockCurrentOfDrawing(projectId, drawing.id) : [];
       return { drawing, created: false, current };
     }
     if (lock) await tx.drawings.lockProject(projectId);

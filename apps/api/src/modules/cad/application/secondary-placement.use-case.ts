@@ -75,7 +75,9 @@ export class GetSecondaryPlacementSuggestionUseCase {
       // latest built revision. A drawing not linked to a site has none.
       if (file.siteId === null) throw refuse('GENERAL_NOT_BUILT');
       const siteDrawings = await tx.drawings.listOfSite(projectId, file.siteId);
-      const generalDrawing = siteDrawings.find((d) => d.kind === 'general' && d.withdrawnAt === null);
+      const generalDrawing = siteDrawings.find(
+        (d) => d.kind === 'general' && d.withdrawnAt === null,
+      );
       if (!generalDrawing) throw refuse('GENERAL_NOT_BUILT');
       const generalFile = await tx.files.findCurrentOfDrawing(projectId, generalDrawing.id);
       if (!generalFile) throw refuse('GENERAL_NOT_BUILT');

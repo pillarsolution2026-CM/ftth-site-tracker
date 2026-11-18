@@ -324,7 +324,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
     siteIds: string[],
   ): Promise<{ siteId: string; names: (string | null)[] }[]> {
     const out: { siteId: string; names: (string | null)[] }[] = [];
-    for (const drawing of this.drawings?.rows.values() ?? []) {
+    for (const drawing of this.drawings?.all(projectId) ?? []) {
       if (
         drawing.projectId !== projectId ||
         drawing.kind !== 'general' ||
@@ -338,7 +338,10 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       const revision =
         open?.status === 'draft' ? open : await this.findLatestPublished(projectId, drawing.id);
       if (revision) {
-        out.push({ siteId: drawing.siteId, names: await this.subCabinetCodes(projectId, revision.id) });
+        out.push({
+          siteId: drawing.siteId,
+          names: await this.subCabinetCodes(projectId, revision.id),
+        });
       }
     }
     return out;
@@ -363,8 +366,8 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       cadFileId: revision.cadFileId,
       drawingKind: revision.drawingKind,
       drawingId: revision.drawingId,
-      siteId: this.drawings?.rows.get(revision.drawingId)?.siteId ?? null,
-      drawingOrdinal: this.drawings?.rows.get(revision.drawingId)?.ordinal ?? 1,
+      siteId: this.drawings?.peek(revision.projectId, revision.drawingId)?.siteId ?? null,
+      drawingOrdinal: this.drawings?.peek(revision.projectId, revision.drawingId)?.ordinal ?? 1,
       cadFileName: this.fileNames.get(revision.cadFileId) ?? 'plan.dxf',
       revNo: null,
       status: 'queued',
@@ -430,7 +433,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
           .filter(
             (other) =>
               other.projectId === projectId &&
-              this.drawings?.rows.get(other.drawingId)?.siteId === siteId,
+              this.drawings?.peek(projectId, other.drawingId)?.siteId === siteId,
           )
           .map((other) => other.revNo ?? 0),
       ) + 1;
@@ -835,14 +838,40 @@ export class InMemorySiteDrawings implements SiteDrawingRepository {
     private readonly revisions: InMemoryDesignRevisions,
   ) {}
 
+  /**
+   * Every drawing of the project: the stored rows, plus one implied by each file whose drawing was
+   * never stored (spec fixtures create files only; the database has the row by its foreign key).
+   */
+  all(projectId: string): SiteDrawingRecord[] {
+    const out = new Map<string, SiteDrawingRecord>();
+    for (const row of this.rows.values()) if (row.projectId === projectId) out.set(row.id, row);
+    for (const file of this.files.rows.values()) {
+      if (file.projectId !== projectId || out.has(file.drawingId)) continue;
+      out.set(file.drawingId, {
+        id: file.drawingId,
+        projectId,
+        siteId: file.siteId,
+        kind: file.drawingKind,
+        ordinal: file.drawingOrdinal,
+        withdrawnAt: null,
+        withdrawnById: null,
+        createdById: file.uploadedById,
+        createdAt: file.createdAt,
+      });
+    }
+    return [...out.values()];
+  }
+  peek(projectId: string, drawingId: string): SiteDrawingRecord | null {
+    return this.all(projectId).find((row) => row.id === drawingId) ?? null;
+  }
   async find(projectId: string, drawingId: string): Promise<SiteDrawingRecord | null> {
-    const row = this.rows.get(drawingId);
-    return row?.projectId === projectId ? { ...row } : null;
+    const row = this.peek(projectId, drawingId);
+    return row ? { ...row } : null;
   }
   async listOfSite(projectId: string, siteId: string): Promise<SiteDrawingRecord[]> {
     return sortDrawings(
-      [...this.rows.values()]
-        .filter((row) => row.projectId === projectId && row.siteId === siteId)
+      this.all(projectId)
+        .filter((row) => row.siteId === siteId)
         .map((row) => ({ ...row })),
     );
   }
@@ -851,8 +880,8 @@ export class InMemorySiteDrawings implements SiteDrawingRepository {
   }
   async listWithState(projectId: string): Promise<SiteDrawingState[]> {
     const states: SiteDrawingState[] = [];
-    for (const row of this.rows.values()) {
-      if (row.projectId !== projectId || row.withdrawnAt !== null) continue;
+    for (const row of this.all(projectId)) {
+      if (row.withdrawnAt !== null) continue;
       const file = await this.files.findCurrentOfDrawing(projectId, row.id);
       const open = await this.revisions.findOpen(projectId, row.id);
       const published = await this.revisions.findLatestPublished(projectId, row.id);
@@ -879,13 +908,13 @@ export class InMemorySiteDrawings implements SiteDrawingRepository {
     siteId: string,
     ordinal: number,
   ): Promise<void> {
-    const row = this.rows.get(drawingId);
-    if (row?.projectId !== projectId) return;
+    const row = this.peek(projectId, drawingId);
+    if (!row) return;
     this.rows.set(drawingId, { ...row, siteId, ordinal });
   }
   async withdraw(projectId: string, drawingId: string, actorId: string, at: Date): Promise<void> {
-    const row = this.rows.get(drawingId);
-    if (row?.projectId !== projectId) return;
+    const row = this.peek(projectId, drawingId);
+    if (!row) return;
     const published = await this.revisions.findLatestPublished(projectId, drawingId);
     if (published) throw new AppError('CONFLICT', 'published', { reason: 'DRAWING_PUBLISHED' });
     this.rows.set(drawingId, { ...row, withdrawnAt: at, withdrawnById: actorId });

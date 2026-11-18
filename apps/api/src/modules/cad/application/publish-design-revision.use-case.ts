@@ -173,11 +173,17 @@ export class GetPublishReadinessUseCase {
           ],
           otherSites: [],
         };
-        return { ...siteReadiness(unassigned, this.flow, requested), siteId: null, canPublish: false };
+        return {
+          ...siteReadiness(unassigned, this.flow, requested),
+          siteId: null,
+          canPublish: false,
+        };
       }
       const drawings = await tx.drawings.listOfSite(projectId, revision.siteId);
       const facts = await loadSiteFacts(tx, deps, projectId, revision.siteId, drawings);
-      return siteReadiness(facts, this.flow, requested);
+      const readiness = siteReadiness(facts, this.flow, requested);
+      // Asked from a revision that is not a draft any more: nothing to publish from there.
+      return revision.status === 'draft' ? readiness : { ...readiness, canPublish: false };
     });
   }
 }
@@ -201,7 +207,11 @@ export class GetSitePublishReadinessUseCase {
         flow: this.flow,
       };
       const drawings = await tx.drawings.listOfSite(projectId, siteId);
-      return siteReadiness(await loadSiteFacts(tx, deps, projectId, siteId, drawings), this.flow, null);
+      return siteReadiness(
+        await loadSiteFacts(tx, deps, projectId, siteId, drawings),
+        this.flow,
+        null,
+      );
     });
   }
 }
