@@ -159,15 +159,13 @@ describe('work-order sites (ADR-049)', () => {
   it('saving the same list changes nothing and records no event', async () => {
     const { projectId, workOrderId } = await workOrder();
     const url = sitesUrl(projectId, workOrderId);
+    const version = await versionOf(projectId, workOrderId);
     const first = WorkOrderSiteListResponseSchema.parse(
       (
         await http()
           .put(url)
           .set('Authorization', `Bearer ${pm}`)
-          .send({
-            expectedVersion: await versionOf(projectId, workOrderId),
-            sites: [{ name: 'x' }],
-          })
+          .send({ expectedVersion: version, sites: [{ name: 'x' }] })
           .expect(200)
       ).body,
     );
@@ -203,15 +201,13 @@ describe('work-order sites (ADR-049)', () => {
       .set('Authorization', `Bearer ${pm}`)
       .send({ expectedVersion: version + 5, sites: [{ name: 'x' }] })
       .expect(409);
+    const otherVersion = await versionOf(other.projectId, other.workOrderId);
     const foreign = WorkOrderSiteListResponseSchema.parse(
       (
         await http()
           .put(sitesUrl(other.projectId, other.workOrderId))
           .set('Authorization', `Bearer ${admin}`)
-          .send({
-            expectedVersion: await versionOf(other.projectId, other.workOrderId),
-            sites: [{ name: 'y' }],
-          })
+          .send({ expectedVersion: otherVersion, sites: [{ name: 'y' }] })
           .expect(200)
       ).body,
     );
@@ -273,10 +269,11 @@ describe('work-order sites (ADR-049)', () => {
 
   it('removes the sites with their work order', async () => {
     const { projectId, workOrderId } = await workOrder();
+    const version = await versionOf(projectId, workOrderId);
     await http()
       .put(sitesUrl(projectId, workOrderId))
       .set('Authorization', `Bearer ${pm}`)
-      .send({ expectedVersion: await versionOf(projectId, workOrderId), sites: [{ name: 'z' }] })
+      .send({ expectedVersion: version, sites: [{ name: 'z' }] })
       .expect(200);
     await http()
       .delete(`/projects/${projectId}/work-orders/${workOrderId}`)
