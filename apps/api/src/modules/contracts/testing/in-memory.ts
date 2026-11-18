@@ -1,3 +1,4 @@
+import type { ManualItemGroup } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { DomainEventInput, EventLog } from '../../../common/event-log.port.js';
 import { sumDecimals } from '../../work-orders/domain/decimal.js';
@@ -11,10 +12,12 @@ import {
 import type {
   ContractAttachment,
   ContractAttachmentRepository,
+  ContractItemGroupRepository,
   ContractRepository,
   ContractSummaryRow,
   ContractTx,
   ContractUnitOfWork,
+  ItemGroupChoice,
 } from '../domain/contract.repository.js';
 
 export class InMemoryEvents implements EventLog {
@@ -69,6 +72,9 @@ export class InMemoryContracts implements ContractRepository {
     };
     this.rows.set(contractId, new Contract(header, contract.lines));
   }
+  async bumpVersion(contractId: string): Promise<void> {
+    this.change(contractId, (lines) => [...lines]);
+  }
   async insertLine(contractId: string, line: ContractLine): Promise<void> {
     this.change(contractId, (lines) => [...lines, line]);
   }
@@ -114,10 +120,25 @@ export class InMemoryContractAttachments implements ContractAttachmentRepository
   }
 }
 
+export class InMemoryItemGroups implements ContractItemGroupRepository {
+  readonly rows: ItemGroupChoice[] = [];
+  async latestByContract(contractId: string): Promise<Map<string, ManualItemGroup>> {
+    const latest = new Map<string, ManualItemGroup>();
+    for (const row of this.rows) {
+      if (row.contractId === contractId) latest.set(row.contractItemId, { group: row.group });
+    }
+    return latest;
+  }
+  async insert(choice: ItemGroupChoice): Promise<void> {
+    this.rows.push(choice);
+  }
+}
+
 /** Not transactional; `failOnCommit` simulates a transaction that fails after the work was done. */
 export class InMemoryContractUnitOfWork implements ContractUnitOfWork {
   readonly contracts = new InMemoryContracts();
   readonly attachments = new InMemoryContractAttachments();
+  readonly itemGroups = new InMemoryItemGroups();
   readonly events = new InMemoryEvents();
   failOnCommit: Error | null = null;
 
@@ -125,6 +146,7 @@ export class InMemoryContractUnitOfWork implements ContractUnitOfWork {
     const result = await work({
       contracts: this.contracts,
       attachments: this.attachments,
+      itemGroups: this.itemGroups,
       events: this.events,
     });
     if (this.failOnCommit) throw this.failOnCommit;

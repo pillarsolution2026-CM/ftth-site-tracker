@@ -5,6 +5,7 @@ import {
   ContractDetailSchema,
   ContractListResponseSchema,
   CreateContractRequestSchema,
+  SetItemGroupRequestSchema,
   UpdateContractItemRequestSchema,
   UpdateContractRequestSchema,
   type ContractAttachment,
@@ -23,6 +24,7 @@ import {
 export type CreateContractInput = z.input<typeof CreateContractRequestSchema>;
 export type UpdateContractInput = z.input<typeof UpdateContractRequestSchema>;
 export type AddContractItemInput = z.input<typeof AddContractItemRequestSchema>;
+export type SetItemGroupInput = z.input<typeof SetItemGroupRequestSchema>;
 export type UpdateContractItemInput = z.input<typeof UpdateContractItemRequestSchema>;
 
 /** Platform-admin endpoints through the BFF (`/api/admin/contracts/...`). */
@@ -78,6 +80,19 @@ export function updateContractItem(
     method: 'PATCH',
     body: UpdateContractItemRequestSchema.parse(body),
   });
+}
+
+/** Admin only; allowed for draft and approved contracts. `main: null` goes back to the rule. */
+export function setContractItemGroup(
+  contractId: string,
+  itemId: string,
+  body: SetItemGroupInput,
+): Promise<ContractDetail> {
+  return bffJson(
+    `${one(contractId)}/items/${encodeURIComponent(itemId)}/group`,
+    ContractDetailSchema,
+    { method: 'PUT', body: SetItemGroupRequestSchema.parse(body) },
+  );
 }
 
 export function removeContractItem(

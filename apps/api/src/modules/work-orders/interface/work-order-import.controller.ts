@@ -29,6 +29,7 @@ import {
   CommitImportUseCase,
   PreviewWorkOrderImportUseCase,
 } from '../application/import.use-cases.js';
+import { ResolveItemGroupsUseCase } from '../application/item-groups.use-case.js';
 import { toDetailDto } from './work-order.presenter.js';
 
 /** Multipart: field `file` (.xlsx) and field `payload` (JSON text). The xlsx is parsed in memory. */
@@ -41,6 +42,7 @@ export class WorkOrderImportController {
   constructor(
     @Inject(PreviewWorkOrderImportUseCase) private readonly preview: PreviewWorkOrderImportUseCase,
     @Inject(CommitImportUseCase) private readonly commit: CommitImportUseCase,
+    @Inject(ResolveItemGroupsUseCase) private readonly groups: ResolveItemGroupsUseCase,
     @Inject(APP_ENV) private readonly env: ApiEnv,
   ) {}
 
@@ -72,6 +74,6 @@ export class WorkOrderImportController {
       file: upload.file,
       payload,
     });
-    return toDetailDto(view);
+    return toDetailDto(view, await this.groups.execute(view.order.items));
   }
 }

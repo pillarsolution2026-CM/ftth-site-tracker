@@ -1,9 +1,11 @@
+import type { ManualItemGroup } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { GetProjectUseCase } from '../../projects/application/get-project.use-case.js';
 import type { Contract } from '../domain/contract.js';
 import type {
   ContractAttachment,
   ContractAttachmentRepository,
+  ContractItemGroupRepository,
   ContractRepository,
   ContractSummaryRow,
   ContractTx,
@@ -13,6 +15,8 @@ export interface ContractView {
   contract: Contract;
   attachments: ContractAttachment[];
   projectCount: number;
+  /** The admin's latest group choice of each item that has one (ADR-048). */
+  manualGroups: ReadonlyMap<string, ManualItemGroup>;
 }
 
 /** Reads the contract with its attachments inside a transaction (after a write). */
@@ -23,6 +27,7 @@ export async function viewInTx(tx: ContractTx, contractId: string): Promise<Cont
     contract,
     attachments: await tx.attachments.listByContract(contractId),
     projectCount: await tx.contracts.projectCount(contractId),
+    manualGroups: await tx.itemGroups.latestByContract(contractId),
   };
 }
 
@@ -38,6 +43,7 @@ export class GetContractUseCase {
   constructor(
     private readonly contracts: ContractRepository,
     private readonly attachments: ContractAttachmentRepository,
+    private readonly itemGroups: ContractItemGroupRepository,
   ) {}
 
   async execute(contractId: string): Promise<ContractView> {
@@ -47,6 +53,7 @@ export class GetContractUseCase {
       contract,
       attachments: await this.attachments.listByContract(contractId),
       projectCount: await this.contracts.projectCount(contractId),
+      manualGroups: await this.itemGroups.latestByContract(contractId),
     };
   }
 }

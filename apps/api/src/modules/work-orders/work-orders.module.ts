@@ -37,11 +37,14 @@ import {
 } from './application/work-order-queries.js';
 import type {
   ContractCatalog,
+  ContractItemGroups,
   WorkOrderAttachmentRepository,
   WorkOrderRepository,
   WorkOrderUnitOfWork,
 } from './domain/work-order.repository.js';
 import { DrizzleContractCatalog } from './infrastructure/drizzle-contract-catalog.js';
+import { DrizzleContractItemGroups } from './infrastructure/drizzle-contract-item-groups.js';
+import { ResolveItemGroupsUseCase } from './application/item-groups.use-case.js';
 import { DrizzleWorkOrderAttachmentRepository } from './infrastructure/drizzle-work-order-attachment.repository.js';
 import { DrizzleWorkOrderRepository } from './infrastructure/drizzle-work-order.repository.js';
 import { DrizzleWorkOrderUnitOfWork } from './infrastructure/drizzle-work-order.unit-of-work.js';
@@ -53,6 +56,7 @@ import { WorkOrdersController } from './interface/work-orders.controller.js';
 import {
   ATTACHMENT_REPOSITORY,
   CONTRACT_CATALOG,
+  CONTRACT_ITEM_GROUPS,
   FIND_WORK_ORDER_LINES,
   PROJECT_CURRENCY_LOOKUP,
   WORK_ORDER_REPOSITORY,
@@ -86,6 +90,16 @@ const providers: Provider[] = [
     provide: CONTRACT_CATALOG,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleContractCatalog(db),
+  },
+  {
+    provide: CONTRACT_ITEM_GROUPS,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleContractItemGroups(db),
+  },
+  {
+    provide: ResolveItemGroupsUseCase,
+    inject: [CONTRACT_ITEM_GROUPS],
+    useFactory: (groups: ContractItemGroups) => new ResolveItemGroupsUseCase(groups),
   },
   { provide: WORKBOOK_READER, useValue: new ExcelJsWorkbookReader() },
   {

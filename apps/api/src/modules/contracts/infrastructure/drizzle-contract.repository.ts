@@ -192,6 +192,13 @@ export class DrizzleContractRepository implements ContractRepository {
     }
   }
 
+  async bumpVersion(contractId: string): Promise<void> {
+    await this.db
+      .update(contracts)
+      .set({ version: sql`${contracts.version} + 1` })
+      .where(eq(contracts.id, contractId));
+  }
+
   async insertLine(contractId: string, line: ContractLine): Promise<void> {
     try {
       await this.db.insert(contractItems).values(lineValues(contractId, line));
@@ -249,12 +256,5 @@ export class DrizzleContractRepository implements ContractRepository {
       translate(error);
     }
     await this.bumpVersion(contractId);
-  }
-
-  private async bumpVersion(contractId: string): Promise<void> {
-    await this.db
-      .update(contracts)
-      .set({ version: sql`${contracts.version} + 1` })
-      .where(eq(contracts.id, contractId));
   }
 }

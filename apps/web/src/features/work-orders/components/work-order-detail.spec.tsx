@@ -72,11 +72,23 @@ describe('WorkOrderDetail lines (ADR-028)', () => {
   it('shows the contract quantity and what is available after reservation per line', async () => {
     renderDetail();
     const row = await screen.findByRole('row', { name: /A-1/ });
-    await waitFor(() => expect(within(row).getAllByRole('cell')).toHaveLength(11));
+    await waitFor(() => expect(within(row).getAllByRole('cell')).toHaveLength(13));
     const cells = within(row).getAllByRole('cell');
-    expect(cells[5]).toHaveTextContent('20'); // quantity
-    expect(cells[6]).toHaveTextContent('100'); // contract quantity
-    expect(cells[7]).toHaveTextContent('70'); // available after reservation
+    expect(cells[7]).toHaveTextContent('20'); // quantity
+    expect(cells[8]).toHaveTextContent('100'); // contract quantity
+    expect(cells[9]).toHaveTextContent('70'); // available after reservation
+  });
+
+  it('shows the main and sub group of the contract line, empty when there is none', async () => {
+    getWorkOrder.mockResolvedValue(
+      workOrderDetail([workOrderItem({ group: { main: 'Bundles', sub: '12 tubes' } }), LEGACY]),
+    );
+    renderDetail();
+    const row = await screen.findByRole('row', { name: /A-1/ });
+    expect(within(row).getByText('Bundles')).toBeInTheDocument();
+    expect(within(row).getByText('12 tubes')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Main work group' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Sub work group' })).toBeInTheDocument();
   });
 
   it('marks a legacy line with a badge and gives it no edit action', async () => {

@@ -9,6 +9,7 @@ import { errorCodeOf } from '@/shared/api/bff-client';
 import { useProject } from '@/features/projects/hooks/project-access-context';
 import { useProjectContract } from '../api/queries';
 import { BoqTable } from './boq-table';
+import { GroupSummary } from './group-summary';
 import { ContractSummaryFields } from './contract-summary';
 
 /**
@@ -56,6 +57,7 @@ export function ProjectContract({ projectId }: { projectId: string }) {
             </ul>
           </Notice>
         ) : null}
+        <GroupSummary count={contract.ungroupedItemCount} draft={false} filtered={false} />
         {contract.items.length === 0 ? (
           <p>{t('admin.contracts.boq.empty')}</p>
         ) : (

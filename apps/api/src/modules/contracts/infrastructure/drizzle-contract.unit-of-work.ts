@@ -1,6 +1,7 @@
 import type { Database } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
 import type { ContractTx, ContractUnitOfWork } from '../domain/contract.repository.js';
+import { DrizzleContractItemGroupRepository } from './drizzle-contract-item-group.repository.js';
 import { DrizzleContractAttachmentRepository } from './drizzle-contract-attachment.repository.js';
 import { DrizzleContractRepository } from './drizzle-contract.repository.js';
 
@@ -13,6 +14,7 @@ export class DrizzleContractUnitOfWork implements ContractUnitOfWork {
       work({
         contracts: new DrizzleContractRepository(tx),
         attachments: new DrizzleContractAttachmentRepository(tx),
+        itemGroups: new DrizzleContractItemGroupRepository(tx),
         events: new DrizzleEventLog(tx),
       }),
     );

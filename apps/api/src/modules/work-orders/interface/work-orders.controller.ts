@@ -41,6 +41,7 @@ import type { AuthenticatedRequest } from '../../identity/interface/auth-request
 import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
 import { CreateWorkOrderUseCase } from '../application/create-work-order.use-case.js';
 import { DeleteWorkOrderUseCase } from '../application/delete-work-order.use-case.js';
+import { ResolveItemGroupsUseCase } from '../application/item-groups.use-case.js';
 import { UpdateWorkOrderUseCase } from '../application/update-work-order.use-case.js';
 import {
   AddWorkOrderItemUseCase,
@@ -62,6 +63,7 @@ export class WorkOrdersController {
   constructor(
     @Inject(ListWorkOrdersUseCase) private readonly list: ListWorkOrdersUseCase,
     @Inject(GetWorkOrderUseCase) private readonly get: GetWorkOrderUseCase,
+    @Inject(ResolveItemGroupsUseCase) private readonly groups: ResolveItemGroupsUseCase,
     @Inject(ListContractItemAvailabilityUseCase)
     private readonly availability: ListContractItemAvailabilityUseCase,
     @Inject(CreateWorkOrderUseCase) private readonly create: CreateWorkOrderUseCase,
@@ -102,7 +104,7 @@ export class WorkOrdersController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toDetailDto(view);
+    return toDetailDto(view, await this.groups.execute(view.order.items));
   }
 
   @Get(':workOrderId')
@@ -112,7 +114,8 @@ export class WorkOrdersController {
     @ProjectIdParam() project: string,
     @Param('workOrderId', UuidParamPipe) workOrderId: string,
   ): Promise<WorkOrderDetail> {
-    return toDetailDto(await this.get.execute(project, workOrderId));
+    const view = await this.get.execute(project, workOrderId);
+    return toDetailDto(view, await this.groups.execute(view.order.items));
   }
 
   @Patch(':workOrderId')
@@ -130,7 +133,7 @@ export class WorkOrdersController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toDetailDto(view);
+    return toDetailDto(view, await this.groups.execute(view.order.items));
   }
 
   @Delete(':workOrderId')
@@ -159,7 +162,7 @@ export class WorkOrdersController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toItemDto(item, workOrderId);
+    return toItemDto(item, workOrderId, await this.groups.execute([item]));
   }
 
   @Patch(':workOrderId/items/:itemId')
@@ -179,7 +182,7 @@ export class WorkOrdersController {
       actorId: actorIdOf(request),
       request: body,
     });
-    return toItemDto(item, workOrderId);
+    return toItemDto(item, workOrderId, await this.groups.execute([item]));
   }
 
   @Delete(':workOrderId/items/:itemId')

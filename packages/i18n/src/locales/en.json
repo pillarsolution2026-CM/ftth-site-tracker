@@ -197,7 +197,8 @@
         "DUPLICATE_CODE": "This code already exists in the contract",
         "LINE_TAKEN": "This line number is already used",
         "DUPLICATE_NUMBER": "This contract number is already used",
-        "NO_PRICED_ITEMS": "A contract without priced items cannot be approved"
+        "NO_PRICED_ITEMS": "A contract without priced items cannot be approved",
+        "CONTRACT_ITEMS_UNGROUPED": "The contract cannot be approved until every priced line has a group. Group these lines first."
       },
       "boq": {
         "title": "BOQ (contract items)",
@@ -230,6 +231,27 @@
         "explain": "Approval is final and cannot be undone. The BOQ (items and headings) is locked: no line can be added, edited or deleted, and the BOQ cannot be replaced. The contract details stay editable except the currency.",
         "confirm": "Approve for good",
         "cancel": "Cancel"
+      },
+      "groups": {
+        "mainColumn": "Main work group",
+        "subColumn": "Sub work group",
+        "sourceRule": "Automatic",
+        "sourceManual": "Manual",
+        "sourceNone": "No group",
+        "ruleHint": "The rule gives: {group}",
+        "summary": "{count} line(s) have no group. Set the group of each one.",
+        "draftNeeds": "The contract cannot be approved until every priced line has a group.",
+        "showUngrouped": "Show only lines without a group",
+        "showAll": "Show all lines",
+        "edit": "Edit group",
+        "editTitle": "Group of line {code}",
+        "main": "Main work group",
+        "sub": "Sub work group",
+        "subHint": "optional",
+        "save": "Save",
+        "reset": "Back to the rule",
+        "cancel": "Cancel",
+        "approveCodes": "Lines without a group:"
       }
     }
   },
@@ -351,7 +373,9 @@
       "quantityFor": "Quantity for item {code}",
       "chooseFor": "Choose item {code}",
       "clearAll": "Clear the selection"
-    }
+    },
+    "mainGroup": "Main work group",
+    "subGroup": "Sub work group"
   },
   "attachments": {
     "title": "Attachments",

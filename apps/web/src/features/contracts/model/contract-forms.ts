@@ -1,5 +1,6 @@
 import {
   CreateContractRequestSchema,
+  GROUP_NAME_MAX,
   ITEM_TEXT_LIMITS,
   type ContractDetail,
   type ContractItem,
@@ -8,7 +9,7 @@ import {
   type UpdateContractRequest,
 } from '@ftth/shared';
 import type { MessageKey } from '@ftth/i18n';
-import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
+import { ApiClientError, errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
 import {
   validateItemForm,
   type ItemFormErrors,
@@ -230,6 +231,7 @@ const REASON_MESSAGES: Readonly<Record<string, MessageKey>> = {
   LINE_TAKEN: 'admin.contracts.reasons.LINE_TAKEN',
   DUPLICATE_NUMBER: 'admin.contracts.reasons.DUPLICATE_NUMBER',
   NO_PRICED_ITEMS: 'admin.contracts.reasons.NO_PRICED_ITEMS',
+  CONTRACT_ITEMS_UNGROUPED: 'admin.contracts.reasons.CONTRACT_ITEMS_UNGROUPED',
 };
 
 /** Message of a failed contract call: the 409 `details.reason` when known, else the error code. */
@@ -242,3 +244,58 @@ export function contractErrorKey(error: unknown): MessageKey {
 export function isStaleVersion(error: unknown): boolean {
   return errorReasonOf(error) === 'STALE_VERSION';
 }
+
+/** `details.codes` of a CONTRACT_ITEMS_UNGROUPED conflict: the codes of the lines to group. */
+export function ungroupedCodesOf(error: unknown): string[] {
+  if (!(error instanceof ApiClientError)) return [];
+  const details = error.details;
+  if (typeof details !== 'object' || details === null || !('codes' in details)) return [];
+  const codes = details.codes;
+  return Array.isArray(codes) ? codes.filter((c): c is string => typeof c === 'string') : [];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Item groups (ADR-048)
+// ---------------------------------------------------------------------------------------------
+
+export interface GroupFormValues {
+  main: string;
+  sub: string;
+}
+
+export type GroupFormErrors = Partial<Record<keyof GroupFormValues, MessageKey>>;
+
+export type GroupValidation =
+  { ok: true; main: string; sub: string | null } | { ok: false; errors: GroupFormErrors };
+
+/** Trim, require the main group, cap both names; a sub group is optional. */
+export function validateGroupForm(values: GroupFormValues): GroupValidation {
+  const main = values.main.trim();
+  const sub = values.sub.trim();
+  const errors: GroupFormErrors = {};
+  if (main === '') errors.main = 'validation.required';
+  else if (main.length > GROUP_NAME_MAX) errors.main = 'validation.tooLong';
+  if (sub.length > GROUP_NAME_MAX) errors.sub = 'validation.tooLong';
+  if (errors.main || errors.sub) return { ok: false, errors };
+  return { ok: true, main, sub: sub === '' ? null : sub };
+}
+
+/** Distinct group names already used in the contract, for the suggestions. */
+export function groupSuggestions(items: readonly ContractItem[]): {
+  mains: string[];
+  subs: string[];
+} {
+  const mains = new Set<string>();
+  const subs = new Set<string>();
+  for (const item of items) {
+    const group = item.group?.group;
+    if (!group) continue;
+    mains.add(group.main);
+    if (group.sub) subs.add(group.sub);
+  }
+  return { mains: [...mains].sort(), subs: [...subs].sort() };
+}
+
+/** Priced lines nobody grouped yet. */
+export const isUngrouped = (item: ContractItem): boolean =>
+  item.kind === 'item' && item.group?.source === 'none';

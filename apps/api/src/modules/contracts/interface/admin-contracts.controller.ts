@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -20,12 +21,14 @@ import {
   ContractListResponseSchema,
   CreateContractRequestSchema,
   RemoveContractItemQuerySchema,
+  SetItemGroupRequestSchema,
   UpdateContractItemRequestSchema,
   UpdateContractRequestSchema,
   type AddContractItemRequest,
   type ApproveContractRequest,
   type ContractDetail,
   type ContractListResponse,
+  type SetItemGroupRequest,
   type CreateContractRequest,
   type UpdateContractItemRequest,
   type UpdateContractRequest,
@@ -43,6 +46,7 @@ import {
   ApproveContractUseCase,
   CreateContractUseCase,
   RemoveContractItemUseCase,
+  SetContractItemGroupUseCase,
   UpdateContractItemUseCase,
   UpdateContractUseCase,
 } from '../application/contract.use-cases.js';
@@ -62,6 +66,7 @@ export class AdminContractsController {
     @Inject(AddContractItemUseCase) private readonly addItem: AddContractItemUseCase,
     @Inject(UpdateContractItemUseCase) private readonly updateItem: UpdateContractItemUseCase,
     @Inject(RemoveContractItemUseCase) private readonly removeItem: RemoveContractItemUseCase,
+    @Inject(SetContractItemGroupUseCase) private readonly setGroup: SetContractItemGroupUseCase,
     @Inject(ApproveContractUseCase) private readonly approve: ApproveContractUseCase,
   ) {}
 
@@ -143,6 +148,25 @@ export class AdminContractsController {
         itemId,
         actorId: actorIdOf(request),
         expectedVersion: query.expectedVersion,
+      }),
+    );
+  }
+
+  /** ADR-048: the admin's group choice of a priced line, draft or approved. */
+  @Put(':contractId/items/:itemId/group')
+  @ApiOkResponse({ schema: openApiSchema(ContractDetailSchema) })
+  async setOneItemGroup(
+    @Param('contractId', UuidParamPipe) contractId: string,
+    @Param('itemId', UuidParamPipe) itemId: string,
+    @Body(new ZodValidationPipe(SetItemGroupRequestSchema)) body: SetItemGroupRequest,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ContractDetail> {
+    return toDetailDto(
+      await this.setGroup.execute({
+        contractId,
+        itemId,
+        actorId: actorIdOf(request),
+        request: body,
       }),
     );
   }
