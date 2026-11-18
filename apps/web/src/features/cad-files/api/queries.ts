@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CadFileStatus, DrawingKind } from '@ftth/shared';
+import type { AssignDrawingSiteRequest, CadFileStatus, UploadCadFileQuery } from '@ftth/shared';
 import {
+  assignDrawingSite,
   getCadFile,
   getCadLog,
   listCadCurves,
@@ -8,8 +9,10 @@ import {
   listCadInserts,
   listCadLayers,
   listCadTexts,
+  listSiteDrawings,
   reprocessCadFile,
   uploadCadFile,
+  withdrawDrawing,
 } from './cad-api';
 import { CAD_POLL_MS, isInFlight } from '../model/cad-status';
 
@@ -106,19 +109,60 @@ export function useCadCurves(
   });
 }
 
+export const siteDrawingsKey = (projectId: string) => ['site-drawings', projectId] as const;
+
+/** Polls while a drawing's revision is still being built. */
+export function useSiteDrawings(projectId: string, enabled = true) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: siteDrawingsKey(projectId),
+    queryFn: () => listSiteDrawings(projectId),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const all = data ? [...data.sites.flatMap((s) => s.drawings), ...data.unassigned] : [];
+      return all.some((d) => d.openRevision && d.openRevision.status !== 'draft')
+        ? CAD_POLL_MS
+        : false;
+    },
+  });
+}
+
 export function useUploadCadFile(projectId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: {
       file: File;
-      kind: DrawingKind;
-      newVersion?: boolean;
+      query: UploadCadFileQuery;
       onProgress?: (fraction: number) => void;
     }) =>
-      uploadCadFile(projectId, input.file, input.kind, input.newVersion === true, {
+      uploadCadFile(projectId, input.file, input.query, {
         ...(input.onProgress ? { onProgress: input.onProgress } : {}),
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: cadFilesKey(projectId) }),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: cadFilesKey(projectId) });
+      await client.invalidateQueries({ queryKey: siteDrawingsKey(projectId) });
+    },
+  });
+}
+
+export function useAssignDrawingSite(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { drawingId: string } & AssignDrawingSiteRequest) =>
+      assignDrawingSite(projectId, input.drawingId, { siteId: input.siteId }),
+    onSuccess: () => client.invalidateQueries({ queryKey: siteDrawingsKey(projectId) }),
+  });
+}
+
+export function useWithdrawDrawing(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (drawingId: string) => withdrawDrawing(projectId, drawingId),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: siteDrawingsKey(projectId) });
+      await client.invalidateQueries({ queryKey: cadFilesKey(projectId) });
+    },
   });
 }
 

@@ -39,8 +39,10 @@ import {
   WorkOrderImportPreviewResponseSchema,
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
-  KindExistsDetailsSchema,
+  AssignDrawingSiteRequestSchema,
+  SiteDrawingsResponseSchema,
   UploadCadFileQuerySchema,
+  UploadRefusedDetailsSchema,
   type DrawingKind,
 } from '@ftth/shared';
 import {
@@ -68,6 +70,9 @@ import {
 import {
   MOCK_DETECTION,
   provideOrderLines,
+  siteDraftId,
+  drawingRevisionState,
+  emptySiteReadiness,
   handleBoxTypes,
   handleDesignRevisions,
   handleGeneralCabinets,
@@ -775,6 +780,11 @@ interface CadRecord {
   sha256: string;
   data: Buffer | null;
   drawingKind: DrawingKind;
+  /** ADR-049 part B: a drawing is a line of versions; its site is null until linked. */
+  drawingId: string;
+  siteId: string | null;
+  drawingOrdinal: number;
+  withdrawn: boolean;
   supersededAt: string | null;
   supersededById: string | null;
   createdAt: string;
@@ -810,6 +820,9 @@ function cadSummary(file: CadRecord) {
     sha256: file.sha256,
     status,
     drawingKind: file.drawingKind,
+    drawingId: file.drawingId,
+    siteId: file.siteId,
+    drawingOrdinal: file.drawingOrdinal,
     supersededAt: file.supersededAt,
     supersededById: file.supersededById,
     uploadedById: ME.id,
@@ -934,6 +947,9 @@ function mockCad(file: CadRecord): MockCadFile {
     originalName: file.originalName,
     processed: cadStatus(file) === 'processed',
     drawingKind: file.drawingKind,
+    drawingId: file.drawingId,
+    siteId: file.siteId,
+    drawingOrdinal: file.drawingOrdinal,
     superseded: file.supersededAt !== null,
     userId: ME.id,
     layers: LAYERS.map((layer) => ({
@@ -977,6 +993,29 @@ async function handleProject(
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
+  if (resource === 'sites' && id === undefined && method === 'PUT') {
+    const body = (await readJson(req)) as { names?: string[] };
+    seededSites = (body.names ?? []).map((name) => ({ id: randomUUID(), name }));
+    return send(res, 200, { items: seededSites });
+  }
+  if (resource === 'site-drawings')
+    return handleSiteDrawings(req, res, method, projectId, [id, sub]);
+  if (resource === 'sites' && sub === 'publish-readiness' && method === 'GET' && id) {
+    const draftId = siteDraftId(id);
+    if (!draftId) return send(res, 200, emptySiteReadiness(id));
+    return handleDesignRevisions(
+      req,
+      res,
+      url,
+      method,
+      [draftId, 'publish-readiness'],
+      helpers,
+      (cadId) => {
+        const record = cadFiles.get(cadId);
+        return record ? mockCad(record) : undefined;
+      },
+    );
+  }
   if (resource === 'cad-files')
     return handleCad(req, res, url, method, [id, sub, subId, subSub, subSubSub]);
   if (resource === 'design-revisions') {
@@ -1296,6 +1335,112 @@ const viewState = (cadFileId: string, status: 'none' | 'queued') => ({
   renderedAt: null,
 });
 
+/**
+ * Test-only sites of the project (ADR-049), set by PUT /projects/:p/sites. They let the drawing
+ * specs have a site without opening a work order, which other specs (the Excel import) need empty.
+ */
+let seededSites: { id: string; name: string }[] = [];
+
+/** The sites of the project's work order; the test-only ones while it has none. */
+function projectSites(): { id: string; name: string }[] {
+  const order = [...workOrders.values()].find((w) => w.projectId === PROJECT_ID);
+  return order && order.sites.length > 0 ? order.sites : seededSites;
+}
+
+async function handleSiteDrawings(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  projectId: string,
+  [drawingId, action]: (string | undefined)[],
+): Promise<void> {
+  if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
+  const current = () =>
+    [...cadFiles.values()].filter((file) => file.supersededAt === null && !file.withdrawn);
+  if (drawingId === undefined && method === 'GET') {
+    const toDrawing = (file: CadRecord) => ({
+      id: file.drawingId,
+      siteId: file.siteId,
+      siteName: projectSites().find((site) => site.id === file.siteId)?.name ?? null,
+      kind: file.drawingKind,
+      ordinal: file.drawingOrdinal,
+      currentFileId: file.id,
+      currentFileName: file.originalName,
+      ...drawingRevisionState(file.drawingId),
+      withdrawnAt: null,
+    });
+    const order = (a: CadRecord, b: CadRecord) =>
+      a.drawingKind === b.drawingKind
+        ? a.drawingOrdinal - b.drawingOrdinal
+        : a.drawingKind === 'general'
+          ? -1
+          : 1;
+    const sites = projectSites();
+    return send(
+      res,
+      200,
+      SiteDrawingsResponseSchema.parse({
+        sites: sites.map((site) => ({
+          siteId: site.id,
+          name: site.name,
+          drawings: current()
+            .filter((file) => file.siteId === site.id)
+            .sort(order)
+            .map(toDrawing),
+        })),
+        unassigned: current()
+          .filter((file) => file.siteId === null || !sites.some((site) => site.id === file.siteId))
+          .sort(order)
+          .map(toDrawing),
+      }),
+    );
+  }
+  const own = current().find((file) => file.drawingId === drawingId);
+  if (!own || method !== 'POST') return sendError(res, 404, 'NOT_FOUND');
+  if (action === 'assign-site') {
+    const body = AssignDrawingSiteRequestSchema.safeParse(await readJson(req));
+    if (!body.success) return sendError(res, 422, 'VALIDATION_FAILED');
+    if (!projectSites().some((site) => site.id === body.data.siteId)) {
+      return sendError(res, 404, 'NOT_FOUND', {
+        reason: 'SITE_NOT_FOUND',
+        siteId: body.data.siteId,
+      });
+    }
+    if (own.siteId !== null) return sendError(res, 409, 'CONFLICT', { reason: 'ALREADY_ASSIGNED' });
+    const inSite = current().filter((file) => file.siteId === body.data.siteId);
+    if (own.drawingKind === 'general' && inSite.some((file) => file.drawingKind === 'general')) {
+      return sendError(res, 409, 'CONFLICT', {
+        reason: 'GENERAL_EXISTS',
+        siteId: body.data.siteId,
+      });
+    }
+    const ordinal =
+      own.drawingKind === 'general'
+        ? 1
+        : Math.max(
+            0,
+            ...inSite.filter((f) => f.drawingKind === 'secondary').map((f) => f.drawingOrdinal),
+          ) + 1;
+    for (const file of cadFiles.values()) {
+      if (file.drawingId === own.drawingId) {
+        file.siteId = body.data.siteId;
+        file.drawingOrdinal = ordinal;
+      }
+    }
+    return void res.writeHead(204).end();
+  }
+  if (action === 'withdraw') {
+    if (drawingRevisionState(own.drawingId).latestPublished) {
+      return sendError(res, 409, 'CONFLICT', { reason: 'ALREADY_PUBLISHED' });
+    }
+    for (const file of cadFiles.values()) {
+      if (file.drawingId === own.drawingId) file.withdrawn = true;
+    }
+    return void res.writeHead(204).end();
+  }
+  return sendError(res, 404, 'NOT_FOUND');
+}
+
 async function handleCad(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1307,7 +1452,7 @@ async function handleCad(
     if (method === 'GET') {
       // Older versions are history: not listed (owner 2026-11-11).
       const items = [...cadFiles.values()]
-        .filter((file) => file.supersededAt === null)
+        .filter((file) => file.supersededAt === null && !file.withdrawn)
         .reverse()
         .map(cadSummary);
       return send(res, 200, CadFileListResponseSchema.parse({ items }));
@@ -1315,28 +1460,56 @@ async function handleCad(
     if (method === 'POST') {
       const file = (await readMultipart(req)).find((part) => part.name === 'file');
       const name = file?.filename ?? '';
-      // ADR-040: the kind is required; a second current file of a kind needs newVersion=true.
+      // ADR-049 part B: the site, the kind and the target are required.
       const query = UploadCadFileQuerySchema.safeParse({
+        siteId: url.searchParams.get('siteId') ?? undefined,
         kind: url.searchParams.get('kind') ?? undefined,
-        newVersion: url.searchParams.get('newVersion') ?? undefined,
+        target: url.searchParams.get('target') ?? undefined,
+        drawingId: url.searchParams.get('drawingId') ?? undefined,
       });
       if (!query.success) return sendError(res, 422, 'VALIDATION_FAILED');
       if (!file || !/\.(dxf|dwg)$/i.test(name)) return sendError(res, 415, 'UNSUPPORTED_FILE');
-      const current = [...cadFiles.values()].find(
-        (candidate) => candidate.drawingKind === query.data.kind && candidate.supersededAt === null,
-      );
-      if (current && !query.data.newVersion) {
-        return sendError(
+      const { siteId, kind, target, drawingId } = query.data;
+      const refuse = (status: number, details: unknown) =>
+        sendError(
           res,
-          409,
-          'CONFLICT',
-          KindExistsDetailsSchema.parse({
-            reason: 'KIND_EXISTS',
-            kind: query.data.kind,
-            currentFileId: current.id,
-            currentFileName: current.originalName,
-          }),
+          status,
+          status === 404 ? 'NOT_FOUND' : 'CONFLICT',
+          UploadRefusedDetailsSchema.parse(details),
         );
+      if (!projectSites().some((site) => site.id === siteId)) {
+        return refuse(404, { reason: 'SITE_NOT_FOUND', siteId });
+      }
+      const current = [...cadFiles.values()].filter(
+        (candidate) => candidate.supersededAt === null && !candidate.withdrawn,
+      );
+      let drawing: { id: string; ordinal: number } = { id: randomUUID(), ordinal: 1 };
+      let previous: CadRecord | undefined;
+      if (target === 'new_drawing') {
+        const ofKind = current.filter(
+          (candidate) => candidate.siteId === siteId && candidate.drawingKind === kind,
+        );
+        if (kind === 'general' && ofKind[0]) {
+          return refuse(409, {
+            reason: 'GENERAL_EXISTS',
+            siteId,
+            drawingId: ofKind[0].drawingId,
+            currentFileName: ofKind[0].originalName,
+          });
+        }
+        drawing = {
+          id: drawing.id,
+          ordinal: Math.max(0, ...ofKind.map((f) => f.drawingOrdinal)) + 1,
+        };
+      } else {
+        previous = current.find((candidate) => candidate.drawingId === drawingId);
+        if (!previous) return refuse(409, { reason: 'DRAWING_NOT_IN_SITE', drawingId, siteId });
+        if (previous.siteId === null)
+          return refuse(409, { reason: 'DRAWING_UNASSIGNED', drawingId });
+        if (previous.siteId !== siteId || previous.drawingKind !== kind) {
+          return refuse(409, { reason: 'DRAWING_NOT_IN_SITE', drawingId, siteId });
+        }
+        drawing = { id: previous.drawingId, ordinal: previous.drawingOrdinal };
       }
       const record: CadRecord = {
         id: randomUUID(),
@@ -1346,15 +1519,19 @@ async function handleCad(
         sizeBytes: file.data.length,
         sha256: createHash('sha256').update(file.data).digest('hex'),
         data: file.data.length < 1_000_000 ? file.data : null,
-        drawingKind: query.data.kind,
+        drawingKind: kind,
+        drawingId: drawing.id,
+        siteId,
+        drawingOrdinal: drawing.ordinal,
+        withdrawn: false,
         supersededAt: null,
         supersededById: null,
         createdAt: new Date().toISOString(),
         queuedAt: Date.now(),
       };
-      if (current) {
-        current.supersededAt = record.createdAt;
-        current.supersededById = record.id;
+      if (previous) {
+        previous.supersededAt = record.createdAt;
+        previous.supersededById = record.id;
       }
       cadFiles.set(record.id, record);
       return send(res, 201, CadFileSummarySchema.parse(cadSummary(record)));

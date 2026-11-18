@@ -31,8 +31,20 @@ export interface FeatureInRevision {
   revisionPublishedAt: Date;
 }
 
+/** A published drawing the device may pick (ADR-049 part B), with its latest revision. */
+export interface PublishedDrawing {
+  drawingId: string;
+  siteId: string | null;
+  siteName: string | null;
+  kind: 'general' | 'secondary';
+  ordinal: number;
+  revision: LatestRevision;
+}
+
 export interface LatestRevision {
   id: string;
+  /** The drawing of the revision (ADR-049 part B). */
+  drawingId?: string;
   revNo: number;
   publishedAt: Date;
   hasTiles: boolean;
@@ -99,7 +111,11 @@ export interface ExecutionTx {
     featureId: string,
     scope: ExecutionScope,
   ): Promise<boolean>;
-  latestPublishedRevision(projectId: string): Promise<LatestRevision | null>;
+  /**
+   * The latest published revision of the SAME DRAWING as `ofRevisionId` (ADR-049 part B: feature
+   * identity and `REVISION_OUTDATED` stay within one drawing).
+   */
+  latestPublishedRevision(projectId: string, ofRevisionId?: string): Promise<LatestRevision | null>;
   featureInRevision(projectId: string, revisionId: string, featureId: string): Promise<boolean>;
   findItems(projectId: string, itemIds: readonly string[]): Promise<ItemFacts[]>;
   /** True when, adding `lines`, some item's non-rejected recorded quantity exceeds its quantity. */
@@ -223,7 +239,10 @@ export interface ExecutionUnitOfWork {
 
 export interface ExecutionReadQueries {
   projectInfo(projectId: string): Promise<{ id: string; name: string; crsEpsg: number } | null>;
-  latestPublishedRevision(projectId: string): Promise<LatestRevision | null>;
+  /** The latest published revision of `drawingId`, else of the General published last. */
+  latestPublishedRevision(projectId: string, drawingId?: string): Promise<LatestRevision | null>;
+  /** Every published drawing (General and Secondary, linked or not) with its latest revision. */
+  publishedDrawings(projectId: string): Promise<PublishedDrawing[]>;
   featuresInScope(
     projectId: string,
     revisionId: string,

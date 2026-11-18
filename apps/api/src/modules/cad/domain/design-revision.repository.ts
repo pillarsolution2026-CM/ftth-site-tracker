@@ -55,6 +55,8 @@ export interface NewDesignRevision {
   cadFileId: string;
   /** Kind of the source file (ADR-040); the database checks it matches. */
   drawingKind: DrawingKind;
+  /** The drawing of the source file (ADR-049 part B); the database checks it matches. */
+  drawingId: string;
   currentJobId: string;
   baseRevisionId: string | null;
   rules: MappingRule[];
@@ -83,12 +85,23 @@ export interface DesignRevisionRepository {
     revisionId: string,
     options?: { lock?: boolean },
   ): Promise<DesignRevision | null>;
-  /** Id of the latest `published` revision of the kind (highest rev_no), if any. */
-  findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null>;
-  /** True while the project has a queued, building or draft revision of the kind (at most one). */
-  hasOpen(projectId: string, kind: DrawingKind): Promise<boolean>;
-  /** The open (queued, building or draft) revision of the kind, if any. */
-  findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null>;
+  /** Id of the latest `published` revision of the DRAWING (highest rev_no), if any. */
+  findLatestPublishedId(projectId: string, drawingId: string): Promise<string | null>;
+  /** The latest `published` revision of the drawing, if any. */
+  findLatestPublished(projectId: string, drawingId: string): Promise<DesignRevision | null>;
+  /** True while the drawing has a queued, building or draft revision (at most one). */
+  hasOpen(projectId: string, drawingId: string): Promise<boolean>;
+  /** The open (queued, building or draft) revision of the drawing, if any. */
+  findOpen(projectId: string, drawingId: string): Promise<DesignRevision | null>;
+  /**
+   * The names (`code`, null when unnamed) of the sub cabinets each General of the given sites holds:
+   * its open draft, else its latest published revision (ADR-049 part B, cabinet in one site only).
+   * Withdrawn drawings are left out. One entry per General with any revision.
+   */
+  siteGeneralCabinets(
+    projectId: string,
+    siteIds: string[],
+  ): Promise<{ siteId: string; names: (string | null)[] }[]>;
   /**
    * `code` of each `sub` cabinet feature of the revision (feature_type 'cabinet', attrs.role
    * 'sub'), null when unnamed; ordered by source handle. ADR-041.
@@ -124,10 +137,16 @@ export interface DesignRevisionRepository {
     message: string,
   ): Promise<boolean>;
   /**
-   * draft → published for every given revision (the pair, ADR-040) with the SAME rev_no = highest
-   * rev_no of the project over both kinds + 1; returns that number.
+   * draft → published for every given revision (one site publication, ADR-049 part B) with the SAME
+   * rev_no = highest rev_no over the revisions of the site's drawings + 1; returns that number.
    */
-  publish(projectId: string, revisionIds: string[], actorId: string, at: Date): Promise<number>;
+  publish(
+    projectId: string,
+    siteId: string,
+    revisionIds: string[],
+    actorId: string,
+    at: Date,
+  ): Promise<number>;
   /** → discarded; also replaces the job id so a still-running worker is superseded. */
   discard(projectId: string, revisionId: string, supersedingJobId: string): Promise<void>;
 }

@@ -17,3 +17,5 @@ export const DRAWING_VIEW_RATE_BUDGET = 'CAD_DRAWING_VIEW_RATE_BUDGET';
 export const WORK_ORDER_LINES = 'CAD_WORK_ORDER_LINES';
 /** `DrawingFlow` built once from the API env (ADR-045): which drawing-flow steps are switched on. */
 export const DRAWING_FLOW = 'CAD_DRAWING_FLOW';
+/** The sites of the project's work order, through the work-orders module's exported service (ADR-049 B). */
+export const WORK_ORDER_SITES = 'CAD_WORK_ORDER_SITES';

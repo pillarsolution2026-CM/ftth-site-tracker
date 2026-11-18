@@ -134,7 +134,11 @@ export const DesignRevisionSummarySchema = z.object({
   cadFileName: z.string(),
   /** Kind of the source file (ADR-040): one open revision and one published line per kind. */
   drawingKind: DrawingKindSchema,
-  /** Assigned on publish (1, 2, …); null before. */
+  /** ADR-049 part B: the drawing (a line of versions) this revision belongs to, its site and number. */
+  drawingId: z.uuid(),
+  siteId: z.uuid().nullable(),
+  drawingOrdinal: z.number().int().min(1),
+  /** Assigned on publish (1, 2, …), shared by the revisions of one site publication; null before. */
   revNo: z.number().int().min(1).nullable(),
   status: DesignRevisionStatusSchema,
   crsEpsg: z.number().int(),
@@ -194,8 +198,8 @@ export const CreateDesignRevisionRequestSchema = z.object({
 export type CreateDesignRevisionRequest = z.infer<typeof CreateDesignRevisionRequestSchema>;
 
 /**
- * POST …/design-revisions/:revisionId/publish — publishes the PAIR (ADR-040): this draft and the
- * open draft of the other kind, together, with the same `revNo`. Both must pass every check.
+ * POST …/design-revisions/:revisionId/publish — publishes the SITE (ADR-049 part B): every draft of
+ * the revision's site, together, with the same `revNo`. The site must pass every check.
  */
 export const PublishDesignRevisionRequestSchema = z.object({
   /**
@@ -219,8 +223,9 @@ const CabinetSideSchema = z.object({
 });
 
 /**
- * Shared cabinets of the pair (ADR-040): matched by name (cabinetNameKey of the feature `code`);
- * ok when both counts are equal, no cabinet is unnamed and every name is in both drawings.
+ * Shared cabinets of one General and one Secondary (ADR-040): matched by name (cabinetNameKey of
+ * the feature `code`); ok when both counts are equal, no cabinet is unnamed and every name is in
+ * both drawings. The site check (`SiteCabinetsComparison`) builds on the same rule.
  */
 export const CabinetsComparisonSchema = z.object({
   ok: z.boolean(),
@@ -230,25 +235,84 @@ export const CabinetsComparisonSchema = z.object({
 export type CabinetsComparison = z.infer<typeof CabinetsComparisonSchema>;
 
 /**
- * 409 details when publishing is refused (ADR-038, ADR-040). Checked in this order: the other
- * drawing has an open draft (`OTHER_DRAWING_MISSING`); then for this drawing, then the other:
- * coordinates (`CRS_UNKNOWN`, `PLACEMENT_MISSING`), drawing errors (`PROBLEMS_OPEN`, blocking
- * problems only, ADR-041) and, for the General, the installation (`INSTALLATION_UNCLEAR`,
- * ADR-042), for the Secondary, the box types (`BOX_TYPES_UNCLEAR`, ADR-043); then the shared cabinets of the pair (`CABINETS_MISMATCH`); last, open
- * items of both without acknowledgement (`OPEN_ITEMS`, summed). `drawingKind` names the drawing
- * that blocks.
+ * Cabinets of one SITE (ADR-049 part B): the General's sub cabinets must be the disjoint union of
+ * the sub cabinets of the site's Secondaries. ok when no cabinet is unnamed, no name is in two
+ * Secondaries, none is missing in the General or in every Secondary, and counts agree.
+ */
+export const SiteCabinetsComparisonSchema = z.object({
+  ok: z.boolean(),
+  general: z.object({
+    drawingId: z.uuid().nullable(),
+    count: z.number().int().min(0),
+    unnamed: z.number().int().min(0),
+  }),
+  secondaries: z.array(
+    z.object({
+      drawingId: z.uuid(),
+      ordinal: z.number().int().min(1),
+      side: CabinetSideSchema,
+    }),
+  ),
+  /** Names drawn in more than one Secondary of the site. */
+  inSeveralSecondaries: z.array(z.string()).max(MAX_CABINET_NAMES_LISTED),
+  /** Names of the Secondaries the General lacks. */
+  missingInGeneral: z.array(z.string()).max(MAX_CABINET_NAMES_LISTED),
+  /** Names of the General that no Secondary has. */
+  missingInSecondaries: z.array(z.string()).max(MAX_CABINET_NAMES_LISTED),
+});
+export type SiteCabinetsComparison = z.infer<typeof SiteCabinetsComparisonSchema>;
+
+/** A cabinet name that another site of the same work order already has (owner rule, 2026-11-18). */
+export const CabinetInOtherSiteSchema = z.object({
+  name: z.string(),
+  otherSiteId: z.uuid(),
+  otherSiteName: z.string(),
+});
+export type CabinetInOtherSite = z.infer<typeof CabinetInOtherSiteSchema>;
+
+/** Why a drawing of the site is not ready to be published with the others. */
+export const DRAWING_NOT_READY_STATES = ['no_revision', 'building', 'queued', 'failed'] as const;
+export type DrawingNotReadyState = (typeof DRAWING_NOT_READY_STATES)[number];
+
+const DrawingRef = {
+  drawingKind: DrawingKindSchema,
+  drawingId: z.uuid(),
+  ordinal: z.number().int().min(1),
+};
+
+/**
+ * 409 details when publishing is refused (ADR-038, ADR-040, ADR-049 part B). Order of checks: the
+ * drawing has a site (`SITE_UNASSIGNED`); the site has a General and a Secondary
+ * (`SITE_INCOMPLETE`); every drawing of the site has a draft or a published revision and none is
+ * building (`DRAWING_NOT_READY`); for each draft in order General, Secondary 1, 2, …: coordinates
+ * (`CRS_UNKNOWN`, `PLACEMENT_MISSING`), drawing errors (`PROBLEMS_OPEN`), installation
+ * (`INSTALLATION_UNCLEAR`, General), box types (`BOX_TYPES_UNCLEAR`, Secondary); then the cabinets
+ * of the site (`CABINETS_MISMATCH`) and against other sites (`CABINET_IN_OTHER_SITE`); last open
+ * items of the drafts without acknowledgement (`OPEN_ITEMS`, summed).
  */
 export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
-  /** The other kind has no draft to publish with this one (ADR-040: both are published together). */
-  z.object({ reason: z.literal('OTHER_DRAWING_MISSING'), drawingKind: DrawingKindSchema }),
+  /** The drawing is not linked to a site («بدون موقع»): link it first. */
+  z.object({ reason: z.literal('SITE_UNASSIGNED'), ...DrawingRef }),
+  /** The site lacks a General or a Secondary (not withdrawn). */
+  z.object({
+    reason: z.literal('SITE_INCOMPLETE'),
+    siteId: z.uuid(),
+    missingKinds: z.array(DrawingKindSchema).min(1),
+  }),
+  /** A drawing of the site has no draft and no published revision, or is still building. */
+  z.object({
+    reason: z.literal('DRAWING_NOT_READY'),
+    ...DrawingRef,
+    state: z.enum(DRAWING_NOT_READY_STATES),
+  }),
   /** No placement frozen on the revision: its source CRS was never chosen (ADR-032 / ADR-035). */
-  z.object({ reason: z.literal('CRS_UNKNOWN'), drawingKind: DrawingKindSchema }),
+  z.object({ reason: z.literal('CRS_UNKNOWN'), ...DrawingRef }),
   /** The frozen placement has no control point in use (all excluded or none). */
-  z.object({ reason: z.literal('PLACEMENT_MISSING'), drawingKind: DrawingKindSchema }),
+  z.object({ reason: z.literal('PLACEMENT_MISSING'), ...DrawingRef }),
   /** Drawing problems are left; every one must be fixed first (ADR-038). */
   z.object({
     reason: z.literal('PROBLEMS_OPEN'),
-    drawingKind: DrawingKindSchema,
+    ...DrawingRef,
     problemCount: z.number().int().min(1),
   }),
   /**
@@ -257,6 +321,7 @@ export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
    */
   z.object({
     reason: z.literal('INSTALLATION_UNCLEAR'),
+    ...DrawingRef,
     drawingKind: z.literal('general'),
     issueCount: z.number().int().min(1),
     issues: z.array(InstallationIssueSchema).max(MAX_INSTALLATION_ISSUES_LISTED),
@@ -267,6 +332,7 @@ export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
    */
   z.object({
     reason: z.literal('BOX_TYPES_UNCLEAR'),
+    ...DrawingRef,
     drawingKind: z.literal('secondary'),
     issueCount: z.number().int().min(1),
     issues: z.array(BoxTypeIssueSchema).max(MAX_BOX_TYPE_ISSUES_LISTED),
@@ -276,88 +342,159 @@ export const PublishBlockedDetailsSchema = z.discriminatedUnion('reason', [
     textLinksToReview: z.number().int().min(0),
     diffConflicts: z.number().int().min(0),
   }),
-  /**
-   * ADR-040/041 cross-drawing check, computed by the API from both drafts (the worker sees one
-   * drawing): checked after both drawings' own blockers, before OPEN_ITEMS.
-   */
+  /** ADR-049: the General's sub cabinets are not the union of the Secondaries' (computed by the API). */
   z.object({
     reason: z.literal('CABINETS_MISMATCH'),
-    cabinets: CabinetsComparisonSchema,
+    cabinets: SiteCabinetsComparisonSchema,
+  }),
+  /** Owner rule: a cabinet name belongs to one site of the work order only. */
+  z.object({
+    reason: z.literal('CABINET_IN_OTHER_SITE'),
+    cabinets: z.array(CabinetInOtherSiteSchema).min(1).max(MAX_CABINET_NAMES_LISTED),
   }),
 ]);
 export type PublishBlockedDetails = z.infer<typeof PublishBlockedDetailsSchema>;
+
+type CabinetCount = Map<string, { name: string; n: number }>;
+
+const countByKey = (names: readonly (string | null)[]): CabinetCount => {
+  const out: CabinetCount = new Map();
+  for (const name of names) {
+    if (name === null) continue;
+    const key = cabinetNameKey(name);
+    const seen = out.get(key);
+    if (seen) seen.n += 1;
+    else out.set(key, { name, n: 1 });
+  }
+  return out;
+};
+
+const sortedNames = (entries: [string, { name: string }][]): string[] =>
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v.name);
+
+/** Names of `from` that `other` lacks, or has fewer times (a name drawn twice must be drawn twice). */
+const missingIn = (from: CabinetCount, other: CabinetCount): string[] =>
+  sortedNames([...from.entries()].filter(([key, v]) => (other.get(key)?.n ?? 0) < v.n));
+
+const unnamedIn = (names: readonly (string | null)[]): number =>
+  names.filter((n) => n === null).length;
 
 /** One drawing's sub cabinets: their names (feature `code`), null when unnamed. */
 export function compareCabinets(
   general: readonly (string | null)[],
   secondary: readonly (string | null)[],
 ): CabinetsComparison {
-  const byKey = (names: readonly (string | null)[]) => {
-    const out = new Map<string, { name: string; n: number }>();
-    for (const name of names) {
-      if (name === null) continue;
-      const key = cabinetNameKey(name);
-      const seen = out.get(key);
-      if (seen) seen.n += 1;
-      else out.set(key, { name, n: 1 });
-    }
-    return out;
-  };
-  const g = byKey(general);
-  const s = byKey(secondary);
-  /** Names the other side lacks, or has fewer times (a name drawn twice must be drawn twice). */
-  const missingIn = (
-    from: Map<string, { name: string; n: number }>,
-    other: Map<string, { name: string; n: number }>,
-  ) =>
-    [...from.entries()]
-      .filter(([key, v]) => (other.get(key)?.n ?? 0) < v.n)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([, v]) => v.name);
+  const g = countByKey(general);
+  const s = countByKey(secondary);
   const gMissing = missingIn(g, s);
   const sMissing = missingIn(s, g);
-  const unnamed = (names: readonly (string | null)[]) => names.filter((n) => n === null).length;
   const side = (names: readonly (string | null)[], missing: string[]) => ({
     count: names.length,
-    unnamed: unnamed(names),
+    unnamed: unnamedIn(names),
     missingInOther: missing.slice(0, MAX_CABINET_NAMES_LISTED),
   });
   const ok =
     general.length === secondary.length &&
-    unnamed(general) === 0 &&
-    unnamed(secondary) === 0 &&
+    unnamedIn(general) === 0 &&
+    unnamedIn(secondary) === 0 &&
     gMissing.length === 0 &&
     sMissing.length === 0;
   return { ok, general: side(general, gMissing), secondary: side(secondary, sMissing) };
 }
 
 /**
- * GET …/design-revisions/:revisionId/publish-readiness — the checklist shown before «نشر»
- * (ADR-038). `ok` false on any of the first three locks the button; `open_items` not ok only asks
- * for the acknowledgement, as before.
+ * The General's sub cabinets against the Secondaries' of one site (ADR-049 part B): the General
+ * must be the disjoint union of the Secondaries (a name in two Secondaries is an error; a name
+ * drawn twice in one drawing must be drawn twice in the General).
+ */
+export function compareSiteCabinets(
+  general: { drawingId: string | null; names: readonly (string | null)[] },
+  secondaries: readonly {
+    drawingId: string;
+    ordinal: number;
+    names: readonly (string | null)[];
+  }[],
+): SiteCabinetsComparison {
+  const g = countByKey(general.names);
+  const maps = secondaries.map((s) => countByKey(s.names));
+  const union: CabinetCount = new Map();
+  const holders = new Map<string, number>();
+  for (const map of maps) {
+    for (const [key, v] of map) {
+      const seen = union.get(key);
+      if (seen) seen.n += v.n;
+      else union.set(key, { name: v.name, n: v.n });
+      holders.set(key, (holders.get(key) ?? 0) + 1);
+    }
+  }
+  const inSeveral = sortedNames(
+    [...union.entries()].filter(([key]) => (holders.get(key) ?? 0) > 1),
+  );
+  const missingInGeneral = missingIn(union, g);
+  const missingInSecondaries = missingIn(g, union);
+  const sides = secondaries.map((s, index) => ({
+    drawingId: s.drawingId,
+    ordinal: s.ordinal,
+    side: {
+      count: s.names.length,
+      unnamed: unnamedIn(s.names),
+      // Names of this Secondary the General lacks.
+      missingInOther: missingIn(maps[index] ?? new Map(), g).slice(0, MAX_CABINET_NAMES_LISTED),
+    },
+  }));
+  const total = secondaries.reduce((sum, s) => sum + s.names.length, 0);
+  const ok =
+    general.names.length === total &&
+    unnamedIn(general.names) === 0 &&
+    sides.every((s) => s.side.unnamed === 0) &&
+    inSeveral.length === 0 &&
+    missingInGeneral.length === 0 &&
+    missingInSecondaries.length === 0;
+  return {
+    ok,
+    general: {
+      drawingId: general.drawingId,
+      count: general.names.length,
+      unnamed: unnamedIn(general.names),
+    },
+    secondaries: sides,
+    inSeveralSecondaries: inSeveral.slice(0, MAX_CABINET_NAMES_LISTED),
+    missingInGeneral: missingInGeneral.slice(0, MAX_CABINET_NAMES_LISTED),
+    missingInSecondaries: missingInSecondaries.slice(0, MAX_CABINET_NAMES_LISTED),
+  };
+}
+
+/**
+ * GET …/design-revisions/:revisionId/publish-readiness and GET …/sites/:siteId/publish-readiness
+ * — the checklist shown before «نشر» (ADR-038, ADR-049 part B). Every check is the site's: the
+ * counts add up over the drafts that would be published together. `ok` false on any check but
+ * `open_items` locks the button; `open_items` not ok only asks for the acknowledgement.
  */
 export const PUBLISH_CHECK_KEYS = [
   'crs_known',
   'control_point',
   'no_problems',
   'open_items',
-  /** ADR-040: the other drawing has a draft that passes its own first three checks. */
-  'other_drawing',
   /**
-   * ADR-040/041: shared cabinets match by name and count in both drafts (CabinetsComparison).
-   * Not ok while the other draft is missing.
+   * ADR-049: the site has a General and a Secondary, and every drawing of it has a draft or a
+   * published revision (none building). Replaces `other_drawing`.
+   */
+  'site_drawings',
+  /**
+   * ADR-040/041/049: the General's sub cabinets are the disjoint union of the Secondaries'
+   * (SiteCabinetsComparison).
    */
   'cabinets_match',
+  /** Owner rule: no cabinet name of the site is also in another site of the work order. */
+  'cabinets_other_site',
   /**
-   * ADR-042 part D: the General's installation is clear (`evaluateInstallation` ok) — on the
-   * General's readiness for itself; always ok (count null) on the Secondary's, where the General's
-   * installation is part of `other_drawing`.
+   * ADR-042 part D: the General's installation is clear (`evaluateInstallation` ok); count null
+   * when no General draft is in the site publication.
    */
   'installation',
   /**
-   * ADR-043: the Secondary's box types are clear (`evaluateBoxTypes` ok) — on the Secondary's
-   * readiness for itself; always ok (count null) on the General's and on a legacy-mode Secondary,
-   * where the Secondary's box types are part of `other_drawing`.
+   * ADR-043: the Secondaries' box types are clear (`evaluateBoxTypes` ok); count null when no
+   * Secondary draft is in the site publication or in legacy mode.
    */
   'box_types',
 ] as const;
@@ -368,35 +505,54 @@ export const PublishCheckSchema = z.object({
   key: PublishCheckKeySchema,
   ok: z.boolean(),
   /**
-   * crs_known: null; control_point: points in use; no_problems: blocking problems left; open_items:
-   * open (both drawings); other_drawing: blocking problems left in the other drawing's draft (null:
-   * no draft; ok also needs the other General's installation clear, or the other Secondary's box
-   * types clear); cabinets_match: unmatched cabinets = unnamed + missingInOther of both sides
-   * (null: no other draft); installation: issues of the General's installation (null on a
-   * Secondary); box_types: issues of the Secondary's box types (null on a General / legacy mode).
+   * crs_known: null; control_point: points in use (smallest over the drafts); no_problems: blocking
+   * problems left (sum); open_items: open (sum); site_drawings: drawings of the site not ready;
+   * cabinets_match: unmatched cabinets; cabinets_other_site: names found in other sites;
+   * installation / box_types: issues (null when it does not apply).
    */
   count: z.number().int().min(0).nullable(),
 });
 export type PublishCheck = z.infer<typeof PublishCheckSchema>;
 
-export const PublishReadinessSchema = z.object({
-  /** Always every key, in PUBLISH_CHECK_KEYS order. */
-  checks: z.array(PublishCheckSchema).length(PUBLISH_CHECK_KEYS.length),
-  /** Every check except open_items is ok and the revision is a draft. */
-  canPublish: z.boolean(),
-  /** Kind of this revision and the other drawing's open draft published with it (null: none). */
+/** One drawing of the site inside the checklist: its own checks (a draft, else the published one). */
+export const PublishDrawingReadinessSchema = z.object({
+  drawingId: z.uuid(),
   drawingKind: DrawingKindSchema,
-  otherRevisionId: z.uuid().nullable(),
-  /** Open items exist: publishing needs `acknowledgeOpenItems: true`. */
-  needsAcknowledgement: z.boolean(),
-  /** The cabinets comparison behind `cabinets_match`; null without the other draft. */
-  cabinets: CabinetsComparisonSchema.nullable().default(null),
-  /** Non-blocking problems (warnings) of this drawing, shown next to the checklist. */
+  ordinal: z.number().int().min(1),
+  /** The draft that will be published; null when the drawing has none (published or not ready). */
+  draftRevisionId: z.uuid().nullable(),
+  state: z.enum(['draft', 'published', 'not_ready']),
+  /** crs_known, control_point, no_problems, installation, box_types of this drawing's draft. */
+  checks: z.array(PublishCheckSchema),
   warningCount: z.number().int().min(0).default(0),
   /** ADR-042: the installation report behind `installation`; null on a Secondary. */
   installation: InstallationReportSchema.nullable().default(null),
   /** ADR-043: the box-types report behind `box_types`; null on a General / legacy-mode Secondary. */
   boxTypes: BoxTypesReportSchema.nullable().default(null),
+});
+export type PublishDrawingReadiness = z.infer<typeof PublishDrawingReadinessSchema>;
+
+export const PublishReadinessSchema = z.object({
+  /** The site whose drafts are published together; null when the drawing has no site. */
+  siteId: z.uuid().nullable(),
+  /** Always every key, in PUBLISH_CHECK_KEYS order. */
+  checks: z.array(PublishCheckSchema).length(PUBLISH_CHECK_KEYS.length),
+  /** Every check except open_items is ok and the site has at least one draft. */
+  canPublish: z.boolean(),
+  /** The revision the page was asked for (null on the site route) and its kind. */
+  revisionId: z.uuid().nullable().default(null),
+  drawingKind: DrawingKindSchema.nullable().default(null),
+  /** Drafts that «نشر» publishes together (one `revNo`). */
+  siteRevisionIds: z.array(z.uuid()).default([]),
+  drawings: z.array(PublishDrawingReadinessSchema).default([]),
+  /** Open items exist: publishing needs `acknowledgeOpenItems: true`. */
+  needsAcknowledgement: z.boolean(),
+  /** The cabinets comparison behind `cabinets_match`; null while the site has no General. */
+  cabinets: SiteCabinetsComparisonSchema.nullable().default(null),
+  /** Cabinet names found in another site of the work order (`cabinets_other_site`). */
+  cabinetsInOtherSites: z.array(CabinetInOtherSiteSchema).default([]),
+  /** Non-blocking problems (warnings) of the drafts, shown next to the checklist. */
+  warningCount: z.number().int().min(0).default(0),
   /**
    * ADR-045: checks whose step is switched off (`installation`, `box_types`). Such a check is ok
    * unless it still reports an error (`READING_ROLES_MISSING` on `box_types`); the web hides it

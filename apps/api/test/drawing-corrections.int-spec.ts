@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { ensureMember, eventTypes, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing as insertSiteDrawing } from './support/drawing-fixtures.js';
 
 let testRedis: TestRedis;
 let redis: Redis;
@@ -77,10 +78,15 @@ async function insertFile(
   p = project,
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertSiteDrawing(
+    (text, values) => ctx.pool.query(text, values),
+    p,
+    'general',
+  );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, processed_at)
-     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, $4, $5, 1, $6)`,
+                            status, current_job_id, ins_units, processed_at, drawing_id)
+     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, $4, $5, 1, $6, $7)`,
     [
       id,
       p,
@@ -88,6 +94,7 @@ async function insertFile(
       status,
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? new Date() : null,
+      drawingId,
     ],
   );
   return id;

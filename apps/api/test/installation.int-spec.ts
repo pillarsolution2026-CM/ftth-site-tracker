@@ -17,6 +17,11 @@ import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import {
+  insertDrawing,
+  linkDrawingsToSite,
+  supersedeByNewFile,
+} from './support/drawing-fixtures.js';
 
 /** ADR-042: the General's installation question, trench marks and the automatic Secondary placement. */
 
@@ -119,10 +124,11 @@ async function insertFile(
   status: 'processed' | 'uploaded' = 'processed',
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(q, p, kind);
   await q(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8)`,
+                            status, current_job_id, ins_units, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9)`,
     [
       id,
       p,
@@ -132,6 +138,7 @@ async function insertFile(
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? new Date() : null,
       kind,
+      drawingId,
     ],
   );
   return id;
@@ -330,14 +337,18 @@ async function pair(answerValue: 'pull_only' | 'has_trench' | null): Promise<Pai
   };
 }
 
-const readiness = async (pr: Pair, revision: string) =>
-  PublishReadinessSchema.parse(
+const readiness = async (pr: Pair, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, pr.project);
+  return PublishReadinessSchema.parse(
     (await as(admin)(http().get(`${revisionsUrl(pr.project)}/${revision}/publish-readiness`))).body,
   );
-const publish = (pr: Pair, revision: string) =>
-  as(admin)(http().post(`${revisionsUrl(pr.project)}/${revision}/publish`)).send({
+};
+const publish = async (pr: Pair, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, pr.project);
+  return as(admin)(http().post(`${revisionsUrl(pr.project)}/${revision}/publish`)).send({
     acknowledgeOpenItems: true,
   });
+};
 
 // ---------------------------------------------------------------------------------------------
 
@@ -578,11 +589,7 @@ describe('answer and trench marks lifecycle', () => {
 
     const old = await generalWithCurves();
     await answer(old, 'has_trench');
-    const replacement = await insertFile('general');
-    await q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-      old,
-      replacement,
-    ]);
+    await supersedeByNewFile(ctx.pool, old);
     for (const res of [await answer(old, 'pull_only'), await addMark(old, 'C1', '1')]) {
       expect(res.status).toBe(409);
       expect(res.body.details).toMatchObject({ reason: 'FILE_SUPERSEDED' });
@@ -613,11 +620,7 @@ describe('answer and trench marks lifecycle', () => {
     const file = await generalWithCurves();
     await answer(file, 'has_trench');
     const mark = (await addMark(file, 'C1', '3')).body.id as string;
-    const replacement = await insertFile('general');
-    await q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-      file,
-      replacement,
-    ]);
+    await supersedeByNewFile(ctx.pool, file);
     const res = await withdrawMark(file, mark);
     expect(res.status).toBe(409);
     expect(res.body.details).toMatchObject({ reason: 'FILE_SUPERSEDED' });
@@ -779,7 +782,14 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
       ok: true,
       count: 0,
     });
-    expect(ready).toMatchObject({ canPublish: true, installation: { applies: true, ok: true } });
+    expect(ready).toMatchObject({
+      canPublish: true,
+      drawings: expect.arrayContaining([
+        expect.objectContaining({
+          installation: expect.objectContaining({ applies: true, ok: true }),
+        }),
+      ]),
+    });
     const report = InstallationReportSchema.parse(
       (
         await as(admin)(
@@ -798,22 +808,29 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
     const ready = await readiness(pr, pr.general.revision);
     expect(ready).toMatchObject({
       canPublish: false,
-      installation: { ok: false, issueCount: 1, issues: [{ code: 'QUESTION_UNANSWERED' }] },
+      drawings: expect.arrayContaining([
+        expect.objectContaining({
+          installation: expect.objectContaining({
+            ok: false,
+            issueCount: 1,
+            issues: [expect.objectContaining({ code: 'QUESTION_UNANSWERED' })],
+          }),
+        }),
+      ]),
     });
     expect(ready.checks.find((c) => c.key === 'installation')).toEqual({
       key: 'installation',
       ok: false,
       count: 1,
     });
-    // The Secondary: its own installation check is always ok, but the General is part of other_drawing.
+    // The checklist is the site's: asked from the Secondary, it shows the General's installation.
     const secReady = await readiness(pr, pr.secondary.revision);
-    expect(secReady.installation).toBeNull();
+    expect(secReady.drawings.find((d) => d.drawingKind === 'secondary')?.installation).toBeNull();
     expect(secReady.checks.find((c) => c.key === 'installation')).toEqual({
       key: 'installation',
-      ok: true,
-      count: null,
+      ok: false,
+      count: 1,
     });
-    expect(secReady.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(false);
     expect(secReady.canPublish).toBe(false);
 
     // Both entry points answer INSTALLATION_UNCLEAR for the General's installation.
@@ -864,7 +881,14 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
     const ready = await readiness(marked, marked.general.revision);
     expect(ready).toMatchObject({
       canPublish: true,
-      installation: { ok: true, totals: { trenchM: '10.000', pullM: '0.000' } },
+      drawings: expect.arrayContaining([
+        expect.objectContaining({
+          installation: expect.objectContaining({
+            ok: true,
+            totals: expect.objectContaining({ trenchM: '10.000', pullM: '0.000' }),
+          }),
+        }),
+      ]),
     });
     expect((await publish(marked, marked.general.revision)).status).toBe(200);
   });
@@ -1048,7 +1072,11 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
 
 describe('automatic Secondary placement from the General cabinets (GET …/placement/general-cabinets)', () => {
   const url = (file: string, p: string) => `${filesUrl(p)}/${file}/placement/general-cabinets`;
-  const suggest = (file: string, p: string, token = admin) => as(token)(http().get(url(file, p)));
+  const suggest = async (file: string, p: string, token = admin) => {
+    // The General of the SAME site is used (ADR-049 part B): link the drawings to one site first.
+    await linkDrawingsToSite(ctx.pool, p);
+    return as(token)(http().get(url(file, p)));
+  };
 
   /** Cabinets of a revision; `at` is the Secondary's drawn centre. */
   async function cabinet(
@@ -1192,11 +1220,7 @@ describe('automatic Secondary placement from the General cabinets (GET …/place
     expect(await reason(await suggest(pr.secondary.file, pr.project))).toMatchObject({
       reason: 'SECONDARY_NOT_BUILT',
     });
-    const replacement = await insertFile('secondary', pr.project);
-    await q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-      pr.secondary.file,
-      replacement,
-    ]);
+    await supersedeByNewFile(ctx.pool, pr.secondary.file);
     expect(await reason(await suggest(pr.secondary.file, pr.project))).toMatchObject({
       reason: 'NOT_CURRENT',
     });

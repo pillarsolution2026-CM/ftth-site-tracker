@@ -5,7 +5,7 @@ import {
   CadFileSummarySchema,
   DesignRevisionDetailSchema,
   DesignRevisionSummarySchema,
-  KindExistsDetailsSchema,
+  UploadRefusedDetailsSchema,
   OfflineBundleSchema,
   PublishReadinessSchema,
   type DrawingKind,
@@ -24,6 +24,7 @@ import {
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { ensureSite, insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 /**
  * ADR-040 part A: drawing kinds (General / Secondary) per CAD file, versions that supersede,
@@ -69,12 +70,17 @@ async function insertFile(
   project: string,
   kind: DrawingKind = 'general',
   status = 'processed',
+  /** An existing drawing to add a version to (the other file must then be superseded). */
+  existingDrawing?: string,
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId =
+    existingDrawing ??
+    (await insertDrawing((text, values) => ctx.pool.query(text, values), project, kind));
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, now(), $7)`,
+                            status, current_job_id, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, now(), $7, $8)`,
     [
       id,
       project,
@@ -83,6 +89,7 @@ async function insertFile(
       status,
       randomUUID(),
       kind,
+      drawingId,
     ],
   );
   return id;
@@ -121,73 +128,38 @@ async function sqlState(work: Promise<unknown>): Promise<string | null> {
 
 const q = (text: string, values: unknown[] = []) => ctx.pool.query(text, values);
 
-describe('migration 0019: one current file per kind for files uploaded before ADR-040', () => {
-  const current = async (project: string) =>
-    (
-      await q(
-        `SELECT id, drawing_kind, superseded_by FROM cad_files WHERE project_id = $1 ORDER BY id`,
-        [project],
-      )
-    ).rows as { id: string; drawing_kind: string; superseded_by: string | null }[];
-  const age = (id: string, minutes: number) =>
-    q(`UPDATE cad_files SET created_at = now() - make_interval(mins => $2) WHERE id = $1`, [
-      id,
-      minutes,
-    ]);
-
-  it('keeps the file of the open revision current and supersedes the others of that kind', async () => {
-    const project = await newProject();
-    const newest = await insertFile(project);
-    const withDraft = await insertFile(project);
-    const oldest = await insertFile(project);
-    await age(oldest, 300);
-    await age(withDraft, 200);
-    await age(newest, 100);
-    await insertRevision(project, newest, { status: 'discarded' });
-    await insertRevision(project, withDraft, { status: 'draft' });
-    const secondary = await insertFile(project, 'secondary');
-
-    await q('SELECT cad_files_supersede_legacy()');
-    const rows = new Map((await current(project)).map((r) => [r.id, r.superseded_by]));
-    expect(rows.get(withDraft)).toBeNull();
-    expect(rows.get(newest)).toBe(withDraft);
-    expect(rows.get(oldest)).toBe(withDraft);
-    expect(rows.get(secondary)).toBeNull();
-
-    // Running it again changes nothing.
-    await q('SELECT cad_files_supersede_legacy()');
-    expect(new Map((await current(project)).map((r) => [r.id, r.superseded_by]))).toEqual(rows);
-  });
-
-  it('without an open revision keeps the file of the latest revision, else the newest file', async () => {
-    const withRevision = await newProject();
-    const a = await insertFile(withRevision);
-    const b = await insertFile(withRevision);
-    await age(a, 50);
-    await age(b, 10);
-    await insertRevision(withRevision, a, { status: 'discarded' });
-    await q('SELECT cad_files_supersede_legacy()');
-    expect(new Map((await current(withRevision)).map((r) => [r.id, r.superseded_by]))).toEqual(
-      new Map([
-        [a, null],
-        [b, a],
-      ]),
+/**
+ * A new version of the file: the older one is marked superseded first (the reference to the newer
+ * file is checked at commit), then the newer one is inserted, all in one transaction.
+ */
+async function supersedeByNewFile(oldId: string): Promise<string> {
+  const newId = randomUUID();
+  const client = await ctx.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1',
+      [oldId, newId],
     );
-
-    const noRevision = await newProject();
-    const old = await insertFile(noRevision);
-    const fresh = await insertFile(noRevision);
-    await age(old, 50);
-    await age(fresh, 10);
-    await q('SELECT cad_files_supersede_legacy()');
-    expect(new Map((await current(noRevision)).map((r) => [r.id, r.superseded_by]))).toEqual(
-      new Map([
-        [fresh, null],
-        [old, fresh],
-      ]),
+    await client.query(
+      `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
+                              status, current_job_id, processed_at, drawing_kind, drawing_id)
+       SELECT $2::uuid, project_id, 'v2.dxf', 'dxf', 1, repeat('a', 64),
+              'projects/' || project_id || '/cad/' || $2::text || '/o.dxf', 'processed',
+              gen_random_uuid(), now(), drawing_kind,
+              drawing_id
+       FROM cad_files WHERE id = $1`,
+      [oldId, newId],
     );
-  });
-});
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+  return newId;
+}
 
 describe('migration 0018 constraints', () => {
   it('limits the kind to general | secondary and defaults existing-style inserts to general', async () => {
@@ -196,15 +168,17 @@ describe('migration 0018 constraints', () => {
     const row = await q('SELECT drawing_kind FROM cad_files WHERE id = $1', [id]);
     expect(row.rows[0].drawing_kind).toBe('general');
     const bad = randomUUID();
-    expect(
+    const badDrawing = await insertDrawing((text, values) => q(text, values), project);
+    // The kind trigger of 0026 (file kind = drawing kind) may answer before the CHECK does.
+    expect(['23514', '23001']).toContain(
       await sqlState(
         q(
-          `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key, drawing_kind)
-           VALUES ($1, $2, 'x.dxf', 'dxf', 1, repeat('a', 64), $3, 'third')`,
-          [bad, project, `projects/${project}/cad/${bad}/o.dxf`],
+          `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key, drawing_kind, drawing_id)
+           VALUES ($1, $2, 'x.dxf', 'dxf', 1, repeat('a', 64), $3, 'third', $4)`,
+          [bad, project, `projects/${project}/cad/${bad}/o.dxf`, badDrawing],
         ),
       ),
-    ).toBe('23514');
+    );
   });
 
   it('never changes the kind of a file', async () => {
@@ -219,7 +193,7 @@ describe('migration 0018 constraints', () => {
 
   it('sets superseded_at and superseded_by together, never to itself, and never back', async () => {
     const project = await newProject();
-    const [oldId, newId] = [await insertFile(project), await insertFile(project)];
+    const oldId = await insertFile(project);
     expect(
       await sqlState(q(`UPDATE cad_files SET superseded_at = now() WHERE id = $1`, [oldId])),
     ).toBe('23514');
@@ -228,20 +202,13 @@ describe('migration 0018 constraints', () => {
         q(`UPDATE cad_files SET superseded_at = now(), superseded_by = id WHERE id = $1`, [oldId]),
       ),
     ).toBe('23514');
-    expect(
-      await sqlState(
-        q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-          oldId,
-          newId,
-        ]),
-      ),
-    ).toBe(null);
+    await supersedeByNewFile(oldId);
     expect(
       await sqlState(
         q(`UPDATE cad_files SET superseded_at = NULL, superseded_by = NULL WHERE id = $1`, [oldId]),
       ),
     ).toBe('23001');
-    // The foreign key keeps the replacement inside the same project.
+    // The foreign key keeps the replacement inside the same project (checked at commit).
     const other = await newProject();
     const stranger = await insertFile(other);
     const mine = await insertFile(project);
@@ -255,27 +222,33 @@ describe('migration 0018 constraints', () => {
     ).toBe('23503');
   });
 
-  it('only lets a file be superseded by a file of the same kind', async () => {
+  it('only lets a file be superseded by a file of the same drawing', async () => {
     const project = await newProject();
     const general = await insertFile(project, 'general');
     const secondary = await insertFile(project, 'secondary');
-    expect(
-      await sqlState(
-        q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-          general,
-          secondary,
-        ]),
-      ),
-    ).toBe('23001');
-    const sameKind = await insertFile(project, 'general');
-    expect(
-      await sqlState(
-        q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-          general,
-          sameKind,
-        ]),
-      ),
-    ).toBe(null);
+    const otherGeneral = await insertFile(project, 'general');
+    for (const target of [secondary, otherGeneral]) {
+      expect(
+        await sqlState(
+          q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
+            general,
+            target,
+          ]),
+        ),
+      ).toBe('23001');
+    }
+    expect(await sqlState(supersedeByNewFile(general))).toBe(null);
+  });
+
+  it('has one current file per drawing', async () => {
+    const project = await newProject();
+    const general = await insertFile(project, 'general');
+    const drawing = (await q('SELECT drawing_id FROM cad_files WHERE id = $1', [general])).rows[0]
+      .drawing_id as string;
+    expect(await sqlState(insertFile(project, 'general', 'processed', drawing))).toBe('23505');
+    // The file kind is the kind of its drawing.
+    const wrong = await insertDrawing((text, values) => q(text, values), project, 'secondary');
+    expect(await sqlState(insertFile(project, 'general', 'processed', wrong))).toBe('23001');
   });
 
   it("requires a revision's kind to equal its file's kind", async () => {
@@ -300,29 +273,32 @@ describe('migration 0018 constraints', () => {
     ).toBe('23001');
   });
 
-  it('allows one open revision per kind, so both kinds can be open together', async () => {
+  it('allows one open revision per drawing, so drawings of both kinds can be open together', async () => {
     const project = await newProject();
     const g1 = await insertFile(project, 'general');
     const g2 = await insertFile(project, 'general');
     const s1 = await insertFile(project, 'secondary');
-    const s2 = await insertFile(project, 'secondary');
     expect(await sqlState(insertRevision(project, g1, { kind: 'general' }))).toBe(null);
     expect(await sqlState(insertRevision(project, s1, { kind: 'secondary' }))).toBe(null);
-    expect(await sqlState(insertRevision(project, g2, { kind: 'general', status: 'queued' }))).toBe(
+    // Another drawing of the same kind has its own open revision.
+    expect(await sqlState(insertRevision(project, g2, { kind: 'general' }))).toBe(null);
+    // A second open revision of one drawing is refused.
+    expect(await sqlState(insertRevision(project, g1, { kind: 'general', status: 'queued' }))).toBe(
       '23505',
     );
     expect(
-      await sqlState(insertRevision(project, s2, { kind: 'secondary', status: 'building' })),
+      await sqlState(insertRevision(project, s1, { kind: 'secondary', status: 'building' })),
     ).toBe('23505');
     // A failed or discarded one does not count as open.
     await q(`UPDATE design_revisions SET status = 'discarded' WHERE project_id = $1`, [project]);
-    expect(await sqlState(insertRevision(project, g2, { kind: 'general' }))).toBe(null);
+    expect(await sqlState(insertRevision(project, g1, { kind: 'general' }))).toBe(null);
   });
 
-  it('numbers revisions per kind: the pair shares a rev_no, a kind never repeats one', async () => {
+  it("numbers revisions per drawing: a drawing's number never repeats, drawings may share one", async () => {
     const project = await newProject();
-    const publish = async (kind: DrawingKind, revNo: number) => {
-      const file = await insertFile(project, kind);
+    const general = await insertFile(project, 'general');
+    const secondary = await insertFile(project, 'secondary');
+    const publish = async (file: string, kind: DrawingKind, revNo: number) => {
       const id = await insertRevision(project, file, { kind });
       try {
         await q(
@@ -330,22 +306,41 @@ describe('migration 0018 constraints', () => {
           [id, revNo],
         );
       } catch (error) {
-        // Keep the project free of a leftover open draft for the next attempt.
+        // Keep the drawing free of a leftover open draft for the next attempt.
         await q(`UPDATE design_revisions SET status = 'discarded' WHERE id = $1`, [id]);
         throw error;
       }
     };
-    await publish('general', 1);
-    await publish('secondary', 1);
-    expect(await sqlState(publish('general', 1))).toBe('23505');
-    expect(await sqlState(publish('secondary', 1))).toBe('23505');
-    expect(await sqlState(publish('general', 2))).toBe(null);
+    await publish(general, 'general', 1);
+    await publish(secondary, 'secondary', 1);
+    expect(await sqlState(publish(general, 'general', 1))).toBe('23505');
+    expect(await sqlState(publish(secondary, 'secondary', 1))).toBe('23505');
+    // The numbers of a drawing may skip (General 1, 3).
+    expect(await sqlState(publish(general, 'general', 3))).toBe(null);
   });
 });
 
 describe('uploading a drawing of a kind', () => {
-  const upload = (project: string, query: string, name = 'plan.dxf') =>
+  const rawUpload = (project: string, query: string, name = 'plan.dxf') =>
     as(admin)(http().post(`${filesUrl(project)}${query}`)).attach('file', DXF, name);
+  /**
+   * The old «kind + newVersion» spelling mapped to ADR-049 part B: the project's site, a new drawing
+   * of the kind, or (newVersion=true and a drawing exists) a new version of its first drawing.
+   */
+  const upload = async (project: string, query: string, name = 'plan.dxf') => {
+    const params = new URLSearchParams(query.replace(/^\?/, ''));
+    const kind = params.get('kind');
+    if (kind !== 'general' && kind !== 'secondary') return rawUpload(project, query, name);
+    const site = await ensureSite(ctx.pool, project);
+    const existing = await q(
+      `SELECT id FROM site_drawings WHERE site_id = $1 AND drawing_kind = $2
+       AND withdrawn_at IS NULL ORDER BY ordinal LIMIT 1`,
+      [site, kind],
+    );
+    const version = params.get('newVersion') === 'true' && existing.rows[0];
+    const target = version ? `new_version&drawingId=${existing.rows[0].id}` : 'new_drawing';
+    return rawUpload(project, `?siteId=${site}&kind=${kind}&target=${target}`, name);
+  };
 
   /** Original objects of a project on disk (the storage root is shared by the whole run). */
   async function storedObjects(project: string): Promise<number> {
@@ -360,10 +355,19 @@ describe('uploading a drawing of a kind', () => {
     }
   }
 
-  it('requires the kind: 400 VALIDATION_FAILED without it, or with a bad one', async () => {
+  it('requires the site, the kind and the target: 400 VALIDATION_FAILED without them, or with a bad one', async () => {
     const project = await newProject();
-    for (const query of ['', '?newVersion=true', '?kind=third', '?kind=general&newVersion=maybe']) {
-      const res = await upload(project, query);
+    const site = await ensureSite(ctx.pool, project);
+    for (const query of [
+      '',
+      '?target=new_drawing',
+      `?siteId=${site}&kind=third&target=new_drawing`,
+      `?siteId=${site}&kind=general`,
+      `?siteId=${site}&kind=general&target=sideways`,
+      `?siteId=${site}&kind=general&target=new_version`,
+      '?siteId=nope&kind=general&target=new_drawing',
+    ]) {
+      const res = await rawUpload(project, query);
       expect(res.status, query).toBe(400);
       expect(res.body.code, query).toBe('VALIDATION_FAILED');
     }
@@ -371,7 +375,7 @@ describe('uploading a drawing of a kind', () => {
     expect((await q('SELECT 1 FROM cad_files WHERE project_id = $1', [project])).rowCount).toBe(0);
   });
 
-  it('refuses a second file of the kind without newVersion and stores nothing for it', async () => {
+  it('refuses a second General in the site with GENERAL_EXISTS and stores nothing for it', async () => {
     const project = await newProject();
     const first = await upload(project, '?kind=general', 'first.dxf');
     expect(first.status, JSON.stringify(first.body)).toBe(201);
@@ -386,10 +390,10 @@ describe('uploading a drawing of a kind', () => {
       const again = await upload(project, query, 'second.dxf');
       expect(again.status, query).toBe(409);
       expect(again.body.code).toBe('CONFLICT');
-      expect(KindExistsDetailsSchema.parse(again.body.details)).toEqual({
-        reason: 'KIND_EXISTS',
-        kind: 'general',
-        currentFileId: first.body.id,
+      expect(UploadRefusedDetailsSchema.parse(again.body.details)).toEqual({
+        reason: 'GENERAL_EXISTS',
+        siteId: first.body.siteId,
+        drawingId: first.body.drawingId,
         currentFileName: 'first.dxf',
       });
     }
@@ -397,7 +401,7 @@ describe('uploading a drawing of a kind', () => {
     expect((await q('SELECT 1 FROM cad_files WHERE project_id = $1', [project])).rowCount).toBe(1);
   });
 
-  it('keeps the old file as history when newVersion=true supersedes it, and the kinds apart', async () => {
+  it('keeps the old file as history when a new version supersedes it, and the drawings apart', async () => {
     const project = await newProject();
     const first = await upload(project, '?kind=general', 'v1.dxf');
     const secondary = await upload(project, '?kind=secondary', 'sec.dxf');
@@ -634,13 +638,17 @@ describe('publishing the pair', () => {
     await makeBoxTypesClear(ctx.pool, revisionId);
   }
 
-  const publish = (project: string, revisionId: string, body: object = {}) =>
-    as(admin)(http().post(`${revisionsUrl(project)}/${revisionId}/publish`)).send(body);
-  const readiness = async (project: string, revisionId: string) =>
-    PublishReadinessSchema.parse(
+  const publish = async (project: string, revisionId: string, body: object = {}) => {
+    await linkDrawingsToSite(ctx.pool, project);
+    return as(admin)(http().post(`${revisionsUrl(project)}/${revisionId}/publish`)).send(body);
+  };
+  const readiness = async (project: string, revisionId: string) => {
+    await linkDrawingsToSite(ctx.pool, project);
+    return PublishReadinessSchema.parse(
       (await as(admin)(http().get(`${revisionsUrl(project)}/${revisionId}/publish-readiness`)))
         .body,
     );
+  };
   const problem = (count: number) => ({
     code: 'LABEL_MISSING',
     severity: 'warning',
@@ -667,30 +675,33 @@ describe('publishing the pair', () => {
     expect(again.body.details).toMatchObject({ reason: 'REVISION_IN_PROGRESS' });
   });
 
-  it('refuses OTHER_DRAWING_MISSING with no other revision, and while the other is not a draft', async () => {
+  it('refuses DRAWING_NOT_READY with no revision of the other drawing, and while it is not a draft', async () => {
     const pair = await newPair();
     const general = await createRevision(pair, pair.generalFile);
     await build(general.id);
 
     const alone = await publish(pair.project, general.id);
     expect(alone.status, JSON.stringify(alone.body)).toBe(409);
-    expect(alone.body.details).toEqual({
-      reason: 'OTHER_DRAWING_MISSING',
+    expect(alone.body.details).toMatchObject({
+      reason: 'DRAWING_NOT_READY',
       drawingKind: 'secondary',
+      ordinal: 1,
+      state: 'no_revision',
     });
     expect(await readiness(pair.project, general.id)).toMatchObject({
       drawingKind: 'general',
-      otherRevisionId: null,
       canPublish: false,
-      checks: expect.arrayContaining([{ key: 'other_drawing', ok: false, count: null }]),
+      siteRevisionIds: [general.id],
+      checks: expect.arrayContaining([{ key: 'site_drawings', ok: false, count: 1 }]),
     });
 
     // Queued is open but not a draft yet.
     const secondary = await createRevision(pair, pair.secondaryFile);
     const queued = await publish(pair.project, general.id);
-    expect(queued.body.details).toEqual({
-      reason: 'OTHER_DRAWING_MISSING',
+    expect(queued.body.details).toMatchObject({
+      reason: 'DRAWING_NOT_READY',
       drawingKind: 'secondary',
+      state: 'queued',
     });
     expect(secondary.status).toBe('queued');
     const status = await q('SELECT status FROM design_revisions WHERE id = $1', [general.id]);
@@ -708,7 +719,7 @@ describe('publishing the pair', () => {
     for (const revision of [general.id, secondary.id]) {
       const res = await publish(pair.project, revision);
       expect(res.status, JSON.stringify(res.body)).toBe(409);
-      expect(res.body.details).toEqual({
+      expect(res.body.details).toMatchObject({
         reason: 'PROBLEMS_OPEN',
         drawingKind: 'secondary',
         problemCount: 4,
@@ -718,18 +729,22 @@ describe('publishing the pair', () => {
     expect(ready.checks.map((c) => [c.key, c.ok, c.count])).toEqual([
       ['crs_known', true, null],
       ['control_point', true, 1],
-      ['no_problems', true, 0],
+      ['no_problems', false, 4],
       ['open_items', true, 0],
-      ['other_drawing', false, 4],
+      ['site_drawings', true, 0],
       ['cabinets_match', true, 0],
+      ['cabinets_other_site', true, 0],
       ['installation', true, 0],
-      ['box_types', true, null],
+      ['box_types', true, 0],
     ]);
-    expect(ready).toMatchObject({ canPublish: false, otherRevisionId: secondary.id });
+    expect(ready).toMatchObject({
+      canPublish: false,
+      siteRevisionIds: [general.id, secondary.id],
+    });
 
     // This drawing's own blocker comes first.
     await setWarnings(general.id, [problem(1)]);
-    expect((await publish(pair.project, general.id)).body.details).toEqual({
+    expect((await publish(pair.project, general.id)).body.details).toMatchObject({
       reason: 'PROBLEMS_OPEN',
       drawingKind: 'general',
       problemCount: 1,
@@ -755,7 +770,7 @@ describe('publishing the pair', () => {
     await build(secondary.id);
     const res = await publish(pair.project, general.id);
     expect(res.status).toBe(409);
-    expect(res.body.details).toEqual({ reason: 'CRS_UNKNOWN', drawingKind: 'secondary' });
+    expect(res.body.details).toMatchObject({ reason: 'CRS_UNKNOWN', drawingKind: 'secondary' });
   });
 
   it('publishes both drawings together with one rev_no, then numbers the next pair 2', async () => {
@@ -769,7 +784,7 @@ describe('publishing the pair', () => {
     expect(ready).toMatchObject({
       canPublish: true,
       drawingKind: 'secondary',
-      otherRevisionId: general.id,
+      siteRevisionIds: [general.id, secondary.id],
       needsAcknowledgement: false,
     });
 
@@ -794,9 +809,9 @@ describe('publishing the pair', () => {
     expect(rows.rows[0].published_at).toEqual(rows.rows[1].published_at);
     expect(rows.rows[0].published_by).toBe(rows.rows[1].published_by);
 
-    for (const [self, pairId, kind] of [
-      [general.id, secondary.id, 'general'],
-      [secondary.id, general.id, 'secondary'],
+    for (const [self, kind] of [
+      [general.id, 'general'],
+      [secondary.id, 'secondary'],
     ] as const) {
       expect(await eventTypes(ctx.pool, self)).toEqual([
         'design_revision.queued',
@@ -809,7 +824,7 @@ describe('publishing the pair', () => {
       expect(event.rows[0].payload).toMatchObject({
         revNo: 1,
         drawingKind: kind,
-        pairRevisionId: pairId,
+        siteRevisionIds: [general.id, secondary.id],
       });
     }
 

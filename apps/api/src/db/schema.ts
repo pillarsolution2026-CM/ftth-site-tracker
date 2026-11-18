@@ -297,6 +297,35 @@ export const workOrderAttachments = pgTable(
   ],
 );
 
+/**
+ * Drawings of a site (migration 0026, ADR-049 part B): a line of file versions of one kind.
+ * `siteId` is NULL only for drawings from before sites that are not linked yet.
+ */
+export const siteDrawings = pgTable(
+  'site_drawings',
+  {
+    id: uuid('id').primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    siteId: uuid('site_id'),
+    drawingKind: text('drawing_kind').$type<DrawingKind>().notNull(),
+    ordinal: integer('ordinal').notNull(),
+    withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+    withdrawnBy: uuid('withdrawn_by').references(() => users.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('site_drawings_project_id_id_key').on(table.projectId, table.id),
+    foreignKey({
+      name: 'site_drawings_site_fkey',
+      columns: [table.projectId, table.siteId],
+      foreignColumns: [workOrderSites.projectId, workOrderSites.id],
+    }).onDelete('restrict'),
+  ],
+);
+
 export const cadFiles = pgTable(
   'cad_files',
   {
@@ -358,6 +387,8 @@ export const cadFiles = pgTable(
     /** Set together when a newer version of the same kind is uploaded; never reset. */
     supersededAt: timestamp('superseded_at', { withTimezone: true }),
     supersededBy: uuid('superseded_by'),
+    /** Migration 0026 (ADR-049 part B): the drawing this file is a version of; never changes. */
+    drawingId: uuid('drawing_id').notNull(),
   },
   (table) => [
     unique('cad_files_project_id_id_key').on(table.projectId, table.id),
@@ -538,6 +569,8 @@ export const designRevisions = pgTable(
     cadFileId: uuid('cad_file_id').notNull(),
     /** Migration 0018: equals the source file's kind (trigger); one open revision per kind. */
     drawingKind: text('drawing_kind').$type<DrawingKind>().notNull().default('general'),
+    /** Migration 0026: the drawing of the source file (set by a trigger when omitted). */
+    drawingId: uuid('drawing_id').notNull(),
     revNo: integer('rev_no'),
     status: text('status')
       .$type<'queued' | 'building' | 'draft' | 'failed' | 'published' | 'discarded'>()
@@ -580,7 +613,7 @@ export const designRevisions = pgTable(
   },
   (table) => [
     unique('design_revisions_project_id_id_key').on(table.projectId, table.id),
-    unique('design_revisions_rev_no_key').on(table.projectId, table.drawingKind, table.revNo),
+    unique('design_revisions_rev_no_key').on(table.drawingId, table.revNo),
     foreignKey({
       name: 'design_revisions_file_fkey',
       columns: [table.projectId, table.cadFileId],

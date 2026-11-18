@@ -15,13 +15,19 @@ export class GetOfflineBundleUseCase {
 
   async execute(input: {
     projectId: string;
+    /** ADR-049 part B: the drawing whose features the bundle carries; default the General published last. */
+    drawingId?: string | undefined;
     scope: ExecutionScope;
     /** Reach of `asbuilt:read`; null when no assignment grants it (then no As-Built state). */
     asBuiltScope: ExecutionScope | null;
   }): Promise<OfflineBundle> {
     const project = await this.queries.projectInfo(input.projectId);
     if (!project) throw new AppError('NOT_FOUND', 'Project not found');
-    const revision = await this.queries.latestPublishedRevision(input.projectId);
+    const drawings = await this.queries.publishedDrawings(input.projectId);
+    if (input.drawingId && !drawings.some((d) => d.drawingId === input.drawingId)) {
+      throw new AppError('NOT_FOUND', 'No published revision for this drawing');
+    }
+    const revision = await this.queries.latestPublishedRevision(input.projectId, input.drawingId);
     const features = revision
       ? await this.queries.featuresInScope(input.projectId, revision.id, input.scope)
       : [];
@@ -32,9 +38,23 @@ export class GetOfflineBundleUseCase {
         input.scope.kind === 'project'
           ? { kind: 'project' }
           : { kind: 'zones', zoneIds: [...input.scope.zoneIds] },
+      drawings: drawings.map((d) => ({
+        drawingId: d.drawingId,
+        siteId: d.siteId,
+        siteName: d.siteName,
+        kind: d.kind,
+        ordinal: d.ordinal,
+        revision: {
+          id: d.revision.id,
+          revNo: d.revision.revNo,
+          publishedAt: d.revision.publishedAt.toISOString(),
+          tilesAvailable: d.revision.hasTiles,
+        },
+      })),
       revision: revision
         ? {
             id: revision.id,
+            ...(revision.drawingId ? { drawingId: revision.drawingId } : {}),
             revNo: revision.revNo,
             publishedAt: revision.publishedAt.toISOString(),
             tilesAvailable: revision.hasTiles,

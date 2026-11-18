@@ -321,14 +321,18 @@ export const AsBuiltRouteLengthSchema = z.object({
 export type AsBuiltRouteLength = z.infer<typeof AsBuiltRouteLengthSchema>;
 
 export const AsBuiltLengthsResponseSchema = z.object({
-  /** Latest published revision, or null when nothing is published (then `routes` is empty). */
+  /** The General revision published last, or null when nothing is published (then `routes` is empty). */
   revisionId: z.uuid().nullable(),
+  /** ADR-049 part B: the latest published revision of EVERY General drawing, the sources of `routes`. */
+  revisionIds: z.array(z.uuid()).default([]),
   routes: z.array(AsBuiltRouteLengthSchema),
 });
 export type AsBuiltLengthsResponse = z.infer<typeof AsBuiltLengthsResponseSchema>;
 
 export const AsBuiltStateResponseSchema = z.object({
   revisionId: z.uuid().nullable(),
+  /** ADR-049 part B: the latest published revision of every General drawing. */
+  revisionIds: z.array(z.uuid()).default([]),
   crsEpsg: z.number().int(),
   features: z.array(AsBuiltFeatureStateSchema),
 });
@@ -340,6 +344,10 @@ export type AsBuiltStateResponse = z.infer<typeof AsBuiltStateResponseSchema>;
 export const ASBUILT_EXPORT_STATUSES = ['queued', 'processing', 'done', 'failed'] as const;
 export const AsBuiltExportStatusSchema = z.enum(ASBUILT_EXPORT_STATUSES);
 export type AsBuiltExportStatus = z.infer<typeof AsBuiltExportStatusSchema>;
+
+/** POST …/asbuilt/exports?siteId= (ADR-049 part B): exports the site's General; without it the General published last. */
+export const AsBuiltExportQuerySchema = z.object({ siteId: z.uuid().optional() });
+export type AsBuiltExportQuery = z.infer<typeof AsBuiltExportQuerySchema>;
 
 export const AsBuiltExportSchema = z.object({
   id: z.uuid(),

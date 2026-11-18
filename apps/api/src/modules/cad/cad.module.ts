@@ -11,7 +11,15 @@ import { IdentityModule } from '../identity/identity.module.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
 import type { FindWorkOrderLinesUseCase } from '../work-orders/application/work-order-lines.js';
-import { FIND_WORK_ORDER_LINES } from '../work-orders/work-orders.tokens.js';
+import { FIND_WORK_ORDER_LINES, FIND_WORK_ORDER_SITES } from '../work-orders/work-orders.tokens.js';
+import type { FindWorkOrderSitesUseCase } from '../work-orders/application/work-order-sites-port.js';
+import { WorkOrdersServiceSites } from './infrastructure/work-orders-service-sites.js';
+import { SiteDrawingsController } from './interface/site-drawings.controller.js';
+import {
+  AssignDrawingSiteUseCase,
+  ListSiteDrawingsUseCase,
+  WithdrawSiteDrawingUseCase,
+} from './application/site-drawings.use-cases.js';
 import { WorkOrdersModule } from '../work-orders/work-orders.module.js';
 import { GET_PROJECT_USE_CASE } from '../projects/projects.tokens.js';
 import {
@@ -69,9 +77,11 @@ import type {
   ProjectEpsgLookup,
   TileConfig,
   WorkOrderLines,
+  WorkOrderSites,
 } from './application/ports.js';
 import {
   GetPublishReadinessUseCase,
+  GetSitePublishReadinessUseCase,
   PublishDesignRevisionUseCase,
 } from './application/publish-design-revision.use-case.js';
 import { ReprocessCadFileUseCase } from './application/reprocess-cad-file.use-case.js';
@@ -98,6 +108,7 @@ import {
   JOB_QUEUE,
   PROJECT_EPSG_LOOKUP,
   WORK_ORDER_LINES,
+  WORK_ORDER_SITES,
   DRAWING_FLOW,
   TILE_CONFIG,
 } from './cad.tokens.js';
@@ -177,6 +188,39 @@ const providers: Provider[] = [
     useFactory: (find: FindWorkOrderLinesUseCase) => new WorkOrdersServiceLines(find),
   },
   {
+    provide: WORK_ORDER_SITES,
+    inject: [FIND_WORK_ORDER_SITES],
+    useFactory: (find: FindWorkOrderSitesUseCase) => new WorkOrdersServiceSites(find),
+  },
+  {
+    provide: ListSiteDrawingsUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_SITES],
+    useFactory: (uow: CadUnitOfWork, sites: WorkOrderSites) =>
+      new ListSiteDrawingsUseCase(uow, sites),
+  },
+  {
+    provide: AssignDrawingSiteUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_SITES],
+    useFactory: (uow: CadUnitOfWork, sites: WorkOrderSites) =>
+      new AssignDrawingSiteUseCase(uow, sites),
+  },
+  {
+    provide: WithdrawSiteDrawingUseCase,
+    inject: [CAD_UNIT_OF_WORK],
+    useFactory: (uow: CadUnitOfWork) =>
+      new WithdrawSiteDrawingUseCase(uow, systemClock, uuidGenerator),
+  },
+  {
+    provide: GetSitePublishReadinessUseCase,
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, WORK_ORDER_SITES, DRAWING_FLOW],
+    useFactory: (
+      uow: CadUnitOfWork,
+      lines: WorkOrderLines,
+      sites: WorkOrderSites,
+      flow: DrawingFlow,
+    ) => new GetSitePublishReadinessUseCase(uow, lines, sites, flow),
+  },
+  {
     provide: CAD_FILE_REPOSITORY,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleCadFileRepository(db),
@@ -244,8 +288,14 @@ const providers: Provider[] = [
   },
   {
     provide: UploadCadFileUseCase,
-    inject: [CAD_UNIT_OF_WORK, OBJECT_STORAGE, JOB_QUEUE, APP_ENV],
-    useFactory: (uow: CadUnitOfWork, storage: ObjectStorage, queue: JobQueue, env: ApiEnv) =>
+    inject: [CAD_UNIT_OF_WORK, OBJECT_STORAGE, JOB_QUEUE, APP_ENV, WORK_ORDER_SITES],
+    useFactory: (
+      uow: CadUnitOfWork,
+      storage: ObjectStorage,
+      queue: JobQueue,
+      env: ApiEnv,
+      sites: WorkOrderSites,
+    ) =>
       new UploadCadFileUseCase(
         uow,
         storage,
@@ -253,6 +303,7 @@ const providers: Provider[] = [
         systemClock,
         uuidGenerator,
         maxUploadBytes(env.MAX_UPLOAD_MB),
+        sites,
       ),
   },
   {
@@ -381,15 +432,23 @@ const providers: Provider[] = [
   },
   {
     provide: GetPublishReadinessUseCase,
-    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
-    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
-      new GetPublishReadinessUseCase(uow, lines, flow),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, WORK_ORDER_SITES, DRAWING_FLOW],
+    useFactory: (
+      uow: CadUnitOfWork,
+      lines: WorkOrderLines,
+      sites: WorkOrderSites,
+      flow: DrawingFlow,
+    ) => new GetPublishReadinessUseCase(uow, lines, sites, flow),
   },
   {
     provide: PublishDesignRevisionUseCase,
-    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, DRAWING_FLOW],
-    useFactory: (uow: CadUnitOfWork, lines: WorkOrderLines, flow: DrawingFlow) =>
-      new PublishDesignRevisionUseCase(uow, systemClock, lines, flow),
+    inject: [CAD_UNIT_OF_WORK, WORK_ORDER_LINES, WORK_ORDER_SITES, DRAWING_FLOW],
+    useFactory: (
+      uow: CadUnitOfWork,
+      lines: WorkOrderLines,
+      sites: WorkOrderSites,
+      flow: DrawingFlow,
+    ) => new PublishDesignRevisionUseCase(uow, systemClock, lines, sites, flow),
   },
   {
     provide: DiscardDesignRevisionUseCase,
@@ -493,6 +552,7 @@ const providers: Provider[] = [
   imports: [IdentityModule, ProjectsModule, WorkOrdersModule],
   controllers: [
     CadFilesController,
+    SiteDrawingsController,
     CadExtractionController,
     CadMappingController,
     DrawingCorrectionsController,

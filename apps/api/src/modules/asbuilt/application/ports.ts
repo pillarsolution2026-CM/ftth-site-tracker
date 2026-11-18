@@ -112,7 +112,11 @@ export interface ExportRecord extends AsBuiltExport {
 }
 
 export interface AsBuiltExportTx {
-  latestPublishedRevision(projectId: string): Promise<{ id: string; revNo: number } | null>;
+  /** The latest published General revision of the site (ADR-049 part B), else of the General published last. */
+  latestPublishedRevision(
+    projectId: string,
+    siteId?: string,
+  ): Promise<{ id: string; revNo: number } | null>;
   insert(input: {
     id: string;
     projectId: string;

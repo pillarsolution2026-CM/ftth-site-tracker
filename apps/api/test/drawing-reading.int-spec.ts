@@ -12,6 +12,7 @@ import { loginAs, SEED_LOGINS } from './support/helpers.js';
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 /**
  * ADR-041 (API side): kind validation of the mapping, blocking totals of the problem list, the
@@ -54,10 +55,11 @@ async function newProject(): Promise<string> {
 
 async function insertFile(project: string, kind: DrawingKind): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(q, project, kind);
   await q(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, now(), $6)`,
+                            status, current_job_id, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, now(), $6, $7)`,
     [
       id,
       project,
@@ -65,6 +67,7 @@ async function insertFile(project: string, kind: DrawingKind): Promise<string> {
       `projects/${project}/cad/${id}/o.dxf`,
       randomUUID(),
       kind,
+      drawingId,
     ],
   );
   // ADR-042: a General is published only after its installation question is answered.
@@ -307,13 +310,17 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     );
   }
 
-  const readiness = async (pair: Pair, revision: string) =>
-    PublishReadinessSchema.parse(
+  const readiness = async (pair: Pair, revision: string) => {
+    await linkDrawingsToSite(ctx.pool, pair.project);
+    return PublishReadinessSchema.parse(
       (await as(admin)(http().get(`${revisionsUrl(pair.project)}/${revision}/publish-readiness`)))
         .body,
     );
-  const publish = (pair: Pair, revision: string, body: object = {}) =>
-    as(admin)(http().post(`${revisionsUrl(pair.project)}/${revision}/publish`)).send(body);
+  };
+  const publish = async (pair: Pair, revision: string, body: object = {}) => {
+    await linkDrawingsToSite(ctx.pool, pair.project);
+    return as(admin)(http().post(`${revisionsUrl(pair.project)}/${revision}/publish`)).send(body);
+  };
   const setWarnings = (revision: string, warnings: unknown[]) =>
     q('UPDATE design_revisions SET warnings = $2 WHERE id = $1', [
       revision,
@@ -422,24 +429,25 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     await addCabinet(pair, pair.secondary, 'sub', '1-1', 'S2');
     for (const revision of [pair.general, pair.secondary]) {
       const ready = await readiness(pair, revision);
+      // The checklist is the site's, the same from either revision (ADR-049 part B).
       expect(ready.checks.map((c) => [c.key, c.ok, c.count])).toEqual([
         ['crs_known', true, null],
         ['control_point', true, 1],
         ['no_problems', true, 0],
         ['open_items', true, 0],
-        ['other_drawing', true, 0],
+        ['site_drawings', true, 0],
         ['cabinets_match', true, 0],
-        // The Secondary is never asked: ok with no count.
-        ['installation', true, revision === pair.general ? 0 : null],
+        ['cabinets_other_site', true, 0],
+        ['installation', true, 0],
         // The Secondary is read by roles with no boxes: clear, 0 issues.
-        ['box_types', true, revision === pair.general ? null : 0],
+        ['box_types', true, 0],
       ]);
       expect(ready).toMatchObject({
         canPublish: true,
         cabinets: {
           ok: true,
-          general: { count: 2, unnamed: 0, missingInOther: [] },
-          secondary: { count: 2, unnamed: 0, missingInOther: [] },
+          general: { count: 2, unnamed: 0 },
+          secondaries: [{ side: { count: 2, unnamed: 0, missingInOther: [] } }],
         },
       });
     }
@@ -454,16 +462,22 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     await addCabinet(pair, pair.secondary, 'sub', '1-3', 'S2');
 
     const ready = await readiness(pair, pair.secondary);
-    expect(ready).toMatchObject({ canPublish: false, otherRevisionId: pair.general });
+    expect(ready).toMatchObject({
+      canPublish: false,
+      siteRevisionIds: [pair.general, pair.secondary],
+    });
     expect(ready.checks.find((c) => c.key === 'cabinets_match')).toEqual({
       key: 'cabinets_match',
       ok: false,
       count: 3,
     });
-    expect(ready.cabinets).toEqual({
+    expect(ready.cabinets).toMatchObject({
       ok: false,
-      general: { count: 3, unnamed: 1, missingInOther: ['1-2'] },
-      secondary: { count: 2, unnamed: 0, missingInOther: ['1-3'] },
+      general: { count: 3, unnamed: 1 },
+      secondaries: [{ side: { count: 2, unnamed: 0, missingInOther: ['1-3'] } }],
+      inSeveralSecondaries: [],
+      missingInGeneral: ['1-3'],
+      missingInSecondaries: ['1-2'],
     });
 
     for (const revision of [pair.general, pair.secondary]) {
@@ -488,7 +502,7 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     expect(mismatch.body.details).toMatchObject({ reason: 'CABINETS_MISMATCH' });
 
     await setWarnings(pair.secondary, [problem('BOX_NOT_REACHED', 1)]);
-    expect((await publish(pair, pair.general)).body.details).toEqual({
+    expect((await publish(pair, pair.general)).body.details).toMatchObject({
       reason: 'PROBLEMS_OPEN',
       drawingKind: 'secondary',
       problemCount: 1,
@@ -512,15 +526,15 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     expect(res.body).toMatchObject({ status: 'published', revNo: 1 });
   });
 
-  it('is not ok without the other draft and gives no comparison', async () => {
+  it('holds the site back while a drawing of it has no draft (site_drawings)', async () => {
     const pair = await newPair();
     await q(`UPDATE design_revisions SET status = 'discarded' WHERE id = $1`, [pair.secondary]);
     const ready = await readiness(pair, pair.general);
-    expect(ready.cabinets).toBeNull();
-    expect(ready.checks.find((c) => c.key === 'cabinets_match')).toEqual({
-      key: 'cabinets_match',
+    expect(ready.canPublish).toBe(false);
+    expect(ready.checks.find((c) => c.key === 'site_drawings')).toEqual({
+      key: 'site_drawings',
       ok: false,
-      count: null,
+      count: 1,
     });
   });
 

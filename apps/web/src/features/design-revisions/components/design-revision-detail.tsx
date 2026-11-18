@@ -133,11 +133,7 @@ export function DesignRevisionDetailScreen({
           publishing={state.publishing}
           allowed={state.publishAllowed}
           mappingHref={`${cadFilesPath}/${revision.cadFileId}/mapping`}
-          otherRevisionHref={
-            state.readiness?.otherRevisionId
-              ? `${listPath}/${state.readiness.otherRevisionId}`
-              : null
-          }
+          revisionHref={(id) => (id === revision.id ? null : `${listPath}/${id}`)}
           onAcknowledgedChange={state.setAcknowledged}
           onPublish={state.publish}
           onShowRoute={(handle) => showOnDrawing({ code: null, handle, x: null, y: null })}

@@ -4,13 +4,21 @@ import { CadImportJobSchema, CAD_STALE_AFTER_MINUTES, type DrawingKind } from '@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IdGenerator } from '../../../common/clock.js';
 import { InMemoryObjectStorage } from '../../../common/testing/in-memory-object-storage.js';
-import { FakeClock, InMemoryCadUnitOfWork, RecordingJobQueue } from '../testing/in-memory.js';
+import {
+  FakeClock,
+  InMemoryCadUnitOfWork,
+  InMemoryWorkOrderSites,
+  RecordingJobQueue,
+} from '../testing/in-memory.js';
+import type { SiteDrawingRecord } from '../domain/site-drawing.js';
 import { ReprocessCadFileUseCase } from './reprocess-cad-file.use-case.js';
 import { UploadCadFileUseCase } from './upload-cad-file.use-case.js';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const OTHER_PROJECT = '99999999-9999-4999-8999-999999999999';
 const ACTOR = '22222222-2222-4222-8222-222222222222';
+const SITE = 'abababab-abab-4bab-8bab-abababababab';
+const OTHER_SITE = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
 const DXF = '  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n  0\nEOF\n';
 
 let uow: InMemoryCadUnitOfWork;
@@ -29,21 +37,35 @@ beforeEach(() => {
   storage = new InMemoryObjectStorage();
   queue = new RecordingJobQueue();
   clock = new FakeClock(new Date('2026-10-27T10:00:00Z'));
-  upload = new UploadCadFileUseCase(uow, storage, queue, clock, ids, 1024);
+  const sites = new InMemoryWorkOrderSites();
+  sites.sites = [SITE, OTHER_SITE].map((id, index) => ({
+    id,
+    workOrderId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    name: `site ${index + 1}`,
+    position: index + 1,
+  }));
+  upload = new UploadCadFileUseCase(uow, storage, queue, clock, ids, 1024, sites);
   reprocess = new ReprocessCadFileUseCase(uow, queue, clock, ids);
 });
 
 const send = (
   fileName: string,
   content: string | Buffer,
-  options: { kind?: DrawingKind; newVersion?: boolean } = {},
+  options: {
+    kind?: DrawingKind;
+    siteId?: string;
+    target?: 'new_drawing' | 'new_version';
+    drawingId?: string;
+  } = {},
 ) =>
   upload.execute({
     projectId: PROJECT,
     actorId: ACTOR,
     file: { fileName, stream: Readable.from([Buffer.from(content)]) },
+    siteId: options.siteId ?? SITE,
     kind: options.kind ?? 'general',
-    newVersion: options.newVersion ?? false,
+    target: options.target ?? 'new_drawing',
+    drawingId: options.drawingId,
   });
 
 describe('UploadCadFileUseCase', () => {
@@ -60,7 +82,11 @@ describe('UploadCadFileUseCase', () => {
     });
     expect(storage.objects.get(file.storageKey)?.toString()).toBe(DXF);
     expect(file.storageKey).toBe(`projects/${PROJECT}/cad/${file.id}/original.dxf`);
-    expect(uow.events.types()).toEqual(['cad_file.uploaded', 'cad_file.queued']);
+    expect(uow.events.types()).toEqual([
+      'site_drawing.created',
+      'cad_file.uploaded',
+      'cad_file.queued',
+    ]);
     expect(uow.events.events.every((e) => e.actorId === ACTOR && e.projectId === PROJECT)).toBe(
       true,
     );
@@ -109,7 +135,12 @@ describe('UploadCadFileUseCase', () => {
     const file = await send('plan.dxf', DXF);
 
     expect(file).toMatchObject({ status: 'failed', errorCode: 'ENQUEUE_FAILED' });
-    expect(uow.events.types()).toEqual(['cad_file.uploaded', 'cad_file.queued', 'cad_file.failed']);
+    expect(uow.events.types()).toEqual([
+      'site_drawing.created',
+      'cad_file.uploaded',
+      'cad_file.queued',
+      'cad_file.failed',
+    ]);
     expect(storage.objects.size).toBe(1); // the original is kept so it can be reprocessed
 
     queue.failWith = null;
@@ -123,24 +154,45 @@ describe('UploadCadFileUseCase', () => {
     expect(queue.jobs).toHaveLength(1);
   });
 
-  describe('drawing kinds (ADR-040)', () => {
-    it('stores the kind and records it on the uploaded event', async () => {
+  describe('drawings of a site (ADR-049 part B)', () => {
+    /** A new drawing of a site, then a new version of it. */
+    const version = (drawingId: string, options: { kind?: DrawingKind; siteId?: string } = {}) =>
+      send('v.dxf', DXF, { ...options, target: 'new_version', drawingId });
+
+    it('stores the kind, opens a drawing in the site and records both on the events', async () => {
       const file = await send('sec.dxf', DXF, { kind: 'secondary' });
-      expect(file).toMatchObject({ drawingKind: 'secondary', supersededAt: null });
-      expect(uow.events.events[0]?.payload).toMatchObject({
+      expect(file).toMatchObject({
         drawingKind: 'secondary',
+        siteId: SITE,
+        drawingOrdinal: 1,
+        supersededAt: null,
+      });
+      expect(uow.drawings.rows.get(file.drawingId)).toMatchObject({
+        siteId: SITE,
+        kind: 'secondary',
+        ordinal: 1,
+      });
+      expect(uow.events.types()).toEqual([
+        'site_drawing.created',
+        'cad_file.uploaded',
+        'cad_file.queued',
+      ]);
+      expect(uow.events.events[1]?.payload).toMatchObject({
+        drawingKind: 'secondary',
+        drawingId: file.drawingId,
+        siteId: SITE,
         supersededFileIds: [],
       });
     });
 
-    it('refuses a second file of the kind without newVersion and stores nothing for it', async () => {
+    it('refuses a second General in the site with GENERAL_EXISTS and stores nothing for it', async () => {
       const first = await send('a.dxf', DXF);
       await expect(send('b.dxf', DXF)).rejects.toMatchObject({
         code: 'CONFLICT',
         details: {
-          reason: 'KIND_EXISTS',
-          kind: 'general',
-          currentFileId: first.id,
+          reason: 'GENERAL_EXISTS',
+          siteId: SITE,
+          drawingId: first.drawingId,
           currentFileName: 'a.dxf',
         },
       });
@@ -148,11 +200,36 @@ describe('UploadCadFileUseCase', () => {
       expect(uow.files.rows.size).toBe(1);
     });
 
-    it('supersedes the current file with newVersion and keeps it as history', async () => {
+    it('does not store the file when the General already exists (pre-check before storage)', async () => {
+      await send('a.dxf', DXF);
+      const put = vi.spyOn(storage, 'put');
+      await expect(send('b.dxf', DXF)).rejects.toMatchObject({
+        details: { reason: 'GENERAL_EXISTS' },
+      });
+      expect(put).not.toHaveBeenCalled();
+    });
+
+    it('always allows another Secondary, numbered after the last', async () => {
+      const one = await send('s1.dxf', DXF, { kind: 'secondary' });
+      const two = await send('s2.dxf', DXF, { kind: 'secondary' });
+      expect([one.drawingOrdinal, two.drawingOrdinal]).toEqual([1, 2]);
+      expect(one.drawingId).not.toBe(two.drawingId);
+      expect(uow.files.rows.get(one.id)?.supersededAt).toBeNull();
+    });
+
+    it('lets the General and the Secondary of a site be separate drawings', async () => {
+      const general = await send('g.dxf', DXF, { kind: 'general' });
+      const secondary = await send('s.dxf', DXF, { kind: 'secondary' });
+      expect(general.drawingId).not.toBe(secondary.drawingId);
+      expect(uow.files.rows.size).toBe(2);
+    });
+
+    it("supersedes the drawing's current file with a new version and keeps it as history", async () => {
       const first = await send('a.dxf', DXF);
       clock.advanceMinutes(1);
-      const second = await send('b.dxf', DXF, { newVersion: true });
+      const second = await version(first.drawingId);
 
+      expect(second.drawingId).toBe(first.drawingId);
       expect(uow.files.rows.get(first.id)).toMatchObject({
         supersededAt: clock.now(),
         supersededById: second.id,
@@ -160,44 +237,62 @@ describe('UploadCadFileUseCase', () => {
       expect(second.supersededAt).toBeNull();
       const uploaded = uow.events.events.filter((e) => e.type === 'cad_file.uploaded');
       expect(uploaded[1]?.payload).toMatchObject({ supersededFileIds: [first.id] });
+      // No second drawing was opened.
+      expect(uow.events.types().filter((t) => t === 'site_drawing.created')).toHaveLength(1);
     });
 
-    it('lets each kind have its own current file', async () => {
-      await send('g.dxf', DXF, { kind: 'general' });
-      const secondary = await send('s.dxf', DXF, { kind: 'secondary' });
-      expect(secondary.drawingKind).toBe('secondary');
-      expect(uow.files.rows.size).toBe(2);
-    });
-
-    it('does not store the file when the kind already exists (pre-check before storage)', async () => {
-      await send('a.dxf', DXF);
-      const put = vi.spyOn(storage, 'put');
-      await expect(send('b.dxf', DXF)).rejects.toMatchObject({
-        details: { reason: 'KIND_EXISTS' },
+    it('refuses a new version of a drawing of another site or kind, or of an unknown drawing', async () => {
+      const general = await send('a.dxf', DXF);
+      await expect(version(general.drawingId, { siteId: OTHER_SITE })).rejects.toMatchObject({
+        details: { reason: 'DRAWING_NOT_IN_SITE' },
       });
-      expect(put).not.toHaveBeenCalled();
+      await expect(version(general.drawingId, { kind: 'secondary' })).rejects.toMatchObject({
+        details: { reason: 'DRAWING_NOT_IN_SITE' },
+      });
+      await expect(version('99999999-9999-4999-8999-999999999999')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
+
+    it('refuses an unassigned drawing: it takes no upload until linked', async () => {
+      const general = await send('a.dxf', DXF);
+      uow.drawings.rows.set(general.drawingId, {
+        ...(uow.drawings.rows.get(general.drawingId) as SiteDrawingRecord),
+        siteId: null,
+      });
+      await expect(version(general.drawingId)).rejects.toMatchObject({
+        details: { reason: 'DRAWING_UNASSIGNED' },
+      });
+    });
+
+    it('refuses a site that is not on the work order of the project', async () => {
+      await expect(
+        send('a.dxf', DXF, { siteId: '99999999-9999-4999-8999-999999999999' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND', details: { reason: 'SITE_NOT_FOUND' } });
+      expect(storage.objects.size).toBe(0);
     });
 
     it.each(['queued', 'building', 'draft'] as const)(
-      'discards the open %s revision of the kind on a new version, with a new job id, and no other',
+      'discards the open %s revision of the drawing on a new version, with a new job id, and no other',
       async (status) => {
         const first = await send('a.dxf', DXF);
         const sec = await send('s.dxf', DXF, { kind: 'secondary' });
-        const revision = (id: string, cadFileId: string, drawingKind: DrawingKind) =>
+        const revision = (id: string, file: { id: string; drawingId: string }, kind: DrawingKind) =>
           ({
             id,
             projectId: PROJECT,
-            cadFileId,
-            drawingKind,
+            cadFileId: file.id,
+            drawingId: file.drawingId,
+            drawingKind: kind,
             status,
             currentJobId: 'job-old',
             errorCode: null,
           }) as never;
-        uow.revisions.rows.set('rev-g', revision('rev-g', first.id, 'general'));
-        uow.revisions.rows.set('rev-s', revision('rev-s', sec.id, 'secondary'));
+        uow.revisions.rows.set('rev-g', revision('rev-g', first, 'general'));
+        uow.revisions.rows.set('rev-s', revision('rev-s', sec, 'secondary'));
         uow.events.events.length = 0;
 
-        const next = await send('b.dxf', DXF, { newVersion: true });
+        const next = await version(first.drawingId);
 
         expect(uow.revisions.rows.get('rev-g')).toMatchObject({ status: 'discarded' });
         expect(uow.revisions.rows.get('rev-g')?.currentJobId).not.toBe('job-old');
@@ -211,15 +306,10 @@ describe('UploadCadFileUseCase', () => {
     );
 
     it('records a null discardedRevisionId when no revision is open', async () => {
-      await send('a.dxf', DXF);
-      await send('b.dxf', DXF, { newVersion: true });
+      const first = await send('a.dxf', DXF);
+      await version(first.drawingId);
       const uploaded = uow.events.events.filter((e) => e.type === 'cad_file.uploaded');
       expect(uploaded[1]?.payload).toMatchObject({ discardedRevisionId: null });
-    });
-
-    it('ignores newVersion when the kind has no file yet', async () => {
-      const file = await send('s.dxf', DXF, { kind: 'secondary', newVersion: true });
-      expect(file.supersededAt).toBeNull();
     });
   });
 });

@@ -103,7 +103,11 @@ export const CadFileSummarySchema = z.object({
   status: CadFileStatusSchema,
   /** General or Secondary (ADR-040), chosen at upload, never changes. */
   drawingKind: DrawingKindSchema,
-  /** Set when a newer version of the same kind was uploaded; the file stays as history. */
+  /** ADR-049 part B: the drawing this file is a version of, its site (null: «بدون موقع») and number. */
+  drawingId: z.uuid(),
+  siteId: z.uuid().nullable(),
+  drawingOrdinal: z.number().int().min(1),
+  /** Set when a newer version of the same drawing was uploaded; the file stays as history. */
   supersededAt: z.iso.datetime().nullable(),
   supersededById: z.uuid().nullable(),
   uploadedById: z.uuid().nullable(),
