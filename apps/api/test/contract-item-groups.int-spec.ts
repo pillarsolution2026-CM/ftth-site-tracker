@@ -197,12 +197,11 @@ describe('contract item groups (ADR-048)', () => {
       { code: '1-2', description: 'zzz', quantity: '5' },
     ]);
     const projectId = await createProjectIn(ctx.pool, contract.contractId);
-    await ensureMember(ctx.pool, {
-      email: SEED_LOGINS.pm[0],
-      password: SEED_LOGINS.pm[1],
-      role: 'pm',
-      projectId,
-    });
+    // A PM of its own: assigning the seeded PM here would add a membership other suites count.
+    const pmEmail = `pm-groups-${randomUUID().slice(0, 8)}@ftth.local`;
+    const pmPassword = 'Pm#123456';
+    await ensureMember(ctx.pool, { email: pmEmail, password: pmPassword, role: 'pm', projectId });
+    const projectPm = await loginAs(ctx, pmEmail, pmPassword);
     const { workOrderId, itemIdsByCode } = await createWorkOrderFrom(
       ctx.pool,
       projectId,
@@ -215,7 +214,7 @@ describe('contract item groups (ADR-048)', () => {
     const read = async () => {
       const res = await http()
         .get(`/projects/${projectId}/work-orders/${workOrderId}`)
-        .set('Authorization', `Bearer ${pm}`);
+        .set('Authorization', `Bearer ${projectPm}`);
       expect(res.status, JSON.stringify(res.body)).toBe(200);
       return WorkOrderDetailSchema.parse(res.body);
     };
