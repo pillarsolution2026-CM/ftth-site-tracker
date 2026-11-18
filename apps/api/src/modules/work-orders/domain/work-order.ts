@@ -37,6 +37,8 @@ export interface WorkOrderHeader {
   title: string | null;
   issuedOn: string | null;
   notes: string | null;
+  /** The work order's central (ADR-049). */
+  central: string | null;
   /** Copied from the project at creation; immutable. */
   currency: string;
   source: WorkOrderSource;
@@ -67,6 +69,7 @@ export interface HeaderPatch {
   title?: string | null;
   issuedOn?: string | null;
   notes?: string | null;
+  central?: string | null;
 }
 
 export interface NewWorkOrder {
@@ -75,6 +78,7 @@ export interface NewWorkOrder {
   title?: string | null;
   issuedOn?: string | null;
   notes?: string | null;
+  central?: string | null;
   currency: string;
   source: WorkOrderSource;
   items: readonly NewItem[];
@@ -106,6 +110,7 @@ export class WorkOrder {
       title: input.title ?? null,
       issuedOn: input.issuedOn ?? null,
       notes: input.notes ?? null,
+      central: input.central ?? null,
       currency: input.currency,
       source: input.source,
       version: 1,

@@ -205,6 +205,8 @@ interface WorkOrderRecord {
   title: string | null;
   issuedOn: string | null;
   notes: string | null;
+  central: string | null;
+  sites: { id: string; name: string; position: number; createdAt: string; updatedAt: string }[];
   source: 'manual' | 'import';
   version: number;
   items: ItemRecord[];
@@ -269,6 +271,7 @@ function summaryOut(workOrder: WorkOrderRecord) {
     number: workOrder.number,
     title: workOrder.title,
     issuedOn: workOrder.issuedOn,
+    central: workOrder.central,
     currency: CURRENCY,
     source: workOrder.source,
     itemCount: workOrder.items.length,
@@ -312,6 +315,8 @@ function newWorkOrder(
     title: (header.title as string | null | undefined) ?? null,
     issuedOn: (header.issuedOn as string | null | undefined) ?? null,
     notes: (header.notes as string | null | undefined) ?? null,
+    central: (header.central as string | null | undefined) ?? null,
+    sites: [],
     source,
     version: 1,
     items: [],
@@ -1073,7 +1078,7 @@ async function handleWorkOrders(
       if (typeof body.number === 'string' && numberTaken(projectId, body.number, workOrder.id)) {
         return sendError(res, 409, 'CONFLICT');
       }
-      for (const field of ['number', 'title', 'issuedOn', 'notes'] as const) {
+      for (const field of ['number', 'title', 'issuedOn', 'notes', 'central'] as const) {
         if (field in body) (workOrder as any)[field] = body[field];
       }
       workOrder.version += 1;
@@ -1084,6 +1089,30 @@ async function handleWorkOrders(
 
   if (sub === 'items') return handleItems(req, res, method, workOrder, subId);
   if (sub === 'attachments') return handleAttachments(req, res, method, workOrder, subId, subSub);
+  if (sub === 'sites' && subId === undefined) {
+    const sitesOut = () => ({
+      version: workOrder.version,
+      items: workOrder.sites.map((site) => ({ ...site, workOrderId: workOrder.id })),
+    });
+    if (method === 'GET') return send(res, 200, sitesOut());
+    if (method === 'PUT') {
+      const body = (await readJson(req)) as {
+        expectedVersion?: number;
+        sites?: { id?: string; name: string }[];
+      };
+      if (body.expectedVersion !== workOrder.version) return sendError(res, 409, 'CONFLICT');
+      const now = new Date().toISOString();
+      workOrder.sites = (body.sites ?? []).map((site, index) => ({
+        id: site.id ?? randomUUID(),
+        name: site.name,
+        position: index + 1,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      workOrder.version += 1;
+      return send(res, 200, sitesOut());
+    }
+  }
   return sendError(res, 404, 'NOT_FOUND');
 }
 

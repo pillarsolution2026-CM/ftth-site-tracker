@@ -4,14 +4,18 @@ import {
   type CreateInput,
   type UpdateInput,
   type UpdateItemInput,
+  type ReplaceSitesInput,
   addItem,
   createWorkOrder,
   deleteAttachment,
   deleteItem,
   deleteWorkOrder,
   getContractItems,
+  getSites,
   getWorkOrder,
   listWorkOrders,
+  previewSitesTable,
+  replaceSites,
   updateItem,
   updateWorkOrder,
   uploadAttachment,
@@ -20,6 +24,9 @@ import {
 export const workOrdersKey = (projectId: string) => ['work-orders', projectId] as const;
 export const workOrderKey = (projectId: string, id: string) =>
   ['work-order', projectId, id] as const;
+
+export const workOrderSitesKey = (projectId: string, id: string) =>
+  ['work-order-sites', projectId, id] as const;
 
 export const contractItemsKey = (projectId: string) =>
   ['work-order-contract-items', projectId] as const;
@@ -137,5 +144,30 @@ export function useDeleteAttachment(projectId: string, workOrderId: string) {
   return useMutation({
     mutationFn: (attachmentId: string) => deleteAttachment(projectId, workOrderId, attachmentId),
     onSuccess: invalidate,
+  });
+}
+
+export function useWorkOrderSites(projectId: string, workOrderId: string) {
+  return useQuery({
+    queryKey: workOrderSitesKey(projectId, workOrderId),
+    queryFn: () => getSites(projectId, workOrderId),
+  });
+}
+
+/** Saving the sites bumps the work order's version, so the work order is read again too. */
+export function useReplaceSites(projectId: string, workOrderId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ReplaceSitesInput) => replaceSites(projectId, workOrderId, body),
+    onSuccess: async (data) => {
+      client.setQueryData(workOrderSitesKey(projectId, workOrderId), data);
+      await client.invalidateQueries({ queryKey: workOrderKey(projectId, workOrderId) });
+    },
+  });
+}
+
+export function usePreviewSitesTable(projectId: string, workOrderId: string) {
+  return useMutation({
+    mutationFn: (file: File) => previewSitesTable(projectId, workOrderId, file),
   });
 }

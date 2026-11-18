@@ -11,6 +11,7 @@ function summary(overrides: Partial<WorkOrderSummary> = {}): WorkOrderSummary {
     number: 'WO-2026-001',
     title: 'أمر تكليف',
     issuedOn: '2026-03-01',
+    central: null,
     currency: 'EGP',
     source: 'import',
     itemCount: 12,

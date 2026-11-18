@@ -15,6 +15,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { formatDecimal, formatMoney } from '@/shared/lib/decimal';
 import { useWorkOrderDetail } from '../hooks/use-work-order-detail';
 import { AttachmentsPanel } from './attachments-panel';
+import { SitesPanel } from './sites-panel';
 import { HeaderFormView } from './header-form';
 import { AddLinesPanel } from './add-lines-panel';
 import { QuantityForm } from './quantity-form';
@@ -46,6 +47,7 @@ function HeaderSummary({
           <Ltr>{workOrder.number}</Ltr>
         </Field>
         <Field label={t('workOrders.title')}>{workOrder.title ?? '—'}</Field>
+        <Field label={t('workOrders.central')}>{workOrder.central ?? '—'}</Field>
         <Field label={t('workOrders.issuedOn')}>
           {workOrder.issuedOn ? <Ltr>{workOrder.issuedOn}</Ltr> : '—'}
         </Field>
@@ -332,6 +334,12 @@ export function WorkOrderDetail({
       ) : (
         <HeaderSummary workOrder={workOrder} state={state} />
       )}
+      <SitesPanel
+        projectId={projectId}
+        workOrderId={workOrderId}
+        version={workOrder.version}
+        canWrite={state.canWrite}
+      />
       <ItemsTable workOrder={workOrder} state={state} />
       <AttachmentsPanel
         projectId={projectId}

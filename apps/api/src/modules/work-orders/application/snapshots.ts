@@ -27,6 +27,7 @@ export function orderSnapshot(order: WorkOrder): Record<string, unknown> {
     title: header.title,
     issuedOn: header.issuedOn,
     notes: header.notes,
+    central: header.central,
     currency: header.currency,
     source: header.source,
     version: header.version,

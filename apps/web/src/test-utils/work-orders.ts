@@ -79,6 +79,7 @@ export function workOrderDetail(items: WorkOrderItem[] = [workOrderItem()]): Wor
     number: 'WO-1',
     title: null,
     issuedOn: null,
+    central: null,
     currency: 'EGP',
     source: 'manual',
     itemCount: items.length,

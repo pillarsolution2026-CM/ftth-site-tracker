@@ -53,6 +53,12 @@ import { ProjectsServiceCurrencyLookup } from './infrastructure/projects-currenc
 import { WorkOrderAttachmentsController } from './interface/work-order-attachments.controller.js';
 import { WorkOrderImportController } from './interface/work-order-import.controller.js';
 import { WorkOrdersController } from './interface/work-orders.controller.js';
+import { WorkOrderSitesController } from './interface/work-order-sites.controller.js';
+import {
+  ListWorkOrderSitesUseCase,
+  PreviewSitesTableUseCase,
+  ReplaceWorkOrderSitesUseCase,
+} from './application/work-order-sites.use-cases.js';
 import {
   ATTACHMENT_REPOSITORY,
   CONTRACT_CATALOG,
@@ -228,11 +234,33 @@ const providers: Provider[] = [
         uuidGenerator,
       ),
   },
+  {
+    provide: ListWorkOrderSitesUseCase,
+    inject: [WORK_ORDER_UNIT_OF_WORK],
+    useFactory: (uow: WorkOrderUnitOfWork) => new ListWorkOrderSitesUseCase(uow),
+  },
+  {
+    provide: ReplaceWorkOrderSitesUseCase,
+    inject: [WORK_ORDER_UNIT_OF_WORK],
+    useFactory: (uow: WorkOrderUnitOfWork) =>
+      new ReplaceWorkOrderSitesUseCase(uow, systemClock, uuidGenerator),
+  },
+  {
+    provide: PreviewSitesTableUseCase,
+    inject: [WORK_ORDER_REPOSITORY, WORKBOOK_READER],
+    useFactory: (orders: WorkOrderRepository, reader: WorkbookReader) =>
+      new PreviewSitesTableUseCase(orders, reader),
+  },
 ];
 
 @Module({
   imports: [IdentityModule, ProjectsModule],
-  controllers: [WorkOrdersController, WorkOrderImportController, WorkOrderAttachmentsController],
+  controllers: [
+    WorkOrdersController,
+    WorkOrderImportController,
+    WorkOrderAttachmentsController,
+    WorkOrderSitesController,
+  ],
   // The cad module reads the work order's lines for box types (ADR-043) through this service.
   exports: [FIND_WORK_ORDER_LINES],
   providers,

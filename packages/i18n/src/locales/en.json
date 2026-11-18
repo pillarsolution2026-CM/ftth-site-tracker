@@ -319,7 +319,21 @@
       "QUANTITY_BELOW_CONTRACTORS": "The quantity of item {code} cannot go below what subcontractors hold: requested {requestedQuantity}, held by subcontractors {contractorsQuantity}.",
       "LINE_HAS_CONTRACTORS": "This line is given to a subcontractor and cannot be removed.",
       "WORK_ORDER_HAS_CONTRACTORS": "Subcontractors are registered on this work order. Remove them first."
-    }
+    },
+    "central": "Central"
+  },
+  "sites": {
+    "title": "Sites",
+    "edit": "Edit sites",
+    "empty": "No sites yet.",
+    "add": "Add a site",
+    "nameOf": "Site {n}",
+    "repeated": "This site is repeated",
+    "tooMany": "A work order can have at most 500 sites.",
+    "uploadTable": "Upload a table of site names (.xlsx)",
+    "uploadHint": "The first column with text on the first sheet is read. A first row such as \"Site name\" is skipped. Names are added to the list and saved only with \"Save\".",
+    "readingTable": "Reading the table…",
+    "tableAdded": "{added} sites added from the table, {skipped} repeats left out."
   },
   "items": {
     "title": "Items",
