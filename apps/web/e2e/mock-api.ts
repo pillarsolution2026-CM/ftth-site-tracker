@@ -240,6 +240,7 @@ function itemOut(workOrderId: string, item: ItemRecord) {
     amount: mulDec(item.quantity, item.unitPrice),
     workType: item.workType,
     contractItemId: item.contractItemId,
+    group: null,
     source: item.source,
     sourceRow: item.sourceRow,
     createdAt: now,
