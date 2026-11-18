@@ -60,7 +60,6 @@ async function insertCadFile(status: 'processed' | 'uploaded' = 'processed'): Pr
       status,
       status === 'uploaded' ? null : randomUUID(),
       status === 'uploaded' ? null : new Date(),
-      ,
       drawingId,
     ],
   );

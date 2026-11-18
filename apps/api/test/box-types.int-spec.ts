@@ -118,7 +118,6 @@ async function insertFile(kind: 'general' | 'secondary', p: string): Promise<str
       `projects/${p}/cad/${id}/original.dxf`,
       randomUUID(),
       kind,
-      ,
       drawingId,
     ],
   );

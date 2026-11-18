@@ -67,7 +67,6 @@ async function insertFile(project: string, kind: DrawingKind): Promise<string> {
       `projects/${project}/cad/${id}/o.dxf`,
       randomUUID(),
       kind,
-      ,
       drawingId,
     ],
   );

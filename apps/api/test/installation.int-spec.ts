@@ -134,7 +134,6 @@ async function insertFile(
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? new Date() : null,
       kind,
-      ,
       drawingId,
     ],
   );

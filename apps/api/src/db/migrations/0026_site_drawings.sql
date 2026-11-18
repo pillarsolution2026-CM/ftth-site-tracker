@@ -166,6 +166,9 @@ CREATE INDEX design_revisions_drawing_idx ON design_revisions (drawing_id, statu
 
 -- The current file of a drawing: one (safe after 0019 and the backfill) --------------------------
 CREATE UNIQUE INDEX cad_files_one_current_idx ON cad_files (drawing_id) WHERE superseded_at IS NULL;
+-- A new version supersedes the current file BEFORE it is inserted (the unique index above would
+-- refuse two current files), so the reference to the newer file is checked at commit.
+ALTER TABLE cad_files ALTER CONSTRAINT cad_files_superseded_by_fkey DEFERRABLE INITIALLY DEFERRED;
 
 -- Files: the drawing is fixed at upload; the file kind is the drawing kind; supersede stays inside
 -- one drawing (was: one kind).
@@ -182,15 +185,27 @@ BEGIN
           OR NEW.superseded_by IS DISTINCT FROM OLD.superseded_by) THEN
     RAISE EXCEPTION 'cad_files: a superseded file stays superseded' USING ERRCODE = 'restrict_violation';
   END IF;
-  IF NEW.superseded_by IS NOT NULL AND OLD.superseded_by IS NULL
+  RETURN NEW;
+END;
+$$;
+
+-- A file is superseded by a file of the same drawing only; checked at commit, once the newer file
+-- exists (it is inserted after the older one is marked, see above).
+CREATE FUNCTION cad_files_supersede_same_drawing() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.superseded_by IS NOT NULL
      AND (SELECT drawing_id FROM cad_files
           WHERE project_id = NEW.project_id AND id = NEW.superseded_by) <> NEW.drawing_id THEN
     RAISE EXCEPTION 'cad_files: a file is superseded by a file of the same drawing only'
       USING ERRCODE = 'restrict_violation';
   END IF;
-  RETURN NEW;
+  RETURN NULL;
 END;
 $$;
+CREATE CONSTRAINT TRIGGER cad_files_supersede_same_drawing
+  AFTER INSERT OR UPDATE OF superseded_by ON cad_files
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+  EXECUTE FUNCTION cad_files_supersede_same_drawing();
 
 CREATE FUNCTION cad_files_kind_from_drawing() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -269,3 +284,6 @@ CREATE UNIQUE INDEX design_revisions_one_open_idx ON design_revisions (drawing_i
 ALTER TABLE design_revisions DROP CONSTRAINT design_revisions_rev_no_key;
 ALTER TABLE design_revisions
   ADD CONSTRAINT design_revisions_rev_no_key UNIQUE (drawing_id, rev_no);
+
+-- 0019 helper: only for legacy files, which the backfill above has put into drawings.
+DROP FUNCTION cad_files_supersede_legacy();

@@ -170,8 +170,10 @@ export class UploadCadFileUseCase {
             discardedRevisionId = locked.id;
           }
         }
-        await tx.files.insertUploaded(uploaded);
+        // The older files are marked first: the new file is the only current one once inserted
+        // (the foreign key to it is checked at commit).
         await tx.files.supersede(projectId, supersededFileIds, id, now);
+        await tx.files.insertUploaded(uploaded);
         await tx.events.append({
           projectId,
           entity: EVENT_ENTITIES.cadFile,

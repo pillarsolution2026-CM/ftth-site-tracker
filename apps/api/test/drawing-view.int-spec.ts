@@ -76,7 +76,6 @@ async function insertFile(status: 'processed' | 'uploaded' = 'processed'): Promi
       status,
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? new Date() : null,
-      ,
       drawingId,
     ],
   );

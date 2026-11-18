@@ -139,7 +139,6 @@ async function insertCadFile(
       status === 'processed' ? JSON.stringify(DETECTION) : null,
       status === 'processed' ? new Date() : null,
       kind,
-      ,
       drawingId,
     ],
   );
