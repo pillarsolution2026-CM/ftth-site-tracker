@@ -9,7 +9,7 @@ import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { TrenchMarksPanel } from '@/features/installation/components/trench-marks-panel';
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
-import { EditPanel, EditToolbarButtons } from './canvas-edit-panel';
+import { CadCommandLine, CadRibbon, PenButton } from './cad-ribbon';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerPanel } from './layer-panel';
@@ -110,6 +110,7 @@ export function DrawingViewer({
           {viewer.truncated ? <Notice kind="warning">{t('design.viewer.truncated')}</Notice> : null}
           <div className="flex flex-col gap-3 lg:flex-row">
             <div className="min-w-0 flex-1">
+              <CadRibbon edit={viewer.edit} />
               <DrawingCanvas viewer={viewer} model={model}>
                 <div
                   dir="ltr"
@@ -126,9 +127,9 @@ export function DrawingViewer({
                   <ToolButton label={t('design.viewer.fit')} onClick={viewer.fit}>
                     ⤢
                   </ToolButton>
-                  <EditToolbarButtons edit={viewer.edit} />
+                  <PenButton edit={viewer.edit} />
                 </div>
-                <EditPanel edit={viewer.edit} />
+                <CadCommandLine edit={viewer.edit} />
                 <CanvasPopover viewer={viewer} />
               </DrawingCanvas>
               <p className="mt-1 text-sm opacity-80">{t('design.viewer.legend')}</p>

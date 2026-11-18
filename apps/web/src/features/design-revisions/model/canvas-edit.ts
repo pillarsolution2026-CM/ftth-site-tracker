@@ -1,21 +1,51 @@
-import type { CreateDrawingCorrectionRequest } from '@ftth/shared';
-import { boxThrough, rotationAbout, translation, type Affine } from './affine';
-import { moveEntities, type DrawingPreview } from './drawing-preview';
+import type { CreateDrawingCorrectionRequest, DrawingCorrectionInput } from '@ftth/shared';
+import { boxThrough, type Affine } from './affine';
+import { applyInputs, stepOfInput, type DrawingPreview } from './drawing-preview';
 import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
 import type { Bounds } from './view-transform';
 
 /**
- * The drawing's edit mode (ADR-047): the project manager picks items on the canvas and changes
- * them; the edits stay in the page (drawn at once) until «حفظ» sends them as corrections, all at
- * once, or «إلغاء» drops them. The original drawing is never changed.
+ * The drawing's edit mode, a CAD-like ribbon (ADR-047, ADR-050): the project manager runs commands
+ * on the canvas; the edits stay in the page (drawn at once) until «حفظ» sends them as corrections,
+ * all at once, or «إلغاء» drops them. The original drawing is never changed.
  */
-export type EditTool = 'layer' | 'text' | 'move' | 'rotate';
+export type EditTool =
+  // Modify (pick items first)
+  | 'layer'
+  | 'text'
+  | 'move'
+  | 'copy'
+  | 'rotate'
+  | 'mirror'
+  | 'scale'
+  | 'erase'
+  // Draw (on the current layer)
+  | 'line'
+  | 'polyline'
+  | 'addText'
+  | 'point';
 
-export type CanvasEdit =
-  | { kind: 'move_layer'; handle: string; toLayer: string }
-  | { kind: 'set_text'; handle: string; text: string }
-  | { kind: 'move_item'; handle: string; dx: number; dy: number }
-  | { kind: 'rotate_item'; handle: string; x: number; y: number; angle: number };
+/** Tools that start by picking items. */
+export const PICK_TOOLS: readonly EditTool[] = [
+  'layer',
+  'text',
+  'move',
+  'copy',
+  'rotate',
+  'mirror',
+  'scale',
+  'erase',
+];
+/** Tools that pick several items (click or box). */
+export const MULTI_PICK_TOOLS: readonly EditTool[] = PICK_TOOLS.filter((tool) => tool !== 'text');
+/** Draw tools: they put something new on the current layer. */
+export const DRAW_TOOLS: readonly EditTool[] = ['line', 'polyline', 'addText', 'point'];
+
+/** An unsaved edit: any correction the ribbon makes. */
+export type CanvasEdit = Exclude<
+  DrawingCorrectionInput,
+  { kind: 'dismiss_problem' } | { kind: 'merge_routes' }
+>;
 
 /** DXF types whose text a `set_text` may replace (the extraction keeps these as texts). */
 const TEXT_KINDS = new Set(['TEXT', 'MTEXT']);
@@ -25,21 +55,17 @@ export function isTextEntity(scene: DrawingScene, index: number): boolean {
   return entity !== undefined && TEXT_KINDS.has(entity.kind) && entity.texts.length > 0;
 }
 
-/** The move / turn an edit makes, or null for an edit that moves nothing. */
-export function stepOf(edit: CanvasEdit): Affine | null {
-  if (edit.kind === 'move_item') return translation(edit.dx, edit.dy);
-  if (edit.kind === 'rotate_item') return rotationAbout(edit.x, edit.y, edit.angle);
-  return null;
-}
+/** The move / turn / mirror / scale an edit makes, or null for an edit that moves nothing. */
+export const stepOf = (edit: CanvasEdit): Affine | null => stepOfInput(edit);
 
-/**
- * A later layer or text edit of the same handle replaces the earlier one; moves and turns add up
- * (each is kept, in order).
- */
+/** Edits that a later edit of the same handle replaces (the others add up, in order). */
+const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>(['move_layer', 'set_text']);
+
 export function addEdits(edits: readonly CanvasEdit[], added: readonly CanvasEdit[]): CanvasEdit[] {
-  const key = (edit: CanvasEdit) => `${edit.kind}\u0000${edit.handle}`;
-  const replaced = new Set(added.filter((edit) => stepOf(edit) === null).map(key));
-  return [...edits.filter((edit) => !replaced.has(key(edit))), ...added];
+  const key = (edit: CanvasEdit) =>
+    REPLACED_BY_KIND.has(edit.kind) && 'handle' in edit ? `${edit.kind}\u0000${edit.handle}` : null;
+  const replaced = new Set(added.map(key).filter((k): k is string => k !== null));
+  return [...edits.filter((edit) => !replaced.has(key(edit) ?? '\u0001')), ...added];
 }
 
 /** The edits as correction requests, in the order made. */
@@ -50,32 +76,69 @@ export function editRequests(edits: readonly CanvasEdit[]): CreateDrawingCorrect
 /** Rounds a coordinate or angle to what a drawing keeps (micro-units), so requests stay short. */
 export const roundCoord = (value: number) => Math.round(value * 1e6) / 1e6;
 
-/** One move edit per handle. */
-export function moveEdits(handles: readonly string[], dx: number, dy: number): CanvasEdit[] {
-  return handles.map((handle) => ({
-    kind: 'move_item',
-    handle,
-    dx: roundCoord(dx),
-    dy: roundCoord(dy),
-  }));
+export interface Point {
+  x: number;
+  y: number;
 }
 
-/** One turn edit per handle, the angle brought into ±360. */
+const r = roundCoord;
+
+export function moveEdits(handles: readonly string[], dx: number, dy: number): CanvasEdit[] {
+  return handles.map((handle) => ({ kind: 'move_item', handle, dx: r(dx), dy: r(dy) }));
+}
+
+export function copyEdits(handles: readonly string[], dx: number, dy: number): CanvasEdit[] {
+  return handles.map((handle) => ({ kind: 'copy_item', handle, dx: r(dx), dy: r(dy) }));
+}
+
+/** One turn edit per handle, the angle brought into ±180. */
 export function rotateEdits(
   handles: readonly string[],
   x: number,
   y: number,
   angle: number,
 ): CanvasEdit[] {
-  const turned = roundCoord(((angle % 360) + 360) % 360);
+  const turned = r(((angle % 360) + 360) % 360);
   const normal = turned > 180 ? turned - 360 : turned;
   return handles.map((handle) => ({
     kind: 'rotate_item',
     handle,
-    x: roundCoord(x),
-    y: roundCoord(y),
+    x: r(x),
+    y: r(y),
     angle: normal,
   }));
+}
+
+export function mirrorEdits(handles: readonly string[], a: Point, b: Point): CanvasEdit[] {
+  return handles.map((handle) => ({
+    kind: 'mirror_item',
+    handle,
+    x1: r(a.x),
+    y1: r(a.y),
+    x2: r(b.x),
+    y2: r(b.y),
+  }));
+}
+
+export function scaleEdits(
+  handles: readonly string[],
+  x: number,
+  y: number,
+  factor: number,
+): CanvasEdit[] {
+  return handles.map((handle) => ({ kind: 'scale_item', handle, x: r(x), y: r(y), factor }));
+}
+
+export const eraseEdits = (handles: readonly string[]): CanvasEdit[] =>
+  handles.map((handle) => ({ kind: 'erase_item', handle }));
+
+export function curveEdit(layer: string, points: readonly Point[], closed: boolean): CanvasEdit {
+  return {
+    kind: 'add_curve',
+    layer,
+    points: points.map((p) => [r(p.x), r(p.y)] as [number, number]),
+    closed,
+  };
 }
 
 /** The handles of chosen entities, each once (an INSERT's shapes share one handle). */
@@ -108,6 +171,8 @@ export function entitiesInBand(
   isShown: (index: number) => boolean,
   /** Moved / turned entities are picked where they are drawn now. */
   transformOf: ReadonlyMap<number, Affine> = new Map(),
+  /** Erased entities are not picked. */
+  erased: ReadonlySet<number> = new Set(),
 ): number[] {
   const minX = Math.min(band.x0, band.x1);
   const maxX = Math.max(band.x0, band.x1);
@@ -117,6 +182,7 @@ export function entitiesInBand(
   const out: number[] = [];
   const count = scene.view.entities.length;
   for (let index = 0; index < count; index++) {
+    if (erased.has(index)) continue;
     const drawn = tightBox(scene, index);
     if (drawn === null) continue;
     const moved = transformOf.get(index);
@@ -171,23 +237,7 @@ export function previewWithEdits(
   scene: DrawingScene,
   preview: DrawingPreview,
   edits: readonly CanvasEdit[],
+  textHeight = 2.5,
 ): DrawingPreview {
-  if (edits.length === 0) return preview;
-  const layerOf = new Map(preview.layerOf);
-  const textOf = new Map(preview.textOf);
-  const transformOf = new Map(preview.transformOf);
-  for (const edit of edits) {
-    const indexes = scene.byHandle.get(edit.handle) ?? [];
-    const step = stepOf(edit);
-    if (step) {
-      moveEntities(scene, transformOf, edit.handle, step);
-    } else if (edit.kind === 'move_layer') {
-      const target = scene.layerByName.get(edit.toLayer);
-      if (target === undefined) continue;
-      for (const index of indexes) layerOf.set(index, target);
-    } else if (edit.kind === 'set_text') {
-      for (const index of indexes) textOf.set(index, edit.text);
-    }
-  }
-  return { ...preview, layerOf, textOf, transformOf };
+  return applyInputs(scene, preview, edits, textHeight);
 }

@@ -284,11 +284,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     scene,
     preview,
     layers: tools.layers,
-    isShown,
+    // Box picking asks per entity: its layer (after saved moves) must be switched on.
+    isShown: (index) =>
+      scene !== null && preview !== null && isShown(effectiveLayer(scene, preview, index)),
   });
   const shownPreview = useMemo(
-    () => (scene && preview ? previewWithEdits(scene, preview, edit.edits) : null),
-    [scene, preview, edit.edits],
+    () =>
+      scene && preview
+        ? previewWithEdits(scene, preview, edit.edits, defaultTextHeight(tools.metresPerUnit))
+        : null,
+    [scene, preview, edit.edits, tools.metresPerUnit],
   );
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
@@ -363,12 +368,14 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             chosen: edit.chosen,
             band: edit.band,
             ghost: edit.ghost,
+            sketch: edit.sketch,
           }
         : null,
     [
       edit.chosen,
       edit.band,
       edit.ghost,
+      edit.sketch,
       scene,
       shownPreview,
       isShown,
@@ -390,7 +397,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         world.x,
         world.y,
         ENTITY_HIT_PX / transform.scale,
-        (index) => isShown(effectiveLayer(scene, shownPreview, index)),
+        (index) =>
+          !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
         shownPreview.transformOf,
       );
       setPopover(null);
@@ -410,7 +418,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       world.x,
       world.y,
       ENTITY_HIT_PX / transform.scale,
-      (index) => isShown(effectiveLayer(scene, shownPreview, index)),
+      (index) =>
+        !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
       shownPreview.transformOf,
     );
     if (entity === null) {

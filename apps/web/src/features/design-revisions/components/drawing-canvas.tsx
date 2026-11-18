@@ -251,6 +251,11 @@ export function DrawingCanvas({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLCanvasElement>) => {
+    // CAD keys while editing (ADR-050): Esc, Enter, Ctrl+Z, Delete and one-letter commands.
+    if (viewer.edit.key(event.key, event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      return;
+    }
     const cx = size.width / 2;
     const cy = size.height / 2;
     switch (event.key) {

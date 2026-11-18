@@ -1,5 +1,13 @@
 import type { DrawingViewEntity } from '@ftth/shared';
-import { angleOf, applyAffine, boxThrough, compose, IDENTITY, type Affine } from './affine';
+import {
+  angleOf,
+  applyAffine,
+  boxThrough,
+  compose,
+  IDENTITY,
+  scaleOf,
+  type Affine,
+} from './affine';
 import { isCrossing, type Band } from './canvas-edit';
 import { effectiveLayer, type DrawingPreview } from './drawing-preview';
 import type { ProblemMarker } from './drawing-hit';
@@ -61,6 +69,8 @@ export interface DrawModel {
   band?: Band | null;
   /** Picked entities shown where a move / turn in progress would put them (ADR-047). */
   ghost?: { indexes: readonly number[]; step: Affine } | null;
+  /** The line / polyline / mirror line being drawn (ADR-050): fixed points, then the pointer. */
+  sketch?: { points: readonly { x: number; y: number }[]; closed: boolean } | null;
 }
 
 export interface Viewport extends Size {
@@ -157,6 +167,7 @@ export function drawBase(
   }
   const shown: number[] = [];
   for (const index of candidates) {
+    if (preview.erased.has(index)) continue;
     if (model.layerShown(effectiveLayer(scene, preview, index))) shown.push(index);
   }
 
@@ -211,7 +222,7 @@ export function drawBase(
         vp,
         at.x,
         at.y,
-        text.height,
+        text.height * (turned ? scaleOf(turned) : 1),
         text.rotation + (turned ? angleOf(turned) : 0),
         i === 0 && replaced !== undefined ? replaced : text.text,
       );
@@ -221,6 +232,67 @@ export function drawBase(
     if (!model.layerShown(extra.layer)) continue;
     ctx.fillStyle = paperColor(extra.color);
     fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
+  }
+  drawAdded(ctx, model, cache, tf, vp);
+}
+
+/** Copies and lines added on the page (ADR-050), in their layers' colours. */
+function drawAdded(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  const { scene, preview } = model;
+  if (preview.copies.length === 0 && preview.extraCurves.length === 0) return;
+  const { entities, layers } = scene.view;
+  setWorldTransform(ctx, scene, tf, vp);
+  ctx.lineWidth = 1 / tf.scale;
+  for (const copy of preview.copies) {
+    const entity = entities[copy.index];
+    if (!entity || !model.layerShown(effectiveLayer(scene, preview, copy.index))) continue;
+    ctx.strokeStyle = paperColor(
+      resolveColor(entity, layers, effectiveLayer(scene, preview, copy.index), false),
+    );
+    if (entity.paths.length) strokeWith(ctx, model, cache, copy.index, copy.transform);
+  }
+  const { x: ox, y: oy } = scene.origin;
+  for (const curve of preview.extraCurves) {
+    if (!model.layerShown(curve.layer)) continue;
+    ctx.strokeStyle = paperColor(curve.color);
+    ctx.beginPath();
+    for (let i = 0; i + 1 < curve.path.length; i += 2) {
+      const x = (curve.path[i] as number) - ox;
+      const y = (curve.path[i + 1] as number) - oy;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    if (curve.closed) ctx.closePath();
+    ctx.stroke();
+  }
+  setScreenTransform(ctx, vp);
+  for (const copy of preview.copies) {
+    const entity = entities[copy.index];
+    if (!entity?.texts.length || !model.layerShown(effectiveLayer(scene, preview, copy.index))) {
+      continue;
+    }
+    ctx.fillStyle = paperColor(
+      resolveColor(entity, layers, effectiveLayer(scene, preview, copy.index), false),
+    );
+    for (const text of entity.texts) {
+      const at = applyAffine(copy.transform, text.x, text.y);
+      fillTextAt(
+        ctx,
+        tf,
+        vp,
+        at.x,
+        at.y,
+        text.height * scaleOf(copy.transform),
+        text.rotation + angleOf(copy.transform),
+        text.text,
+      );
+    }
   }
 }
 
@@ -445,6 +517,7 @@ export function drawOverlay(
   if (model.chosen && model.chosen.size > 0) drawChosen(ctx, model, cache, tf, vp);
   if (model.band) drawBand(ctx, model.band, tf, vp);
   if (model.ghost) drawGhost(ctx, model, cache, tf, vp, model.ghost);
+  if (model.sketch && model.sketch.points.length > 0) drawSketch(ctx, model.sketch, tf, vp);
 
   if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
   if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
@@ -540,6 +613,17 @@ function strokeEntity(
     ctx.stroke(cache.get(index));
     return;
   }
+  strokeWith(ctx, model, cache, index, t);
+}
+
+/** Strokes an entity with exactly this transform (world transform set). */
+function strokeWith(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  index: number,
+  t: Affine,
+): void {
   // Paths are relative to the scene origin o: local' = A·(local + o) + t − o.
   const { x: ox, y: oy } = model.scene.origin;
   ctx.save();
@@ -585,4 +669,25 @@ function drawGhost(
     ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
   }
   ctx.setLineDash([]);
+}
+
+/** The line being drawn: fixed points solid, the segment to the pointer dashed (ADR-050). */
+function drawSketch(
+  ctx: CanvasRenderingContext2D,
+  sketch: { points: readonly { x: number; y: number }[]; closed: boolean },
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  setScreenTransform(ctx, vp);
+  const pts = sketch.points.map((p) => toScreen(tf, vp, p.x, p.y));
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  if (sketch.closed && pts.length > 2) ctx.closePath();
+  ctx.stroke();
+  for (const p of pts) {
+    ctx.strokeRect(p.x - 3, p.y - 3, 6, 6);
+  }
 }

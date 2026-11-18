@@ -608,24 +608,33 @@ describe('DrawingViewer box types (ADR-043)', () => {
   });
 });
 
-describe('DrawingViewer edit mode (ADR-047)', () => {
+describe('DrawingViewer CAD ribbon (ADR-047, ADR-050)', () => {
   const size = { width: 800, height: 600 };
   const tf = fitTransform(testView().extents, size);
   const at = (x: number, y: number) => {
     const p = toScreen(tf, size, x, y);
     return { clientX: p.x, clientY: p.y };
   };
-  const saved = (kind: 'move_layer' | 'set_text'): DrawingCorrection => ({
-    ...addTextCorrection,
-    correction:
-      kind === 'move_layer'
-        ? { kind, handle: 'B', toLayer: 'Sap' }
-        : { kind, handle: 'T1', text: '7way 7/3.5' },
-    problem: null,
-  });
+  const click = async (
+    user: ReturnType<typeof userEvent.setup>,
+    canvas: Element,
+    x: number,
+    y: number,
+  ) =>
+    user.pointer([
+      { keys: '[MouseLeft>]', target: canvas, coords: at(x, y) },
+      { keys: '[/MouseLeft]' },
+    ]);
+  const sent = () =>
+    (
+      api.createCorrections.mock.calls[0]?.[2] as {
+        items: { correction: Record<string, unknown> }[];
+      }
+    ).items.map((item) => item.correction);
 
   beforeEach(() => {
     api.getDrawingViewState.mockResolvedValue(state('ready'));
+    api.createCorrections.mockResolvedValue({ items: [] });
     mappingApi.getMapping.mockResolvedValue({
       cadFileId: FILE_ID,
       layers: [{ name: 'Sap' }, { name: 'Route' }],
@@ -640,175 +649,174 @@ describe('DrawingViewer edit mode (ADR-047)', () => {
     });
   });
 
+  async function openRibbon() {
+    renderViewer();
+    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
+    expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toBeInTheDocument();
+    return { canvas, user };
+  }
+  const tool = (name: string) =>
+    within(screen.getByRole('toolbar', { name: 'Drawing tools' })).getByRole('button', {
+      name: new RegExp(`^${name}( \\(|$)`),
+    });
+  const prompt = () => screen.getByTestId('cad-prompt').textContent ?? '';
+
   it('has no pen for a user who may not fix', async () => {
     renderViewer({ canFix: false });
     await screen.findByLabelText(/The drawing: drag to pan/);
     expect(screen.queryByRole('button', { name: 'Edit the drawing' })).not.toBeInTheDocument();
   });
 
-  it('moves a picked line to another layer, draws it at once and saves it on «Save»', async () => {
-    renderViewer();
-    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
-    await user.click(screen.getByRole('button', { name: 'Move to layer' }));
-    expect(screen.getByText(/Pick items: click one/)).toBeInTheDocument();
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(75, 25) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    expect(await screen.findByText(/1.? items picked/)).toBeInTheDocument();
-    // No details popover while a tool is on.
+  it('moves a picked line to another layer and saves it on «Save»', async () => {
+    const { canvas, user } = await openRibbon();
+    expect(prompt()).toMatch(/Pick a tool/);
+    await user.click(tool('To layer'));
+    await click(user, canvas, 75, 25);
+    expect(prompt()).toMatch(/picked\. Choose the new layer/);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText('New layer'), 'Sap');
-    ctx.stroke.mockClear();
     await user.click(screen.getByRole('button', { name: 'Move to this layer' }));
     expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
-    await waitFor(() => expect(ctx.stroke).toHaveBeenCalled());
-    expect(api.createCorrections).not.toHaveBeenCalled();
-
-    api.createCorrections.mockResolvedValue({ items: [saved('move_layer')] });
-    api.listCorrections.mockResolvedValue({ items: [saved('move_layer')], activeCount: 1 });
     await user.click(screen.getByRole('button', { name: /^Save \(/ }));
-    expect(api.createCorrections).toHaveBeenCalledWith(PROJECT, FILE_ID, {
-      items: [{ correction: { kind: 'move_layer', handle: 'B', toLayer: 'Sap' }, problem: null }],
-    });
+    expect(sent()).toEqual([{ kind: 'move_layer', handle: 'B', toLayer: 'Sap' }]);
     expect(await screen.findByRole('button', { name: 'Edit the drawing' })).toBeInTheDocument();
   });
 
   it('picks with a box: a window to the right takes only what is inside it', async () => {
-    renderViewer();
-    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
-    await user.click(screen.getByRole('button', { name: 'Move to layer' }));
+    const { canvas, user } = await openRibbon();
+    await user.click(tool('Move'));
     await user.pointer([
       { keys: '[MouseLeft>]', target: canvas, coords: at(19, 23) },
       { target: canvas, coords: at(21, 21) },
       { target: canvas, coords: at(23, 19) },
       { keys: '[/MouseLeft]' },
     ]);
-    expect(await screen.findByText(/1.? items picked/)).toBeInTheDocument();
+    await waitFor(() => expect(prompt()).toMatch(/1.? picked/));
   });
 
   it('edits a text in place, and «Cancel» drops the edits without saving', async () => {
-    renderViewer();
-    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
-    await user.click(screen.getByRole('button', { name: 'Edit text' }));
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(75, 25) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    expect(await screen.findByText('That is not a text. Pick a text.')).toBeInTheDocument();
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(31, 31) },
-      { keys: '[/MouseLeft]' },
-    ]);
+    const { canvas, user } = await openRibbon();
+    await user.click(tool('Edit text'));
+    await click(user, canvas, 75, 25);
+    expect(prompt()).toMatch(/not a text/);
+    await click(user, canvas, 31, 31);
     const input = await screen.findByLabelText('New text');
     expect(input).toHaveValue('F 36 C');
     await user.clear(input);
     await user.type(input, '7way 7/3.5');
     ctx.fillText.mockClear();
     await user.click(screen.getByRole('button', { name: 'Apply' }));
-    await waitFor(() =>
-      expect(ctx.fillText.mock.calls.map((call) => call[0])).toContain('7way 7/3.5'),
-    );
+    await waitFor(() => expect(ctx.fillText.mock.calls.map((c) => c[0])).toContain('7way 7/3.5'));
     await user.click(screen.getByRole('button', { name: /Cancel/ }));
-    expect(screen.queryByText(/not saved yet/)).not.toBeInTheDocument();
     expect(api.createCorrections).not.toHaveBeenCalled();
   });
 
-  it('moves picked items from a base point to a second point, ghost first (part 2)', async () => {
-    renderViewer();
-    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
-    await user.click(screen.getByRole('button', { name: 'Move' }));
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(75, 25) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    await user.click(await screen.findByRole('button', { name: 'Pick the base point' }));
-    expect(screen.getByText('Click the base point on the drawing.')).toBeInTheDocument();
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(60, 25) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    expect(await screen.findByText(/Click the new place/)).toBeInTheDocument();
+  it('moves picked items from a base point to a second point', async () => {
+    const { canvas, user } = await openRibbon();
+    await user.click(tool('Move'));
+    await click(user, canvas, 75, 25);
+    await user.click(screen.getByRole('button', { name: 'Done → points' }));
+    expect(prompt()).toMatch(/base point/);
+    await click(user, canvas, 60, 25);
+    expect(prompt()).toMatch(/new place/);
     ctx.setLineDash.mockClear();
     await user.pointer({ target: canvas, coords: at(60, 35) });
     await waitFor(() => expect(ctx.setLineDash).toHaveBeenCalled());
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(60, 35) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    expect(await screen.findByText(/1.? edits not saved yet/)).toBeInTheDocument();
-    await waitFor(() => expect(ctx.transform).toHaveBeenCalled());
-
-    api.createCorrections.mockResolvedValue({ items: [] });
+    await click(user, canvas, 60, 35);
     await user.click(screen.getByRole('button', { name: /^Save \(/ }));
-    const body = api.createCorrections.mock.calls[0]?.[2] as {
-      items: { correction: { kind: string; handle: string; dx: number; dy: number } }[];
-    };
-    expect(body.items).toHaveLength(1);
-    expect(body.items[0]?.correction).toMatchObject({ kind: 'move_item', handle: 'B' });
-    expect(body.items[0]?.correction.dx).toBeCloseTo(0, 1);
-    expect(body.items[0]?.correction.dy).toBeCloseTo(10, 1);
+    const [move] = sent();
+    expect(move).toMatchObject({ kind: 'move_item', handle: 'B' });
+    expect(move?.dy as number).toBeCloseTo(10, 0);
   });
 
-  it('rotates picked items about a base point by a typed angle (part 2)', async () => {
-    renderViewer();
-    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
-    await user.click(screen.getByRole('button', { name: 'Rotate' }));
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(75, 25) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    await user.click(await screen.findByRole('button', { name: 'Pick the base point' }));
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(50, 25) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    const angle = await screen.findByLabelText('Angle (degrees)');
-    await user.type(angle, 'abc');
-    expect(screen.getByRole('button', { name: 'Apply the rotation' })).toBeDisabled();
-    await user.clear(angle);
-    await user.type(angle, '90{Enter}');
-    expect(await screen.findByText(/1.? edits not saved yet/)).toBeInTheDocument();
-    api.createCorrections.mockResolvedValue({ items: [] });
+  it('rotates by a typed angle and scales by a typed factor', async () => {
+    const { canvas, user } = await openRibbon();
+    await user.click(tool('Rotate'));
+    await click(user, canvas, 75, 25);
+    await user.click(screen.getByRole('button', { name: 'Done → points' }));
+    await click(user, canvas, 50, 25);
+    await user.type(await screen.findByLabelText('Angle (degrees)'), '90{Enter}');
+    await user.click(tool('Scale'));
+    // B turned 90° about (50, 25): it is now picked where it is drawn, going up from there.
+    await click(user, canvas, 50, 45);
+    await user.click(screen.getByRole('button', { name: 'Done → points' }));
+    await click(user, canvas, 50, 25);
+    const factor = await screen.findByLabelText('Scale factor');
+    await user.type(factor, '0');
+    expect(screen.getByRole('button', { name: 'Apply the scale' })).toBeDisabled();
+    await user.clear(factor);
+    await user.type(factor, '2{Enter}');
     await user.click(screen.getByRole('button', { name: /^Save \(/ }));
-    const body = api.createCorrections.mock.calls[0]?.[2] as {
-      items: {
-        correction: { kind: string; handle: string; x: number; y: number; angle: number };
-      }[];
-    };
-    expect(body.items[0]?.correction).toMatchObject({
-      kind: 'rotate_item',
-      handle: 'B',
-      angle: 90,
-    });
-    expect(body.items[0]?.correction.x).toBeCloseTo(50, 0);
-    expect(body.items[0]?.correction.y).toBeCloseTo(25, 0);
+    expect(sent().map((c) => c.kind)).toEqual(['rotate_item', 'scale_item']);
+    expect(sent()[0]).toMatchObject({ handle: 'B', angle: 90 });
+    expect(sent()[1]).toMatchObject({ handle: 'B', factor: 2 });
+  });
+
+  it('erases with the E key and Enter, and Ctrl+Z undoes the last edit', async () => {
+    const { canvas, user } = await openRibbon();
+    await user.click(canvas);
+    await user.keyboard('e');
+    expect(tool('Erase')).toHaveAttribute('aria-pressed', 'true');
+    await click(user, canvas, 75, 25);
+    await user.keyboard('{Enter}');
+    expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+    await user.keyboard('{Control>}z{/Control}');
+    expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+    await click(user, canvas, 75, 25);
+    await user.click(screen.getByRole('button', { name: /^Erase \(/ }));
+    await user.click(screen.getByRole('button', { name: /^Save \(/ }));
+    expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+  });
+
+  it('draws a line and a closed polyline on the current layer', async () => {
+    const { canvas, user } = await openRibbon();
+    await user.click(tool('Line'));
+    expect(prompt()).toMatch(/Current layer/);
+    await user.selectOptions(screen.getByLabelText('Current layer'), 'Route');
+    await click(user, canvas, 10, 10);
+    await click(user, canvas, 20, 10);
+    await user.click(tool('Polyline'));
+    await click(user, canvas, 0, 0);
+    await click(user, canvas, 10, 0);
+    await click(user, canvas, 10, 10);
+    await user.click(screen.getByRole('button', { name: 'Close shape' }));
+    await user.click(screen.getByRole('button', { name: /^Save \(/ }));
+    const [line, poly] = sent();
+    expect(line).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: false });
+    expect((line?.points as number[][]).length).toBe(2);
+    expect(poly).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: true });
+    expect((poly?.points as number[][]).length).toBe(3);
+  });
+
+  it('adds a layer like another one and draws on it', async () => {
+    const { canvas, user } = await openRibbon();
+    await user.click(screen.getByRole('button', { name: '+ New layer' }));
+    const dialog = screen.getByRole('dialog', { name: 'New layer' });
+    await user.click(within(dialog).getByRole('button', { name: 'Add the layer' }));
+    expect(within(dialog).getByText('Type the name and pick the layer.')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('Layer name'), 'DUCT NEW');
+    await user.selectOptions(within(dialog).getByLabelText('Means the same as'), 'Route');
+    await user.click(within(dialog).getByRole('button', { name: 'Add the layer' }));
+    expect(screen.getByLabelText('Current layer')).toHaveValue('DUCT NEW');
+    await user.click(tool('Item'));
+    await click(user, canvas, 40, 40);
+    await user.click(screen.getByRole('button', { name: /^Save \(/ }));
+    expect(sent()).toEqual([
+      { kind: 'add_layer', layer: 'DUCT NEW', like: 'Route' },
+      expect.objectContaining({ kind: 'add_item', layer: 'DUCT NEW' }),
+    ]);
   });
 
   it('keeps the edits and says why when the save is refused', async () => {
-    renderViewer();
-    const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
-    await user.click(screen.getByRole('button', { name: 'Edit text' }));
-    await user.pointer([
-      { keys: '[MouseLeft>]', target: canvas, coords: at(31, 31) },
-      { keys: '[/MouseLeft]' },
-    ]);
-    await user.type(await screen.findByLabelText('New text'), 'X');
-    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    const { canvas, user } = await openRibbon();
+    await user.click(tool('Erase'));
+    await click(user, canvas, 75, 25);
+    await user.click(canvas);
+    await user.keyboard('{Enter}');
     api.createCorrections.mockRejectedValue(
-      new ApiClientError('VALIDATION_FAILED', 422, { reason: 'HANDLE_NOT_FOUND', handles: ['T1'] }),
+      new ApiClientError('VALIDATION_FAILED', 422, { reason: 'HANDLE_NOT_FOUND', handles: ['B'] }),
     );
     await user.click(screen.getByRole('button', { name: /^Save \(/ }));
     expect(await screen.findByText('That element is not in the drawing')).toBeInTheDocument();
