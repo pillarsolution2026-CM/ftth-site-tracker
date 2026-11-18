@@ -19,6 +19,7 @@ import {
 } from './support/execution-fixtures.js';
 import { eventTypes } from './support/helpers.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing } from './support/drawing-fixtures.js';
 
 let ctx: TestContext;
 let fx: ExecutionFixture;
@@ -43,10 +44,15 @@ const DEVICE = randomUUID();
 
 async function insertCadFile(status: 'processed' | 'uploaded' = 'processed'): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(
+    (text, values) => ctx.pool.query(text, values),
+    fx.projectId,
+    'general',
+  );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at)
-     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, $4, $5, $6)`,
+                            status, current_job_id, processed_at, drawing_id)
+     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, $4, $5, $6, $7)`,
     [
       id,
       fx.projectId,
@@ -54,6 +60,8 @@ async function insertCadFile(status: 'processed' | 'uploaded' = 'processed'): Pr
       status,
       status === 'uploaded' ? null : randomUUID(),
       status === 'uploaded' ? null : new Date(),
+      ,
+      drawingId,
     ],
   );
   return id;

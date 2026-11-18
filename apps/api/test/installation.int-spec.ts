@@ -17,6 +17,7 @@ import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 /** ADR-042: the General's installation question, trench marks and the automatic Secondary placement. */
 
@@ -119,10 +120,11 @@ async function insertFile(
   status: 'processed' | 'uploaded' = 'processed',
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(q, p, kind);
   await q(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8)`,
+                            status, current_job_id, ins_units, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9)`,
     [
       id,
       p,
@@ -132,6 +134,8 @@ async function insertFile(
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? new Date() : null,
       kind,
+      ,
+      drawingId,
     ],
   );
   return id;
@@ -330,14 +334,18 @@ async function pair(answerValue: 'pull_only' | 'has_trench' | null): Promise<Pai
   };
 }
 
-const readiness = async (pr: Pair, revision: string) =>
-  PublishReadinessSchema.parse(
+const readiness = async (pr: Pair, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, pr.project);
+  return PublishReadinessSchema.parse(
     (await as(admin)(http().get(`${revisionsUrl(pr.project)}/${revision}/publish-readiness`))).body,
   );
-const publish = (pr: Pair, revision: string) =>
-  as(admin)(http().post(`${revisionsUrl(pr.project)}/${revision}/publish`)).send({
+};
+const publish = async (pr: Pair, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, pr.project);
+  return as(admin)(http().post(`${revisionsUrl(pr.project)}/${revision}/publish`)).send({
     acknowledgeOpenItems: true,
   });
+};
 
 // ---------------------------------------------------------------------------------------------
 
@@ -805,15 +813,14 @@ describe('readiness and publishing (INSTALLATION_UNCLEAR)', () => {
       ok: false,
       count: 1,
     });
-    // The Secondary: its own installation check is always ok, but the General is part of other_drawing.
+    // The checklist is the site's: asked from the Secondary, it shows the General's installation.
     const secReady = await readiness(pr, pr.secondary.revision);
-    expect(secReady.installation).toBeNull();
+    expect(secReady.drawings.find((d) => d.drawingKind === 'secondary')?.installation).toBeNull();
     expect(secReady.checks.find((c) => c.key === 'installation')).toEqual({
       key: 'installation',
-      ok: true,
-      count: null,
+      ok: false,
+      count: 1,
     });
-    expect(secReady.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(false);
     expect(secReady.canPublish).toBe(false);
 
     // Both entry points answer INSTALLATION_UNCLEAR for the General's installation.

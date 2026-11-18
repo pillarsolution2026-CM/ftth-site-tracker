@@ -29,6 +29,7 @@ import { ensureMember, eventTypes, loginAs, projectIds, SEED_LOGINS } from './su
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing } from './support/drawing-fixtures.js';
 
 const TILE_SECRET = 'integration-tile-secret-integration-tile-secret';
 const TILES_URL = 'https://tiles.example.test';
@@ -118,11 +119,16 @@ async function insertCadFile(
   kind: 'general' | 'secondary' = 'general',
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(
+    (text, values) => ctx.pool.query(text, values),
+    project,
+    kind,
+  );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
                             status, current_job_id, ins_units, crs_detection, processed_at,
-                            drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9)`,
+                            drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9, $10)`,
     [
       id,
       project,
@@ -133,6 +139,8 @@ async function insertCadFile(
       status === 'processed' ? JSON.stringify(DETECTION) : null,
       status === 'processed' ? new Date() : null,
       kind,
+      ,
+      drawingId,
     ],
   );
   if (kind === 'general') await answerPullOnly(project, id);

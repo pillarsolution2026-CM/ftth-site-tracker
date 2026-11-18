@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { eventTypes, ensureMember, loginAs, projectIds, SEED_LOGINS } from './support/helpers.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { uploadQuery } from './support/drawing-fixtures.js';
 
 const DXF = Buffer.from(
   '  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1032\n  0\nENDSEC\n  0\nEOF\n',
@@ -72,12 +73,17 @@ const http = (context: TestContext = ctx) => request(context.app.getHttpServer()
 const base = (project: string) => `/projects/${project}/cad-files`;
 const as = (token: string) => (req: request.Test) => req.set('Authorization', `Bearer ${token}`);
 
-const upload = (content: Buffer, name: string, token = pm, project = projectA, context = ctx) =>
-  as(token)(http(context).post(`${base(project)}?kind=general&newVersion=true`)).attach(
-    'file',
-    content,
-    name,
-  );
+/** A General of the project's test site: a new version of its drawing when it has one. */
+const upload = async (
+  content: Buffer,
+  name: string,
+  token = pm,
+  project = projectA,
+  context = ctx,
+) =>
+  as(token)(
+    http(context).post(`${base(project)}${await uploadQuery(context.pool, project, 'general')}`),
+  ).attach('file', content, name);
 
 async function queuedJobs() {
   const raw = await redis.lrange(CAD_QUEUE_KEYS.jobs, 0, -1);
@@ -227,7 +233,7 @@ describe('CAD reads', () => {
     const first = await upload(DXF, 'list-1.dxf');
     // A Secondary is another current file; a new General version would hide `first` (ADR-040).
     const second = await as(pm)(
-      http().post(`${base(projectA)}?kind=secondary&newVersion=true`),
+      http().post(`${base(projectA)}${await uploadQuery(ctx.pool, projectA, 'secondary')}`),
     ).attach('file', DXF, 'list-2.dxf');
     const list = await as(pm)(http().get(base(projectA)));
     const ids = list.body.items.map((f: { id: string }) => f.id);

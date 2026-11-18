@@ -12,6 +12,7 @@ import { loginAs, SEED_LOGINS } from './support/helpers.js';
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 /**
  * ADR-041 (API side): kind validation of the mapping, blocking totals of the problem list, the
@@ -54,10 +55,11 @@ async function newProject(): Promise<string> {
 
 async function insertFile(project: string, kind: DrawingKind): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(q, project, kind);
   await q(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, now(), $6)`,
+                            status, current_job_id, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, now(), $6, $7)`,
     [
       id,
       project,
@@ -65,6 +67,8 @@ async function insertFile(project: string, kind: DrawingKind): Promise<string> {
       `projects/${project}/cad/${id}/o.dxf`,
       randomUUID(),
       kind,
+      ,
+      drawingId,
     ],
   );
   // ADR-042: a General is published only after its installation question is answered.
@@ -307,13 +311,17 @@ describe('problems, cabinets and the publish gate (ADR-041)', () => {
     );
   }
 
-  const readiness = async (pair: Pair, revision: string) =>
-    PublishReadinessSchema.parse(
+  const readiness = async (pair: Pair, revision: string) => {
+    await linkDrawingsToSite(ctx.pool, pair.project);
+    return PublishReadinessSchema.parse(
       (await as(admin)(http().get(`${revisionsUrl(pair.project)}/${revision}/publish-readiness`)))
         .body,
     );
-  const publish = (pair: Pair, revision: string, body: object = {}) =>
-    as(admin)(http().post(`${revisionsUrl(pair.project)}/${revision}/publish`)).send(body);
+  };
+  const publish = async (pair: Pair, revision: string, body: object = {}) => {
+    await linkDrawingsToSite(ctx.pool, pair.project);
+    return as(admin)(http().post(`${revisionsUrl(pair.project)}/${revision}/publish`)).send(body);
+  };
   const setWarnings = (revision: string, warnings: unknown[]) =>
     q('UPDATE design_revisions SET warnings = $2 WHERE id = $1', [
       revision,

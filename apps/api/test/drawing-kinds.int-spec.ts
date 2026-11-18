@@ -5,7 +5,7 @@ import {
   CadFileSummarySchema,
   DesignRevisionDetailSchema,
   DesignRevisionSummarySchema,
-  KindExistsDetailsSchema,
+  UploadRefusedDetailsSchema,
   OfflineBundleSchema,
   PublishReadinessSchema,
   type DrawingKind,
@@ -24,6 +24,7 @@ import {
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { ensureSite, insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 /**
  * ADR-040 part A: drawing kinds (General / Secondary) per CAD file, versions that supersede,
@@ -71,10 +72,15 @@ async function insertFile(
   status = 'processed',
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(
+    (text, values) => ctx.pool.query(text, values),
+    project,
+    kind,
+  );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, now(), $7)`,
+                            status, current_job_id, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, now(), $7, $8)`,
     [
       id,
       project,
@@ -83,6 +89,8 @@ async function insertFile(
       status,
       randomUUID(),
       kind,
+      ,
+      drawingId,
     ],
   );
   return id;
@@ -196,15 +204,17 @@ describe('migration 0018 constraints', () => {
     const row = await q('SELECT drawing_kind FROM cad_files WHERE id = $1', [id]);
     expect(row.rows[0].drawing_kind).toBe('general');
     const bad = randomUUID();
-    expect(
+    const badDrawing = await insertDrawing((text, values) => q(text, values), project);
+    // The kind trigger of 0026 (file kind = drawing kind) may answer before the CHECK does.
+    expect(['23514', '23001']).toContain(
       await sqlState(
         q(
-          `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key, drawing_kind)
-           VALUES ($1, $2, 'x.dxf', 'dxf', 1, repeat('a', 64), $3, 'third')`,
-          [bad, project, `projects/${project}/cad/${bad}/o.dxf`],
+          `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key, drawing_kind, drawing_id)
+           VALUES ($1, $2, 'x.dxf', 'dxf', 1, repeat('a', 64), $3, 'third', $4)`,
+          [bad, project, `projects/${project}/cad/${bad}/o.dxf`, badDrawing],
         ),
       ),
-    ).toBe('23514');
+    );
   });
 
   it('never changes the kind of a file', async () => {
@@ -344,8 +354,26 @@ describe('migration 0018 constraints', () => {
 });
 
 describe('uploading a drawing of a kind', () => {
-  const upload = (project: string, query: string, name = 'plan.dxf') =>
+  const rawUpload = (project: string, query: string, name = 'plan.dxf') =>
     as(admin)(http().post(`${filesUrl(project)}${query}`)).attach('file', DXF, name);
+  /**
+   * The old «kind + newVersion» spelling mapped to ADR-049 part B: the project's site, a new drawing
+   * of the kind, or (newVersion=true and a drawing exists) a new version of its first drawing.
+   */
+  const upload = async (project: string, query: string, name = 'plan.dxf') => {
+    const params = new URLSearchParams(query.replace(/^\?/, ''));
+    const kind = params.get('kind');
+    if (kind !== 'general' && kind !== 'secondary') return rawUpload(project, query, name);
+    const site = await ensureSite(ctx.pool, project);
+    const existing = await q(
+      `SELECT id FROM site_drawings WHERE site_id = $1 AND drawing_kind = $2
+       AND withdrawn_at IS NULL ORDER BY ordinal LIMIT 1`,
+      [site, kind],
+    );
+    const version = params.get('newVersion') === 'true' && existing.rows[0];
+    const target = version ? `new_version&drawingId=${existing.rows[0].id}` : 'new_drawing';
+    return rawUpload(project, `?siteId=${site}&kind=${kind}&target=${target}`, name);
+  };
 
   /** Original objects of a project on disk (the storage root is shared by the whole run). */
   async function storedObjects(project: string): Promise<number> {
@@ -360,10 +388,19 @@ describe('uploading a drawing of a kind', () => {
     }
   }
 
-  it('requires the kind: 400 VALIDATION_FAILED without it, or with a bad one', async () => {
+  it('requires the site, the kind and the target: 400 VALIDATION_FAILED without them, or with a bad one', async () => {
     const project = await newProject();
-    for (const query of ['', '?newVersion=true', '?kind=third', '?kind=general&newVersion=maybe']) {
-      const res = await upload(project, query);
+    const site = await ensureSite(ctx.pool, project);
+    for (const query of [
+      '',
+      '?target=new_drawing',
+      `?siteId=${site}&kind=third&target=new_drawing`,
+      `?siteId=${site}&kind=general`,
+      `?siteId=${site}&kind=general&target=sideways`,
+      `?siteId=${site}&kind=general&target=new_version`,
+      '?siteId=nope&kind=general&target=new_drawing',
+    ]) {
+      const res = await rawUpload(project, query);
       expect(res.status, query).toBe(400);
       expect(res.body.code, query).toBe('VALIDATION_FAILED');
     }
@@ -371,7 +408,7 @@ describe('uploading a drawing of a kind', () => {
     expect((await q('SELECT 1 FROM cad_files WHERE project_id = $1', [project])).rowCount).toBe(0);
   });
 
-  it('refuses a second file of the kind without newVersion and stores nothing for it', async () => {
+  it('refuses a second General in the site with GENERAL_EXISTS and stores nothing for it', async () => {
     const project = await newProject();
     const first = await upload(project, '?kind=general', 'first.dxf');
     expect(first.status, JSON.stringify(first.body)).toBe(201);
@@ -386,10 +423,10 @@ describe('uploading a drawing of a kind', () => {
       const again = await upload(project, query, 'second.dxf');
       expect(again.status, query).toBe(409);
       expect(again.body.code).toBe('CONFLICT');
-      expect(KindExistsDetailsSchema.parse(again.body.details)).toEqual({
-        reason: 'KIND_EXISTS',
-        kind: 'general',
-        currentFileId: first.body.id,
+      expect(UploadRefusedDetailsSchema.parse(again.body.details)).toEqual({
+        reason: 'GENERAL_EXISTS',
+        siteId: first.body.siteId,
+        drawingId: first.body.drawingId,
         currentFileName: 'first.dxf',
       });
     }
@@ -397,7 +434,7 @@ describe('uploading a drawing of a kind', () => {
     expect((await q('SELECT 1 FROM cad_files WHERE project_id = $1', [project])).rowCount).toBe(1);
   });
 
-  it('keeps the old file as history when newVersion=true supersedes it, and the kinds apart', async () => {
+  it('keeps the old file as history when a new version supersedes it, and the drawings apart', async () => {
     const project = await newProject();
     const first = await upload(project, '?kind=general', 'v1.dxf');
     const secondary = await upload(project, '?kind=secondary', 'sec.dxf');
@@ -634,13 +671,17 @@ describe('publishing the pair', () => {
     await makeBoxTypesClear(ctx.pool, revisionId);
   }
 
-  const publish = (project: string, revisionId: string, body: object = {}) =>
-    as(admin)(http().post(`${revisionsUrl(project)}/${revisionId}/publish`)).send(body);
-  const readiness = async (project: string, revisionId: string) =>
-    PublishReadinessSchema.parse(
+  const publish = async (project: string, revisionId: string, body: object = {}) => {
+    await linkDrawingsToSite(ctx.pool, project);
+    return as(admin)(http().post(`${revisionsUrl(project)}/${revisionId}/publish`)).send(body);
+  };
+  const readiness = async (project: string, revisionId: string) => {
+    await linkDrawingsToSite(ctx.pool, project);
+    return PublishReadinessSchema.parse(
       (await as(admin)(http().get(`${revisionsUrl(project)}/${revisionId}/publish-readiness`)))
         .body,
     );
+  };
   const problem = (count: number) => ({
     code: 'LABEL_MISSING',
     severity: 'warning',

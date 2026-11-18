@@ -256,8 +256,8 @@ describe('UploadCadFileUseCase', () => {
 
     it('refuses an unassigned drawing: it takes no upload until linked', async () => {
       const general = await send('a.dxf', DXF);
+      uow.drawings.rows.set(general.drawingId, {
         ...(uow.drawings.rows.get(general.drawingId) as SiteDrawingRecord),
-        ...(uow.drawings.rows.get(general.drawingId) as never),
         siteId: null,
       });
       await expect(version(general.drawingId)).rejects.toMatchObject({

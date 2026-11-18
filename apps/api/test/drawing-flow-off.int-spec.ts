@@ -18,6 +18,7 @@ import {
 import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 /**
  * ADR-045: the installation question, the box types and the reading totals switched OFF (the
@@ -81,10 +82,11 @@ interface Scenario {
 
 async function insertFile(kind: 'general' | 'secondary', p: string): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(q, p, kind);
   await q(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, 1, now(), $6)`,
+                            status, current_job_id, ins_units, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, 1, now(), $6, $7)`,
     [
       id,
       p,
@@ -92,6 +94,8 @@ async function insertFile(kind: 'general' | 'secondary', p: string): Promise<str
       `projects/${p}/cad/${id}/original.dxf`,
       randomUUID(),
       kind,
+      ,
+      drawingId,
     ],
   );
   return id;
@@ -215,14 +219,18 @@ const GALLERY = {
   boxesWithoutShape: 0,
 };
 
-const readiness = async (sc: Scenario, revision: string) =>
-  PublishReadinessSchema.parse(
+const readiness = async (sc: Scenario, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, sc.project);
+  return PublishReadinessSchema.parse(
     (await as(admin)(http().get(`${revisionsUrl(sc.project)}/${revision}/publish-readiness`))).body,
   );
-const publish = (sc: Scenario, revision: string) =>
-  as(admin)(http().post(`${revisionsUrl(sc.project)}/${revision}/publish`)).send({
+};
+const publish = async (sc: Scenario, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, sc.project);
+  return as(admin)(http().post(`${revisionsUrl(sc.project)}/${revision}/publish`)).send({
     acknowledgeOpenItems: true,
   });
+};
 
 describe('installation question switched off', () => {
   it('is not asked, refuses writes like on a Secondary, and freezes nothing', async () => {
@@ -297,8 +305,8 @@ describe('publishing with the steps switched off', () => {
       expect(ready.switchedOff).toEqual(['installation', 'box_types']);
       expect(ready.checks.find((c) => c.key === 'installation')?.ok).toBe(true);
       expect(ready.checks.find((c) => c.key === 'box_types')?.ok).toBe(true);
-      expect(ready.installation).toBeNull();
-      expect(ready.boxTypes).toBeNull();
+      expect(ready.drawings.every((d) => d.installation === null)).toBe(true);
+      expect(ready.drawings.every((d) => d.boxTypes === null)).toBe(true);
       expect(ready.canPublish).toBe(true);
     }
     const done = await publish(sc, general);

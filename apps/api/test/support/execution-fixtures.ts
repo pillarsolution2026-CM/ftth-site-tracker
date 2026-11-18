@@ -5,6 +5,7 @@ import {
   createProjectIn,
   createWorkOrderFrom,
 } from './contract-fixtures.js';
+import { insertDrawing } from './drawing-fixtures.js';
 import { ensureMember, loginAs, SEED_LOGINS } from './helpers.js';
 import type { TestContext } from './test-app.js';
 
@@ -59,16 +60,22 @@ export async function publishRevision(
   drawingKind: 'general' | 'secondary' = 'general',
 ): Promise<string> {
   const fileId = randomUUID();
+  const drawingId = await insertDrawing(
+    (text, values) => pool.query(text, values),
+    projectId,
+    drawingKind,
+  );
   await pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at, drawing_kind)
-     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, 'processed', $4, now(), $5)`,
+                            status, current_job_id, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, 'processed', $4, now(), $5, $6)`,
     [
       fileId,
       projectId,
       `projects/${projectId}/cad/${fileId}/original.dxf`,
       randomUUID(),
       drawingKind,
+      drawingId,
     ],
   );
   const revisionId = randomUUID();
