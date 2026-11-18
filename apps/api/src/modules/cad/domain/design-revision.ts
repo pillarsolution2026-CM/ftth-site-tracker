@@ -22,7 +22,11 @@ export interface DesignRevision {
   cadFileName: string;
   /** Kind of the source file (ADR-040). */
   drawingKind: DrawingKind;
-  /** Assigned on publish. */
+  /** ADR-049 part B: the drawing of the source file, its site (null: unassigned) and number. */
+  drawingId: string;
+  siteId: string | null;
+  drawingOrdinal: number;
+  /** Assigned on publish; shared by the revisions of one site publication. */
   revNo: number | null;
   status: DesignRevisionStatus;
   /** The only job allowed to move this revision forward (ADR-013 guard). */

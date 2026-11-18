@@ -6,7 +6,6 @@ import type {
   CadLayer,
   CadTextListQuery,
   CadTextPage,
-  DrawingKind,
 } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { CadFile, DrawingViewRecord } from './cad-file.js';
@@ -14,6 +13,8 @@ import type { DrawingCorrectionRepository } from './drawing-correction.js';
 import type { GpsProposalRepository } from './gps-proposal.js';
 import type { BoxTypeRepository } from './box-types.js';
 import type { InstallationRepository } from './installation.js';
+import type { SiteDrawingRepository } from './site-drawing.repository.js';
+import type { SiteDrawingRepository } from './site-drawing.repository.js';
 import type {
   CadMappingRepository,
   DesignRevisionRepository,
@@ -29,12 +30,12 @@ export interface CadFileRepository {
   /** Inserts a row in status `uploaded` (no job yet). */
   insertUploaded(file: CadFile): Promise<void>;
   /**
-   * Serialises uploads of one kind (ADR-040): locks the project row, then the project's current
-   * (not superseded) files of the kind (SELECT … FOR UPDATE). Newest first.
+   * Serialises uploads of one drawing (ADR-049 part B): locks the drawing's current (not
+   * superseded) files (SELECT … FOR UPDATE). Newest first.
    */
-  lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]>;
-  /** The project's current (not superseded) files of the kind, newest first; no lock. */
-  listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]>;
+  lockCurrentOfDrawing(projectId: string, drawingId: string): Promise<CadFile[]>;
+  /** The drawing's current (not superseded) file, if any; no lock. */
+  findCurrentOfDrawing(projectId: string, drawingId: string): Promise<CadFile | null>;
   /** Marks each file superseded by `byId` at `at` (files already superseded are untouched). */
   supersede(projectId: string, fileIds: string[], byId: string, at: Date): Promise<void>;
   /**
@@ -81,6 +82,7 @@ export interface CadExtractionQueries {
 
 export interface CadTx {
   files: CadFileRepository;
+  drawings: SiteDrawingRepository;
   mappings: CadMappingRepository;
   revisions: DesignRevisionRepository;
   links: TextLinkRepository;

@@ -23,7 +23,12 @@ export interface CadFile {
   status: CadFileStatus;
   /** General or Secondary (ADR-040); chosen at upload, never changes. */
   drawingKind: DrawingKind;
-  /** Set with `supersededById` when a newer version of the same kind was uploaded. */
+  /** ADR-049 part B: the drawing this file is a version of (never changes), its site and number. */
+  drawingId: string;
+  /** null: the drawing is not linked to a site yet («بدون موقع»). Read through the drawing. */
+  siteId: string | null;
+  drawingOrdinal: number;
+  /** Set with `supersededById` when a newer version of the same drawing was uploaded. */
   supersededAt: Date | null;
   supersededById: string | null;
   /** The only job allowed to change this row; a newer reprocess supersedes older jobs. */
