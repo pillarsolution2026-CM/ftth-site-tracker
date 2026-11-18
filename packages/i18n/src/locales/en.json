@@ -668,7 +668,38 @@
     "mappingLink": "Mapping",
     "superseded": "Old version",
     "supersededNotice": "This file is an old version; a newer one of the same kind exists.",
-    "openNewer": "Open the newer version"
+    "openNewer": "Open the newer version",
+    "upload": {
+      "label": "Upload a CAD file",
+      "hint": "DWG or DXF files",
+      "uploading": "Uploading",
+      "kindLegend": "Drawing kind",
+      "pickKindFirst": "Choose the drawing kind first (General or Secondary), then the file"
+    },
+    "kindExists": {
+      "title": {
+        "general": "Is this a new version of the General?",
+        "secondary": "Is this a new version of the Secondary?"
+      },
+      "text": {
+        "general": "This work order already has a General:",
+        "secondary": "This work order already has a Secondary:"
+      },
+      "yes": "Yes, a new version",
+      "no": "No",
+      "declined": {
+        "general": "A work order has only one General — the file was not uploaded",
+        "secondary": "A work order has only one Secondary — the file was not uploaded"
+      }
+    },
+    "section": {
+      "general": "General (main)",
+      "secondary": "Secondary"
+    },
+    "sectionEmpty": {
+      "general": "No General has been uploaded yet",
+      "secondary": "No Secondary has been uploaded yet"
+    }
   },
   "featureType": {
     "route": "Route",
@@ -1097,7 +1128,8 @@
         "cabinets_other_site": "No cabinet name is also in another site of the work order ({count})",
         "cabinets_match": "Cabinets match in both drawings (name and count)",
         "installation": "Installation method (pull / trench) is clear",
-        "box_types": "Every box shape has a work-order line"
+        "box_types": "Every box shape has a work-order line",
+        "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set"
       },
       "fixCoordinates": "Open the coordinates screen",
       "lockedHint": "Publishing is locked until all checks except open items are done.",
@@ -1109,9 +1141,22 @@
         "PROBLEMS_OPEN": "{count} drawing errors are left in the {drawing} drawing. Fix all of them before publishing.",
         "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
         "INSTALLATION_UNCLEAR": "The installation method of the {drawing} drawing is unclear ({count} issues): {issues}",
-        "BOX_TYPES_UNCLEAR": "The box types of the {drawing} drawing are unclear ({count} issues): {issues}"
+        "BOX_TYPES_UNCLEAR": "The box types of the {drawing} drawing are unclear ({count} issues): {issues}",
+        "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together.",
+        "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing."
       },
-      "warnings": "{count} warning(s) in this drawing — they do not block publishing."
+      "warnings": "{count} warning(s) in this drawing — they do not block publishing.",
+      "otherNoDraft": "There is no draft for the {drawing} yet",
+      "otherErrors": "{count} errors in it",
+      "openOther": "Open the {drawing} draft",
+      "pairNote": "Publishing covers both drawings together ({first} + {second}) with the same revision number.",
+      "cabinetsCounts": "Cabinets: General {general} / Secondary {secondary}",
+      "cabinetsOnly": {
+        "general": "Only in the General",
+        "secondary": "Only in the Secondary"
+      },
+      "cabinetsUnnamed": "Cabinets with no name: {count}",
+      "cabinetsNoOther": "There is no draft for the {drawing} to compare with"
     },
     "error": {
       "NOT_DRAFT": "Only a draft revision can be published",
@@ -2172,5 +2217,19 @@
       "otherSite": "{name} is in the site {site}",
       "otherSiteTitle": "Cabinet names that another site already has"
     }
+  },
+  "mobileSites": {
+    "pick": "Site and drawing",
+    "chooseSite": "Choose the site",
+    "chooseDrawing": "Choose the drawing",
+    "noSite": "No site",
+    "general": "General (main)",
+    "secondary": "Secondary {n}",
+    "onPhone": "On the phone (revision {revNo})",
+    "onPhoneOld": "On the phone (revision {revNo}) - newer revision {latest} available",
+    "notOnPhone": "Not downloaded - downloads when chosen",
+    "empty": "No drawings are published for this project yet.",
+    "notOnPhoneOffline": "This drawing is not on the phone. Connect to the internet to download it.",
+    "autoDownloading": "Downloading {done} of {total}"
   }
 }

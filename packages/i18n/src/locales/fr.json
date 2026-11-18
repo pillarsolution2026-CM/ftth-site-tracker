@@ -668,7 +668,38 @@
     "mappingLink": "Mapping",
     "superseded": "Ancienne version",
     "supersededNotice": "Ce fichier est une ancienne version ; une version plus récente du même type existe.",
-    "openNewer": "Ouvrir la version plus récente"
+    "openNewer": "Ouvrir la version plus récente",
+    "upload": {
+      "label": "Envoyer un fichier CAO",
+      "hint": "Fichiers DWG ou DXF",
+      "uploading": "Envoi de",
+      "kindLegend": "Type de plan",
+      "pickKindFirst": "Choisissez d'abord le type de plan (Général ou Secondaire), puis le fichier"
+    },
+    "kindExists": {
+      "title": {
+        "general": "Est-ce une nouvelle version du Général ?",
+        "secondary": "Est-ce une nouvelle version du Secondaire ?"
+      },
+      "text": {
+        "general": "L'ordre de travail a déjà un Général :",
+        "secondary": "L'ordre de travail a déjà un Secondaire :"
+      },
+      "yes": "Oui, une nouvelle version",
+      "no": "Non",
+      "declined": {
+        "general": "Un ordre de travail n'a qu'un seul Général — le fichier n'a pas été envoyé",
+        "secondary": "Un ordre de travail n'a qu'un seul Secondaire — le fichier n'a pas été envoyé"
+      }
+    },
+    "section": {
+      "general": "Général (principal)",
+      "secondary": "Secondaire"
+    },
+    "sectionEmpty": {
+      "general": "Aucun Général n'a encore été envoyé",
+      "secondary": "Aucun Secondaire n'a encore été envoyé"
+    }
   },
   "featureType": {
     "route": "Tracé",
@@ -1097,7 +1128,8 @@
         "cabinets_other_site": "Aucun nom d'armoire n'est dans un autre site de l'ordre de travail ({count})",
         "cabinets_match": "Les armoires correspondent dans les deux plans (nom et nombre)",
         "installation": "Le mode de pose (tirage / tranchée) est clair",
-        "box_types": "Chaque forme de boîtier a une ligne de l’ordre de travail"
+        "box_types": "Chaque forme de boîtier a une ligne de l’ordre de travail",
+        "other_drawing": "L'autre plan ({drawing}) est prêt : zéro erreur, coordonnées calées"
       },
       "fixCoordinates": "Ouvrir l'écran des coordonnées",
       "lockedHint": "La publication est verrouillée tant que toutes les vérifications, sauf les éléments ouverts, ne sont pas faites.",
@@ -1109,9 +1141,22 @@
         "PROBLEMS_OPEN": "Il reste {count} erreurs de dessin dans le plan {drawing}. Corrigez-les toutes avant de publier.",
         "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation.",
         "INSTALLATION_UNCLEAR": "Le mode de pose du plan {drawing} n’est pas clair ({count} problèmes) : {issues}",
-        "BOX_TYPES_UNCLEAR": "Les types de boîtiers du dessin {drawing} sont peu clairs ({count} problèmes) : {issues}"
+        "BOX_TYPES_UNCLEAR": "Les types de boîtiers du dessin {drawing} sont peu clairs ({count} problèmes) : {issues}",
+        "OTHER_DRAWING_MISSING": "Il n'y a pas de brouillon pour le {drawing}. Envoyez-le et construisez-le d'abord — les deux plans sont publiés ensemble.",
+        "CABINETS_MISMATCH": "Les armoires ne correspondent pas entre les plans : Général {generalCount} / Secondaire {secondaryCount}. Seulement dans le Général : {onlyGeneral}. Seulement dans le Secondaire : {onlySecondary}. Armoires sans nom : {unnamed}. Rendez les noms et le nombre identiques dans les deux plans avant de publier."
       },
-      "warnings": "{count} avertissement(s) dans ce plan — ils ne bloquent pas la publication."
+      "warnings": "{count} avertissement(s) dans ce plan — ils ne bloquent pas la publication.",
+      "otherNoDraft": "Il n'y a pas encore de brouillon pour le {drawing}",
+      "otherErrors": "{count} erreurs dedans",
+      "openOther": "Ouvrir le brouillon du {drawing}",
+      "pairNote": "La publication concerne les deux plans ensemble ({first} + {second}) avec le même numéro de révision.",
+      "cabinetsCounts": "Armoires : Général {general} / Secondaire {secondary}",
+      "cabinetsOnly": {
+        "general": "Seulement dans le Général",
+        "secondary": "Seulement dans le Secondaire"
+      },
+      "cabinetsUnnamed": "Armoires sans nom : {count}",
+      "cabinetsNoOther": "Il n’y a pas de brouillon pour {drawing} à comparer"
     },
     "error": {
       "NOT_DRAFT": "Seule une révision en brouillon peut être publiée",
@@ -2172,5 +2217,19 @@
       "otherSite": "{name} est dans le site {site}",
       "otherSiteTitle": "Noms d'armoires qu'un autre site possède déjà"
     }
+  },
+  "mobileSites": {
+    "pick": "Site et plan",
+    "chooseSite": "Choisir le site",
+    "chooseDrawing": "Choisir le plan",
+    "noSite": "Sans site",
+    "general": "Général (principal)",
+    "secondary": "Secondaire {n}",
+    "onPhone": "Sur le téléphone (révision {revNo})",
+    "onPhoneOld": "Sur le téléphone (révision {revNo}) - révision plus récente {latest} disponible",
+    "notOnPhone": "Non téléchargé - téléchargé au choix",
+    "empty": "Aucun plan n'est encore publié pour ce projet.",
+    "notOnPhoneOffline": "Ce plan n'est pas sur le téléphone. Connectez-vous à Internet pour le télécharger.",
+    "autoDownloading": "Téléchargement {done} sur {total}"
   }
 }

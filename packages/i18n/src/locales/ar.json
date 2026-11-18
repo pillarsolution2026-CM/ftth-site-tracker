@@ -668,7 +668,38 @@
     "mappingLink": "الربط (Mapping)",
     "superseded": "نسخة قديمة",
     "supersededNotice": "الملف ده نسخة قديمة، وفي نسخة أحدث منه من نفس النوع.",
-    "openNewer": "افتح النسخة الأحدث"
+    "openNewer": "افتح النسخة الأحدث",
+    "upload": {
+      "label": "رفع ملف كاد",
+      "hint": "ملفات DWG أو DXF",
+      "uploading": "جارٍ رفع",
+      "kindLegend": "نوع الرسمة",
+      "pickKindFirst": "اختار نوع الرسمة الأول (جينيرال أو ثانوي)، وبعدها اختار الملف"
+    },
+    "kindExists": {
+      "title": {
+        "general": "ده نسخة جديدة من الجينيرال؟",
+        "secondary": "ده نسخة جديدة من الثانوي؟"
+      },
+      "text": {
+        "general": "أمر التكليف عنده جينيرال حالي:",
+        "secondary": "أمر التكليف عنده ثانوي حالي:"
+      },
+      "yes": "أيوه، نسخة جديدة",
+      "no": "لأ",
+      "declined": {
+        "general": "أمر التكليف ليه جينيرال واحد بس — الملف ما اترفعش",
+        "secondary": "أمر التكليف ليه ثانوي واحد بس — الملف ما اترفعش"
+      }
+    },
+    "section": {
+      "general": "الجينيرال (رئيسي)",
+      "secondary": "الثانوي"
+    },
+    "sectionEmpty": {
+      "general": "لسه ما اترفعش جينيرال",
+      "secondary": "لسه ما اترفعش ثانوي"
+    }
   },
   "featureType": {
     "route": "مسار",
@@ -1097,7 +1128,8 @@
         "cabinets_other_site": "أسماء الكبائن مش مكررة في موقع تاني من أمر الشغل ({count})",
         "cabinets_match": "الكباين متطابقة في الرسمتين (الاسم والعدد)",
         "installation": "طريقة التركيب (سحب / حفر) واضحة",
-        "box_types": "كل أشكال البوكسات ليها بند من أمر التكليف"
+        "box_types": "كل أشكال البوكسات ليها بند من أمر التكليف",
+        "other_drawing": "الرسمة التانية ({drawing}) جاهزة — صفر أخطاء وإحداثيات مظبوطة"
       },
       "fixCoordinates": "افتح شاشة الإحداثيات",
       "lockedHint": "النشر مقفول لحد ما كل الفحوص تخلص (ما عدا البنود المفتوحة).",
@@ -1109,9 +1141,22 @@
         "PROBLEMS_OPEN": "لسه {count} خطأ في رسمة {drawing}. صلّحهم كلهم قبل النشر.",
         "OPEN_ITEMS": "لم يتم الإقرار بالبنود المفتوحة. فعّل خانة الإقرار أولًا.",
         "INSTALLATION_UNCLEAR": "طريقة التركيب في رسمة {drawing} مش واضحة ({count} مشكلة): {issues}",
-        "BOX_TYPES_UNCLEAR": "أنواع البوكسات في رسمة {drawing} مش واضحة ({count} مشكلة): {issues}"
+        "BOX_TYPES_UNCLEAR": "أنواع البوكسات في رسمة {drawing} مش واضحة ({count} مشكلة): {issues}",
+        "OTHER_DRAWING_MISSING": "مفيش مسودة لـ{drawing}. ارفعها وابنيها الأول — النشر بيتم للرسمتين مع بعض.",
+        "CABINETS_MISMATCH": "الكباين مش متطابقة بين الرسمتين: جينيرال {generalCount} / ثانوي {secondaryCount}. موجودة في الجينيرال بس: {onlyGeneral}. موجودة في الثانوي بس: {onlySecondary}. كباين من غير اسم: {unnamed}. وحّد الأسماء والعدد في الرسمتين قبل النشر."
       },
-      "warnings": "فيه {count} تنبيه في الرسمة دي — مش بيمنع النشر."
+      "warnings": "فيه {count} تنبيه في الرسمة دي — مش بيمنع النشر.",
+      "otherNoDraft": "لسه مفيش مسودة لـ{drawing}",
+      "otherErrors": "فيها {count} خطأ",
+      "openOther": "افتح مسودة {drawing}",
+      "pairNote": "النشر هيتم للرسمتين مع بعض ({first} + {second}) بنفس رقم المراجعة.",
+      "cabinetsCounts": "عدد الكباين: جينيرال {general} / ثانوي {secondary}",
+      "cabinetsOnly": {
+        "general": "موجودة في الجينيرال بس",
+        "secondary": "موجودة في الثانوي بس"
+      },
+      "cabinetsUnnamed": "كباين من غير اسم: {count}",
+      "cabinetsNoOther": "مفيش مسودة لـ{drawing} للمقارنة"
     },
     "error": {
       "NOT_DRAFT": "لا يمكن نشر إلا المراجعة التي في حالة مسودة",
@@ -2172,5 +2217,19 @@
       "otherSite": "{name} موجودة في الموقع {site}",
       "otherSiteTitle": "أسماء كبائن يملكها موقع آخر بالفعل"
     }
+  },
+  "mobileSites": {
+    "pick": "الموقع والرسم",
+    "chooseSite": "اختار الموقع",
+    "chooseDrawing": "اختار الرسم",
+    "noSite": "بدون موقع",
+    "general": "رئيسي (جينيرال)",
+    "secondary": "ثانوي {n}",
+    "onPhone": "على التليفون (إصدار {revNo})",
+    "onPhoneOld": "على التليفون (إصدار {revNo}) - فيه إصدار أحدث {latest}",
+    "notOnPhone": "مش منزّل - يتنزّل عند الاختيار",
+    "empty": "لسه مفيش رسومات منشورة للمشروع ده.",
+    "notOnPhoneOffline": "الرسمة دي مش متحملة على الموبايل، اتصل بالنت عشان تتحمل",
+    "autoDownloading": "بيتحمّل {done} من {total}"
   }
 }

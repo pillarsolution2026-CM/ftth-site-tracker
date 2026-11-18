@@ -5,15 +5,21 @@ import { TransportError } from '@ftth/sync';
 export async function fetchOfflineBundle(input: {
   baseUrl: string;
   projectId: string;
+  /** The drawing to download (ADR-049 part B); without it the server sends the General published last. */
+  drawingId?: string | null;
   accessToken: string | null;
   fetchFn?: typeof fetch;
 }): Promise<OfflineBundle> {
   const doFetch = input.fetchFn ?? fetch;
+  const query = input.drawingId ? `?drawingId=${encodeURIComponent(input.drawingId)}` : '';
   let response: Response;
   try {
-    response = await doFetch(`${input.baseUrl}/projects/${input.projectId}/sync/bootstrap`, {
-      headers: input.accessToken ? { Authorization: `Bearer ${input.accessToken}` } : {},
-    });
+    response = await doFetch(
+      `${input.baseUrl}/projects/${input.projectId}/sync/bootstrap${query}`,
+      {
+        headers: input.accessToken ? { Authorization: `Bearer ${input.accessToken}` } : {},
+      },
+    );
   } catch {
     throw new TransportError('network');
   }
