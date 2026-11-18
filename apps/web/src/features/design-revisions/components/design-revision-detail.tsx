@@ -105,6 +105,16 @@ export function DesignRevisionDetailScreen({
             isSecondary={revision.drawingKind === 'secondary'}
             onShowOnDrawing={showOnDrawing}
             onUnsavedChange={setUnsaved}
+            sidePanel={
+              <ProblemsSection
+                projectId={projectId}
+                revisionId={revisionId}
+                cadFileId={revision.cadFileId}
+                enabled={state.canRead && state.built}
+                canFix={state.canReview}
+                onShowOnDrawing={showOnDrawing}
+              />
+            }
             focus={focus}
           />
         </Card>
@@ -170,16 +180,6 @@ export function DesignRevisionDetailScreen({
       </Card>
       {state.built ? (
         <>
-          <Card>
-            <ProblemsSection
-              projectId={projectId}
-              revisionId={revisionId}
-              cadFileId={revision.cadFileId}
-              enabled={state.canRead && state.built}
-              canFix={state.canReview}
-              onShowOnDrawing={showOnDrawing}
-            />
-          </Card>
           {revision.drawingKind === 'secondary' ? (
             <Card>
               <BoxTypesSection

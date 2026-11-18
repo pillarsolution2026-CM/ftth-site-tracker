@@ -1355,7 +1355,24 @@
       },
       "warningsHeading": "Avertissements : {total}",
       "warningNote": "Avertissement — ne bloque pas la publication",
-      "typeOn": "Écrire le texte sur le calque"
+      "typeOn": "Écrire le texte sur le calque",
+      "nav": {
+        "progress": "{open} restantes — {done} sur {total} corrigées",
+        "progressLabel": "Erreurs corrigées",
+        "filter": "Afficher",
+        "filters": {
+          "open": "Toutes",
+          "errors": "Erreurs",
+          "warnings": "Avertissements",
+          "fixed": "Corrigées"
+        },
+        "emptyFilter": "Rien ici.",
+        "fixedChip": "Corrigée — disparaît après l'actualisation",
+        "near": "Près de {what} {name} ({distance} m)",
+        "details": "Détails (coordonnées et identifiant)",
+        "prev": "Précédente",
+        "next": "Erreur suivante"
+      }
     },
     "viewer": {
       "title": "Visionneuse de dessin",
@@ -1387,7 +1404,9 @@
       "entityKind": "Type",
       "trenchLegend": "Les parties marquées en tranchée sont tracées en violet pointillé avec leur longueur.",
       "boxTypesToggle": "Afficher le type de chaque boîtier ({count})",
-      "boxTypesLegend": "Le type est écrit à côté de chaque boîtier : le code, puis la description de la ligne. « Pas encore construit » signifie que le choix est enregistré mais pas appliqué ; « Sans type » signifie que le boîtier n’a pas de ligne."
+      "boxTypesLegend": "Le type est écrit à côté de chaque boîtier : le code, puis la description de la ligne. « Pas encore construit » signifie que le choix est enregistré mais pas appliqué ; « Sans type » signifie que le boîtier n’a pas de ligne.",
+      "layersTab": "Calques",
+      "sideTabs": "Listes à côté du dessin"
     },
     "fix": {
       "open": "Corriger cet endroit",

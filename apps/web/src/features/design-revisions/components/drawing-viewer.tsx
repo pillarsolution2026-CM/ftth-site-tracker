@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ltr } from '@ftth/i18n';
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/form-controls';
@@ -29,6 +29,7 @@ export function DrawingViewer({
   isSecondary = false,
   onShowOnDrawing,
   onUnsavedChange,
+  sidePanel,
   focus,
 }: {
   projectId: string;
@@ -46,6 +47,8 @@ export function DrawingViewer({
   onShowOnDrawing?: (place: Omit<ShowPlace, 'nonce'>) => void;
   /** Number of unsaved edits of the edit mode (ADR-047): the page's refresh waits for «حفظ». */
   onUnsavedChange?: (count: number) => void;
+  /** The errors work list, shown in a tab beside the drawing (ADR-050 part 3). */
+  sidePanel?: ReactNode;
   focus: ShowPlace | null;
 }) {
   const { t } = useI18n();
@@ -148,15 +151,18 @@ export function DrawingViewer({
                 </div>
               ) : null}
             </div>
-            <div className="lg:w-72 lg:shrink-0">
-              <LayerPanel
-                rows={viewer.layerRows}
-                query={viewer.layerQuery}
-                onQuery={viewer.setLayerQuery}
-                onToggle={viewer.toggleLayer}
-                onSetListed={viewer.setShownForListed}
-              />
-            </div>
+            <SideTabs
+              problems={sidePanel}
+              layers={
+                <LayerPanel
+                  rows={viewer.layerRows}
+                  query={viewer.layerQuery}
+                  onQuery={viewer.setLayerQuery}
+                  onToggle={viewer.toggleLayer}
+                  onSetListed={viewer.setShownForListed}
+                />
+              }
+            />
           </div>
           {viewer.trench.visible ? (
             <TrenchMarksPanel
@@ -193,5 +199,46 @@ function ToolButton({
     >
       <span aria-hidden="true">{children}</span>
     </Button>
+  );
+}
+
+/** Beside the drawing: the errors (when given) and the layers, as two tabs. */
+function SideTabs({ problems, layers }: { problems?: ReactNode; layers: ReactNode }) {
+  const { t } = useI18n();
+  const [tab, setTab] = useState<'problems' | 'layers'>(problems ? 'problems' : 'layers');
+  if (!problems) return <div className="lg:w-72 lg:shrink-0">{layers}</div>;
+  const tabs = [
+    { key: 'problems', label: t('design.problems.title') },
+    { key: 'layers', label: t('design.viewer.layersTab') },
+  ] as const;
+  return (
+    <div className="flex flex-col gap-2 lg:w-96 lg:shrink-0">
+      <div role="tablist" aria-label={t('design.viewer.sideTabs')} className="flex gap-1">
+        {tabs.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            id={`side-tab-${item.key}`}
+            aria-selected={tab === item.key}
+            aria-controls={`side-panel-${item.key}`}
+            onClick={() => setTab(item.key)}
+            className={`min-h-10 flex-1 rounded-t-md border-b-2 px-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
+              tab === item.key ? 'border-(--color-brand)' : 'border-transparent opacity-70'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div
+        role="tabpanel"
+        id={`side-panel-${tab}`}
+        aria-labelledby={`side-tab-${tab}`}
+        className="max-h-[75vh] overflow-y-auto pe-1"
+      >
+        {tab === 'problems' ? problems : layers}
+      </div>
+    </div>
   );
 }

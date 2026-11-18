@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { PublishReadiness } from '@ftth/shared';
@@ -27,7 +28,10 @@ vi.mock('./diff-section', () => ({ DiffSection: () => null }));
 const sections = vi.hoisted(() => ({
   problems: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   corrections: vi.fn<(props: Record<string, unknown>) => null>(() => null),
-  viewer: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+  // The viewer shows the errors list beside the drawing (ADR-050 part 3).
+  viewer: vi.fn<(props: Record<string, unknown>) => ReactNode>(
+    (props) => (props.sidePanel as ReactNode) ?? null,
+  ),
   boxTypes: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   refresh: vi.fn<(props: Record<string, unknown>) => null>(() => null),
 }));
@@ -108,6 +112,7 @@ beforeEach(() => {
   sections.problems.mockClear();
   sections.corrections.mockClear();
   sections.viewer.mockClear();
+  sections.viewer.mockImplementation((props) => (props.sidePanel as ReactNode) ?? null);
   sections.refresh.mockClear();
   sections.boxTypes.mockClear();
 });
@@ -320,7 +325,7 @@ describe('DesignRevisionDetailScreen pair publishing', () => {
 });
 
 describe('DesignRevisionDetailScreen drawing corrections', () => {
-  const lastProps = (fn: typeof sections.problems) =>
+  const lastProps = (fn: { mock: { calls: unknown[][] } }) =>
     (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
 
   it('offers the fix tools and the rebuild on a draft to a user who can write designs', async () => {
@@ -358,7 +363,7 @@ describe('DesignRevisionDetailScreen drawing corrections', () => {
 });
 
 describe('DesignRevisionDetailScreen drawing viewer', () => {
-  const lastProps = (fn: typeof sections.viewer) =>
+  const lastProps = (fn: { mock: { calls: unknown[][] } }) =>
     (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
 
   it('shows the viewer for the revision file and lets the fix tools in only on a draft', async () => {
@@ -399,7 +404,7 @@ describe('DesignRevisionDetailScreen drawing viewer', () => {
 });
 
 describe('DesignRevisionDetailScreen box types (ADR-043)', () => {
-  const lastProps = (fn: typeof sections.boxTypes) =>
+  const lastProps = (fn: { mock: { calls: unknown[][] } }) =>
     (fn.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
 
   it('shows «Box types» on a Secondary draft, editable by who can write designs', async () => {

@@ -50,12 +50,21 @@ export interface FixTools {
 }
 
 /** What the fix tools of one problem list share: pending places, the file's layers, saving. */
-export function useFixTools(projectId: string, cadFileId: string, enabled: boolean): FixTools {
+export function useFixTools(
+  projectId: string,
+  cadFileId: string,
+  enabled: boolean,
+  /** When the revision was created: only later corrections mark a place fixed. */
+  since: string | null = null,
+): FixTools {
   const corrections = useCorrections(projectId, cadFileId, enabled);
   const mapping = useMapping(projectId, cadFileId, enabled);
   const create = useCreateCorrection(projectId, cadFileId);
   const saveMapping = useSaveMapping(projectId, cadFileId);
-  const pending = useMemo(() => pendingPlaces(corrections.data?.items ?? []), [corrections.data]);
+  const pending = useMemo(
+    () => pendingPlaces(corrections.data?.items ?? [], since),
+    [corrections.data, since],
+  );
   const layers = useMemo(() => layerNamesOf(mapping.data), [mapping.data]);
   const pointLayers = useMemo(() => pointLayersOf(mapping.data), [mapping.data]);
   return {

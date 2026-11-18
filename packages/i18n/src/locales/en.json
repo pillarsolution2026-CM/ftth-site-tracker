@@ -1355,7 +1355,24 @@
       },
       "warningsHeading": "Warnings: {total}",
       "warningNote": "Warning — does not block publishing",
-      "typeOn": "Type the text on layer"
+      "typeOn": "Type the text on layer",
+      "nav": {
+        "progress": "{open} left — {done} of {total} fixed",
+        "progressLabel": "Errors fixed",
+        "filter": "Show",
+        "filters": {
+          "open": "All",
+          "errors": "Errors",
+          "warnings": "Warnings",
+          "fixed": "Fixed"
+        },
+        "emptyFilter": "Nothing here.",
+        "fixedChip": "Fixed — gone after the refresh",
+        "near": "Near {what} {name} ({distance} m)",
+        "details": "Details (coordinates and handle)",
+        "prev": "Previous",
+        "next": "Next error"
+      }
     },
     "viewer": {
       "title": "Drawing viewer",
@@ -1387,7 +1404,9 @@
       "entityKind": "Type",
       "trenchLegend": "Parts marked for trench are drawn with a dashed purple line and their length.",
       "boxTypesToggle": "Show the type of each box ({count})",
-      "boxTypesLegend": "The type is written next to each box: the code, then the line description. “Not built yet” means the choice is saved but not applied; “No type” means the box has no line."
+      "boxTypesLegend": "The type is written next to each box: the code, then the line description. “Not built yet” means the choice is saved but not applied; “No type” means the box has no line.",
+      "layersTab": "Layers",
+      "sideTabs": "Lists beside the drawing"
     },
     "fix": {
       "open": "Fix this place",

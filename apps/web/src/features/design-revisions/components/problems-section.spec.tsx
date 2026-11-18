@@ -57,144 +57,110 @@ beforeEach(() => {
   boxApi.getBoxTypesReport.mockReset();
 });
 
-describe('ProblemsSection', () => {
-  it('shows the total, each place with both coordinates, the layer it belongs on and the nearest item', async () => {
-    api.listDrawingProblems.mockResolvedValue(list());
+describe('ProblemsSection (work list, ADR-050 part 3)', () => {
+  const render = (onShowOnDrawing?: (p: unknown) => void, canFix = false) =>
     renderScreen(
       <ProblemsSection
         projectId={PROJECT}
         revisionId={REVISION}
         cadFileId={FILE}
         enabled
-        canFix={false}
+        canFix={canFix}
+        onShowOnDrawing={onShowOnDrawing}
       />,
     );
+  const rows = () =>
+    screen
+      .getAllByRole('button', { expanded: false })
+      .concat(screen.getAllByRole('button', { expanded: true }));
+
+  it('shows the total, the progress, one short row per place and the first place opened', async () => {
+    api.listDrawingProblems.mockResolvedValue(list());
+    render();
     expect(
       await screen.findByRole('heading', { level: 2, name: /Drawing errors: .*3/ }),
     ).toBeInTheDocument();
-    const table = await screen.findByRole('table', { name: /On the wrong layer/ });
-    expect(within(table).getByText('ZOOM C 7113.2,4573.4')).toBeInTheDocument();
-    expect(within(table).getAllByText('7113.2, 4573.4')).toHaveLength(2);
-    expect(within(table).getByText('A1')).toBeInTheDocument();
-    expect(within(table).getByText('CABINET SITE SUB CABINET')).toBeInTheDocument();
-    expect(within(table).getByText('1-6')).toBeInTheDocument();
-  });
-
-  it('has no Ignore button or ignored counts', async () => {
-    api.listDrawingProblems.mockResolvedValue(list());
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-      />,
-    );
-    await screen.findByRole('table', { name: /On the wrong layer/ });
-    expect(screen.queryByRole('button', { name: /ignore/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/ignored/i)).not.toBeInTheDocument();
-  });
-
-  it('says what each error is and what is required to fix it', async () => {
-    api.listDrawingProblems.mockResolvedValue(list());
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-      />,
-    );
-    expect(await screen.findByText(/drawn on the layer of another type/)).toBeInTheDocument();
+    expect(screen.getByText(/3.? left — .?0.? of .?3.? fixed/)).toBeInTheDocument();
+    expect(rows()).toHaveLength(3);
+    const first = screen.getByRole('button', { expanded: true });
+    expect(within(first).getByText('On the wrong layer')).toBeInTheDocument();
+    expect(within(first).getByText(/Near Cabinet .*1-6/)).toBeInTheDocument();
+    // The card: what to do, the layer and where it belongs; coordinates under «details».
     expect(screen.getByText('Move it to the suggested layer.')).toBeInTheDocument();
-    expect(screen.getByText(/meet end to end away from any item/)).toBeInTheDocument();
-    expect(screen.getByText('Join the pieces into one cable.')).toBeInTheDocument();
+    expect(screen.getByText('CABINET SITE SUB CABINET')).toBeInTheDocument();
+    expect(screen.getByText('ZOOM C 7113.2,4573.4')).toBeInTheDocument();
+    expect(screen.getAllByText('7113.2, 4573.4')).toHaveLength(2);
+    expect(screen.getByText('Details (coordinates and handle)')).toBeInTheDocument();
   });
 
-  it('marks severity with an icon and a text alternative', async () => {
+  it('has no Ignore without permission, and loads no corrections or mapping', async () => {
     api.listDrawingProblems.mockResolvedValue(list());
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-      />,
-    );
-    const hints = await screen.findAllByRole('img', { name: 'Severity: Warning' });
-    expect(hints).toHaveLength(2);
-  });
-
-  it('offers no fix tool and loads no corrections without permission or on a non-draft', async () => {
-    api.listDrawingProblems.mockResolvedValue(list());
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-      />,
-    );
-    await screen.findByRole('table', { name: /On the wrong layer/ });
-    expect(screen.queryByRole('button', { name: /fix this place/i })).not.toBeInTheDocument();
+    render();
+    await screen.findByText('Move it to the suggested layer.');
+    expect(screen.queryByRole('button', { name: /ignore|dismiss/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
     expect(api.listCorrections).not.toHaveBeenCalled();
     expect(mappingApi.getMapping).not.toHaveBeenCalled();
   });
 
+  it('says what each error is and what is required, for the place chosen', async () => {
+    api.listDrawingProblems.mockResolvedValue(list());
+    render();
+    expect(await screen.findByText(/drawn on the layer of another type/)).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(
+      screen.getAllByRole('button', { name: /Broken route lines/ })[0] as HTMLElement,
+    );
+    expect(screen.getByText('Join the pieces into one cable.')).toBeInTheDocument();
+    expect(screen.getByText(/meet end to end away from any item/)).toBeInTheDocument();
+  });
+
+  it('marks severity with an icon and a text alternative', async () => {
+    api.listDrawingProblems.mockResolvedValue(list());
+    render();
+    const hints = await screen.findAllByRole('img', { name: 'Severity: Warning' });
+    expect(hints).toHaveLength(3);
+  });
+
+  it('filters the list, and says so when a filter is empty', async () => {
+    api.listDrawingProblems.mockResolvedValue(list());
+    render();
+    await screen.findByText('Move it to the suggested layer.');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^Fixed/ }));
+    expect(screen.getByText('Nothing here.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^All/ }));
+    expect(screen.queryByText('Nothing here.')).not.toBeInTheDocument();
+  });
+
   it('says so when the drawing has no errors', async () => {
     api.listDrawingProblems.mockResolvedValue({ items: [], total: 0 });
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-      />,
-    );
+    render();
     expect(await screen.findByText('No drawing errors found.')).toBeInTheDocument();
   });
 
-  it('has a button beside every place that asks the viewer to show it', async () => {
+  it('a row and «Next error» ask the viewer to show the place', async () => {
     api.listDrawingProblems.mockResolvedValue(list());
     const onShow = vi.fn();
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-        onShowOnDrawing={onShow}
-      />,
-    );
-    const buttons = await screen.findAllByRole('button', { name: 'Show the place on the drawing' });
-    expect(buttons).toHaveLength(3);
-    await userEvent.setup().click(buttons[1] as HTMLElement);
-    expect(onShow).toHaveBeenCalledWith({
+    render(onShow);
+    await screen.findByText('Move it to the suggested layer.');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Next error' }));
+    expect(onShow).toHaveBeenLastCalledWith({
       code: 'ROUTE_SPLIT',
       handle: 'B1',
       x: 7113.2,
       y: 4573.4,
     });
+    expect(screen.getByText(/^2 \/ 3$/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show the place on the drawing' }));
+    expect(onShow).toHaveBeenCalledTimes(2);
   });
 
-  it('has no such button without a viewer', async () => {
+  it('has no «show» button without a viewer', async () => {
     api.listDrawingProblems.mockResolvedValue(list());
-    renderScreen(
-      <ProblemsSection
-        projectId={PROJECT}
-        revisionId={REVISION}
-        cadFileId={FILE}
-        enabled
-        canFix={false}
-      />,
-    );
-    await screen.findByRole('table', { name: /On the wrong layer/ });
+    render();
+    await screen.findByText('Move it to the suggested layer.');
     expect(
       screen.queryByRole('button', { name: 'Show the place on the drawing' }),
     ).not.toBeInTheDocument();

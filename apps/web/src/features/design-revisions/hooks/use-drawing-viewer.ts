@@ -15,6 +15,7 @@ import { useProject } from '@/features/projects/hooks/project-access-context';
 import { useTrenchTool, type TrenchTool } from '@/features/installation/hooks/use-trench-tool';
 import {
   useCorrections,
+  useDesignRevision,
   useDrawingProblems,
   useDrawingView,
   useDrawingViewState,
@@ -167,7 +168,9 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const request = useRequestDrawingView(projectId, cadFileId);
   const problems = useDrawingProblems(projectId, revisionId, enabled);
   const corrections = useCorrections(projectId, cadFileId, enabled);
-  const tools = useFixTools(projectId, cadFileId, enabled && canFix);
+  const revisionQuery = useDesignRevision(projectId, revisionId, enabled);
+  const revisionCreatedAt = revisionQuery.data?.createdAt ?? null;
+  const tools = useFixTools(projectId, cadFileId, enabled && canFix, revisionCreatedAt);
   const trench = useTrenchTool({
     projectId,
     cadFileId,
@@ -230,8 +233,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [scene, corrections.data, tools.metresPerUnit],
   );
   const markers = useMemo(
-    () => buildMarkers(problems.data?.items ?? [], pendingPlaces(corrections.data?.items ?? [])),
-    [problems.data, corrections.data],
+    () =>
+      buildMarkers(
+        problems.data?.items ?? [],
+        pendingPlaces(corrections.data?.items ?? [], revisionCreatedAt),
+      ),
+    [problems.data, corrections.data, revisionCreatedAt],
   );
 
   // Layers: the view's `visible` is the start; the user's choices override it.

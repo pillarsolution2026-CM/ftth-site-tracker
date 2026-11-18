@@ -105,8 +105,8 @@ async function show(code: DrawingProblemCode, items?: Array<Partial<typeof place
     <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,
   );
   const user = userEvent.setup();
-  const open = await screen.findByRole('button', { name: 'Fix this place' });
-  await user.click(open);
+  // The chosen place opens with its fix tool open (ADR-050 part 3).
+  await screen.findByRole('button', { name: 'Close' });
   return user;
 }
 
@@ -285,7 +285,7 @@ describe('fix tools', () => {
       <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,
     );
     expect(await screen.findByText(/This error is fixed in AutoCAD/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Fix this place' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
   it('marks a place with an active correction as fixed, in words, and offers no tool', async () => {
@@ -294,10 +294,12 @@ describe('fix tools', () => {
     renderScreen(
       <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,
     );
-    expect(
-      await screen.findByText(/Fixed — it will disappear after the rebuild/),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Fix this place' })).not.toBeInTheDocument();
+    // A fixed place leaves the open list; the «Fixed» filter shows it, with no tool.
+    const fixedFilter = await screen.findByRole('button', { name: /^Fixed .*1/ });
+    await userEvent.setup().click(fixedFilter);
+    expect(screen.getByText('Fixed — gone after the refresh')).toBeInTheDocument();
+    expect(screen.getByText(/Fixed — it will disappear after the rebuild/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
   it('a withdrawn correction does not mark the place as fixed', async () => {
@@ -308,7 +310,7 @@ describe('fix tools', () => {
     renderScreen(
       <ProblemsSection projectId={PROJECT} revisionId={REVISION} cadFileId={FILE} enabled canFix />,
     );
-    expect(await screen.findByRole('button', { name: 'Fix this place' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Close' })).toBeInTheDocument();
     expect(screen.queryByText(/Fixed — it will disappear/)).not.toBeInTheDocument();
   });
 
@@ -323,7 +325,8 @@ describe('fix tools', () => {
       ]),
     );
     await user.click(screen.getByRole('button', { name: 'Merge the pieces into one cable' }));
-    expect(await screen.findByText(/Fixed — it will disappear/)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Fixed .*1/ })).toBeInTheDocument();
+    expect(screen.getByText(/0.? left — .?1.? of .?1.? fixed/)).toBeInTheDocument();
   });
 
   it('shows the reason of a refused correction and keeps the form open', async () => {
