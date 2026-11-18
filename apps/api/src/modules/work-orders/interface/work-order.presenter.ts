@@ -1,5 +1,6 @@
 import type {
   ContractItemAvailabilityResponse,
+  ItemGroup,
   WorkOrderAttachment as AttachmentDto,
   WorkOrderDetail,
   WorkOrderItem as ItemDto,
@@ -12,7 +13,12 @@ import type {
 import { itemAmount, type WorkOrderItem } from '../domain/work-order.js';
 import type { WorkOrderAttachment, WorkOrderSummary } from '../domain/work-order.repository.js';
 
-export function toItemDto(item: WorkOrderItem, workOrderId: string): ItemDto {
+/** `groups`: contract item id → group (ADR-048); a line without a contract item, or an ungrouped one, gets null. */
+export function toItemDto(
+  item: WorkOrderItem,
+  workOrderId: string,
+  groups: ReadonlyMap<string, ItemGroup>,
+): ItemDto {
   return {
     id: item.id,
     workOrderId,
@@ -25,6 +31,7 @@ export function toItemDto(item: WorkOrderItem, workOrderId: string): ItemDto {
     amount: itemAmount(item).toString(),
     workType: item.workType,
     contractItemId: item.contractItemId,
+    group: item.contractItemId === null ? null : (groups.get(item.contractItemId) ?? null),
     source: item.source,
     sourceRow: item.sourceRow,
     createdAt: item.createdAt.toISOString(),
@@ -87,7 +94,10 @@ export function toSummaryDto(summary: WorkOrderSummary): SummaryDto {
   };
 }
 
-export function toDetailDto({ order, attachments }: WorkOrderView): WorkOrderDetail {
+export function toDetailDto(
+  { order, attachments }: WorkOrderView,
+  groups: ReadonlyMap<string, ItemGroup>,
+): WorkOrderDetail {
   const { header } = order;
   return {
     ...toSummaryDto({
@@ -97,7 +107,7 @@ export function toDetailDto({ order, attachments }: WorkOrderView): WorkOrderDet
       attachmentCount: attachments.length,
     }),
     notes: header.notes,
-    items: order.items.map((item) => toItemDto(item, header.id)),
+    items: order.items.map((item) => toItemDto(item, header.id, groups)),
     attachments: attachments.map(toAttachmentDto),
     duplicateCodes: order.duplicateCodes(),
   };

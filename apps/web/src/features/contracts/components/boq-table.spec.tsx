@@ -17,7 +17,7 @@ describe('BoqTable', () => {
       within(row as HTMLElement)
         .getByText('Civil works')
         .closest('td'),
-    ).toHaveAttribute('colspan', '6');
+    ).toHaveAttribute('colspan', '8');
     expect(within(row as HTMLElement).getByText('Section heading')).toBeInTheDocument();
   });
 
@@ -79,5 +79,50 @@ describe('BoqTable', () => {
     );
     expect(screen.getByRole('button', { name: 'Edit 1' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete 1-1' })).toBeInTheDocument();
+  });
+
+  it('shows the groups with their source, and the rule value next to a manual choice', () => {
+    const detail = contractDetail({
+      items: [
+        pricedItem(1, 'A', {
+          group: {
+            group: { main: 'Digging', sub: null },
+            source: 'manual',
+            ruleId: 'bundles',
+            ruleGroup: { main: 'Bundles', sub: '12 tubes' },
+          },
+        }),
+        pricedItem(2, 'B', {
+          group: { group: null, source: 'none', ruleId: null, ruleGroup: null },
+        }),
+        pricedItem(3, 'C'),
+      ],
+      ungroupedItemCount: 1,
+    });
+    renderScreen(<BoqTable contract={detail} />);
+    expect(screen.getByRole('columnheader', { name: 'Main work group' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Sub work group' })).toBeInTheDocument();
+    expect(screen.getByText('Manual')).toBeInTheDocument();
+    expect(screen.getByText('The rule gives: Bundles / 12 tubes')).toBeInTheDocument();
+    expect(screen.getByText('No group')).toBeInTheDocument();
+    expect(screen.getAllByText('Automatic')).toHaveLength(1);
+  });
+
+  it('can show only the lines without a group, and offers a group edit to an admin', () => {
+    const detail = contractDetail({
+      items: [
+        pricedItem(1, 'A'),
+        pricedItem(2, 'B', {
+          group: { group: null, source: 'none', ruleId: null, ruleGroup: null },
+        }),
+      ],
+      ungroupedItemCount: 1,
+    });
+    renderScreen(
+      <BoqTable contract={detail} onlyUngrouped groupEditing={{ onEditGroup: vi.fn() }} />,
+    );
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit group B' })).toBeInTheDocument();
+    expect(screen.queryByTestId('boq-total')).not.toBeInTheDocument();
   });
 });

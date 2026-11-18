@@ -1,10 +1,12 @@
 import {
   parentCodeOf,
+  type ItemGroupState,
   type ContractAttachment as AttachmentDto,
   type ContractDetail,
   type ContractItem as ItemDto,
   type ContractSummary,
 } from '@ftth/shared';
+import { itemGroupStates } from '../../../common/item-groups.js';
 import type { ContractView } from '../application/contract-queries.js';
 import { lineAmount, type ContractLine } from '../domain/contract.js';
 import type { ContractAttachment, ContractSummaryRow } from '../domain/contract.repository.js';
@@ -13,6 +15,7 @@ export function toItemDto(
   line: ContractLine,
   contractId: string,
   codes: ReadonlySet<string>,
+  group: ItemGroupState | null,
 ): ItemDto {
   return {
     id: line.id,
@@ -29,6 +32,7 @@ export function toItemDto(
     workType: line.workType,
     source: line.source,
     sourceRow: line.sourceRow,
+    group,
   };
 }
 
@@ -67,9 +71,15 @@ export function toSummaryDto(summary: ContractSummaryRow): ContractSummary {
   };
 }
 
-export function toDetailDto({ contract, attachments, projectCount }: ContractView): ContractDetail {
+export function toDetailDto({
+  contract,
+  attachments,
+  projectCount,
+  manualGroups,
+}: ContractView): ContractDetail {
   const { header } = contract;
   const codes = new Set(contract.lines.map((line) => line.code));
+  const states = itemGroupStates(contract.lines, manualGroups);
   return {
     ...toSummaryDto({
       header,
@@ -79,8 +89,11 @@ export function toDetailDto({ contract, attachments, projectCount }: ContractVie
     }),
     notes: header.notes,
     approvedById: header.approvedById,
-    items: contract.lines.map((line) => toItemDto(line, header.id, codes)),
+    items: contract.lines.map((line) =>
+      toItemDto(line, header.id, codes, states.get(line.id) ?? null),
+    ),
     attachments: attachments.map(toAttachmentDto),
     duplicateCodes: contract.duplicateCodes(),
+    ungroupedItemCount: [...states.values()].filter((state) => state.source === 'none').length,
   };
 }

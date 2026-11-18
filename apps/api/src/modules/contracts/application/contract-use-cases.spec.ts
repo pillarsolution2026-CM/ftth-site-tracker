@@ -51,7 +51,7 @@ const add = () => new AddContractItemUseCase(uow, systemClock, ids);
 const item = (code: string, quantity = '2', unitPrice = '10.5'): ContractItemInput => ({
   kind: 'item',
   code,
-  description: 'd',
+  description: 'end caps',
   unit: 'm',
   quantity,
   unitPrice,

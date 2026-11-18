@@ -8,11 +8,14 @@ import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader } from '@/shared/ui/table';
 import { useI18n } from '@/shared/i18n/locale-provider';
+import { groupSuggestions } from '../model/contract-forms';
 import { useContractDetail, type ContractDetailModel } from '../hooks/use-contract-detail';
 import { ApproveDialog } from './approve-dialog';
 import { BoqTable } from './boq-table';
 import { ContractAttachments } from './contract-attachments';
 import { ContractFields } from './contract-fields';
+import { GroupEditor } from './group-editor';
+import { GroupSummary } from './group-summary';
 import { ContractSummaryFields } from './contract-summary';
 import { LineForm } from './line-form';
 
@@ -109,6 +112,7 @@ function BoqSection({ model }: { model: ContractDetailModel }) {
         <ApproveDialog
           pending={model.approvePending}
           errorKey={model.approveErrorKey}
+          ungroupedCodes={model.approveUngroupedCodes}
           onConfirm={model.approve}
           onCancel={() => model.askApprove(false)}
         />
@@ -124,6 +128,28 @@ function BoqSection({ model }: { model: ContractDetailModel }) {
             ))}
           </ul>
         </Notice>
+      ) : null}
+      <GroupSummary
+        count={contract.ungroupedItemCount}
+        draft={draft}
+        filtered={model.onlyUngrouped}
+        onToggleFilter={model.toggleOnlyUngrouped}
+      />
+      {model.groupEditor.item ? (
+        <GroupEditor
+          key={model.groupEditor.item.id}
+          item={model.groupEditor.item}
+          values={model.groupEditor.values}
+          errors={model.groupEditor.errors}
+          pending={model.groupEditor.pending}
+          errorKey={model.groupEditor.errorKey}
+          {...groupSuggestions(contract.items)}
+          onChange={model.groupEditor.onChange}
+          onSave={model.groupEditor.save}
+          onReset={model.groupEditor.resetToRule}
+          onCancel={model.groupEditor.close}
+          onReload={() => void model.reload()}
+        />
       ) : null}
       {model.lineActionErrorKey ? (
         <Notice kind="error" className="mb-3">
@@ -148,6 +174,8 @@ function BoqSection({ model }: { model: ContractDetailModel }) {
       ) : (
         <BoqTable
           contract={contract}
+          onlyUngrouped={model.onlyUngrouped && contract.ungroupedItemCount > 0}
+          groupEditing={{ onEditGroup: model.groupEditor.open }}
           editing={
             draft
               ? {

@@ -16,6 +16,8 @@ import {
   CreateContractRequestSchema,
   UpdateContractItemRequestSchema,
   UpdateContractRequestSchema,
+  contractItemGroupInputs,
+  effectiveItemGroup,
   parentCodeOf,
   type WorkType,
 } from '@ftth/shared';
@@ -228,8 +230,25 @@ export function countProject(contractId: string): void {
 
 // ---------- output ----------
 
+/** Group states (ADR-048): the system rule only (the mock stores no admin choices). */
+function groupStates(contract: ContractRecord) {
+  const codes = new Set(contract.items.map((item) => item.code));
+  const inputs = contractItemGroupInputs(
+    contract.items.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      code: item.code,
+      description: item.description,
+      unit: item.unit,
+      parentCode: parentCodeOf(item.code, codes),
+    })),
+  );
+  return new Map([...inputs].map(([id, input]) => [id, effectiveItemGroup(input, null)]));
+}
+
 function itemsOut(contract: ContractRecord) {
   const codes = new Set(contract.items.map((item) => item.code));
+  const groups = groupStates(contract);
   return contract.items.map((item) => ({
     id: item.id,
     contractId: contract.id,
@@ -248,6 +267,7 @@ function itemsOut(contract: ContractRecord) {
     workType: item.workType,
     source: item.source,
     sourceRow: item.sourceRow,
+    group: groups.get(item.id) ?? null,
   }));
 }
 
@@ -298,6 +318,8 @@ function detailOut(contract: ContractRecord) {
     approvedById: contract.status === 'approved' ? ADMIN_ID : null,
     items: itemsOut(contract),
     attachments: contract.attachments.map((a) => attachmentOut(contract.id, a)),
+    ungroupedItemCount: [...groupStates(contract).values()].filter((g) => g.source === 'none')
+      .length,
     duplicateCodes: [...lines.entries()]
       .filter(([, lineNos]) => lineNos.length > 1)
       .map(([code, lineNos]) => ({ code, lineNos })),

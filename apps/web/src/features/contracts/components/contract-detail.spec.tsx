@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   updateContractItem: vi.fn(),
   removeContractItem: vi.fn(),
   approveContract: vi.fn(),
+  setContractItemGroup: vi.fn(),
   listContracts: vi.fn(),
   createContract: vi.fn(),
   getProjectContract: vi.fn(),
@@ -240,5 +241,104 @@ describe('ContractDetail (admin)', () => {
       `/api/admin/contracts/${CONTRACT_ID}/attachments/9a1c9f2e-6b3d-4e8a-9c7f-2d4b6a8c0e1f`,
     );
     expect(screen.getByLabelText('Upload a PDF')).toBeInTheDocument();
+  });
+
+  describe('item groups', () => {
+    const none = { group: null, source: 'none', ruleId: null, ruleGroup: null } as const;
+    const ungrouped = () =>
+      contractDetail({
+        items: [pricedItem(1, 'A-1', { group: none }), pricedItem(2, 'A-2')],
+        ungroupedItemCount: 1,
+      });
+
+    it('summarises lines without a group and filters to them', async () => {
+      load(ungrouped());
+      const user = await open();
+      expect(
+        screen.getByText('1 line(s) have no group. Set the group of each one.'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/cannot be approved until every priced line has a group/),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Show only lines without a group' }));
+      expect(screen.queryByText('A-2')).not.toBeInTheDocument();
+      expect(screen.getByText('A-1')).toBeInTheDocument();
+    });
+
+    it('an approved contract still lets the admin set a group', async () => {
+      load({ ...ungrouped(), status: 'approved', approvedAt: '2026-10-30T09:00:00.000Z' });
+      api.setContractItemGroup.mockResolvedValue(contractDetail());
+      const user = await open();
+      expect(screen.queryByText(/cannot be approved until/)).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Edit group A-1' }));
+      const dialog = screen.getByRole('dialog', { name: 'Group of line A-1' });
+      expect(
+        within(dialog).queryByRole('button', { name: 'Back to the rule' }),
+      ).not.toBeInTheDocument();
+      await user.type(within(dialog).getByLabelText('Main work group'), '  Digging ');
+      await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(api.setContractItemGroup).toHaveBeenCalledTimes(1));
+      expect(api.setContractItemGroup.mock.calls[0]).toEqual([
+        CONTRACT_ID,
+        expect.any(String),
+        { main: 'Digging', sub: null, expectedVersion: 3 },
+      ]);
+    });
+
+    it('rejects an empty main group inline without calling the API', async () => {
+      load(ungrouped());
+      const user = await open();
+      await user.click(screen.getByRole('button', { name: 'Edit group A-1' }));
+      const dialog = screen.getByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+      expect(within(dialog).getByText('This field is required')).toBeInTheDocument();
+      expect(api.setContractItemGroup).not.toHaveBeenCalled();
+    });
+
+    it('goes back to the rule for a manual line by sending main null', async () => {
+      const manual = {
+        group: { main: 'Digging', sub: null },
+        source: 'manual',
+        ruleId: 'bundles',
+        ruleGroup: { main: 'Bundles', sub: '12 tubes' },
+      } as const;
+      load(contractDetail({ items: [pricedItem(1, 'A-1', { group: manual })] }));
+      api.setContractItemGroup.mockResolvedValue(contractDetail());
+      const user = await open();
+      await user.click(screen.getByRole('button', { name: 'Edit group A-1' }));
+      await user.click(screen.getByRole('button', { name: 'Back to the rule' }));
+      await waitFor(() => expect(api.setContractItemGroup).toHaveBeenCalledTimes(1));
+      expect(api.setContractItemGroup.mock.calls[0]?.[2]).toEqual({
+        main: null,
+        sub: null,
+        expectedVersion: 3,
+      });
+    });
+
+    it('a stale version shows the reload message', async () => {
+      load(ungrouped());
+      api.setContractItemGroup.mockRejectedValue(conflict('STALE_VERSION'));
+      const user = await open();
+      await user.click(screen.getByRole('button', { name: 'Edit group A-1' }));
+      await user.type(screen.getByLabelText('Main work group'), 'X');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText(/changed by another user/)).toBeInTheDocument();
+    });
+
+    it('approval refused for ungrouped lines lists their codes', async () => {
+      load(ungrouped());
+      api.approveContract.mockRejectedValue(
+        new ApiClientError('CONFLICT', 409, {
+          reason: 'CONTRACT_ITEMS_UNGROUPED',
+          codes: ['A-1'],
+        }),
+      );
+      const user = await open();
+      await user.click(screen.getByRole('button', { name: 'Approve contract' }));
+      await user.click(screen.getByRole('button', { name: 'Approve for good' }));
+      const dialog = await screen.findByRole('alertdialog');
+      expect(await within(dialog).findByText(/Group these lines first/)).toBeInTheDocument();
+      expect(within(dialog).getByText('A-1')).toBeInTheDocument();
+    });
   });
 });

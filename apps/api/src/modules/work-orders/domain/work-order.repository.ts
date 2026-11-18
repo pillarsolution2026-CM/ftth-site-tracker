@@ -1,4 +1,4 @@
-import type { AttachmentKind } from '@ftth/shared';
+import type { AttachmentKind, ItemGroup } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { ApprovedContract, Reservations } from './contract-lines.js';
 import type { Decimal } from './decimal.js';
@@ -114,4 +114,16 @@ export interface WorkOrderTx {
 
 export interface WorkOrderUnitOfWork {
   run<T>(work: (tx: WorkOrderTx) => Promise<T>): Promise<T>;
+}
+
+/**
+ * Read-only view of the groups of contract items (ADR-048), supplied by an adapter so this module
+ * never touches the contracts module's internals.
+ */
+export interface ContractItemGroups {
+  /**
+   * The effective group (admin's choice, else the system rule) of each given contract item that has
+   * one: contract item id → group. Items nobody could group are absent. One batch, no per-item query.
+   */
+  groupsOf(contractItemIds: readonly string[]): Promise<Map<string, ItemGroup>>;
 }

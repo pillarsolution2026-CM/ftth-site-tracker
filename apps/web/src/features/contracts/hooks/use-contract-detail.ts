@@ -7,11 +7,16 @@ import {
   useApproveContract,
   useContract,
   useRemoveContractItem,
+  useSetItemGroup,
   useUpdateContract,
 } from '../api/queries';
 import {
   contractErrorKey,
   contractToForm,
+  ungroupedCodesOf,
+  validateGroupForm,
+  type GroupFormErrors,
+  type GroupFormValues,
   validateUpdateContract,
   type ContractField,
   type ContractFormErrors,
@@ -70,6 +75,60 @@ function useHeaderEditor(contractId: string, contract: ContractDetail | undefine
   };
 }
 
+/** Group editor of one priced line (ADR-048): allowed for draft and approved contracts. */
+function useGroupEditor(contractId: string, contract: ContractDetail | undefined) {
+  const mutation = useSetItemGroup(contractId);
+  const [item, setItem] = useState<ContractItem | null>(null);
+  const [values, setValues] = useState<GroupFormValues>({ main: '', sub: '' });
+  const [errors, setErrors] = useState<GroupFormErrors>({});
+
+  const close = () => {
+    setItem(null);
+    mutation.reset();
+  };
+  const send = (itemId: string, main: string | null, sub: string | null) => {
+    if (!contract) return;
+    mutation.mutate(
+      { itemId, body: { main, sub, expectedVersion: contract.version } },
+      { onSuccess: close },
+    );
+  };
+
+  return {
+    item,
+    values,
+    errors,
+    pending: mutation.isPending,
+    errorKey: mutation.error ? contractErrorKey(mutation.error) : null,
+    open: (target: ContractItem) => {
+      const group = target.group?.group;
+      setValues({ main: group?.main ?? '', sub: group?.sub ?? '' });
+      setErrors({});
+      mutation.reset();
+      setItem(target);
+    },
+    close,
+    onChange: (field: keyof GroupFormValues, value: string) => {
+      setValues((current) => ({ ...current, [field]: value }));
+      setErrors((current) => ({ ...current, [field]: undefined }));
+      mutation.reset();
+    },
+    save: () => {
+      if (!item) return;
+      const result = validateGroupForm(values);
+      if (!result.ok) {
+        setErrors(result.errors);
+        return;
+      }
+      send(item.id, result.main, result.sub);
+    },
+    /** Remove the manual choice: the line goes back to the rule. */
+    resetToRule: () => {
+      if (item) send(item.id, null, null);
+    },
+  };
+}
+
 /** Contract detail for the admin: header, BOQ line editor, delete line, approval. */
 export function useContractDetail(contractId: string) {
   const query = useContract(contractId);
@@ -77,6 +136,8 @@ export function useContractDetail(contractId: string) {
   const header = useHeaderEditor(contractId, contract);
   const remove = useRemoveContractItem(contractId);
   const approve = useApproveContract(contractId);
+  const groupEditor = useGroupEditor(contractId, contract);
+  const [onlyUngrouped, setOnlyUngrouped] = useState(false);
   const [lineEditor, setLineEditor] = useState<LineEditor>(null);
   const [confirmItemId, setConfirmItemId] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
@@ -115,8 +176,12 @@ export function useContractDetail(contractId: string) {
       setApproving(open);
       approve.reset();
     },
+    groupEditor,
+    onlyUngrouped,
+    toggleOnlyUngrouped: () => setOnlyUngrouped((current) => !current),
     approvePending: approve.isPending,
     approveErrorKey: approve.error ? contractErrorKey(approve.error) : null,
+    approveUngroupedCodes: approve.error ? ungroupedCodesOf(approve.error) : [],
     approve: () => {
       if (!contract) return;
       approve.mutate(contract.version, { onSuccess: () => setApproving(false) });

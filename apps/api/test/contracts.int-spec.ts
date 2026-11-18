@@ -61,7 +61,7 @@ async function createContract(overrides: Record<string, unknown> = {}): Promise<
 const priced = (code: string, quantity = '2', unitPrice = '10.5') => ({
   kind: 'item',
   code,
-  description: `بند ${code}`,
+  description: `end caps ${code}`,
   unit: 'م.ط',
   quantity,
   unitPrice,

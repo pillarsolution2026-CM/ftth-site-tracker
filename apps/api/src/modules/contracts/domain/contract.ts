@@ -4,10 +4,12 @@ import {
   type ContractSource,
   type ContractStatus,
   type DuplicateCode,
+  type ManualItemGroup,
   type WorkType,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { IdGenerator } from '../../../common/clock.js';
+import { itemGroupStates } from '../../../common/item-groups.js';
 import { sumDecimals, type Decimal } from '../../work-orders/domain/decimal.js';
 
 /** One BOQ line: a priced `item` or a section `heading` (all priced fields are null then). */
@@ -243,6 +245,35 @@ export class Contract {
     if (this.items.length === 0) {
       throw conflict('A contract needs at least one priced item to be approved', 'NO_PRICED_ITEMS');
     }
+  }
+
+  /** Priced lines no rule and no admin choice groups (ADR-048), with their codes. */
+  ungroupedLines(manual: ReadonlyMap<string, ManualItemGroup>): ContractLine[] {
+    const states = itemGroupStates(this.lines, manual);
+    return this.items.filter((line) => states.get(line.id)?.source === 'none');
+  }
+
+  /** A draft contract cannot be approved while a priced line has no group. */
+  assertGrouped(manual: ReadonlyMap<string, ManualItemGroup>): void {
+    const ungrouped = this.ungroupedLines(manual);
+    if (ungrouped.length > 0) {
+      throw conflict(
+        'Every priced item needs a group before the contract is approved',
+        'CONTRACT_ITEMS_UNGROUPED',
+        { codes: ungrouped.map((line) => line.code) },
+      );
+    }
+  }
+
+  /** The line a group can be set on: priced lines only (headings have no groups). */
+  findGroupableLine(lineId: string): ContractLine {
+    const line = this.findLine(lineId);
+    if (line.kind === 'heading') {
+      throw new AppError('VALIDATION_FAILED', 'A heading has no group', {
+        reason: 'ITEM_IS_HEADING',
+      });
+    }
+    return line;
   }
 
   private assertCodeAllowed(code: string, exceptLineId: string | null, accepted: boolean): void {

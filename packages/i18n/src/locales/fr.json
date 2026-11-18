@@ -197,7 +197,8 @@
         "DUPLICATE_CODE": "Ce code existe déjà dans le contrat",
         "LINE_TAKEN": "Ce numéro de ligne est déjà utilisé",
         "DUPLICATE_NUMBER": "Ce numéro de contrat est déjà utilisé",
-        "NO_PRICED_ITEMS": "Un contrat sans article chiffré ne peut pas être approuvé"
+        "NO_PRICED_ITEMS": "Un contrat sans article chiffré ne peut pas être approuvé",
+        "CONTRACT_ITEMS_UNGROUPED": "Le contrat ne peut pas être approuvé tant que chaque ligne chiffrée n'a pas de groupe. Groupez d'abord ces lignes."
       },
       "boq": {
         "title": "BOQ (articles du contrat)",
@@ -230,6 +231,27 @@
         "explain": "L'approbation est définitive et irréversible. Le BOQ (articles et titres) est verrouillé : aucune ligne ne peut être ajoutée, modifiée ou supprimée, et le BOQ ne peut pas être remplacé. Les informations du contrat restent modifiables, sauf la devise.",
         "confirm": "Approuver définitivement",
         "cancel": "Annuler"
+      },
+      "groups": {
+        "mainColumn": "Groupe de travaux principal",
+        "subColumn": "Groupe de travaux secondaire",
+        "sourceRule": "Automatique",
+        "sourceManual": "Manuel",
+        "sourceNone": "Sans groupe",
+        "ruleHint": "La règle donne : {group}",
+        "summary": "{count} ligne(s) sans groupe. Définissez le groupe de chacune.",
+        "draftNeeds": "Le contrat ne peut pas être approuvé tant que chaque ligne chiffrée n'a pas de groupe.",
+        "showUngrouped": "Afficher seulement les lignes sans groupe",
+        "showAll": "Afficher toutes les lignes",
+        "edit": "Modifier le groupe",
+        "editTitle": "Groupe de la ligne {code}",
+        "main": "Groupe de travaux principal",
+        "sub": "Groupe de travaux secondaire",
+        "subHint": "facultatif",
+        "save": "Enregistrer",
+        "reset": "Revenir à la règle",
+        "cancel": "Annuler",
+        "approveCodes": "Lignes sans groupe :"
       }
     }
   },
@@ -351,7 +373,9 @@
       "quantityFor": "Quantité de l'article {code}",
       "chooseFor": "Choisir l'article {code}",
       "clearAll": "Effacer la sélection"
-    }
+    },
+    "mainGroup": "Groupe principal",
+    "subGroup": "Groupe secondaire"
   },
   "attachments": {
     "title": "Pièces jointes",

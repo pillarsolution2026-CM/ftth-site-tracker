@@ -9,11 +9,13 @@ import {
   getProjectContract,
   listContracts,
   removeContractItem,
+  setContractItemGroup,
   updateContract,
   updateContractItem,
   uploadContractAttachment,
   type AddContractItemInput,
   type CreateContractInput,
+  type SetItemGroupInput,
   type UpdateContractInput,
   type UpdateContractItemInput,
 } from './contracts-api';
@@ -91,6 +93,15 @@ export function useRemoveContractItem(contractId: string) {
   return useMutation({
     mutationFn: (input: { itemId: string; expectedVersion: number }) =>
       removeContractItem(contractId, input.itemId, input.expectedVersion),
+    onSuccess: store,
+  });
+}
+
+export function useSetItemGroup(contractId: string) {
+  const store = useStoreDetail();
+  return useMutation({
+    mutationFn: (input: { itemId: string; body: SetItemGroupInput }) =>
+      setContractItemGroup(contractId, input.itemId, input.body),
     onSuccess: store,
   });
 }

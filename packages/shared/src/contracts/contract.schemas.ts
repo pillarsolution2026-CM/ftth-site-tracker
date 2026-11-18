@@ -15,6 +15,7 @@ import {
   WorkOrderImportPreviewOptionsSchema,
   WorkOrderImportPreviewResponseSchema,
 } from '../work-orders/work-order-import.schemas.js';
+import { ItemGroupStateSchema } from './item-groups.js';
 
 /**
  * Contract (العقد) and its BOQ (المقايسة), Phase 2, ADR-027.
@@ -145,7 +146,10 @@ export const RemoveContractItemQuerySchema = z.object({
   expectedVersion: z.coerce.number().int().min(1),
 });
 
-/** POST /admin/contracts/:contractId/approve. Needs at least one priced item. Irreversible. */
+/**
+ * POST /admin/contracts/:contractId/approve. Needs at least one priced item and every priced item
+ * grouped (ADR-048: CONFLICT, reason CONTRACT_ITEMS_UNGROUPED, details.codes). Irreversible.
+ */
 export const ApproveContractRequestSchema = z.strictObject({
   expectedVersion: z.number().int().min(1),
 });
@@ -198,6 +202,8 @@ export const ContractItemSchema = z.object({
   workType: WorkTypeSchema.nullable(),
   source: ContractSourceSchema,
   sourceRow: z.number().int().min(1).nullable(),
+  /** Item groups (ADR-048): null for headings, a state (rule / manual / none) for priced lines. */
+  group: ItemGroupStateSchema.nullable(),
 });
 export type ContractItem = z.infer<typeof ContractItemSchema>;
 
@@ -242,6 +248,8 @@ export const ContractDetailSchema = ContractSummarySchema.extend({
   /** Every line in lineNo order, headings included. */
   items: z.array(ContractItemSchema),
   attachments: z.array(ContractAttachmentSchema),
+  /** Priced lines with no group (no rule matched and no admin choice), ADR-048. */
+  ungroupedItemCount: z.number().int().min(0),
   /** Codes used by more than one line (accepted explicitly). */
   duplicateCodes: z.array(
     z.object({ code: z.string(), lineNos: z.array(z.number().int().min(1)).min(2) }),

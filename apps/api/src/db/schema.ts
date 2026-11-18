@@ -904,6 +904,29 @@ export const contractItems = pgTable(
   ],
 );
 
+/** Admin choices of item groups (migration 0024, ADR-048): append-only, latest row per item wins. */
+export const contractItemGroupChoices = pgTable(
+  'contract_item_group_choices',
+  {
+    id: uuid('id').primaryKey(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => contracts.id, { onDelete: 'cascade' }),
+    contractItemId: uuid('contract_item_id')
+      .notNull()
+      .references(() => contractItems.id, { onDelete: 'cascade' }),
+    /** Null = back to the rule. */
+    mainGroup: text('main_group'),
+    subGroup: text('sub_group'),
+    chosenBy: uuid('chosen_by').references(() => users.id),
+    chosenAt: timestamp('chosen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('contract_item_group_choices_item_idx').on(table.contractItemId, table.chosenAt.desc()),
+    index('contract_item_group_choices_contract_idx').on(table.contractId),
+  ],
+);
+
 export const contractAttachments = pgTable(
   'contract_attachments',
   {
@@ -1071,6 +1094,7 @@ export const schema = {
   workOrderAttachments,
   contracts,
   contractItems,
+  contractItemGroupChoices,
   contractAttachments,
   contractors,
   contractorRegistrations,

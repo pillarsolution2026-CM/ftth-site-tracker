@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
 import { contractDetail, heading, pricedItem } from '@/test-utils/contract';
 import {
+  groupSuggestions,
+  ungroupedCodesOf,
+  validateGroupForm,
   EMPTY_CONTRACT_FORM,
   EMPTY_LINE_FORM,
   boqDepths,
@@ -133,6 +136,37 @@ describe('contractErrorKey', () => {
         `admin.contracts.reasons.${reason}`,
       );
     }
+  });
+
+  it('maps the ungrouped conflict and reads its codes', () => {
+    const error = new ApiClientError('CONFLICT', 409, {
+      reason: 'CONTRACT_ITEMS_UNGROUPED',
+      codes: ['1-1', '2-3'],
+    });
+    expect(contractErrorKey(error)).toBe('admin.contracts.reasons.CONTRACT_ITEMS_UNGROUPED');
+    expect(ungroupedCodesOf(error)).toEqual(['1-1', '2-3']);
+    expect(ungroupedCodesOf(new ApiClientError('CONFLICT', 409, { reason: 'X' }))).toEqual([]);
+  });
+
+  it('validates the group form: trims, needs a main group, caps the length', () => {
+    expect(validateGroupForm({ main: '  Bundles ', sub: ' ' })).toEqual({
+      ok: true,
+      main: 'Bundles',
+      sub: null,
+    });
+    expect(validateGroupForm({ main: ' ', sub: 'x' })).toEqual({
+      ok: false,
+      errors: { main: 'validation.required' },
+    });
+    expect(validateGroupForm({ main: 'a'.repeat(81), sub: 'b'.repeat(81) })).toEqual({
+      ok: false,
+      errors: { main: 'validation.tooLong', sub: 'validation.tooLong' },
+    });
+  });
+
+  it('suggests each group name used in the contract once', () => {
+    const items = [pricedItem(1, 'A'), pricedItem(2, 'B'), heading(3, 'H', null)];
+    expect(groupSuggestions(items)).toEqual({ mains: ['Bundles'], subs: ['12 tubes'] });
   });
 
   it('falls back to the error code', () => {

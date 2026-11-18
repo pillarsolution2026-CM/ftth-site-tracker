@@ -27,6 +27,7 @@ import {
   ApproveContractUseCase,
   CreateContractUseCase,
   RemoveContractItemUseCase,
+  SetContractItemGroupUseCase,
   UpdateContractItemUseCase,
   UpdateContractUseCase,
 } from './application/contract.use-cases.js';
@@ -36,15 +37,18 @@ import {
 } from './application/import.use-cases.js';
 import type {
   ContractAttachmentRepository,
+  ContractItemGroupRepository,
   ContractRepository,
   ContractUnitOfWork,
 } from './domain/contract.repository.js';
 import {
   CONTRACT_ATTACHMENT_REPOSITORY,
+  CONTRACT_ITEM_GROUP_REPOSITORY,
   CONTRACT_REPOSITORY,
   CONTRACT_UNIT_OF_WORK,
   CONTRACT_WORKBOOK_READER,
 } from './contracts.tokens.js';
+import { DrizzleContractItemGroupRepository } from './infrastructure/drizzle-contract-item-group.repository.js';
 import { DrizzleContractAttachmentRepository } from './infrastructure/drizzle-contract-attachment.repository.js';
 import { DrizzleContractRepository } from './infrastructure/drizzle-contract.repository.js';
 import { DrizzleContractUnitOfWork } from './infrastructure/drizzle-contract.unit-of-work.js';
@@ -66,6 +70,11 @@ const providers: Provider[] = [
     useFactory: (db: Database) => new DrizzleContractAttachmentRepository(db),
   },
   {
+    provide: CONTRACT_ITEM_GROUP_REPOSITORY,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleContractItemGroupRepository(db),
+  },
+  {
     provide: CONTRACT_UNIT_OF_WORK,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleContractUnitOfWork(db),
@@ -78,9 +87,12 @@ const providers: Provider[] = [
   },
   {
     provide: GetContractUseCase,
-    inject: [CONTRACT_REPOSITORY, CONTRACT_ATTACHMENT_REPOSITORY],
-    useFactory: (contracts: ContractRepository, attachments: ContractAttachmentRepository) =>
-      new GetContractUseCase(contracts, attachments),
+    inject: [CONTRACT_REPOSITORY, CONTRACT_ATTACHMENT_REPOSITORY, CONTRACT_ITEM_GROUP_REPOSITORY],
+    useFactory: (
+      contracts: ContractRepository,
+      attachments: ContractAttachmentRepository,
+      itemGroups: ContractItemGroupRepository,
+    ) => new GetContractUseCase(contracts, attachments, itemGroups),
   },
   {
     provide: GetProjectContractUseCase,
@@ -114,6 +126,12 @@ const providers: Provider[] = [
     provide: RemoveContractItemUseCase,
     inject: [CONTRACT_UNIT_OF_WORK],
     useFactory: (uow: ContractUnitOfWork) => new RemoveContractItemUseCase(uow),
+  },
+  {
+    provide: SetContractItemGroupUseCase,
+    inject: [CONTRACT_UNIT_OF_WORK],
+    useFactory: (uow: ContractUnitOfWork) =>
+      new SetContractItemGroupUseCase(uow, systemClock, uuidGenerator),
   },
   {
     provide: ApproveContractUseCase,

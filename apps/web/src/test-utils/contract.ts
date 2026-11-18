@@ -28,6 +28,7 @@ export function heading(
     workType: null,
     source: 'import',
     sourceRow: lineNo + 1,
+    group: null,
   };
 }
 
@@ -51,6 +52,12 @@ export function pricedItem(
     workType: 'civil',
     source: 'manual',
     sourceRow: null,
+    group: {
+      group: { main: 'Bundles', sub: '12 tubes' },
+      source: 'rule',
+      ruleId: 'bundles',
+      ruleGroup: { main: 'Bundles', sub: '12 tubes' },
+    },
     ...overrides,
   };
 }
@@ -87,6 +94,7 @@ export function contractDetail(overrides: Partial<ContractDetail> = {}): Contrac
     ],
     attachments: [],
     duplicateCodes: [],
+    ungroupedItemCount: 0,
     ...overrides,
   };
 }

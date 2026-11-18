@@ -5,6 +5,8 @@ import {
   type ApproveContractRequest,
   type ContractItemInput,
   type CreateContractRequest,
+  type ItemGroup,
+  type SetItemGroupRequest,
   type UpdateContractItemRequest,
   type UpdateContractRequest,
 } from '@ftth/shared';
@@ -228,6 +230,56 @@ export class RemoveContractItemUseCase {
   }
 }
 
+const groupOf = (group: ItemGroup | null | undefined) =>
+  group ? { main: group.main, sub: group.sub } : null;
+
+/**
+ * Admin sets (or clears) the manual group of a priced line, draft or approved (ADR-048). Appends a
+ * choice and an event; quantities stay on the line. `main: null` = back to the rule.
+ */
+export class SetContractItemGroupUseCase {
+  constructor(
+    private readonly uow: ContractUnitOfWork,
+    private readonly clock: Clock,
+    private readonly ids: IdGenerator,
+  ) {}
+
+  execute(input: {
+    contractId: string;
+    itemId: string;
+    actorId: string;
+    request: SetItemGroupRequest;
+  }): Promise<ContractView> {
+    const { contractId, itemId, actorId, request } = input;
+    return this.uow.run(async (tx) => {
+      const contract = await lockContract(tx, contractId);
+      const line = contract.findGroupableLine(itemId);
+      contract.assertVersion(request.expectedVersion);
+      const group: ItemGroup | null =
+        request.main === null ? null : { main: request.main, sub: request.sub ?? null };
+      const before = (await tx.itemGroups.latestByContract(contractId)).get(itemId)?.group;
+      await tx.itemGroups.insert({
+        id: this.ids.next(),
+        contractId,
+        contractItemId: itemId,
+        group,
+        chosenById: actorId,
+        chosenAt: this.clock.now(),
+      });
+      await tx.contracts.bumpVersion(contractId);
+      await tx.events.append({
+        projectId: null,
+        entity: EVENT_ENTITIES.contractItem,
+        entityId: itemId,
+        type: EVENT_TYPES.contractItemGroupSet,
+        actorId,
+        payload: { itemId, code: line.code, before: groupOf(before), after: groupOf(group) },
+      });
+      return viewInTx(tx, contractId);
+    });
+  }
+}
+
 /** Final: locks the BOQ. Needs at least one priced item; the event keeps a full BOQ snapshot. */
 export class ApproveContractUseCase {
   constructor(
@@ -246,6 +298,7 @@ export class ApproveContractUseCase {
       contract.assertDraft();
       contract.assertVersion(request.expectedVersion);
       contract.assertApprovable();
+      contract.assertGrouped(await tx.itemGroups.latestByContract(contractId));
       const at = this.clock.now();
       await tx.contracts.approve(contractId, actorId, at);
       await tx.events.append({

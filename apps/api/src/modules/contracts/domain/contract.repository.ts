@@ -1,4 +1,4 @@
-import type { AttachmentKind } from '@ftth/shared';
+import type { AttachmentKind, ItemGroup, ManualItemGroup } from '@ftth/shared';
 import type { EventLog } from '../../../common/event-log.port.js';
 import type { Decimal } from '../../work-orders/domain/decimal.js';
 import type { Contract, ContractHeader, ContractLine, HeaderPatch } from './contract.js';
@@ -36,11 +36,30 @@ export interface ContractRepository {
   /** Applies the patch, bumps `version`, returns the stored header. */
   updateHeader(contractId: string, patch: HeaderPatch): Promise<ContractHeader>;
   approve(contractId: string, actorId: string, at: Date): Promise<void>;
+  /** Bumps `version` without changing anything else (a group choice changes the contract's state). */
+  bumpVersion(contractId: string): Promise<void>;
   insertLine(contractId: string, line: ContractLine): Promise<void>;
   updateLine(contractId: string, line: ContractLine): Promise<void>;
   deleteLine(contractId: string, lineId: string): Promise<void>;
   /** Deletes every line and inserts `lines`. */
   replaceLines(contractId: string, lines: readonly ContractLine[]): Promise<void>;
+}
+
+/** One manual choice of an admin; `group: null` = back to the rule. */
+export interface ItemGroupChoice {
+  id: string;
+  contractId: string;
+  contractItemId: string;
+  group: ItemGroup | null;
+  chosenById: string | null;
+  chosenAt: Date;
+}
+
+/** Append-only choices (ADR-048); the latest per item is in force. */
+export interface ContractItemGroupRepository {
+  /** Latest choice of each item of the contract that has one (item id → choice). One query. */
+  latestByContract(contractId: string): Promise<Map<string, ManualItemGroup>>;
+  insert(choice: ItemGroupChoice): Promise<void>;
 }
 
 export interface ContractAttachmentRepository {
@@ -54,6 +73,7 @@ export interface ContractAttachmentRepository {
 export interface ContractTx {
   contracts: ContractRepository;
   attachments: ContractAttachmentRepository;
+  itemGroups: ContractItemGroupRepository;
   events: EventLog;
 }
 

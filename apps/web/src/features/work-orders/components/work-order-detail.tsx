@@ -170,6 +170,8 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
               <Th>{t('items.code')}</Th>
               <Th>{t('items.workType')}</Th>
               <Th>{t('items.description')}</Th>
+              <Th>{t('items.mainGroup')}</Th>
+              <Th>{t('items.subGroup')}</Th>
               <Th>{t('items.unit')}</Th>
               <Th>{t('items.quantity')}</Th>
               {showContract ? <Th>{t('items.contractQuantity')}</Th> : null}
@@ -207,6 +209,8 @@ function ItemsTable({ workOrder, state }: { workOrder: WorkOrderDetailData; stat
                   )}
                 </Td>
                 <Td>{item.description}</Td>
+                <Td>{item.group?.main}</Td>
+                <Td>{item.group?.sub}</Td>
                 {/* Units can be up to 64 characters: wrap inside a bounded column (ADR-016). */}
                 <Td className="max-w-48 min-w-24 wrap-break-word">{item.unit}</Td>
                 <Td>
