@@ -133,12 +133,7 @@ export function DesignRevisionDetailScreen({
           publishing={state.publishing}
           allowed={state.publishAllowed}
           mappingHref={`${cadFilesPath}/${revision.cadFileId}/mapping`}
-          otherRevisionHref={
-            // Another draft published with this one (the same site); ADR-049 part B.
-            state.readiness?.siteRevisionIds.find((id) => id !== revision.id)
-              ? `${listPath}/${state.readiness.siteRevisionIds.find((id) => id !== revision.id)}`
-              : null
-          }
+          revisionHref={(id) => (id === revision.id ? null : `${listPath}/${id}`)}
           onAcknowledgedChange={state.setAcknowledged}
           onPublish={state.publish}
           onShowRoute={(handle) => showOnDrawing({ code: null, handle, x: null, y: null })}

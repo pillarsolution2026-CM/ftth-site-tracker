@@ -180,6 +180,17 @@ export function getPublishReadiness(projectId: string, id: string): Promise<Publ
   return bffJson(`${one(projectId, id)}/publish-readiness`, PublishReadinessSchema);
 }
 
+/** The checklist of a whole site (ADR-049 part B): its drafts are published together. */
+export function getSitePublishReadiness(
+  projectId: string,
+  siteId: string,
+): Promise<PublishReadiness> {
+  return bffJson(
+    projectApiPath(projectId, `/sites/${encodeURIComponent(siteId)}/publish-readiness`),
+    PublishReadinessSchema,
+  );
+}
+
 const viewPath = (projectId: string, cadFileId: string) =>
   projectApiPath(projectId, `/cad-files/${encodeURIComponent(cadFileId)}/view`);
 

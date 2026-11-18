@@ -43,7 +43,7 @@ describe('publish refusal messages', () => {
         ordinal: 1,
         state: 'no_revision',
       },
-      /both drawings are published/,
+      /Secondary .*1.* drawing is not ready: it has no revision yet/,
     ],
   ] as const)('has a clear message for %j', (details, expected) => {
     const { key, params } = publishBlockedMessage(details, 'en');
@@ -63,7 +63,9 @@ describe('publish refusal messages', () => {
       },
       'en',
     );
-    expect(translate('en', secondary.key, secondary.params)).toMatch(/no draft for the Secondary/);
+    expect(translate('en', secondary.key, secondary.params)).toMatch(
+      /Secondary .*1.* drawing is not ready/,
+    );
     const placement = publishBlockedMessage(
       {
         reason: 'PLACEMENT_MISSING',
@@ -130,16 +132,102 @@ describe('CABINETS_MISMATCH refusal (ADR-041)', () => {
   it('names both counts and the cabinets that exist in one drawing only', () => {
     const { key, params } = publishBlockedMessage(details, 'en');
     const text = translate('en', key, params);
-    expect(text).toMatch(/General .*9.* \/ Secondary .*8/);
+    expect(text).toMatch(/General has .*9.*, the Secondaries have .*8/);
     expect(text).toMatch(/Only in the General: .*1-9/);
-    expect(text).toMatch(/Only in the Secondary: —/);
+    expect(text).toMatch(/Only in a Secondary: —/);
+    expect(text).toMatch(/more than one Secondary: —/);
     expect(text).toMatch(/with no name: .*1/);
-    expect(translate('ar', key, params)).toMatch(/الكباين مش متطابقة/);
+    expect(translate('ar', key, params)).toMatch(/كبائن الموقع غير متطابقة/);
     expect(translate('fr', key, params)).not.toBe(key);
   });
 
   it('is read out of a 409', () => {
     expect(publishBlockedOf(new ApiClientError('CONFLICT', 409, details))).toEqual(details);
+  });
+});
+
+describe('site refusals (ADR-049 part B)', () => {
+  const drawingId = '11111111-1111-4111-8111-111111111111';
+
+  it('names the cabinets that are in several Secondaries or missing from the General', () => {
+    const { key, params } = publishBlockedMessage(
+      {
+        reason: 'CABINETS_MISMATCH',
+        cabinets: {
+          ok: false,
+          general: { drawingId: null, count: 2, unnamed: 0 },
+          secondaries: [],
+          inSeveralSecondaries: ['3-3'],
+          missingInGeneral: ['4-4'],
+          missingInSecondaries: [],
+        },
+      },
+      'en',
+    );
+    const text = translate('en', key, params);
+    expect(text).toMatch(/Only in a Secondary: .*4-4/);
+    expect(text).toMatch(/more than one Secondary: .*3-3/);
+  });
+
+  it('lists the cabinets of another site with that site, in each language', () => {
+    const details: PublishBlockedDetails = {
+      reason: 'CABINET_IN_OTHER_SITE',
+      cabinets: [
+        {
+          name: '1-9',
+          otherSiteId: '3b000000-0000-4000-8000-00000000000b',
+          otherSiteName: 'Site B',
+        },
+        {
+          name: '2-1',
+          otherSiteId: '3b000000-0000-4000-8000-00000000000b',
+          otherSiteName: 'Site B',
+        },
+      ],
+    };
+    for (const locale of ['en', 'ar', 'fr'] as const) {
+      const { key, params } = publishBlockedMessage(details, locale);
+      const text = translate(locale, key, params);
+      expect(text).toContain('1-9');
+      expect(text).toContain('2-1');
+      expect(text).toContain('Site B');
+      expect(text).not.toBe(key);
+    }
+  });
+
+  it('says which kind the site still lacks', () => {
+    const { key, params } = publishBlockedMessage(
+      {
+        reason: 'SITE_INCOMPLETE',
+        siteId: '3a000000-0000-4000-8000-00000000000a',
+        missingKinds: ['secondary'],
+      },
+      'en',
+    );
+    expect(translate('en', key, params)).toMatch(/still needs Secondary/);
+    expect(translate('ar', key, params)).toMatch(/ينقصه/);
+  });
+
+  it('asks to link an unassigned drawing to a site', () => {
+    const { key, params } = publishBlockedMessage(
+      { reason: 'SITE_UNASSIGNED', drawingKind: 'general', drawingId, ordinal: 1 },
+      'en',
+    );
+    expect(translate('en', key, params)).toMatch(/not linked to a site/);
+    expect(translate('fr', key, params)).toMatch(/aucun site/);
+  });
+
+  it.each([
+    ['no_revision', /no revision yet/],
+    ['building', /still being built/],
+    ['queued', /waiting to be built/],
+    ['failed', /last build failed/],
+  ] as const)('explains a drawing that is %s', (state, expected) => {
+    const { key, params } = publishBlockedMessage(
+      { reason: 'DRAWING_NOT_READY', drawingKind: 'secondary', drawingId, ordinal: 2, state },
+      'en',
+    );
+    expect(translate('en', key, params)).toMatch(expected);
   });
 });
 

@@ -1,127 +1,108 @@
 'use client';
 
-import { useState, type ChangeEvent } from 'react';
-import { z } from 'zod';
-import { DrawingKindSchema, type DrawingKind } from '@ftth/shared';
+import { useMemo, useState, type ChangeEvent } from 'react';
+import type { DrawingKind, SiteDrawingsResponse } from '@ftth/shared';
 import { ApiClientError, errorCodeOf } from '@/shared/api/bff-client';
 import { useUploadCadFile } from '../api/queries';
 import { isCadFileName } from '../model/cad-status';
+import {
+  EMPTY_SELECTION,
+  defaultChoice,
+  drawingsOfSite,
+  toUploadQuery,
+  uploadOptions,
+  uploadRefusalOf,
+  type UploadChoice,
+  type UploadSelection,
+} from '../model/site-drawings';
 
 /**
- * The old «kind already has a current file» answer. ADR-049 part B replaced it in the API with the
- * site picker and `GENERAL_EXISTS`; the web upload flow is rewritten for sites by the web agent, and
- * this local copy only keeps the current screen compiling until then.
+ * Upload state (ADR-049 part B): pick the site of the work order, the kind, and for a Secondary
+ * «new drawing» or «new version of Secondary n» (a General that exists takes only a new version);
+ * then a .dwg/.dxf goes through the proxy with progress. The refusals (GENERAL_EXISTS, …) are
+ * shown in plain language.
  */
-const KindExistsDetailsSchema = z.object({
-  reason: z.literal('KIND_EXISTS'),
-  kind: DrawingKindSchema,
-  currentFileId: z.uuid(),
-  currentFileName: z.string(),
-});
-
-/** The kind already has a current file: the PM is asked «is this a new version?» (ADR-040). */
-export interface KindConflict {
-  kind: DrawingKind;
-  currentFileId: string;
-  currentFileName: string;
-}
-
-/**
- * Pick the kind (General / Secondary), then a .dwg/.dxf, and upload it through the proxy with
- * progress. On 409 KIND_EXISTS the same File object is kept so «yes, a new version» re-sends it
- * with `newVersion=true`; «no» drops it and shows that the file was not uploaded.
- */
-export function useCadUpload(projectId: string) {
+export function useCadUpload(projectId: string, data: SiteDrawingsResponse | undefined) {
   const upload = useUploadCadFile(projectId);
-  const [kind, setKind] = useState<DrawingKind | null>(null);
+  const [selection, setSelection] = useState<UploadSelection>(EMPTY_SELECTION);
   const [progress, setProgress] = useState<number | null>(null);
   const [badName, setBadName] = useState(false);
   const [lastName, setLastName] = useState<string | null>(null);
-  const [pending, setPending] = useState<File | null>(null);
-  const [conflict, setConflict] = useState<KindConflict | null>(null);
-  const [declinedKind, setDeclinedKind] = useState<DrawingKind | null>(null);
 
-  const send = (
-    file: File,
-    uploadKind: DrawingKind,
-    newVersion: boolean,
-    input?: HTMLInputElement,
-  ) => {
-    setLastName(file.name);
-    setProgress(0);
-    upload.mutate(
-      { file, kind: uploadKind, newVersion, onProgress: setProgress },
-      {
-        onSuccess: () => {
-          setPending(null);
-          setConflict(null);
-        },
-        onError: (error) => {
-          const parsed =
-            error instanceof ApiClientError && error.code === 'CONFLICT'
-              ? KindExistsDetailsSchema.safeParse(error.details)
-              : null;
-          if (parsed?.success) {
-            setPending(file);
-            setConflict({
-              kind: parsed.data.kind,
-              currentFileId: parsed.data.currentFileId,
-              currentFileName: parsed.data.currentFileName,
-            });
-          } else {
-            setPending(null);
-          }
-        },
-        onSettled: () => {
-          setProgress(null);
-          if (input) input.value = '';
-        },
-      },
-    );
-  };
+  const sites = data?.sites ?? [];
+  // A work order with one site needs no question.
+  const siteId = selection.siteId ?? (sites.length === 1 ? (sites[0]?.siteId ?? null) : null);
+  const effective: UploadSelection = { ...selection, siteId };
+  const drawings = useMemo(
+    () => (data && siteId ? drawingsOfSite(data, siteId) : []),
+    [data, siteId],
+  );
+  const options = useMemo(
+    () => (selection.kind ? uploadOptions(drawings, selection.kind) : null),
+    [drawings, selection.kind],
+  );
+  const query = toUploadQuery(effective);
+
+  const onSiteChange = (next: string) =>
+    setSelection({ siteId: next || null, kind: null, choice: null });
+  const onKindChange = (kind: DrawingKind) =>
+    setSelection({
+      siteId,
+      kind,
+      choice: defaultChoice(uploadOptions(drawings, kind), kind),
+    });
+  const onChoiceChange = (choice: UploadChoice) => setSelection({ ...effective, choice });
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.target;
     const file = input.files?.[0];
-    if (!file || !kind) return;
+    if (!file || !query) return;
     setBadName(false);
-    setDeclinedKind(null);
-    setConflict(null);
+    upload.reset();
     if (!isCadFileName(file.name)) {
       setBadName(true);
       input.value = '';
       return;
     }
-    send(file, kind, false, input);
+    setLastName(file.name);
+    setProgress(0);
+    upload.mutate(
+      { file, query, onProgress: setProgress },
+      {
+        onSettled: () => {
+          setProgress(null);
+          input.value = '';
+        },
+      },
+    );
   };
 
+  const error = upload.error;
+  const refusal =
+    error instanceof ApiClientError && (error.code === 'CONFLICT' || error.code === 'NOT_FOUND')
+      ? uploadRefusalOf(error.details)
+      : null;
+
   return {
-    kind,
-    onKindChange: (next: DrawingKind) => {
-      setKind(next);
-      setDeclinedKind(null);
-    },
+    sites: sites.map((s) => ({ id: s.siteId, name: s.name })),
+    siteId,
+    kind: selection.kind,
+    choice: selection.choice,
+    options,
+    onSiteChange,
+    onKindChange,
+    onChoiceChange,
+    /** A file can be picked once the site, the kind and the target are known. */
+    ready: query !== null,
     onFileChange,
     progress,
     uploading: upload.isPending,
     badName,
     lastName,
-    conflict,
-    declinedKind,
-    onConfirmNewVersion: () => {
-      if (!pending || !conflict) return;
-      const file = pending;
-      const conflictKind = conflict.kind;
-      setConflict(null);
-      send(file, conflictKind, true);
-    },
-    onDeclineNewVersion: () => {
-      if (conflict) setDeclinedKind(conflict.kind);
-      setConflict(null);
-      setPending(null);
-      upload.reset();
-    },
-    errorCode: upload.error && !conflict ? errorCodeOf(upload.error) : null,
+    refusal,
+    errorCode: error && !refusal ? errorCodeOf(error) : null,
     succeeded: upload.isSuccess,
   };
 }
+
+export type CadUploadState = ReturnType<typeof useCadUpload>;

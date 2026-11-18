@@ -545,13 +545,6 @@
   "cad": {
     "listTitle": "CAD files",
     "empty": "No CAD files yet",
-    "upload": {
-      "label": "Upload a CAD file",
-      "hint": "DWG or DXF files",
-      "uploading": "Uploading",
-      "kindLegend": "Drawing kind",
-      "pickKindFirst": "Choose the drawing kind first (General or Secondary), then the file"
-    },
     "fileName": "File name",
     "format": "Format",
     "size": "Size",
@@ -673,30 +666,6 @@
       "approximated": "Approximated"
     },
     "mappingLink": "Mapping",
-    "kindExists": {
-      "title": {
-        "general": "Is this a new version of the General?",
-        "secondary": "Is this a new version of the Secondary?"
-      },
-      "text": {
-        "general": "This work order already has a General:",
-        "secondary": "This work order already has a Secondary:"
-      },
-      "yes": "Yes, a new version",
-      "no": "No",
-      "declined": {
-        "general": "A work order has only one General — the file was not uploaded",
-        "secondary": "A work order has only one Secondary — the file was not uploaded"
-      }
-    },
-    "section": {
-      "general": "General (main)",
-      "secondary": "Secondary"
-    },
-    "sectionEmpty": {
-      "general": "No General has been uploaded yet",
-      "secondary": "No Secondary has been uploaded yet"
-    },
     "superseded": "Old version",
     "supersededNotice": "This file is an old version; a newer one of the same kind exists.",
     "openNewer": "Open the newer version"
@@ -1124,7 +1093,6 @@
         "control_point": "At least one control point in use ({count})",
         "no_problems": "No drawing errors ({count} left)",
         "open_items": "Open items reviewed ({count})",
-        "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set",
         "site_drawings": "Every drawing of the site is ready: the General and at least one Secondary, built",
         "cabinets_other_site": "No cabinet name is also in another site of the work order ({count})",
         "cabinets_match": "Cabinets match in both drawings (name and count)",
@@ -1140,23 +1108,10 @@
         "PLACEMENT_MISSING": "The {drawing} drawing has no control point in use. Add or include a control point first.",
         "PROBLEMS_OPEN": "{count} drawing errors are left in the {drawing} drawing. Fix all of them before publishing.",
         "OPEN_ITEMS": "Open items were not acknowledged. Tick the acknowledgement first.",
-        "OTHER_DRAWING_MISSING": "There is no draft for the {drawing}. Upload and build it first — both drawings are published together.",
-        "CABINETS_MISMATCH": "The cabinets do not match between the drawings: General {generalCount} / Secondary {secondaryCount}. Only in the General: {onlyGeneral}. Only in the Secondary: {onlySecondary}. Cabinets with no name: {unnamed}. Make the names and the count the same in both drawings before publishing.",
         "INSTALLATION_UNCLEAR": "The installation method of the {drawing} drawing is unclear ({count} issues): {issues}",
         "BOX_TYPES_UNCLEAR": "The box types of the {drawing} drawing are unclear ({count} issues): {issues}"
       },
-      "otherNoDraft": "There is no draft for the {drawing} yet",
-      "otherErrors": "{count} errors in it",
-      "openOther": "Open the {drawing} draft",
-      "pairNote": "Publishing covers both drawings together ({first} + {second}) with the same revision number.",
-      "warnings": "{count} warning(s) in this drawing — they do not block publishing.",
-      "cabinetsCounts": "Cabinets: General {general} / Secondary {secondary}",
-      "cabinetsOnly": {
-        "general": "Only in the General",
-        "secondary": "Only in the Secondary"
-      },
-      "cabinetsUnnamed": "Cabinets with no name: {count}",
-      "cabinetsNoOther": "There is no draft for the {drawing} to compare with"
+      "warnings": "{count} warning(s) in this drawing — they do not block publishing."
     },
     "error": {
       "NOT_DRAFT": "Only a draft revision can be published",
@@ -2110,6 +2065,112 @@
     "badge": {
       "general": "Main",
       "secondary": "Secondary"
+    }
+  },
+  "siteDrawings": {
+    "label": {
+      "general": "General",
+      "secondary": "Secondary {n}"
+    },
+    "title": "Drawings by site",
+    "state": {
+      "not_built": "Not built yet",
+      "queued": "Waiting to be built",
+      "building": "Being built",
+      "draft": "Draft, not published",
+      "published": "Published, revision {n}"
+    },
+    "file": "File",
+    "openRevision": "Open the revision",
+    "openFile": "Open the file",
+    "noDrawings": "This site has no drawings yet",
+    "missing": "Still missing: {kinds}",
+    "loadFailed": "Could not load the drawings. Try again.",
+    "unassigned": {
+      "title": "No site",
+      "hint": "These drawings were uploaded before sites existed. Link each one to a site of the work order once; until then it cannot be published.",
+      "select": "Site",
+      "pick": "Choose a site",
+      "assign": "Link to a site",
+      "assigning": "Linking…",
+      "noSites": "The work order has no sites yet, so there is nothing to link to.",
+      "refused": {
+        "GENERAL_EXISTS": "This site already has its General drawing. Link a Secondary here, or choose another site.",
+        "SITE_NOT_FOUND": "That site is not on the work order any more. Choose another one.",
+        "ALREADY_ASSIGNED": "This drawing is already linked to a site."
+      }
+    },
+    "withdraw": {
+      "button": "Withdraw from the site",
+      "title": "Withdraw this drawing from the site?",
+      "text": "It was never published, so it can leave the site. Its open draft is discarded and the site no longer waits for it.",
+      "yes": "Yes, withdraw it",
+      "no": "No, keep it",
+      "refused": "This drawing cannot be withdrawn: it was published before."
+    },
+    "upload": {
+      "title": "Upload a drawing",
+      "site": "Site",
+      "pickSite": "Choose a site",
+      "kindLegend": "Drawing kind",
+      "targetLegend": "What is this file?",
+      "newDrawing": "A new Secondary drawing",
+      "newGeneral": "The General drawing of the site",
+      "newVersion": "A new version of {drawing}",
+      "currentFile": "now: {file}",
+      "generalExistsHint": "This site already has its General. You can only upload a new version of it.",
+      "pickSiteFirst": "Choose the site first",
+      "pickKindFirst": "Then choose General or Secondary",
+      "pickTargetFirst": "Then say whether it is a new drawing or a new version",
+      "label": "CAD file (.dwg or .dxf)",
+      "hint": "The file is read on the server; it can take a few minutes.",
+      "uploading": "Uploading",
+      "noSites": "This work order has no sites yet, so a drawing has no site to belong to. Add the sites first in the «Sites» section of the work order page.",
+      "openWorkOrder": "Open the work order, Sites section",
+      "refused": {
+        "GENERAL_EXISTS": "This site already has its General drawing ({file}). Upload a new version of it instead of a second General.",
+        "SITE_NOT_FOUND": "That site is not on the work order. Choose a site from the list.",
+        "DRAWING_NOT_IN_SITE": "That drawing does not belong to the chosen site. Choose the drawing again.",
+        "DRAWING_UNASSIGNED": "That drawing is not linked to a site yet. Link it to a site first, then upload."
+      }
+    },
+    "publish": {
+      "button": "Publish the site",
+      "busy": "Publishing…",
+      "note": "Publishing covers every draft of this site together, with one revision number.",
+      "drawings": "Drawings of the site",
+      "drawingState": {
+        "draft": "Draft, will be published",
+        "published": "Already published",
+        "not_ready": "Not ready"
+      },
+      "openDraft": "Open the draft",
+      "show": "Publishing checklist",
+      "hide": "Hide the checklist",
+      "noDraft": "No drawing of this site has a draft to publish."
+    },
+    "blocked": {
+      "SITE_UNASSIGNED": "The {drawing} drawing is not linked to a site. Link it to a site first.",
+      "SITE_INCOMPLETE": "The site is not complete: it still needs {kinds}.",
+      "DRAWING_NOT_READY": "The {drawing} drawing is not ready: {state}.",
+      "CABINETS_MISMATCH": "The cabinets of the site do not match: the General has {generalCount}, the Secondaries have {secondaryCount}. Only in the General: {onlyGeneral}. Only in a Secondary: {onlySecondary}. In more than one Secondary: {inSeveral}. Cabinets with no name: {unnamed}.",
+      "CABINET_IN_OTHER_SITE": "These cabinet names are already in another site of the work order: {cabinets}. A cabinet belongs to one site only."
+    },
+    "notReady": {
+      "no_revision": "it has no revision yet; build it from its file",
+      "building": "it is still being built",
+      "queued": "it is waiting to be built",
+      "failed": "its last build failed"
+    },
+    "cabinets": {
+      "counts": "Cabinets: General {general} / Secondaries {secondary}",
+      "onlyGeneral": "Only in the General",
+      "onlySecondary": "Only in a Secondary",
+      "inSeveral": "In more than one Secondary",
+      "unnamed": "Cabinets with no name: {count}",
+      "perSecondary": "{drawing}: {count} cabinets",
+      "otherSite": "{name} is in the site {site}",
+      "otherSiteTitle": "Cabinet names that another site already has"
     }
   }
 }

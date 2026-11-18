@@ -1,5 +1,9 @@
 import { ltr, translate, type Locale, type MessageKey } from '@ftth/i18n';
-import { PublishBlockedDetailsSchema, type PublishBlockedDetails } from '@ftth/shared';
+import {
+  PublishBlockedDetailsSchema,
+  type DrawingKind,
+  type PublishBlockedDetails,
+} from '@ftth/shared';
 import { boxTypeIssueMessage } from '@/features/box-types/model/box-types-model';
 import { issueMessage } from '@/features/installation/model/installation-model';
 import { ApiClientError, type ClientErrorCode } from '@/shared/api/bff-client';
@@ -32,6 +36,16 @@ export function publishBlockedOf(error: unknown): PublishBlockedDetails | null {
   return parsed.success ? parsed.data : null;
 }
 
+/** «الرئيسي» / «ثانوي 2» of a drawing in a refusal. */
+function drawingName(
+  drawing: { drawingKind: DrawingKind; ordinal: number },
+  locale: Locale,
+): string {
+  return drawing.drawingKind === 'general'
+    ? translate(locale, 'siteDrawings.label.general')
+    : translate(locale, 'siteDrawings.label.secondary', { n: ltr(drawing.ordinal) });
+}
+
 export interface ErrorMessage {
   key: MessageKey;
   params: Record<string, string | number>;
@@ -49,44 +63,44 @@ export function publishBlockedMessage(
     return { key: 'design.publish.blocked.OPEN_ITEMS', params: {} };
   }
   if (details.reason === 'CABINETS_MISMATCH') {
-    // ADR-049 part B: the General against the Secondaries of the site; the web agent writes the
-    // message for the new comparison, this keeps the existing one filled meanwhile.
     const { general, secondaries } = details.cabinets;
     const names = (list: readonly string[]) => (list.length > 0 ? list.map(ltr).join('، ') : '—');
     return {
-      key: 'design.publish.blocked.CABINETS_MISMATCH',
+      key: 'siteDrawings.blocked.CABINETS_MISMATCH',
       params: {
         generalCount: ltr(general.count),
         secondaryCount: ltr(secondaries.reduce((sum, s) => sum + s.side.count, 0)),
         onlyGeneral: names(details.cabinets.missingInSecondaries),
-        onlySecondary: names([
-          ...details.cabinets.missingInGeneral,
-          ...details.cabinets.inSeveralSecondaries,
-        ]),
+        onlySecondary: names(details.cabinets.missingInGeneral),
+        inSeveral: names(details.cabinets.inSeveralSecondaries),
         unnamed: ltr(general.unnamed + secondaries.reduce((sum, s) => sum + s.side.unnamed, 0)),
       },
     };
   }
   if (details.reason === 'CABINET_IN_OTHER_SITE') {
-    // New refusal (ADR-049 part B): no message of its own yet; the cabinets of the other site are named.
     return {
-      key: 'design.publish.blocked.CABINETS_MISMATCH',
+      key: 'siteDrawings.blocked.CABINET_IN_OTHER_SITE',
       params: {
-        generalCount: ltr(details.cabinets.length),
-        secondaryCount: ltr(0),
-        onlyGeneral: details.cabinets.map((c) => ltr(c.name)).join('، '),
-        onlySecondary: '—',
-        unnamed: ltr(0),
+        cabinets: details.cabinets.map((c) => `${ltr(c.name)} (${c.otherSiteName})`).join('، '),
       },
     };
   }
   if (details.reason === 'SITE_INCOMPLETE') {
     return {
-      key: 'design.publish.blocked.OTHER_DRAWING_MISSING',
+      key: 'siteDrawings.blocked.SITE_INCOMPLETE',
       params: {
-        drawing: details.missingKinds.map((k) => translate(locale, `drawingKind.${k}`)).join('، '),
+        kinds: details.missingKinds.map((k) => translate(locale, `drawingKind.${k}`)).join('، '),
       },
     };
+  }
+  if (details.reason === 'SITE_UNASSIGNED' || details.reason === 'DRAWING_NOT_READY') {
+    const drawing = drawingName(details, locale);
+    return details.reason === 'SITE_UNASSIGNED'
+      ? { key: 'siteDrawings.blocked.SITE_UNASSIGNED', params: { drawing } }
+      : {
+          key: 'siteDrawings.blocked.DRAWING_NOT_READY',
+          params: { drawing, state: translate(locale, `siteDrawings.notReady.${details.state}`) },
+        };
   }
   const drawing = translate(locale, `drawingKind.${details.drawingKind}`);
   if (details.reason === 'INSTALLATION_UNCLEAR') {
@@ -114,10 +128,6 @@ export function publishBlockedMessage(
     };
   }
   switch (details.reason) {
-    case 'SITE_UNASSIGNED':
-    case 'DRAWING_NOT_READY':
-      // ADR-049 part B: until their own messages exist, these say the drawing is not ready.
-      return { key: 'design.publish.blocked.OTHER_DRAWING_MISSING', params: { drawing } };
     case 'CRS_UNKNOWN':
       return { key: 'design.publish.blocked.CRS_UNKNOWN', params: { drawing } };
     case 'PLACEMENT_MISSING':

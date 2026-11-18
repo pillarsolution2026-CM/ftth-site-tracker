@@ -3,14 +3,15 @@
 import Link from 'next/link';
 import type {
   BoxTypesReport,
+  CabinetInOtherSite,
   InstallationReport,
   PublishCheck,
   PublishCheckKey,
+  PublishDrawingReadiness,
   PublishReadiness,
   SiteCabinetsComparison,
 } from '@ftth/shared';
 import { ltr } from '@ftth/i18n';
-import { otherDrawingKind, type DrawingKind } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Ltr } from '@/shared/ui/ltr';
 import { Checkbox } from '@/shared/ui/form-controls';
@@ -28,8 +29,8 @@ interface PublishChecklistProps {
   allowed: boolean;
   /** Where the CAD file's coordinate mapping (placement panel) lives; null when unknown. */
   mappingHref: string | null;
-  /** The other drawing's open draft (published together with this one); null when there is none. */
-  otherRevisionHref: string | null;
+  /** Link to the revision of a drawing of the site; null makes the draft name plain text. */
+  revisionHref: (revisionId: string) => string | null;
   onAcknowledgedChange: (value: boolean) => void;
   onPublish: () => void;
   /** Zoom the drawing to a route (the installation issues); omitted when there is no viewer. */
@@ -38,10 +39,14 @@ interface PublishChecklistProps {
 
 const COORDINATE_CHECKS: readonly PublishCheckKey[] = ['crs_known', 'control_point'];
 
+const LINK =
+  'inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
+
 /**
- * The checklist shown before «Publish» (ADR-038): four checks, each with an icon and a word
- * (never colour alone). The button stays locked until the first three are done; open items only
- * ask for the acknowledgement checkbox.
+ * The checklist shown before «نشر الموقع» (ADR-038, ADR-049 part B): every drawing of the site and
+ * the checks of the whole site, each with an icon and a word (never colour alone). The button
+ * stays locked until every check but the open items is done; open items only ask for the
+ * acknowledgement checkbox.
  */
 export function PublishChecklist({
   readiness,
@@ -51,12 +56,13 @@ export function PublishChecklist({
   publishing,
   allowed,
   mappingHref,
-  otherRevisionHref,
+  revisionHref,
   onAcknowledgedChange,
   onPublish,
   onShowRoute,
 }: PublishChecklistProps) {
   const { t } = useI18n();
+  const kind = readiness?.drawingKind ?? null;
   return (
     <section
       aria-labelledby="publish-checklist-title"
@@ -67,6 +73,9 @@ export function PublishChecklist({
       </h2>
       {loading ? <p role="status">{t('design.publish.loading')}</p> : null}
       {failed ? <p role="alert">{t('design.publish.loadFailed')}</p> : null}
+      {readiness && readiness.drawings.length > 0 ? (
+        <SiteDrawingsList drawings={readiness.drawings} revisionHref={revisionHref} />
+      ) : null}
       {readiness ? (
         <ul className="flex flex-col gap-2">
           {readiness.checks
@@ -75,15 +84,11 @@ export function PublishChecklist({
               <CheckRow
                 key={check.key}
                 check={check}
-                cabinets={readiness.cabinets}
-                installation={readiness.drawings.find((d) => d.installation)?.installation ?? null}
-                boxTypes={readiness.drawings.find((d) => d.boxTypes)?.boxTypes ?? null}
-                drawingKind={readiness.drawingKind ?? 'general'}
+                readiness={readiness}
+                drawingKind={kind}
                 switchedOff={readiness.switchedOff.includes(check.key)}
                 onShowRoute={onShowRoute}
                 mappingHref={mappingHref}
-                otherRevisionHref={otherRevisionHref}
-                otherKind={otherDrawingKind(readiness.drawingKind ?? 'general')}
               />
             ))}
         </ul>
@@ -107,10 +112,7 @@ export function PublishChecklist({
       ) : null}
       {readiness ? (
         <p id="publish-pair" className="text-sm font-semibold">
-          {t('design.publish.pairNote', {
-            first: t(`drawingKind.${readiness.drawingKind ?? 'general'}`),
-            second: t(`drawingKind.${otherDrawingKind(readiness.drawingKind ?? 'general')}`),
-          })}
+          {t('siteDrawings.publish.note')}
         </p>
       ) : null}
       {readiness && !readiness.canPublish ? (
@@ -124,58 +126,133 @@ export function PublishChecklist({
           disabled={!allowed}
           aria-describedby={readiness ? 'publish-pair' : undefined}
         >
-          {publishing ? t('design.actions.publishing') : t('design.actions.publish')}
+          {publishing ? t('siteDrawings.publish.busy') : t('siteDrawings.publish.button')}
         </Button>
       </div>
     </section>
   );
 }
 
-/** Cabinet names that exist in one drawing only, so the PM sees which one to fix (ADR-041). */
-function CabinetsDetail({ cabinets }: { cabinets: SiteCabinetsComparison }) {
+/** The drawings that go out together, each with its state (a draft, already published, not ready). */
+function SiteDrawingsList({
+  drawings,
+  revisionHref,
+}: {
+  drawings: PublishDrawingReadiness[];
+  revisionHref: (revisionId: string) => string | null;
+}) {
   const { t } = useI18n();
-  // ADR-049 part B: the General against the union of the site's Secondaries. The web agent gives the
-  // site's cabinets their own layout; until then the names are listed under the old two headings.
-  const secondaryCount = cabinets.secondaries.reduce((sum, s) => sum + s.side.count, 0);
-  const unnamed =
-    cabinets.general.unnamed + cabinets.secondaries.reduce((sum, s) => sum + s.side.unnamed, 0);
-  const rows = [
-    ['general', cabinets.missingInSecondaries] as const,
-    ['secondary', [...cabinets.missingInGeneral, ...cabinets.inSeveralSecondaries]] as const,
-  ];
   return (
-    <div className="ms-7 flex w-full flex-col gap-1 text-sm">
-      <p>
-        {t('design.publish.cabinetsCounts', {
-          general: ltr(cabinets.general.count),
-          secondary: ltr(secondaryCount),
-        })}
-      </p>
-      {rows.map(([kind, names]) =>
-        names.length > 0 ? (
-          <p key={kind}>
-            {t(`design.publish.cabinetsOnly.${kind}`)}:{' '}
-            {names.map((name, index) => (
-              <span key={name}>
-                {index > 0 ? '، ' : ''}
-                <Ltr>{name}</Ltr>
+    <div className="flex flex-col gap-1">
+      <h3 className="font-semibold">{t('siteDrawings.publish.drawings')}</h3>
+      <ul className="flex flex-col gap-1 text-sm">
+        {drawings.map((drawing) => {
+          const href = drawing.draftRevisionId ? revisionHref(drawing.draftRevisionId) : null;
+          return (
+            <li
+              key={drawing.drawingId}
+              data-state={drawing.state}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <span aria-hidden="true">
+                {drawing.state === 'not_ready' ? '❌' : drawing.state === 'draft' ? '✎' : '✓'}
               </span>
-            ))}
-          </p>
-        ) : null,
-      )}
-      {unnamed > 0 ? (
-        <p>
-          {t('design.publish.cabinetsUnnamed', {
-            count: ltr(unnamed),
-          })}
-        </p>
-      ) : null}
+              <span className="font-semibold">
+                {drawing.drawingKind === 'general'
+                  ? t('siteDrawings.label.general')
+                  : t('siteDrawings.label.secondary', { n: ltr(drawing.ordinal) })}
+              </span>
+              <span>{t(`siteDrawings.publish.drawingState.${drawing.state}`)}</span>
+              {href ? (
+                <Link href={href} className={LINK}>
+                  {t('siteDrawings.publish.openDraft')}
+                </Link>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
 
-/** The General's installation issues, each with the route it is about (ADR-042 part D). */
+function NameList({ names }: { names: readonly string[] }) {
+  return (
+    <>
+      {names.map((name, index) => (
+        <span key={name}>
+          {index > 0 ? '، ' : ''}
+          <Ltr>{name}</Ltr>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** The General against the Secondaries of the site: which names are where (ADR-049 part B). */
+function CabinetsDetail({ cabinets }: { cabinets: SiteCabinetsComparison }) {
+  const { t } = useI18n();
+  const secondaryCount = cabinets.secondaries.reduce((sum, s) => sum + s.side.count, 0);
+  const unnamed =
+    cabinets.general.unnamed + cabinets.secondaries.reduce((sum, s) => sum + s.side.unnamed, 0);
+  const rows = [
+    ['onlyGeneral', cabinets.missingInSecondaries],
+    ['onlySecondary', cabinets.missingInGeneral],
+    ['inSeveral', cabinets.inSeveralSecondaries],
+  ] as const;
+  return (
+    <div className="ms-7 flex w-full flex-col gap-1 text-sm">
+      <p>
+        {t('siteDrawings.cabinets.counts', {
+          general: ltr(cabinets.general.count),
+          secondary: ltr(secondaryCount),
+        })}
+      </p>
+      {cabinets.secondaries.length > 1 ? (
+        <ul className="list-inside list-disc">
+          {cabinets.secondaries.map((s) => (
+            <li key={s.drawingId}>
+              {t('siteDrawings.cabinets.perSecondary', {
+                drawing: t('siteDrawings.label.secondary', { n: ltr(s.ordinal) }),
+                count: ltr(s.side.count),
+              })}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.map(([key, names]) =>
+        names.length > 0 ? (
+          <p key={key}>
+            {t(`siteDrawings.cabinets.${key}`)}: <NameList names={names} />
+          </p>
+        ) : null,
+      )}
+      {unnamed > 0 ? <p>{t('siteDrawings.cabinets.unnamed', { count: ltr(unnamed) })}</p> : null}
+    </div>
+  );
+}
+
+/** Cabinet names that another site of the work order already has (owner rule). */
+function OtherSiteDetail({ cabinets }: { cabinets: CabinetInOtherSite[] }) {
+  const { t } = useI18n();
+  return (
+    <div className="ms-7 flex w-full flex-col gap-1 text-sm">
+      <p>{t('siteDrawings.cabinets.otherSiteTitle')}:</p>
+      <ul className="list-inside list-disc">
+        {cabinets.map((cabinet) => (
+          <li key={`${cabinet.name}-${cabinet.otherSiteId}`}>
+            {t('siteDrawings.cabinets.otherSite', {
+              name: ltr(cabinet.name),
+              site: cabinet.otherSiteName,
+            })}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The installation issues of the General, each with the route it is about (ADR-042 part D). */
 function InstallationDetail({
   report,
   onShowRoute,
@@ -217,43 +294,27 @@ function InstallationDetail({
 
 function CheckRow({
   check,
-  cabinets,
-  installation,
-  boxTypes,
+  readiness,
   drawingKind,
   switchedOff,
   onShowRoute,
   mappingHref,
-  otherRevisionHref,
-  otherKind,
 }: {
   check: PublishCheck;
-  cabinets: SiteCabinetsComparison | null;
-  installation: InstallationReport | null;
-  boxTypes: BoxTypesReport | null;
-  drawingKind: DrawingKind;
+  readiness: PublishReadiness;
+  drawingKind: PublishReadiness['drawingKind'];
   switchedOff: boolean;
   onShowRoute: ((routeHandle: string) => void) | undefined;
   mappingHref: string | null;
-  otherRevisionHref: string | null;
-  otherKind: DrawingKind;
 }) {
   const { t } = useI18n();
-  const drawing = t(`drawingKind.${otherKind}`);
-  const isOther = check.key === 'site_drawings';
   const label = t(`design.publish.checks.${check.key}`, {
     count: check.count === null ? '' : ltr(check.count),
-    drawing,
   });
-  // The other drawing: say why it is not ready (no draft yet, or N errors left in it).
-  const otherReason =
-    isOther && !check.ok
-      ? check.count === null
-        ? t('design.publish.otherNoDraft', { drawing })
-        : t('design.publish.otherErrors', { count: ltr(check.count) })
-      : null;
-  const linkClass =
-    'inline-flex min-h-11 items-center text-(--color-brand) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus)';
+  const installation: InstallationReport | null =
+    readiness.drawings.find((d) => d.installation && !d.installation.ok)?.installation ?? null;
+  const boxTypes: BoxTypesReport | null =
+    readiness.drawings.find((d) => d.boxTypes && !d.boxTypes.ok)?.boxTypes ?? null;
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span aria-hidden="true">{check.ok ? '✅' : '❌'}</span>
@@ -261,15 +322,9 @@ function CheckRow({
       <span className="text-sm opacity-80">
         ({check.ok ? t('design.publish.done') : t('design.publish.notDone')})
       </span>
-      {otherReason ? <span className="text-sm">{otherReason}</span> : null}
       {!check.ok && mappingHref && COORDINATE_CHECKS.includes(check.key) ? (
-        <Link href={mappingHref} className={linkClass}>
+        <Link href={mappingHref} className={LINK}>
           {t('design.publish.fixCoordinates')}
-        </Link>
-      ) : null}
-      {isOther && otherRevisionHref ? (
-        <Link href={otherRevisionHref} className={linkClass}>
-          {t('design.publish.openOther', { drawing })}
         </Link>
       ) : null}
       {check.key === 'installation' && drawingKind === 'secondary' && !switchedOff ? (
@@ -291,12 +346,13 @@ function CheckRow({
           />
         </div>
       ) : null}
-      {check.key === 'cabinets_match' && !check.ok ? (
-        cabinets ? (
-          <CabinetsDetail cabinets={cabinets} />
-        ) : (
-          <span className="text-sm">{t('design.publish.cabinetsNoOther', { drawing })}</span>
-        )
+      {check.key === 'cabinets_match' && !check.ok && readiness.cabinets ? (
+        <CabinetsDetail cabinets={readiness.cabinets} />
+      ) : null}
+      {check.key === 'cabinets_other_site' &&
+      !check.ok &&
+      readiness.cabinetsInOtherSites.length > 0 ? (
+        <OtherSiteDetail cabinets={readiness.cabinetsInOtherSites} />
       ) : null}
     </li>
   );

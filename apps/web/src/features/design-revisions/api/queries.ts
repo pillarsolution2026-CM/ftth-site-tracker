@@ -20,6 +20,7 @@ import {
   getDrawingViewState,
   requestDrawingView,
   getPublishReadiness,
+  getSitePublishReadiness,
   listDesignFeatures,
   listDesignRevisions,
   listDiff,
@@ -219,6 +220,24 @@ export function usePublishReadiness(projectId: string, id: string, enabled: bool
     queryKey: readinessKey(projectId, id),
     queryFn: () => getPublishReadiness(projectId, id),
   });
+}
+
+const siteReadinessKey = (projectId: string, siteId: string) =>
+  ['site-publish-readiness', projectId, siteId] as const;
+
+/** The checklist of a whole site, shown on the drawings list (ADR-049 part B). */
+export function useSitePublishReadiness(projectId: string, siteId: string, enabled: boolean) {
+  return useQuery({
+    ...noRetry,
+    enabled,
+    queryKey: siteReadinessKey(projectId, siteId),
+    queryFn: () => getSitePublishReadiness(projectId, siteId),
+  });
+}
+
+export function useRefetchSiteReadiness(projectId: string, siteId: string) {
+  const client = useQueryClient();
+  return () => client.invalidateQueries({ queryKey: siteReadinessKey(projectId, siteId) });
 }
 
 export function useRefetchPublishReadiness(projectId: string, id: string) {

@@ -545,13 +545,6 @@
   "cad": {
     "listTitle": "Fichiers CAO",
     "empty": "Aucun fichier CAO pour le moment",
-    "upload": {
-      "label": "Envoyer un fichier CAO",
-      "hint": "Fichiers DWG ou DXF",
-      "uploading": "Envoi de",
-      "kindLegend": "Type de plan",
-      "pickKindFirst": "Choisissez d'abord le type de plan (Général ou Secondaire), puis le fichier"
-    },
     "fileName": "Nom du fichier",
     "format": "Format",
     "size": "Taille",
@@ -673,30 +666,6 @@
       "approximated": "Approché"
     },
     "mappingLink": "Mapping",
-    "kindExists": {
-      "title": {
-        "general": "Est-ce une nouvelle version du Général ?",
-        "secondary": "Est-ce une nouvelle version du Secondaire ?"
-      },
-      "text": {
-        "general": "L'ordre de travail a déjà un Général :",
-        "secondary": "L'ordre de travail a déjà un Secondaire :"
-      },
-      "yes": "Oui, une nouvelle version",
-      "no": "Non",
-      "declined": {
-        "general": "Un ordre de travail n'a qu'un seul Général — le fichier n'a pas été envoyé",
-        "secondary": "Un ordre de travail n'a qu'un seul Secondaire — le fichier n'a pas été envoyé"
-      }
-    },
-    "section": {
-      "general": "Général (principal)",
-      "secondary": "Secondaire"
-    },
-    "sectionEmpty": {
-      "general": "Aucun Général n'a encore été envoyé",
-      "secondary": "Aucun Secondaire n'a encore été envoyé"
-    },
     "superseded": "Ancienne version",
     "supersededNotice": "Ce fichier est une ancienne version ; une version plus récente du même type existe.",
     "openNewer": "Ouvrir la version plus récente"
@@ -1124,7 +1093,6 @@
         "control_point": "Au moins un point de contrôle utilisé ({count})",
         "no_problems": "Aucune erreur de dessin ({count} restantes)",
         "open_items": "Éléments ouverts revus ({count})",
-        "other_drawing": "L'autre plan ({drawing}) est prêt : zéro erreur, coordonnées calées",
         "site_drawings": "Tous les plans du site sont prêts : le principal et au moins un secondaire, construits",
         "cabinets_other_site": "Aucun nom d'armoire n'est dans un autre site de l'ordre de travail ({count})",
         "cabinets_match": "Les armoires correspondent dans les deux plans (nom et nombre)",
@@ -1140,23 +1108,10 @@
         "PLACEMENT_MISSING": "Le plan {drawing} n'a aucun point de contrôle utilisé. Ajoutez ou incluez un point de contrôle d'abord.",
         "PROBLEMS_OPEN": "Il reste {count} erreurs de dessin dans le plan {drawing}. Corrigez-les toutes avant de publier.",
         "OPEN_ITEMS": "Les éléments ouverts n'ont pas été reconnus. Cochez d'abord la case de confirmation.",
-        "OTHER_DRAWING_MISSING": "Il n'y a pas de brouillon pour le {drawing}. Envoyez-le et construisez-le d'abord — les deux plans sont publiés ensemble.",
-        "CABINETS_MISMATCH": "Les armoires ne correspondent pas entre les plans : Général {generalCount} / Secondaire {secondaryCount}. Seulement dans le Général : {onlyGeneral}. Seulement dans le Secondaire : {onlySecondary}. Armoires sans nom : {unnamed}. Rendez les noms et le nombre identiques dans les deux plans avant de publier.",
         "INSTALLATION_UNCLEAR": "Le mode de pose du plan {drawing} n’est pas clair ({count} problèmes) : {issues}",
         "BOX_TYPES_UNCLEAR": "Les types de boîtiers du dessin {drawing} sont peu clairs ({count} problèmes) : {issues}"
       },
-      "otherNoDraft": "Il n'y a pas encore de brouillon pour le {drawing}",
-      "otherErrors": "{count} erreurs dedans",
-      "openOther": "Ouvrir le brouillon du {drawing}",
-      "pairNote": "La publication concerne les deux plans ensemble ({first} + {second}) avec le même numéro de révision.",
-      "warnings": "{count} avertissement(s) dans ce plan — ils ne bloquent pas la publication.",
-      "cabinetsCounts": "Armoires : Général {general} / Secondaire {secondary}",
-      "cabinetsOnly": {
-        "general": "Seulement dans le Général",
-        "secondary": "Seulement dans le Secondaire"
-      },
-      "cabinetsUnnamed": "Armoires sans nom : {count}",
-      "cabinetsNoOther": "Il n’y a pas de brouillon pour {drawing} à comparer"
+      "warnings": "{count} avertissement(s) dans ce plan — ils ne bloquent pas la publication."
     },
     "error": {
       "NOT_DRAFT": "Seule une révision en brouillon peut être publiée",
@@ -2110,6 +2065,112 @@
     "badge": {
       "general": "Principal",
       "secondary": "Secondaire"
+    }
+  },
+  "siteDrawings": {
+    "label": {
+      "general": "Général",
+      "secondary": "Secondaire {n}"
+    },
+    "title": "Plans par site",
+    "state": {
+      "not_built": "Pas encore construit",
+      "queued": "En attente de construction",
+      "building": "En cours de construction",
+      "draft": "Brouillon, non publié",
+      "published": "Publié, révision {n}"
+    },
+    "file": "Fichier",
+    "openRevision": "Ouvrir la révision",
+    "openFile": "Ouvrir le fichier",
+    "noDrawings": "Ce site n'a pas encore de plan",
+    "missing": "Il manque encore : {kinds}",
+    "loadFailed": "Impossible de charger les plans. Réessayez.",
+    "unassigned": {
+      "title": "Sans site",
+      "hint": "Ces plans ont été envoyés avant l'existence des sites. Liez chacun à un site de l'ordre de travail, une seule fois ; d'ici là il ne peut pas être publié.",
+      "select": "Site",
+      "pick": "Choisir un site",
+      "assign": "Lier à un site",
+      "assigning": "Liaison…",
+      "noSites": "L'ordre de travail n'a pas encore de sites : il n'y a rien à lier.",
+      "refused": {
+        "GENERAL_EXISTS": "Ce site a déjà son plan Général. Liez ici un Secondaire, ou choisissez un autre site.",
+        "SITE_NOT_FOUND": "Ce site n'est plus dans l'ordre de travail. Choisissez-en un autre.",
+        "ALREADY_ASSIGNED": "Ce plan est déjà lié à un site."
+      }
+    },
+    "withdraw": {
+      "button": "Retirer du site",
+      "title": "Retirer ce plan du site ?",
+      "text": "Il n'a jamais été publié, il peut donc quitter le site. Son brouillon ouvert est abandonné et le site ne l'attend plus.",
+      "yes": "Oui, le retirer",
+      "no": "Non, le garder",
+      "refused": "Ce plan ne peut pas être retiré : il a déjà été publié."
+    },
+    "upload": {
+      "title": "Envoyer un plan",
+      "site": "Site",
+      "pickSite": "Choisir un site",
+      "kindLegend": "Type de plan",
+      "targetLegend": "Que représente ce fichier ?",
+      "newDrawing": "Un nouveau plan Secondaire",
+      "newGeneral": "Le plan Général du site",
+      "newVersion": "Une nouvelle version de {drawing}",
+      "currentFile": "actuel : {file}",
+      "generalExistsHint": "Ce site a déjà son Général. Vous ne pouvez envoyer qu'une nouvelle version de celui-ci.",
+      "pickSiteFirst": "Choisissez d'abord le site",
+      "pickKindFirst": "Puis choisissez Général ou Secondaire",
+      "pickTargetFirst": "Puis dites s'il s'agit d'un nouveau plan ou d'une nouvelle version",
+      "label": "Fichier CAO (.dwg ou .dxf)",
+      "hint": "Le fichier est lu sur le serveur ; cela peut prendre quelques minutes.",
+      "uploading": "Envoi de",
+      "noSites": "Cet ordre de travail n'a pas encore de sites : un plan n'a aucun site auquel appartenir. Ajoutez d'abord les sites dans la section « Sites » de la page de l'ordre de travail.",
+      "openWorkOrder": "Ouvrir l'ordre de travail, section Sites",
+      "refused": {
+        "GENERAL_EXISTS": "Ce site a déjà son plan Général ({file}). Envoyez-en une nouvelle version au lieu d'un second Général.",
+        "SITE_NOT_FOUND": "Ce site n'est pas dans l'ordre de travail. Choisissez un site de la liste.",
+        "DRAWING_NOT_IN_SITE": "Ce plan n'appartient pas au site choisi. Choisissez de nouveau le plan.",
+        "DRAWING_UNASSIGNED": "Ce plan n'est pas encore lié à un site. Liez-le d'abord à un site, puis envoyez."
+      }
+    },
+    "publish": {
+      "button": "Publier le site",
+      "busy": "Publication…",
+      "note": "La publication couvre tous les brouillons de ce site ensemble, avec un seul numéro de révision.",
+      "drawings": "Plans du site",
+      "drawingState": {
+        "draft": "Brouillon, sera publié",
+        "published": "Déjà publié",
+        "not_ready": "Pas prêt"
+      },
+      "openDraft": "Ouvrir le brouillon",
+      "show": "Liste de contrôle de publication",
+      "hide": "Masquer la liste",
+      "noDraft": "Aucun plan de ce site n'a de brouillon à publier."
+    },
+    "blocked": {
+      "SITE_UNASSIGNED": "Le plan ({drawing}) n'est lié à aucun site. Liez-le d'abord à un site.",
+      "SITE_INCOMPLETE": "Le site n'est pas complet : il lui manque encore {kinds}.",
+      "DRAWING_NOT_READY": "Le plan ({drawing}) n'est pas prêt : {state}.",
+      "CABINETS_MISMATCH": "Les armoires du site ne correspondent pas : le Général en a {generalCount}, les Secondaires {secondaryCount}. Seulement dans le Général : {onlyGeneral}. Seulement dans un Secondaire : {onlySecondary}. Dans plusieurs Secondaires : {inSeveral}. Armoires sans nom : {unnamed}.",
+      "CABINET_IN_OTHER_SITE": "Ces noms d'armoires existent déjà dans un autre site de l'ordre de travail : {cabinets}. Une armoire appartient à un seul site."
+    },
+    "notReady": {
+      "no_revision": "il n'a pas encore de révision ; construisez-le depuis son fichier",
+      "building": "il est encore en construction",
+      "queued": "il attend sa construction",
+      "failed": "sa dernière construction a échoué"
+    },
+    "cabinets": {
+      "counts": "Armoires : Général {general} / Secondaires {secondary}",
+      "onlyGeneral": "Seulement dans le Général",
+      "onlySecondary": "Seulement dans un Secondaire",
+      "inSeveral": "Dans plusieurs Secondaires",
+      "unnamed": "Armoires sans nom : {count}",
+      "perSecondary": "{drawing} : {count} armoires",
+      "otherSite": "{name} est dans le site {site}",
+      "otherSiteTitle": "Noms d'armoires qu'un autre site possède déjà"
     }
   }
 }
