@@ -32,14 +32,16 @@ export function parseGeometry(geojson: string): AsBuiltGeometry {
 }
 
 /**
- * The latest published revision of the project's General drawing (subquery text, project id
- * bound). ADR-040: the supervisor's choice of drawing comes later; until then the General is read.
+ * The latest published revision of EACH General drawing of the project (ADR-049 part B), as an
+ * array subquery (project id bound). Feature ids are stable within a drawing, so a feature is found
+ * in exactly one of them.
  */
-export const latestRevisionIdSql = (projectId: string): SQL =>
-  sql`(SELECT r.id FROM design_revisions r
-        WHERE r.project_id = ${projectId} AND r.status = 'published'
-          AND r.drawing_kind = 'general'
-        ORDER BY r.rev_no DESC LIMIT 1)`;
+export const latestRevisionIdsSql = (projectId: string): SQL =>
+  sql`(SELECT COALESCE(array_agg(x.id), '{}'::uuid[]) FROM (
+          SELECT DISTINCT ON (r.drawing_id) r.id FROM design_revisions r
+          WHERE r.project_id = ${projectId} AND r.status = 'published'
+            AND r.drawing_kind = 'general'
+          ORDER BY r.drawing_id, r.rev_no DESC) x)`;
 
 /**
  * Read scope of an edit, alias `e` (asbuilt_edits). Phase 4 contract: the feature's design
@@ -61,7 +63,7 @@ export function editReadScope(projectId: string, scope: AsBuiltScope): SQL {
           SELECT 1 FROM design_features df
           WHERE df.project_id = e.project_id AND df.feature_id = e.feature_id
             AND (df.revision_id = e.design_revision_id
-                 OR df.revision_id = ${latestRevisionIdSql(projectId)})
+                 OR df.revision_id = ANY(${latestRevisionIdsSql(projectId)}))
             AND ST_Intersects(z.geom, df.geom))
         OR EXISTS (
           SELECT 1 FROM asbuilt_features af
@@ -158,12 +160,12 @@ export interface StateRow {
 
 /**
  * Approved state rows of a project: the approved geometry, or the design geometry of the latest
- * published revision when only a label was approved (a feature missing from that revision has no
+ * published revisions (one per General drawing) when only a label was approved (a feature missing from that revision has no
  * geometry to show and is left out). Optional `featureId` narrows to one feature.
  */
 export function stateQuery(
   projectId: string,
-  latestRevisionId: string | null,
+  latestRevisionIds: readonly string[],
   scope: AsBuiltScope,
   featureId?: string,
 ): SQL {
@@ -175,7 +177,7 @@ export function stateQuery(
     FROM asbuilt_features a
     LEFT JOIN design_features df
       ON df.project_id = a.project_id AND df.feature_id = a.feature_id
-     AND df.revision_id = ${latestRevisionId}::uuid
+     AND df.revision_id = ANY(${uuidArray(latestRevisionIds)})
     WHERE a.project_id = ${projectId}
       AND COALESCE(a.geom, df.geom) IS NOT NULL
       AND ${featureId ? sql`a.feature_id = ${featureId}` : sql`true`}

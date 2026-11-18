@@ -49,7 +49,12 @@ export class RequestAsBuiltExportUseCase {
     private readonly ids: IdGenerator,
   ) {}
 
-  async execute(input: { projectId: string; actorId: string }): Promise<AsBuiltExport> {
+  /** `siteId` (ADR-049 part B): the site's General; without it the General published last. */
+  async execute(input: {
+    projectId: string;
+    actorId: string;
+    siteId?: string | undefined;
+  }): Promise<AsBuiltExport> {
     const exportId = this.ids.next();
     const jobId = this.ids.next();
     const now = this.clock.now();
@@ -68,13 +73,13 @@ export class RequestAsBuiltExportUseCase {
   }
 
   private async queueRow(
-    input: { projectId: string; actorId: string },
+    input: { projectId: string; actorId: string; siteId?: string | undefined },
     exportId: string,
     jobId: string,
     now: Date,
   ): Promise<void> {
     await this.uow.run(async (tx) => {
-      const revision = await tx.latestPublishedRevision(input.projectId);
+      const revision = await tx.latestPublishedRevision(input.projectId, input.siteId);
       if (!revision) {
         throw new AppError('CONFLICT', 'No design revision is published', {
           reason: 'NO_PUBLISHED_REVISION',
@@ -94,7 +99,7 @@ export class RequestAsBuiltExportUseCase {
         entityId: exportId,
         type: EVENT_TYPES.asBuiltExportRequested,
         actorId: input.actorId,
-        payload: { revisionId: revision.id, revNo: revision.revNo, jobId },
+        payload: { revisionId: revision.id, revNo: revision.revNo, jobId, siteId: input.siteId ?? null },
       });
     });
   }

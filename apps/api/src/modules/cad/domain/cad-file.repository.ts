@@ -14,7 +14,6 @@ import type { GpsProposalRepository } from './gps-proposal.js';
 import type { BoxTypeRepository } from './box-types.js';
 import type { InstallationRepository } from './installation.js';
 import type { SiteDrawingRepository } from './site-drawing.repository.js';
-import type { SiteDrawingRepository } from './site-drawing.repository.js';
 import type {
   CadMappingRepository,
   DesignRevisionRepository,

@@ -6,15 +6,14 @@ import {
   FrozenBoxTypesSchema,
   FrozenInstallationSchema,
   installationRouteOf,
-  type DrawingKind,
   type InstallationRoute,
 } from '@ftth/shared';
-import { and, asc, desc, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, max, sql } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import { toDecimalText } from '../../../common/decimal-text.js';
 import type { DbHandle } from '../../../db/db.module.js';
 import { lockNotAvailable, uniqueViolation } from '../../../db/pg-errors.js';
-import { cadFiles, designFeatures, designRevisions } from '../../../db/schema.js';
+import { cadFiles, designFeatures, designRevisions, siteDrawings } from '../../../db/schema.js';
 import type { DesignRevision } from '../domain/design-revision.js';
 import type {
   DesignRevisionRepository,
@@ -32,17 +31,27 @@ const LOCK_TIMEOUT = sql.raw(`SET LOCAL lock_timeout = '5s'`);
 const columns = {
   row: designRevisions,
   cadFileName: cadFiles.originalName,
+  siteId: siteDrawings.siteId,
+  drawingOrdinal: siteDrawings.ordinal,
 };
 
-type Joined = { row: typeof designRevisions.$inferSelect; cadFileName: string };
+type Joined = {
+  row: typeof designRevisions.$inferSelect;
+  cadFileName: string;
+  siteId: string | null;
+  drawingOrdinal: number;
+};
 
-function toRevision({ row, cadFileName }: Joined): DesignRevision {
+function toRevision({ row, cadFileName, siteId, drawingOrdinal }: Joined): DesignRevision {
   return {
     id: row.id,
     projectId: row.projectId,
     cadFileId: row.cadFileId,
     cadFileName,
     drawingKind: row.drawingKind,
+    drawingId: row.drawingId,
+    siteId,
+    drawingOrdinal,
     revNo: row.revNo,
     status: row.status,
     currentJobId: row.currentJobId,
@@ -92,6 +101,13 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
           eq(cadFiles.projectId, designRevisions.projectId),
           eq(cadFiles.id, designRevisions.cadFileId),
         ),
+      )
+      .innerJoin(
+        siteDrawings,
+        and(
+          eq(siteDrawings.projectId, designRevisions.projectId),
+          eq(siteDrawings.id, designRevisions.drawingId),
+        ),
       );
   }
 
@@ -127,37 +143,77 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
     return row ? toRevision(row) : null;
   }
 
-  async findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null> {
-    const [row] = await this.db
-      .select({ id: designRevisions.id })
-      .from(designRevisions)
+  async findLatestPublishedId(projectId: string, drawingId: string): Promise<string | null> {
+    return (await this.findLatestPublished(projectId, drawingId))?.id ?? null;
+  }
+
+  async findLatestPublished(projectId: string, drawingId: string): Promise<DesignRevision | null> {
+    const [row] = await this.selectJoined()
       .where(
         and(
           eq(designRevisions.projectId, projectId),
-          eq(designRevisions.drawingKind, kind),
+          eq(designRevisions.drawingId, drawingId),
           eq(designRevisions.status, 'published'),
         ),
       )
       .orderBy(desc(designRevisions.revNo))
       .limit(1);
-    return row?.id ?? null;
+    return row ? toRevision(row) : null;
   }
 
-  async hasOpen(projectId: string, kind: DrawingKind): Promise<boolean> {
-    return (await this.findOpen(projectId, kind)) !== null;
+  async hasOpen(projectId: string, drawingId: string): Promise<boolean> {
+    return (await this.findOpen(projectId, drawingId)) !== null;
   }
 
-  async findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null> {
+  async findOpen(projectId: string, drawingId: string): Promise<DesignRevision | null> {
     const [row] = await this.selectJoined()
       .where(
         and(
           eq(designRevisions.projectId, projectId),
-          eq(designRevisions.drawingKind, kind),
+          eq(designRevisions.drawingId, drawingId),
           inArray(designRevisions.status, ['queued', 'building', 'draft']),
         ),
       )
       .limit(1);
     return row ? toRevision(row) : null;
+  }
+
+  async siteGeneralCabinets(
+    projectId: string,
+    siteIds: string[],
+  ): Promise<{ siteId: string; names: (string | null)[] }[]> {
+    if (siteIds.length === 0) return [];
+    // Per General: the open draft, else the latest published revision (never a queued/building one).
+    const generals = await this.db
+      .select({ id: siteDrawings.id, siteId: siteDrawings.siteId })
+      .from(siteDrawings)
+      .where(
+        and(
+          eq(siteDrawings.projectId, projectId),
+          eq(siteDrawings.drawingKind, 'general'),
+          isNull(siteDrawings.withdrawnAt),
+          inArray(siteDrawings.siteId, siteIds),
+        ),
+      );
+    const out: { siteId: string; names: (string | null)[] }[] = [];
+    for (const general of generals) {
+      if (general.siteId === null) continue;
+      const [draft] = await this.db
+        .select({ id: designRevisions.id })
+        .from(designRevisions)
+        .where(
+          and(
+            eq(designRevisions.projectId, projectId),
+            eq(designRevisions.drawingId, general.id),
+            eq(designRevisions.status, 'draft'),
+          ),
+        )
+        .limit(1);
+      const revisionId = draft?.id ?? (await this.findLatestPublishedId(projectId, general.id));
+      if (revisionId === null) continue;
+      out.push({ siteId: general.siteId, names: await this.subCabinetCodes(projectId, revisionId) });
+    }
+    return out;
   }
 
   async subCabinetCodes(projectId: string, revisionId: string): Promise<(string | null)[]> {
@@ -275,6 +331,7 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
         projectId: revision.projectId,
         cadFileId: revision.cadFileId,
         drawingKind: revision.drawingKind,
+        drawingId: revision.drawingId,
         status: 'queued',
         currentJobId: revision.currentJobId,
         baseRevisionId: revision.baseRevisionId,
@@ -325,15 +382,24 @@ export class DrizzleDesignRevisionRepository implements DesignRevisionRepository
 
   async publish(
     projectId: string,
+    siteId: string,
     revisionIds: string[],
     actorId: string,
     at: Date,
   ): Promise<number> {
-    // rev_no counts over both kinds: the pair shares one number (unique per kind).
+    // One site publication = one number shared by every revision it publishes: the highest number
+    // over the revisions of the site's drawings + 1 (numbers of one drawing may skip).
     const [latest] = await this.db
       .select({ value: max(designRevisions.revNo) })
       .from(designRevisions)
-      .where(eq(designRevisions.projectId, projectId));
+      .innerJoin(
+        siteDrawings,
+        and(
+          eq(siteDrawings.projectId, designRevisions.projectId),
+          eq(siteDrawings.id, designRevisions.drawingId),
+        ),
+      )
+      .where(and(eq(designRevisions.projectId, projectId), eq(siteDrawings.siteId, siteId)));
     const revNo = (latest?.value ?? 0) + 1;
     await this.db
       .update(designRevisions)

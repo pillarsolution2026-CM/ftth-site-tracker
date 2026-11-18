@@ -31,7 +31,7 @@ export interface NewRevisionInput {
 
 /**
  * The rules of creating a revision, inside the caller's transaction (used by create and rebuild):
- * the file and its mapping exist and match, the file is processed, no other revision of the file's kind is open, the file is the current version of its kind; the
+ * the file and its mapping exist and match, the file is processed, no other revision of the file's drawing is open, the file is the current version of its drawing; the
  * mapping, the placement, the file's corrections in force, (General) its installation and (Secondary) its box types are frozen on the new revision.
  */
 export async function createRevisionInTx(
@@ -59,11 +59,15 @@ export async function createRevisionInTx(
   if (file.status !== 'processed') {
     throw conflict('NOT_PROCESSED', 'The CAD file is not processed yet', { status: file.status });
   }
-  if (await tx.revisions.hasOpen(projectId, file.drawingKind)) {
+  const drawing = await tx.drawings.find(projectId, file.drawingId);
+  if (!drawing || drawing.withdrawnAt !== null) {
+    throw conflict('DRAWING_WITHDRAWN', 'The drawing was withdrawn from its site');
+  }
+  if (await tx.revisions.hasOpen(projectId, file.drawingId)) {
     throw conflict('REVISION_IN_PROGRESS', 'The project already has an open design revision');
   }
 
-  const baseRevisionId = await tx.revisions.findLatestPublishedId(projectId, file.drawingKind);
+  const baseRevisionId = await tx.revisions.findLatestPublishedId(projectId, file.drawingId);
   // The file row is locked above, so no correction can be added or withdrawn while this reads.
   const corrections = await tx.corrections.listActiveFrozen(projectId, cadFileId);
   // Same lock: the General's installation answer and marks in force are frozen with them (ADR-042).
@@ -78,6 +82,7 @@ export async function createRevisionInTx(
     projectId,
     cadFileId: file.id,
     drawingKind: file.drawingKind,
+    drawingId: file.drawingId,
     currentJobId: jobId,
     baseRevisionId,
     rules: mapping.rules,

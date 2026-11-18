@@ -52,7 +52,7 @@ export class GetSecondaryPlacementSuggestionUseCase {
       if (file.supersededAt !== null) throw refuse('NOT_CURRENT');
 
       // The Secondary: a revision still queued or building makes any older one stale.
-      const openSecondary = await tx.revisions.findOpen(projectId, 'secondary');
+      const openSecondary = await tx.revisions.findOpen(projectId, file.drawingId);
       if (openSecondary?.cadFileId === file.id && openSecondary.status !== 'draft') {
         throw refuse('SECONDARY_BUILDING', openSecondary.id);
       }
@@ -71,10 +71,15 @@ export class GetSecondaryPlacementSuggestionUseCase {
         throw refuse('SECONDARY_REBUILD_NEEDED', secondary.id);
       }
 
-      // The General: the current file of that kind and its latest built revision.
-      const [generalFile] = await tx.files.listCurrentOfKind(projectId, 'general');
+      // The General of the SAME site (ADR-049 part B): the current file of its drawing and its
+      // latest built revision. A drawing not linked to a site has none.
+      if (file.siteId === null) throw refuse('GENERAL_NOT_BUILT');
+      const siteDrawings = await tx.drawings.listOfSite(projectId, file.siteId);
+      const generalDrawing = siteDrawings.find((d) => d.kind === 'general' && d.withdrawnAt === null);
+      if (!generalDrawing) throw refuse('GENERAL_NOT_BUILT');
+      const generalFile = await tx.files.findCurrentOfDrawing(projectId, generalDrawing.id);
       if (!generalFile) throw refuse('GENERAL_NOT_BUILT');
-      const openGeneral = await tx.revisions.findOpen(projectId, 'general');
+      const openGeneral = await tx.revisions.findOpen(projectId, generalDrawing.id);
       if (openGeneral?.cadFileId === generalFile.id && openGeneral.status !== 'draft') {
         throw refuse('GENERAL_BUILDING', openGeneral.id);
       }

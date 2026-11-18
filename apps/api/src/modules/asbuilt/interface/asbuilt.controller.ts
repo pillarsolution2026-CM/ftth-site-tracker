@@ -19,6 +19,7 @@ import {
   AsBuiltEditListResponseSchema,
   AsBuiltEditSchema,
   AsBuiltExportListResponseSchema,
+  AsBuiltExportQuerySchema,
   AsBuiltExportSchema,
   AsBuiltLengthsResponseSchema,
   AsBuiltStateResponseSchema,
@@ -29,6 +30,7 @@ import {
   type AsBuiltEditListResponse,
   type AsBuiltExport,
   type AsBuiltExportListResponse,
+  type AsBuiltExportQuery,
   type AsBuiltLengthsResponse,
   type AsBuiltStateResponse,
   type Permission,
@@ -200,11 +202,13 @@ export class AsBuiltController {
   @ApiOkResponse({ schema: openApiSchema(AsBuiltExportSchema) })
   createExport(
     @ProjectIdParam() projectId: string,
+    @Query(new ZodValidationPipe(AsBuiltExportQuerySchema)) query: AsBuiltExportQuery,
     @Body(new ZodValidationPipe(EmptyBodySchema)) _body: Record<string, never> | undefined,
     @Req() request: AuthenticatedRequest,
   ): Promise<AsBuiltExport> {
     return this.requestExport.execute({
       projectId: canonical(projectId),
+      siteId: query.siteId,
       actorId: actorIdOf(request),
     });
   }

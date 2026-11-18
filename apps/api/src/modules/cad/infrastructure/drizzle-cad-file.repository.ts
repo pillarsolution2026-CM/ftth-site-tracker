@@ -1,13 +1,20 @@
-import { CrsDetectionSchema, type DrawingKind } from '@ftth/shared';
+import { CrsDetectionSchema } from '@ftth/shared';
 import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import type { DbHandle } from '../../../db/db.module.js';
-import { cadFiles, projects } from '../../../db/schema.js';
+import { cadFiles, siteDrawings } from '../../../db/schema.js';
 import type { CadFile, DrawingViewRecord } from '../domain/cad-file.js';
 import type { CadFileRepository } from '../domain/cad-file.repository.js';
 
 type Row = typeof cadFiles.$inferSelect;
+type Joined = { row: Row; siteId: string | null; drawingOrdinal: number };
 
-function toCadFile(row: Row): CadFile {
+const columns = {
+  row: cadFiles,
+  siteId: siteDrawings.siteId,
+  drawingOrdinal: siteDrawings.ordinal,
+};
+
+function toCadFile({ row, siteId, drawingOrdinal }: Joined): CadFile {
   const hasExtents =
     row.extentsMinX !== null &&
     row.extentsMinY !== null &&
@@ -29,6 +36,9 @@ function toCadFile(row: Row): CadFile {
     convertedStorageKey: row.convertedStorageKey,
     status: row.status,
     drawingKind: row.drawingKind,
+    drawingId: row.drawingId,
+    siteId,
+    drawingOrdinal,
     supersededAt: row.supersededAt,
     supersededById: row.supersededBy,
     currentJobId: row.currentJobId,
@@ -85,12 +95,20 @@ export class DrizzleCadFileRepository implements CadFileRepository {
 
   /** Current files only: older versions stay as history but are not listed (owner 2026-11-11). */
   async list(projectId: string): Promise<CadFile[]> {
-    const rows = await this.db
-      .select()
-      .from(cadFiles)
+    const rows = await this.selectJoined()
       .where(and(eq(cadFiles.projectId, projectId), isNull(cadFiles.supersededAt)))
       .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id));
     return rows.map(toCadFile);
+  }
+
+  private selectJoined() {
+    return this.db
+      .select(columns)
+      .from(cadFiles)
+      .innerJoin(
+        siteDrawings,
+        and(eq(siteDrawings.projectId, cadFiles.projectId), eq(siteDrawings.id, cadFiles.drawingId)),
+      );
   }
 
   async find(
@@ -98,8 +116,8 @@ export class DrizzleCadFileRepository implements CadFileRepository {
     cadFileId: string,
     options?: { lock?: boolean },
   ): Promise<CadFile | null> {
-    const query = this.db.select().from(cadFiles).where(inProject(projectId, cadFileId));
-    const [row] = await (options?.lock ? query.for('update') : query);
+    const query = this.selectJoined().where(inProject(projectId, cadFileId));
+    const [row] = await (options?.lock ? query.for('update', { of: cadFiles }) : query);
     return row ? toCadFile(row) : null;
   }
 
@@ -114,44 +132,33 @@ export class DrizzleCadFileRepository implements CadFileRepository {
       storageKey: file.storageKey,
       status: 'uploaded',
       drawingKind: file.drawingKind,
+      drawingId: file.drawingId,
       uploadedBy: file.uploadedById,
     });
   }
 
-  async listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
-    const rows = await this.db
-      .select()
-      .from(cadFiles)
-      .where(
-        and(
-          eq(cadFiles.projectId, projectId),
-          eq(cadFiles.drawingKind, kind),
-          isNull(cadFiles.supersededAt),
-        ),
-      )
-      .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id));
-    return rows.map(toCadFile);
+  async findCurrentOfDrawing(projectId: string, drawingId: string): Promise<CadFile | null> {
+    const [row] = await this.selectJoined().where(
+      and(
+        eq(cadFiles.projectId, projectId),
+        eq(cadFiles.drawingId, drawingId),
+        isNull(cadFiles.supersededAt),
+      ),
+    );
+    return row ? toCadFile(row) : null;
   }
 
-  async lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
-    // NO KEY UPDATE: serialises two first uploads without blocking children's foreign-key checks.
-    await this.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .for('no key update');
-    const rows = await this.db
-      .select()
-      .from(cadFiles)
+  async lockCurrentOfDrawing(projectId: string, drawingId: string): Promise<CadFile[]> {
+    const rows = await this.selectJoined()
       .where(
         and(
           eq(cadFiles.projectId, projectId),
-          eq(cadFiles.drawingKind, kind),
+          eq(cadFiles.drawingId, drawingId),
           isNull(cadFiles.supersededAt),
         ),
       )
       .orderBy(desc(cadFiles.createdAt), desc(cadFiles.id))
-      .for('update');
+      .for('update', { of: cadFiles });
     return rows.map(toCadFile);
   }
 

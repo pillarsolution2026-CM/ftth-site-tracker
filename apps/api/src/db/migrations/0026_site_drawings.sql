@@ -38,9 +38,12 @@ BEGIN
     RAISE EXCEPTION 'site_drawings rows are never deleted' USING ERRCODE = 'restrict_violation';
   END IF;
   IF NEW.project_id IS DISTINCT FROM OLD.project_id
-     OR NEW.drawing_kind IS DISTINCT FROM OLD.drawing_kind
-     OR NEW.ordinal IS DISTINCT FROM OLD.ordinal THEN
-    RAISE EXCEPTION 'site_drawings: project, kind and number never change' USING ERRCODE = 'restrict_violation';
+     OR NEW.drawing_kind IS DISTINCT FROM OLD.drawing_kind THEN
+    RAISE EXCEPTION 'site_drawings: project and kind never change' USING ERRCODE = 'restrict_violation';
+  END IF;
+  -- The number is fixed, except when a legacy drawing is linked to its site (it takes the next one).
+  IF NEW.ordinal IS DISTINCT FROM OLD.ordinal AND NOT (OLD.site_id IS NULL AND NEW.site_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'site_drawings: the number never changes' USING ERRCODE = 'restrict_violation';
   END IF;
   -- A legacy drawing is linked to a site once: NULL -> site.
   IF NEW.site_id IS DISTINCT FROM OLD.site_id AND OLD.site_id IS NOT NULL THEN

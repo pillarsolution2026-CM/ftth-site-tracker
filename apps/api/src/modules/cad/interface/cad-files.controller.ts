@@ -84,8 +84,10 @@ export class CadFilesController {
         projectId,
         actorId: actorIdOf(request),
         file,
+        siteId: query.siteId,
         kind: query.kind,
-        newVersion: query.newVersion,
+        target: query.target,
+        drawingId: query.drawingId,
       });
       return toSummaryDto(created);
     } finally {

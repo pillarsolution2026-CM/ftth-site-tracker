@@ -15,7 +15,16 @@ import {
 import { AppError } from '../../../common/app-error.js';
 import type { Clock } from '../../../common/clock.js';
 import type { DomainEventInput, EventLog } from '../../../common/event-log.port.js';
-import type { JobQueue, WorkOrderLineRef, WorkOrderLines } from '../application/ports.js';
+import type {
+  JobQueue,
+  WorkOrderLineRef,
+  WorkOrderLines,
+  WorkOrderSiteRef,
+  WorkOrderSites,
+} from '../application/ports.js';
+import type { SiteDrawingRecord, SiteDrawingState } from '../domain/site-drawing.js';
+import { sortDrawings } from '../domain/site-drawing.js';
+import type { SiteDrawingRepository } from '../domain/site-drawing.repository.js';
 import type { BoxTypeChoiceRow, BoxTypeRepository, NewBoxTypeChoice } from '../domain/box-types.js';
 import type { CadFile, DrawingViewRecord } from '../domain/cad-file.js';
 import type { CadFileRepository, CadTx, CadUnitOfWork } from '../domain/cad-file.repository.js';
@@ -87,14 +96,17 @@ export class InMemoryCadFiles implements CadFileRepository {
   async insertUploaded(file: CadFile): Promise<void> {
     this.rows.set(file.id, { ...file, status: 'uploaded' });
   }
-  async listCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
-    return this.lockCurrentOfKind(projectId, kind);
+  /** Drawing of a file as the join the database does: set by the test setup, else by upload. */
+  async findCurrentOfDrawing(projectId: string, drawingId: string): Promise<CadFile | null> {
+    return (await this.lockCurrentOfDrawing(projectId, drawingId))[0] ?? null;
   }
-  async lockCurrentOfKind(projectId: string, kind: DrawingKind): Promise<CadFile[]> {
+  async lockCurrentOfDrawing(projectId: string, drawingId: string): Promise<CadFile[]> {
     return [...this.rows.values()]
       .filter(
         (file) =>
-          file.projectId === projectId && file.drawingKind === kind && file.supersededAt === null,
+          file.projectId === projectId &&
+          file.drawingId === drawingId &&
+          file.supersededAt === null,
       )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((file) => ({ ...file }));
@@ -281,26 +293,55 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
     const row = this.rows.get(revisionId);
     return row?.projectId === projectId ? { ...row } : null;
   }
-  async findLatestPublishedId(projectId: string, kind: DrawingKind): Promise<string | null> {
+  async findLatestPublished(projectId: string, drawingId: string): Promise<DesignRevision | null> {
     const published = [...this.rows.values()]
       .filter(
         (row) =>
-          row.projectId === projectId && row.drawingKind === kind && row.status === 'published',
+          row.projectId === projectId && row.drawingId === drawingId && row.status === 'published',
       )
       .sort((a, b) => (b.revNo ?? 0) - (a.revNo ?? 0));
-    return published[0]?.id ?? null;
+    return published[0] ? { ...published[0] } : null;
   }
-  async findOpen(projectId: string, kind: DrawingKind): Promise<DesignRevision | null> {
+  async findLatestPublishedId(projectId: string, drawingId: string): Promise<string | null> {
+    return (await this.findLatestPublished(projectId, drawingId))?.id ?? null;
+  }
+  async findOpen(projectId: string, drawingId: string): Promise<DesignRevision | null> {
     const open = [...this.rows.values()].find(
       (row) =>
         row.projectId === projectId &&
-        row.drawingKind === kind &&
+        row.drawingId === drawingId &&
         ['queued', 'building', 'draft'].includes(row.status),
     );
     return open ? { ...open } : null;
   }
-  async hasOpen(projectId: string, kind: DrawingKind): Promise<boolean> {
-    return (await this.findOpen(projectId, kind)) !== null;
+  async hasOpen(projectId: string, drawingId: string): Promise<boolean> {
+    return (await this.findOpen(projectId, drawingId)) !== null;
+  }
+  /** Set by the unit of work: the drawings table the database joins. */
+  drawings: InMemorySiteDrawings | null = null;
+  async siteGeneralCabinets(
+    projectId: string,
+    siteIds: string[],
+  ): Promise<{ siteId: string; names: (string | null)[] }[]> {
+    const out: { siteId: string; names: (string | null)[] }[] = [];
+    for (const drawing of this.drawings?.rows.values() ?? []) {
+      if (
+        drawing.projectId !== projectId ||
+        drawing.kind !== 'general' ||
+        drawing.withdrawnAt !== null ||
+        drawing.siteId === null ||
+        !siteIds.includes(drawing.siteId)
+      ) {
+        continue;
+      }
+      const open = await this.findOpen(projectId, drawing.id);
+      const revision =
+        open?.status === 'draft' ? open : await this.findLatestPublished(projectId, drawing.id);
+      if (revision) {
+        out.push({ siteId: drawing.siteId, names: await this.subCabinetCodes(projectId, revision.id) });
+      }
+    }
+    return out;
   }
   async hasInProgressForFile(projectId: string, cadFileId: string): Promise<boolean> {
     return [...this.rows.values()].some(
@@ -311,7 +352,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
     );
   }
   async insert(revision: NewDesignRevision): Promise<void> {
-    if (await this.hasOpen(revision.projectId, revision.drawingKind)) {
+    if (await this.hasOpen(revision.projectId, revision.drawingId)) {
       throw new AppError('CONFLICT', 'open revision', { reason: 'REVISION_IN_PROGRESS' });
     }
     this.sequence += 1;
@@ -321,6 +362,9 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       projectId: revision.projectId,
       cadFileId: revision.cadFileId,
       drawingKind: revision.drawingKind,
+      drawingId: revision.drawingId,
+      siteId: this.drawings?.rows.get(revision.drawingId)?.siteId ?? null,
+      drawingOrdinal: this.drawings?.rows.get(revision.drawingId)?.ordinal ?? 1,
       cadFileName: this.fileNames.get(revision.cadFileId) ?? 'plan.dxf',
       revNo: null,
       status: 'queued',
@@ -374,6 +418,7 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
   }
   async publish(
     projectId: string,
+    siteId: string,
     revisionIds: string[],
     actorId: string,
     at: Date,
@@ -382,7 +427,11 @@ export class InMemoryDesignRevisions implements DesignRevisionRepository {
       Math.max(
         0,
         ...[...this.rows.values()]
-          .filter((other) => other.projectId === projectId)
+          .filter(
+            (other) =>
+              other.projectId === projectId &&
+              this.drawings?.rows.get(other.drawingId)?.siteId === siteId,
+          )
           .map((other) => other.revNo ?? 0),
       ) + 1;
     for (const revisionId of revisionIds) {
@@ -778,6 +827,79 @@ export class InMemoryBoxTypes implements BoxTypeRepository {
   }
 }
 
+/** The drawings table in memory (ADR-049 part B). */
+export class InMemorySiteDrawings implements SiteDrawingRepository {
+  readonly rows = new Map<string, SiteDrawingRecord>();
+  constructor(
+    private readonly files: InMemoryCadFiles,
+    private readonly revisions: InMemoryDesignRevisions,
+  ) {}
+
+  async find(projectId: string, drawingId: string): Promise<SiteDrawingRecord | null> {
+    const row = this.rows.get(drawingId);
+    return row?.projectId === projectId ? { ...row } : null;
+  }
+  async listOfSite(projectId: string, siteId: string): Promise<SiteDrawingRecord[]> {
+    return sortDrawings(
+      [...this.rows.values()]
+        .filter((row) => row.projectId === projectId && row.siteId === siteId)
+        .map((row) => ({ ...row })),
+    );
+  }
+  async lockProject(): Promise<void> {
+    // single-threaded
+  }
+  async listWithState(projectId: string): Promise<SiteDrawingState[]> {
+    const states: SiteDrawingState[] = [];
+    for (const row of this.rows.values()) {
+      if (row.projectId !== projectId || row.withdrawnAt !== null) continue;
+      const file = await this.files.findCurrentOfDrawing(projectId, row.id);
+      const open = await this.revisions.findOpen(projectId, row.id);
+      const published = await this.revisions.findLatestPublished(projectId, row.id);
+      states.push({
+        ...row,
+        currentFile: file ? { id: file.id, originalName: file.originalName } : null,
+        openRevision: open
+          ? { id: open.id, status: open.status as 'queued' | 'building' | 'draft' }
+          : null,
+        latestPublished:
+          published?.revNo != null && published.publishedAt
+            ? { id: published.id, revNo: published.revNo, publishedAt: published.publishedAt }
+            : null,
+      });
+    }
+    return states;
+  }
+  async insert(drawing: SiteDrawingRecord): Promise<void> {
+    this.rows.set(drawing.id, { ...drawing });
+  }
+  async assignSite(
+    projectId: string,
+    drawingId: string,
+    siteId: string,
+    ordinal: number,
+  ): Promise<void> {
+    const row = this.rows.get(drawingId);
+    if (row?.projectId !== projectId) return;
+    this.rows.set(drawingId, { ...row, siteId, ordinal });
+  }
+  async withdraw(projectId: string, drawingId: string, actorId: string, at: Date): Promise<void> {
+    const row = this.rows.get(drawingId);
+    if (row?.projectId !== projectId) return;
+    const published = await this.revisions.findLatestPublished(projectId, drawingId);
+    if (published) throw new AppError('CONFLICT', 'published', { reason: 'DRAWING_PUBLISHED' });
+    this.rows.set(drawingId, { ...row, withdrawnAt: at, withdrawnById: actorId });
+  }
+}
+
+/** The sites of the project's work order in memory. */
+export class InMemoryWorkOrderSites implements WorkOrderSites {
+  sites: WorkOrderSiteRef[] = [];
+  async listOfProject(): Promise<WorkOrderSiteRef[]> {
+    return [...this.sites];
+  }
+}
+
 /** The project's work order lines in memory. */
 export class InMemoryWorkOrderLines implements WorkOrderLines {
   exists = true;
@@ -792,6 +914,7 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly files = new InMemoryCadFiles();
   readonly mappings = new InMemoryCadMappings();
   readonly revisions = new InMemoryDesignRevisions();
+  readonly drawings = new InMemorySiteDrawings(this.files, this.revisions);
   readonly links = new InMemoryTextLinks();
   readonly problems = new InMemoryDrawingProblems();
   readonly proposals = new InMemoryGpsProposals();
@@ -800,9 +923,14 @@ export class InMemoryCadUnitOfWork implements CadUnitOfWork {
   readonly boxTypes = new InMemoryBoxTypes();
   readonly events = new InMemoryEventLog();
 
+  constructor() {
+    this.revisions.drawings = this.drawings;
+  }
+
   run<T>(work: (tx: CadTx) => Promise<T>): Promise<T> {
     return work({
       files: this.files,
+      drawings: this.drawings,
       mappings: this.mappings,
       revisions: this.revisions,
       links: this.links,

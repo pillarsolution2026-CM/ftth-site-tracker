@@ -8,7 +8,12 @@ import type {
 import { sql } from 'drizzle-orm';
 import { toDecimalText, toDecimalTextOrNull } from '../../../common/decimal-text.js';
 import type { DbHandle } from '../../../db/db.module.js';
-import type { ExecutionReadQueries, ExecutionScope, LatestRevision } from '../application/ports.js';
+import type {
+  ExecutionReadQueries,
+  ExecutionScope,
+  LatestRevision,
+  PublishedDrawing,
+} from '../application/ports.js';
 import { latestPublished, rowsOf, zoneCondition } from './drizzle-execution.repository.js';
 
 const iso = (value: Date | string): string => new Date(value).toISOString();
@@ -27,8 +32,53 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
     return row ? { id: row.id, name: row.name, crsEpsg: row.crs_epsg } : null;
   }
 
-  latestPublishedRevision(projectId: string): Promise<LatestRevision | null> {
-    return latestPublished(this.db, projectId);
+  latestPublishedRevision(projectId: string, drawingId?: string): Promise<LatestRevision | null> {
+    return latestPublished(this.db, projectId, { drawingId });
+  }
+
+  async publishedDrawings(projectId: string): Promise<PublishedDrawing[]> {
+    // Sites are read through the drawing; the site name is on the work-order side (read-only join).
+    const rows = await rowsOf<{
+      drawing_id: string;
+      site_id: string | null;
+      site_name: string | null;
+      kind: PublishedDrawing['kind'];
+      ordinal: number;
+      id: string;
+      rev_no: number;
+      published_at: Date;
+      tiles_storage_key: string | null;
+    }>(
+      this.db,
+      sql`SELECT DISTINCT ON (d.id) d.id AS drawing_id, d.site_id, s.name AS site_name,
+                 d.drawing_kind AS kind, d.ordinal, r.id, r.rev_no, r.published_at,
+                 r.tiles_storage_key
+          FROM site_drawings d
+          JOIN design_revisions r ON r.project_id = d.project_id AND r.drawing_id = d.id
+          LEFT JOIN work_order_sites s ON s.project_id = d.project_id AND s.id = d.site_id
+          WHERE d.project_id = ${projectId} AND r.status = 'published'
+          ORDER BY d.id, r.rev_no DESC`,
+    );
+    return rows
+      .map((row) => ({
+        drawingId: row.drawing_id,
+        siteId: row.site_id,
+        siteName: row.site_name,
+        kind: row.kind,
+        ordinal: row.ordinal,
+        revision: {
+          id: row.id,
+          drawingId: row.drawing_id,
+          revNo: row.rev_no,
+          publishedAt: new Date(row.published_at),
+          hasTiles: row.tiles_storage_key !== null,
+        },
+      }))
+      .sort(
+        (a, b) =>
+          (a.siteName ?? '￿').localeCompare(b.siteName ?? '￿') ||
+          (a.kind === b.kind ? a.ordinal - b.ordinal : a.kind === 'general' ? -1 : 1),
+      );
   }
 
   async featuresInScope(

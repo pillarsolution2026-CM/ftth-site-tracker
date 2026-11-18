@@ -21,8 +21,8 @@ export interface SiteDrawingRepository {
   /** Every non-withdrawn drawing of the project with its current file and newest revisions. */
   listWithState(projectId: string): Promise<SiteDrawingState[]>;
   insert(drawing: SiteDrawingRecord): Promise<void>;
-  /** NULL → site, once (the database refuses a second link). */
-  assignSite(projectId: string, drawingId: string, siteId: string): Promise<void>;
+  /** NULL → site, once (the database refuses a second link); the drawing takes `ordinal` in the site. */
+  assignSite(projectId: string, drawingId: string, siteId: string, ordinal: number): Promise<void>;
   /** Sets withdrawn_at/by; the database refuses a drawing that was ever published. */
   withdraw(projectId: string, drawingId: string, actorId: string, at: Date): Promise<void>;
 }

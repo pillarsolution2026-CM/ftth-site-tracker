@@ -101,13 +101,22 @@ class DrizzleAsBuiltExportTx implements AsBuiltExportTx {
     this.events = new DrizzleEventLog(db);
   }
 
-  async latestPublishedRevision(projectId: string): Promise<{ id: string; revNo: number } | null> {
+  async latestPublishedRevision(
+    projectId: string,
+    siteId?: string,
+  ): Promise<{ id: string; revNo: number } | null> {
     const [row] = await rowsOf<{ id: string; rev_no: number }>(
       this.db,
-      sql`SELECT id, rev_no FROM design_revisions
-          WHERE project_id = ${projectId} AND status = 'published'
-            AND drawing_kind = 'general'
-          ORDER BY rev_no DESC LIMIT 1`,
+      siteId
+        ? sql`SELECT r.id, r.rev_no FROM design_revisions r
+              JOIN site_drawings d ON d.project_id = r.project_id AND d.id = r.drawing_id
+              WHERE r.project_id = ${projectId} AND r.status = 'published'
+                AND r.drawing_kind = 'general' AND d.site_id = ${siteId}
+              ORDER BY r.rev_no DESC LIMIT 1`
+        : sql`SELECT id, rev_no FROM design_revisions
+              WHERE project_id = ${projectId} AND status = 'published'
+                AND drawing_kind = 'general'
+              ORDER BY published_at DESC, rev_no DESC LIMIT 1`,
     );
     return row ? { id: row.id, revNo: row.rev_no } : null;
   }
