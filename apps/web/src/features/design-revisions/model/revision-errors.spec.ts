@@ -6,14 +6,45 @@ import { publishBlockedMessage, publishBlockedOf } from './revision-errors';
 
 describe('publish refusal messages', () => {
   it.each([
-    [{ reason: 'CRS_UNKNOWN', drawingKind: 'general' }, /coordinate system .* never chosen/],
-    [{ reason: 'PLACEMENT_MISSING', drawingKind: 'general' }, /no control point in use/],
     [
-      { reason: 'PROBLEMS_OPEN', drawingKind: 'general', problemCount: 7 },
+      {
+        reason: 'CRS_UNKNOWN',
+        drawingKind: 'general',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+      },
+      /coordinate system .* never chosen/,
+    ],
+    [
+      {
+        reason: 'PLACEMENT_MISSING',
+        drawingKind: 'general',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+      },
+      /no control point in use/,
+    ],
+    [
+      {
+        reason: 'PROBLEMS_OPEN',
+        drawingKind: 'general',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+        problemCount: 7,
+      },
       /7.* drawing errors are left/,
     ],
     [{ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 0 }, /not acknowledged/],
-    [{ reason: 'OTHER_DRAWING_MISSING', drawingKind: 'secondary' }, /both drawings are published/],
+    [
+      {
+        reason: 'DRAWING_NOT_READY',
+        drawingKind: 'secondary',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+        state: 'no_revision',
+      },
+      /both drawings are published/,
+    ],
   ] as const)('has a clear message for %j', (details, expected) => {
     const { key, params } = publishBlockedMessage(details, 'en');
     expect(translate('en', key, params)).toMatch(expected);
@@ -23,19 +54,36 @@ describe('publish refusal messages', () => {
 
   it('names the drawing that blocks, in each language', () => {
     const secondary = publishBlockedMessage(
-      { reason: 'OTHER_DRAWING_MISSING', drawingKind: 'secondary' },
+      {
+        reason: 'DRAWING_NOT_READY',
+        drawingKind: 'secondary',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+        state: 'no_revision',
+      },
       'en',
     );
     expect(translate('en', secondary.key, secondary.params)).toMatch(/no draft for the Secondary/);
     const placement = publishBlockedMessage(
-      { reason: 'PLACEMENT_MISSING', drawingKind: 'secondary' },
+      {
+        reason: 'PLACEMENT_MISSING',
+        drawingKind: 'secondary',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+      },
       'en',
     );
     expect(translate('en', placement.key, placement.params)).toMatch(
       /Secondary drawing has no control point/,
     );
     const arabic = publishBlockedMessage(
-      { reason: 'PROBLEMS_OPEN', drawingKind: 'general', problemCount: 2 },
+      {
+        reason: 'PROBLEMS_OPEN',
+        drawingKind: 'general',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+        problemCount: 2,
+      },
       'ar',
     );
     expect(translate('ar', arabic.key, arabic.params)).toContain('جينيرال (رئيسي)');
@@ -45,11 +93,15 @@ describe('publish refusal messages', () => {
     const error = new ApiClientError('CONFLICT', 409, {
       reason: 'PROBLEMS_OPEN',
       drawingKind: 'general',
+      drawingId: '11111111-1111-4111-8111-111111111111',
+      ordinal: 1,
       problemCount: 3,
     });
     expect(publishBlockedOf(error)).toEqual({
       reason: 'PROBLEMS_OPEN',
       drawingKind: 'general',
+      drawingId: '11111111-1111-4111-8111-111111111111',
+      ordinal: 1,
       problemCount: 3,
     });
     expect(publishBlockedOf(new Error('x'))).toBeNull();
@@ -61,8 +113,17 @@ describe('CABINETS_MISMATCH refusal (ADR-041)', () => {
     reason: 'CABINETS_MISMATCH',
     cabinets: {
       ok: false,
-      general: { count: 9, unnamed: 0, missingInOther: ['1-9'] },
-      secondary: { count: 8, unnamed: 1, missingInOther: [] },
+      general: { drawingId: null, count: 9, unnamed: 0 },
+      secondaries: [
+        {
+          drawingId: '11111111-1111-4111-8111-111111111111',
+          ordinal: 1,
+          side: { count: 8, unnamed: 1, missingInOther: [] },
+        },
+      ],
+      inSeveralSecondaries: [],
+      missingInGeneral: [],
+      missingInSecondaries: ['1-9'],
     },
   };
 
@@ -86,6 +147,8 @@ describe('INSTALLATION_UNCLEAR refusal (ADR-042)', () => {
   const details: PublishBlockedDetails = {
     reason: 'INSTALLATION_UNCLEAR',
     drawingKind: 'general',
+    drawingId: '11111111-1111-4111-8111-111111111111',
+    ordinal: 1,
     issueCount: 2,
     issues: [
       {
@@ -129,6 +192,8 @@ describe('BOX_TYPES_UNCLEAR refusal (ADR-043)', () => {
   const details: PublishBlockedDetails = {
     reason: 'BOX_TYPES_UNCLEAR',
     drawingKind: 'secondary',
+    drawingId: '11111111-1111-4111-8111-111111111111',
+    ordinal: 1,
     issueCount: 2,
     issues: [
       { code: 'BOX_TYPE_UNSET', shape, boxCount: 197, workOrderLineId: null },

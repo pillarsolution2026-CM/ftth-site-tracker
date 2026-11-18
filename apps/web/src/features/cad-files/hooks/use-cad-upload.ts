@@ -1,10 +1,23 @@
 'use client';
 
 import { useState, type ChangeEvent } from 'react';
-import { KindExistsDetailsSchema, type DrawingKind } from '@ftth/shared';
+import { z } from 'zod';
+import { DrawingKindSchema, type DrawingKind } from '@ftth/shared';
 import { ApiClientError, errorCodeOf } from '@/shared/api/bff-client';
 import { useUploadCadFile } from '../api/queries';
 import { isCadFileName } from '../model/cad-status';
+
+/**
+ * The old «kind already has a current file» answer. ADR-049 part B replaced it in the API with the
+ * site picker and `GENERAL_EXISTS`; the web upload flow is rewritten for sites by the web agent, and
+ * this local copy only keeps the current screen compiling until then.
+ */
+const KindExistsDetailsSchema = z.object({
+  reason: z.literal('KIND_EXISTS'),
+  kind: DrawingKindSchema,
+  currentFileId: z.uuid(),
+  currentFileName: z.string(),
+});
 
 /** The kind already has a current file: the PM is asked «is this a new version?» (ADR-040). */
 export interface KindConflict {

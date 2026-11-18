@@ -212,7 +212,7 @@ export class InMemoryWorkOrderSites implements WorkOrderSiteRepository {
   async list(_projectId: string, workOrderId: string): Promise<WorkOrderSite[]> {
     return [...(this.byOrder.get(workOrderId) ?? [])];
   }
-  async listOfProject(_projectId: string): Promise<WorkOrderSite[]> {
+  async listOfProject(): Promise<WorkOrderSite[]> {
     return [...this.byOrder.values()].flat();
   }
   async apply(_projectId: string, workOrderId: string, plan: SiteReplacement): Promise<void> {

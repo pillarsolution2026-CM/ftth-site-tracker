@@ -39,10 +39,29 @@ import {
   WorkOrderImportPreviewResponseSchema,
   WorkOrderItemSchema,
   WorkOrderListResponseSchema,
-  KindExistsDetailsSchema,
-  UploadCadFileQuerySchema,
+  DrawingKindSchema,
   type DrawingKind,
 } from '@ftth/shared';
+import { z } from 'zod';
+
+/**
+ * The pre-ADR-049 upload contract (kind + newVersion, 409 KIND_EXISTS). The API replaced it with the
+ * site picker; the web agent rewrites the upload screen and this mock for sites. Until then the mock
+ * keeps serving the current screen.
+ */
+const UploadCadFileQuerySchema = z.object({
+  kind: DrawingKindSchema,
+  newVersion: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+});
+const KindExistsDetailsSchema = z.object({
+  reason: z.literal('KIND_EXISTS'),
+  kind: DrawingKindSchema,
+  currentFileId: z.uuid(),
+  currentFileName: z.string(),
+});
 import {
   ADMIN_ACCESS,
   ADMIN_EMAIL,

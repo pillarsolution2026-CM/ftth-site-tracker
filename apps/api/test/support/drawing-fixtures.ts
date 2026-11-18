@@ -108,3 +108,36 @@ export async function uploadQuery(
     ? `?siteId=${site}&kind=${kind}&target=new_version&drawingId=${drawing.id}`
     : `?siteId=${site}&kind=${kind}&target=new_drawing`;
 }
+
+/**
+ * TEST DATA ONLY. A new version of a file: the older one is marked superseded first (the reference
+ * to the newer file is checked at commit), then the newer one is inserted in the same drawing, all
+ * in one transaction. Returns the id of the new file.
+ */
+export async function supersedeByNewFile(pool: pg.Pool, oldId: string): Promise<string> {
+  const newId = randomUUID();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1',
+      [oldId, newId],
+    );
+    await client.query(
+      `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
+                              status, current_job_id, processed_at, drawing_kind, drawing_id)
+       SELECT $2::uuid, project_id, 'v2.dxf', 'dxf', 1, repeat('a', 64),
+              'projects/' || project_id || '/cad/' || $2::text || '/o.dxf', 'processed',
+              gen_random_uuid(), now(), drawing_kind, drawing_id
+       FROM cad_files WHERE id = $1`,
+      [oldId, newId],
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+  return newId;
+}

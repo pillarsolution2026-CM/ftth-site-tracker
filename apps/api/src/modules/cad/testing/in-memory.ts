@@ -4,7 +4,6 @@ import {
   type CadImportJob,
   type BoxShapeGallery,
   type CadRenderViewJob,
-  type DrawingKind,
   type FeatureType,
   type FrozenDrawingCorrection,
   type FrozenInstallation,

@@ -1125,6 +1125,8 @@
         "no_problems": "No drawing errors ({count} left)",
         "open_items": "Open items reviewed ({count})",
         "other_drawing": "The other drawing ({drawing}) is ready: zero errors, coordinates set",
+        "site_drawings": "Every drawing of the site is ready: the General and at least one Secondary, built",
+        "cabinets_other_site": "No cabinet name is also in another site of the work order ({count})",
         "cabinets_match": "Cabinets match in both drawings (name and count)",
         "installation": "Installation method (pull / trench) is clear",
         "box_types": "Every box shape has a work-order line"

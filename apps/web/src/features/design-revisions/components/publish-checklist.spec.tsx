@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type {
   BoxTypesReport,
   InstallationIssue,
+  InstallationReport,
   PublishCheckKey,
   PublishReadiness,
 } from '@ftth/shared';
@@ -11,17 +12,47 @@ import { renderScreen } from '@/test-utils/render';
 import { PublishChecklist } from './publish-checklist';
 import { RevisionStatusBadge } from './revision-status-badge';
 
+/**
+ * ADR-049 part B moved the installation and box-types reports from the checklist to its drawings.
+ * These fixtures keep naming them at the top level; `toReadiness` puts them on a drawing.
+ */
+type LegacyReadiness = PublishReadiness & {
+  installation?: InstallationReport | null;
+  boxTypes?: BoxTypesReport | null;
+};
+function toReadiness(data: LegacyReadiness): PublishReadiness {
+  const { installation = null, boxTypes = null, ...rest } = data;
+  if (!installation && !boxTypes) return rest;
+  return {
+    ...rest,
+    drawings: [
+      {
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        drawingKind: rest.drawingKind ?? 'general',
+        ordinal: 1,
+        draftRevisionId: null,
+        state: 'draft',
+        checks: [],
+        warningCount: 0,
+        installation,
+        boxTypes,
+      },
+    ],
+  };
+}
+
 function readiness(
   failing: PublishCheckKey[] = [],
   counts: Partial<Record<PublishCheckKey, number | null>> = {},
-): PublishReadiness {
+): LegacyReadiness {
   const base: Record<PublishCheckKey, number | null> = {
     crs_known: null,
     control_point: 2,
     no_problems: 0,
     open_items: 0,
-    other_drawing: 0,
+    site_drawings: 0,
     cabinets_match: 0,
+    cabinets_other_site: 0,
     installation: 0,
     box_types: null,
     ...counts,
@@ -31,29 +62,33 @@ function readiness(
     'control_point',
     'no_problems',
     'open_items',
-    'other_drawing',
+    'site_drawings',
     'cabinets_match',
+    'cabinets_other_site',
     'installation',
     'box_types',
   ] as const;
   return {
     checks: keys.map((key) => ({ key, ok: !failing.includes(key), count: base[key] })),
     canPublish: !failing.some((key) => key !== 'open_items'),
+    siteId: null,
+    revisionId: null,
     drawingKind: 'general',
-    otherRevisionId: null,
+    siteRevisionIds: [],
+    drawings: [],
+    cabinetsInOtherSites: [],
     needsAcknowledgement: failing.includes('open_items'),
     cabinets: null,
     warningCount: 0,
-    installation: null,
-    boxTypes: null,
     switchedOff: [],
   };
 }
 
 function setup(
-  data: PublishReadiness | null,
+  input: LegacyReadiness | null,
   props: Partial<Parameters<typeof PublishChecklist>[0]> = {},
 ) {
+  const data = input ? toReadiness(input) : null;
   const onPublish = vi.fn();
   const onAcknowledgedChange = vi.fn();
   renderScreen(
@@ -81,11 +116,11 @@ describe('PublishChecklist', () => {
     expect(screen.getByText(/At least one control point in use \(.*2.*\)/)).toBeInTheDocument();
     expect(screen.getByText(/No drawing errors \(.*5.* left\)/)).toBeInTheDocument();
     expect(screen.getByText(/Open items reviewed/)).toBeInTheDocument();
-    expect(screen.getByText(/The other drawing \(Secondary\) is ready/)).toBeInTheDocument();
+    expect(screen.getByText(/Every drawing of the site is ready/)).toBeInTheDocument();
     expect(screen.getByText('Installation method (pull / trench) is clear')).toBeInTheDocument();
-    expect(screen.getAllByText('✅')).toHaveLength(7);
+    expect(screen.getAllByText('✅')).toHaveLength(8);
     expect(screen.getByText('❌')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getAllByText('(Done)')).toHaveLength(7);
+    expect(screen.getAllByText('(Done)')).toHaveLength(8);
     expect(screen.getByText('(Not done)')).toBeInTheDocument();
   });
 
@@ -93,7 +128,7 @@ describe('PublishChecklist', () => {
     'crs_known',
     'control_point',
     'no_problems',
-    'other_drawing',
+    'site_drawings',
     'cabinets_match',
   ] as const)('locks Publish when %s fails', (key) => {
     setup(readiness([key]));
@@ -139,7 +174,7 @@ describe('PublishChecklist', () => {
 
 describe('PublishChecklist other drawing row (ADR-040)', () => {
   it('says there is no draft yet when the other drawing has none', () => {
-    setup(readiness(['other_drawing'], { other_drawing: null }));
+    setup(readiness(['site_drawings'], { site_drawings: null }));
     expect(screen.getByText('There is no draft for the Secondary yet')).toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: /Open the Secondary draft/ }),
@@ -147,7 +182,7 @@ describe('PublishChecklist other drawing row (ADR-040)', () => {
   });
 
   it('shows the errors left in the other drawing and links to its draft', () => {
-    setup(readiness(['other_drawing'], { other_drawing: 4 }), {
+    setup(readiness(['site_drawings'], { site_drawings: 4 }), {
       otherRevisionHref: '/en/projects/p/design-revisions/o',
     });
     expect(screen.getByText(/4.* errors in it/)).toBeInTheDocument();
@@ -159,11 +194,11 @@ describe('PublishChecklist other drawing row (ADR-040)', () => {
 
   it('names the General when this is the Secondary draft', () => {
     const data = {
-      ...readiness(['other_drawing'], { other_drawing: null }),
+      ...readiness(['site_drawings'], { site_drawings: null }),
       drawingKind: 'secondary' as const,
     };
     setup(data);
-    expect(screen.getByText(/The other drawing \(General \(main\)\) is ready/)).toBeInTheDocument();
+    expect(screen.getByText(/Every drawing of the site is ready/)).toBeInTheDocument();
   });
 
   it('says both drawings are published together', () => {
@@ -182,17 +217,26 @@ describe('PublishChecklist cabinets row (ADR-041)', () => {
     ).toBeInTheDocument();
     expect(
       screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('✅')),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
     expect(screen.queryByText(/Only in the General/)).not.toBeInTheDocument();
   });
 
   it('lists the names that exist in one drawing only, and the counts', () => {
-    const data: PublishReadiness = {
+    const data: LegacyReadiness = {
       ...readiness(['cabinets_match'], { cabinets_match: 3 }),
       cabinets: {
         ok: false,
-        general: { count: 9, unnamed: 0, missingInOther: ['1-9', '2-1'] },
-        secondary: { count: 8, unnamed: 1, missingInOther: ['1-8'] },
+        general: { drawingId: null, count: 9, unnamed: 0 },
+        secondaries: [
+          {
+            drawingId: '11111111-1111-4111-8111-111111111111',
+            ordinal: 1,
+            side: { count: 8, unnamed: 1, missingInOther: ['1-8'] },
+          },
+        ],
+        inSeveralSecondaries: [],
+        missingInGeneral: ['1-8'],
+        missingInSecondaries: ['1-9', '2-1'],
       },
     };
     setup(data);
@@ -208,7 +252,7 @@ describe('PublishChecklist cabinets row (ADR-041)', () => {
 
   it('says there is nothing to compare with while the other draft is missing', () => {
     setup(
-      readiness(['cabinets_match', 'other_drawing'], { cabinets_match: null, other_drawing: null }),
+      readiness(['cabinets_match', 'site_drawings'], { cabinets_match: null, site_drawings: null }),
     );
     expect(
       screen.getByText('There is no draft for the Secondary to compare with'),
@@ -239,7 +283,7 @@ describe('RevisionStatusBadge', () => {
 
 describe('PublishChecklist installation row (ADR-042)', () => {
   const route = 'A1F';
-  function withIssues(issues: InstallationIssue[]): PublishReadiness {
+  function withIssues(issues: InstallationIssue[]): LegacyReadiness {
     return {
       ...readiness(['installation'], { installation: issues.length }),
       installation: {

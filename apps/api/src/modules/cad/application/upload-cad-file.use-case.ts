@@ -72,7 +72,7 @@ export class UploadCadFileUseCase {
     target: DrawingTarget;
     drawingId?: string | undefined;
   }): Promise<CadFile> {
-    const { projectId, actorId, file, siteId, kind, target } = input;
+    const { projectId, actorId, file, siteId, kind } = input;
     const format = declaredFormat(file.fileName);
     const { head, stream } = await peekStream(file.stream, SNIFF_BYTES);
     verifyCadContent(format, head);

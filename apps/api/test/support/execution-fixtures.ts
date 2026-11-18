@@ -59,25 +59,35 @@ export async function publishRevision(
   /** ADR-040: the General is what the mobile bundle and As-Built read; default as before. */
   drawingKind: 'general' | 'secondary' = 'general',
 ): Promise<string> {
-  const fileId = randomUUID();
-  const drawingId = await insertDrawing(
-    (text, values) => pool.query(text, values),
-    projectId,
-    drawingKind,
+  // A later revision of the same kind is a newer revision of the same drawing (ADR-049 part B):
+  // feature identity, REVISION_OUTDATED and FEATURE_REMOVED are per drawing.
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM cad_files WHERE project_id = $1 AND drawing_kind = $2 AND superseded_at IS NULL
+     ORDER BY created_at LIMIT 1`,
+    [projectId, drawingKind],
   );
-  await pool.query(
-    `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, processed_at, drawing_kind, drawing_id)
-     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, 'processed', $4, now(), $5, $6)`,
-    [
-      fileId,
+  let fileId = existing.rows[0]?.id;
+  if (!fileId) {
+    fileId = randomUUID();
+    const drawingId = await insertDrawing(
+      (text, values) => pool.query(text, values),
       projectId,
-      `projects/${projectId}/cad/${fileId}/original.dxf`,
-      randomUUID(),
       drawingKind,
-      drawingId,
-    ],
-  );
+    );
+    await pool.query(
+      `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
+                              status, current_job_id, processed_at, drawing_kind, drawing_id)
+       VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, 'processed', $4, now(), $5, $6)`,
+      [
+        fileId,
+        projectId,
+        `projects/${projectId}/cad/${fileId}/original.dxf`,
+        randomUUID(),
+        drawingKind,
+        drawingId,
+      ],
+    );
+  }
   const revisionId = randomUUID();
   await pool.query(
     `INSERT INTO design_revisions (id, project_id, cad_file_id, status, current_job_id, rules,

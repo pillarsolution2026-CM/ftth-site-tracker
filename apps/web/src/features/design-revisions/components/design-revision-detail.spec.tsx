@@ -1,6 +1,6 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PublishReadiness } from '@ftth/shared';
+import type { InstallationReport, PublishReadiness } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
 import { QC_ACCESS, renderScreen } from '@/test-utils/render';
@@ -49,26 +49,53 @@ const revision = {
   status: 'draft',
 };
 
-function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness {
+/**
+ * ADR-049 part B: the installation report lives on the checklist's drawings and the other draft of the
+ * site is in `siteRevisionIds`. These fixtures keep naming both at the top level.
+ */
+function readiness(
+  input: Partial<PublishReadiness> & {
+    installation?: InstallationReport | null;
+    otherRevisionId?: string | null;
+  } = {},
+): PublishReadiness {
+  const { installation = null, otherRevisionId = null, ...overrides } = input;
   return {
+    siteId: null,
+    revisionId: null,
+    siteRevisionIds: otherRevisionId ? [otherRevisionId] : [],
+    cabinetsInOtherSites: [],
+    drawings: installation
+      ? [
+          {
+            drawingId: '11111111-1111-4111-8111-111111111111',
+            drawingKind: 'general',
+            ordinal: 1,
+            draftRevisionId: null,
+            state: 'draft',
+            checks: [],
+            warningCount: 0,
+            installation,
+            boxTypes: null,
+          },
+        ]
+      : [],
     checks: [
       { key: 'crs_known', ok: true, count: null },
       { key: 'control_point', ok: true, count: 1 },
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: true, count: 0 },
-      { key: 'other_drawing', ok: true, count: 0 },
+      { key: 'site_drawings', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
+      { key: 'cabinets_other_site', ok: true, count: 0 },
       { key: 'installation', ok: true, count: 0 },
       { key: 'box_types', ok: true, count: null },
     ],
     canPublish: true,
     drawingKind: 'general',
-    otherRevisionId: null,
     needsAcknowledgement: false,
     cabinets: null,
     warningCount: 0,
-    installation: null,
-    boxTypes: null,
     switchedOff: [],
     ...overrides,
   };
@@ -168,6 +195,8 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     api.publishDesignRevision.mockRejectedValue(
       new ApiClientError('CONFLICT', 409, {
         reason: 'PROBLEMS_OPEN',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         drawingKind: 'secondary',
         problemCount: 4,
       }),
@@ -270,6 +299,8 @@ describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
     api.publishDesignRevision.mockRejectedValue(
       new ApiClientError('CONFLICT', 409, {
         reason: 'INSTALLATION_UNCLEAR',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         drawingKind: 'general',
         issueCount: 1,
         issues: [
@@ -306,7 +337,7 @@ describe('DesignRevisionDetailScreen pair publishing', () => {
           { key: 'control_point', ok: true, count: 1 },
           { key: 'no_problems', ok: true, count: 0 },
           { key: 'open_items', ok: true, count: 0 },
-          { key: 'other_drawing', ok: false, count: 3 },
+          { key: 'site_drawings', ok: false, count: 3 },
         ],
         canPublish: false,
         otherRevisionId: other,
@@ -425,6 +456,8 @@ describe('DesignRevisionDetailScreen box types (ADR-043)', () => {
     api.publishDesignRevision.mockRejectedValue(
       new ApiClientError('CONFLICT', 409, {
         reason: 'BOX_TYPES_UNCLEAR',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         drawingKind: 'secondary',
         issueCount: 1,
         issues: [

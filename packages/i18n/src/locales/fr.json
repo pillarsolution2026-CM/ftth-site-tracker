@@ -1125,6 +1125,8 @@
         "no_problems": "Aucune erreur de dessin ({count} restantes)",
         "open_items": "Éléments ouverts revus ({count})",
         "other_drawing": "L'autre plan ({drawing}) est prêt : zéro erreur, coordonnées calées",
+        "site_drawings": "Tous les plans du site sont prêts : le principal et au moins un secondaire, construits",
+        "cabinets_other_site": "Aucun nom d'armoire n'est dans un autre site de l'ordre de travail ({count})",
         "cabinets_match": "Les armoires correspondent dans les deux plans (nom et nombre)",
         "installation": "Le mode de pose (tirage / tranchée) est clair",
         "box_types": "Chaque forme de boîtier a une ligne de l’ordre de travail"

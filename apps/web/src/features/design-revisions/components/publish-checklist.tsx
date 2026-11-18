@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import type {
   BoxTypesReport,
-  CabinetsComparison,
   InstallationReport,
   PublishCheck,
   PublishCheckKey,
   PublishReadiness,
+  SiteCabinetsComparison,
 } from '@ftth/shared';
 import { ltr } from '@ftth/i18n';
 import { otherDrawingKind, type DrawingKind } from '@ftth/shared';
@@ -76,14 +76,14 @@ export function PublishChecklist({
                 key={check.key}
                 check={check}
                 cabinets={readiness.cabinets}
-                installation={readiness.installation}
-                boxTypes={readiness.boxTypes}
-                drawingKind={readiness.drawingKind}
+                installation={readiness.drawings.find((d) => d.installation)?.installation ?? null}
+                boxTypes={readiness.drawings.find((d) => d.boxTypes)?.boxTypes ?? null}
+                drawingKind={readiness.drawingKind ?? 'general'}
                 switchedOff={readiness.switchedOff.includes(check.key)}
                 onShowRoute={onShowRoute}
                 mappingHref={mappingHref}
                 otherRevisionHref={otherRevisionHref}
-                otherKind={otherDrawingKind(readiness.drawingKind)}
+                otherKind={otherDrawingKind(readiness.drawingKind ?? 'general')}
               />
             ))}
         </ul>
@@ -108,8 +108,8 @@ export function PublishChecklist({
       {readiness ? (
         <p id="publish-pair" className="text-sm font-semibold">
           {t('design.publish.pairNote', {
-            first: t(`drawingKind.${readiness.drawingKind}`),
-            second: t(`drawingKind.${otherDrawingKind(readiness.drawingKind)}`),
+            first: t(`drawingKind.${readiness.drawingKind ?? 'general'}`),
+            second: t(`drawingKind.${otherDrawingKind(readiness.drawingKind ?? 'general')}`),
           })}
         </p>
       ) : null}
@@ -132,22 +132,30 @@ export function PublishChecklist({
 }
 
 /** Cabinet names that exist in one drawing only, so the PM sees which one to fix (ADR-041). */
-function CabinetsDetail({ cabinets }: { cabinets: CabinetsComparison }) {
+function CabinetsDetail({ cabinets }: { cabinets: SiteCabinetsComparison }) {
   const { t } = useI18n();
-  const rows = [['general', cabinets.general] as const, ['secondary', cabinets.secondary] as const];
+  // ADR-049 part B: the General against the union of the site's Secondaries. The web agent gives the
+  // site's cabinets their own layout; until then the names are listed under the old two headings.
+  const secondaryCount = cabinets.secondaries.reduce((sum, s) => sum + s.side.count, 0);
+  const unnamed =
+    cabinets.general.unnamed + cabinets.secondaries.reduce((sum, s) => sum + s.side.unnamed, 0);
+  const rows = [
+    ['general', cabinets.missingInSecondaries] as const,
+    ['secondary', [...cabinets.missingInGeneral, ...cabinets.inSeveralSecondaries]] as const,
+  ];
   return (
     <div className="ms-7 flex w-full flex-col gap-1 text-sm">
       <p>
         {t('design.publish.cabinetsCounts', {
           general: ltr(cabinets.general.count),
-          secondary: ltr(cabinets.secondary.count),
+          secondary: ltr(secondaryCount),
         })}
       </p>
-      {rows.map(([kind, side]) =>
-        side.missingInOther.length > 0 ? (
+      {rows.map(([kind, names]) =>
+        names.length > 0 ? (
           <p key={kind}>
             {t(`design.publish.cabinetsOnly.${kind}`)}:{' '}
-            {side.missingInOther.map((name, index) => (
+            {names.map((name, index) => (
               <span key={name}>
                 {index > 0 ? '، ' : ''}
                 <Ltr>{name}</Ltr>
@@ -156,10 +164,10 @@ function CabinetsDetail({ cabinets }: { cabinets: CabinetsComparison }) {
           </p>
         ) : null,
       )}
-      {cabinets.general.unnamed + cabinets.secondary.unnamed > 0 ? (
+      {unnamed > 0 ? (
         <p>
           {t('design.publish.cabinetsUnnamed', {
-            count: ltr(cabinets.general.unnamed + cabinets.secondary.unnamed),
+            count: ltr(unnamed),
           })}
         </p>
       ) : null}
@@ -220,7 +228,7 @@ function CheckRow({
   otherKind,
 }: {
   check: PublishCheck;
-  cabinets: CabinetsComparison | null;
+  cabinets: SiteCabinetsComparison | null;
   installation: InstallationReport | null;
   boxTypes: BoxTypesReport | null;
   drawingKind: DrawingKind;
@@ -232,7 +240,7 @@ function CheckRow({
 }) {
   const { t } = useI18n();
   const drawing = t(`drawingKind.${otherKind}`);
-  const isOther = check.key === 'other_drawing';
+  const isOther = check.key === 'site_drawings';
   const label = t(`design.publish.checks.${check.key}`, {
     count: check.count === null ? '' : ltr(check.count),
     drawing,

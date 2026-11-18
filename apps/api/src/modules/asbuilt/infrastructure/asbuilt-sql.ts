@@ -32,16 +32,15 @@ export function parseGeometry(geojson: string): AsBuiltGeometry {
 }
 
 /**
- * The latest published revision of EACH General drawing of the project (ADR-049 part B), as an
- * array subquery (project id bound). Feature ids are stable within a drawing, so a feature is found
- * in exactly one of them.
+ * The latest published revision of EACH General drawing of the project (ADR-049 part B), as a
+ * subquery of ids to use after `IN (…)` (project id bound). Feature ids are stable within a
+ * drawing, so a feature is found in exactly one of them.
  */
 export const latestRevisionIdsSql = (projectId: string): SQL =>
-  sql`(SELECT COALESCE(array_agg(x.id), '{}'::uuid[]) FROM (
-          SELECT DISTINCT ON (r.drawing_id) r.id FROM design_revisions r
-          WHERE r.project_id = ${projectId} AND r.status = 'published'
-            AND r.drawing_kind = 'general'
-          ORDER BY r.drawing_id, r.rev_no DESC) x)`;
+  sql`SELECT DISTINCT ON (r.drawing_id) r.id FROM design_revisions r
+        WHERE r.project_id = ${projectId} AND r.status = 'published'
+          AND r.drawing_kind = 'general'
+        ORDER BY r.drawing_id, r.rev_no DESC`;
 
 /**
  * Read scope of an edit, alias `e` (asbuilt_edits). Phase 4 contract: the feature's design
@@ -63,7 +62,7 @@ export function editReadScope(projectId: string, scope: AsBuiltScope): SQL {
           SELECT 1 FROM design_features df
           WHERE df.project_id = e.project_id AND df.feature_id = e.feature_id
             AND (df.revision_id = e.design_revision_id
-                 OR df.revision_id = ANY(${latestRevisionIdsSql(projectId)}))
+                 OR df.revision_id IN (${latestRevisionIdsSql(projectId)}))
             AND ST_Intersects(z.geom, df.geom))
         OR EXISTS (
           SELECT 1 FROM asbuilt_features af

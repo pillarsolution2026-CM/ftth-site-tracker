@@ -17,7 +17,11 @@ import {
 import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
-import { insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
+import {
+  insertDrawing,
+  linkDrawingsToSite,
+  supersedeByNewFile,
+} from './support/drawing-fixtures.js';
 
 /** ADR-043: box type by the drawn shape — the choices, the freeze, the check and publishing. */
 
@@ -459,11 +463,7 @@ describe('choosing box types', () => {
     const sc = await scenario();
     await secondaryDraft(sc);
     await choose(sc, [{ shape: SHAPE_1, workOrderLineId: sc.lines.L1 ?? '' }]);
-    const next = await insertFile('secondary', sc.project);
-    await q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-      sc.secondary,
-      next,
-    ]);
+    const next = await supersedeByNewFile(ctx.pool, sc.secondary);
     const state = BoxTypeStateSchema.parse((await getState(sc, next)).body);
     expect(state.active).toEqual([]);
     expect(state.previousVersion).toEqual({
