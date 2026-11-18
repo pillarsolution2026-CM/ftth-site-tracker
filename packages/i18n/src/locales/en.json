@@ -2122,6 +2122,8 @@
     "onPhone": "On the phone (revision {revNo})",
     "onPhoneOld": "On the phone (revision {revNo}) - newer revision {latest} available",
     "notOnPhone": "Not downloaded - downloads when chosen",
-    "empty": "No drawings are published for this project yet."
+    "empty": "No drawings are published for this project yet.",
+    "notOnPhoneOffline": "This drawing is not on the phone. Connect to the internet to download it.",
+    "autoDownloading": "Downloading {done} of {total}"
   }
 }

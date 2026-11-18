@@ -42,8 +42,17 @@ interface CadScreenProps {
 export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: CadScreenProps) {
   const { t } = useI18n();
   const theme = useTheme();
-  const { bundle, bundleStatus, download, entries, drawings, downloadedDrawings, selectDrawing } =
-    useField();
+  const {
+    bundle,
+    bundleStatus,
+    download,
+    entries,
+    drawings,
+    downloadedDrawings,
+    selectDrawing,
+    autoProgress,
+    drawingUnavailable,
+  } = useField();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
@@ -146,8 +155,12 @@ export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: 
           downloaded={downloadedDrawings}
           currentDrawingId={bundle.revision?.drawingId ?? null}
           busy={bundleStatus === 'downloading'}
+          progress={autoProgress}
+          unavailable={drawingUnavailable}
           onSelect={(drawing) => {
-            void selectDrawing(drawing).then(() => setPickerOpen(false));
+            void selectDrawing(drawing).then((opened) => {
+              if (opened) setPickerOpen(false);
+            });
           }}
         />
       ) : null}

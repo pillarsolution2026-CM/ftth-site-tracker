@@ -29,6 +29,9 @@ const USER = '00000000-0000-4000-8000-0000000000e1';
 const REVISION = '00000000-0000-4000-8000-0000000000a2';
 const BOX = '00000000-0000-4000-8000-0000000000a3';
 const ITEM = '00000000-0000-4000-8000-0000000000a4';
+const DRAWING_1 = '00000000-0000-4000-8000-0000000000b1';
+const DRAWING_2 = '00000000-0000-4000-8000-0000000000b2';
+const SITE = '00000000-0000-4000-8000-0000000000b3';
 const E = 330_000;
 const N = 3_340_000;
 
@@ -37,6 +40,7 @@ const bundle: OfflineBundle = {
   project: { id: PROJECT, name: 'قليوب', crsEpsg: 32636 },
   scope: { kind: 'zones', zoneIds: ['00000000-0000-4000-8000-0000000000a5'] },
   drawings: [],
+  // (the drawings tests below build their own bundles with `withDrawings`)
   revision: {
     id: REVISION,
     revNo: 1,
@@ -90,11 +94,32 @@ class FakeApi {
   online = true;
   pushes: SyncPushRequest[] = [];
   uploaded = new Map<string, number>();
+  /** The drawingId of each bootstrap request (null: none asked). */
+  bootstraps: (string | null)[] = [];
+  failDrawings = new Set<string>();
+  /** Drawings the server lists; empty keeps the single-drawing bundle of the older tests. */
+  drawings: OfflineBundle['drawings'] = [];
+
+  bundleFor(asked: string | null): OfflineBundle {
+    if (this.drawings.length === 0) return bundle;
+    const held = asked ?? DRAWING_1;
+    const entry = this.drawings.find((d) => d.drawingId === held);
+    return {
+      ...bundle,
+      drawings: this.drawings,
+      revision: entry ? { ...entry.revision, drawingId: held } : null,
+    };
+  }
 
   fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (!this.online) throw new TypeError('Network request failed');
     const url = String(input);
-    if (url.endsWith('/sync/bootstrap')) return json(200, bundle);
+    if (url.includes('/sync/bootstrap')) {
+      const asked = /drawingId=([^&]+)/.exec(url)?.[1] ?? null;
+      this.bootstraps.push(asked);
+      if (asked !== null && this.failDrawings.has(asked)) return json(500, { code: 'X' });
+      return json(200, this.bundleFor(asked));
+    }
     if (url.endsWith('/sync/push')) {
       const request = JSON.parse(String(init?.body)) as SyncPushRequest;
       this.pushes.push(request);
@@ -304,5 +329,62 @@ describe('supervisor field flow', () => {
     });
     await waitFor(() => expect(api.uploaded.get(photo.photoId)).toBe(4));
     expect(await screen.findAllByText(/وصل للخادم/)).toBeTruthy();
+  });
+
+  describe('drawings', () => {
+    const drawing = (drawingId: string, kind: 'general' | 'secondary', ordinal: number) => ({
+      drawingId,
+      siteId: SITE,
+      siteName: 'Alpha',
+      kind,
+      ordinal,
+      revision: {
+        id: drawingId.replace(/b(\d)$/, 'c$1'),
+        revNo: 1,
+        publishedAt: '2026-10-29T08:00:00.000Z',
+        tilesAvailable: false,
+      },
+    });
+    const renderScreen = async (deps: FieldDeps) =>
+      render(
+        <I18nProvider storage={new InMemoryLocaleStorage()}>
+          <FieldProvider projectId={PROJECT} userId={USER} deps={deps}>
+            <CadScreen onUpdate={() => undefined} onOpenPending={() => undefined} />
+          </FieldProvider>
+        </I18nProvider>,
+      );
+
+    it('downloads the other drawings in the background and keeps the open one', async () => {
+      const { api, deps, files } = setup();
+      api.drawings = [drawing(DRAWING_1, 'general', 1), drawing(DRAWING_2, 'secondary', 1)];
+      await renderScreen(deps);
+      await fireEvent.press(await screen.findByTestId('download-bundle'));
+      await waitFor(() => expect(api.bootstraps).toContain(DRAWING_2));
+      await waitFor(() =>
+        expect(files.has(`bundle-${USER}-${PROJECT}-${DRAWING_2}.json`)).toBe(true),
+      );
+      await fireEvent.press(await screen.findByTestId('drawing-picker-toggle'));
+      await screen.findByTestId('drawing-picker');
+      expect(screen.getByTestId(`drawing-${DRAWING_2}`)).toBeTruthy();
+      expect(screen.queryByTestId('drawing-unavailable')).toBeNull();
+      // Fetched once only.
+      expect(api.bootstraps.filter((id) => id === DRAWING_2)).toHaveLength(1);
+    });
+
+    it('says so, and keeps the open drawing, when a picked drawing is not on the phone', async () => {
+      const { api, deps } = setup();
+      api.drawings = [drawing(DRAWING_1, 'general', 1), drawing(DRAWING_2, 'secondary', 1)];
+      api.failDrawings.add(DRAWING_2);
+      await renderScreen(deps);
+      await fireEvent.press(await screen.findByTestId('download-bundle'));
+      await fireEvent.press(await screen.findByTestId('drawing-picker-toggle'));
+      await fireEvent.press(await screen.findByTestId(`drawing-${DRAWING_2}`));
+      expect(await screen.findByText(t('mobileSites.notOnPhoneOffline'))).toBeTruthy();
+      expect(t('mobileSites.notOnPhoneOffline')).toBe(
+        'الرسمة دي مش متحملة على الموبايل، اتصل بالنت عشان تتحمل',
+      );
+      // The drawing screen is still there (not replaced by the download screen).
+      expect(screen.getByTestId('drawing-picker-toggle')).toBeTruthy();
+    });
   });
 });

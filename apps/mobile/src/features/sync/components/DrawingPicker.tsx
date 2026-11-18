@@ -13,6 +13,10 @@ interface DrawingPickerProps {
   downloaded: Readonly<Record<string, number>>;
   currentDrawingId: string | null;
   busy: boolean;
+  /** Background download progress; null when idle. */
+  progress?: { done: number; total: number } | null;
+  /** The picked drawing is not on the phone and could not be downloaded. */
+  unavailable?: boolean;
   onSelect: (drawing: OfflineDrawing) => void;
 }
 
@@ -22,6 +26,8 @@ export function DrawingPicker({
   downloaded,
   currentDrawingId,
   busy,
+  progress = null,
+  unavailable = false,
   onSelect,
 }: DrawingPickerProps) {
   const { t } = useI18n();
@@ -40,6 +46,19 @@ export function DrawingPicker({
   }
   return (
     <View style={[styles.panel, { backgroundColor: theme.background }]} testID="drawing-picker">
+      {unavailable ? (
+        <Text style={[styles.title, { color: theme.text }]} testID="drawing-unavailable">
+          {t('mobileSites.notOnPhoneOffline')}
+        </Text>
+      ) : null}
+      {progress ? (
+        <Text style={{ color: theme.text, fontSize: typography.size.sm }} testID="auto-progress">
+          {t('mobileSites.autoDownloading', {
+            done: ltr(Math.min(progress.done + 1, progress.total)),
+            total: ltr(progress.total),
+          })}
+        </Text>
+      ) : null}
       <Text style={[styles.title, { color: theme.text }]}>{t('mobileSites.chooseSite')}</Text>
       <View style={styles.row}>
         {groups.map((group) => {

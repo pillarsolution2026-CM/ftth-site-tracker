@@ -10,7 +10,12 @@ import {
   withDownloadedBundle,
   type TextFiles,
 } from './bundle-cache';
-import { defaultDrawingOfSite, groupBySite, pickInitialDrawing } from './drawing-picker';
+import {
+  defaultDrawingOfSite,
+  drawingsToDownload,
+  groupBySite,
+  pickInitialDrawing,
+} from './drawing-picker';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const PROJECT = id(1);
@@ -145,5 +150,26 @@ describe('per-drawing cache', () => {
     expect(await loadDrawingIndex(files, USER, PROJECT)).toEqual(EMPTY_INDEX);
     files.map.set(`drawings-${USER}-${PROJECT}.json`, '{oops');
     expect(await loadDrawingIndex(files, USER, PROJECT)).toEqual(EMPTY_INDEX);
+  });
+});
+
+describe('drawingsToDownload', () => {
+  it('lists drawings that are missing or older on the phone, General first', () => {
+    const newer = { ...A_SEC1, revision: { ...A_SEC1.revision, revNo: 3 } };
+    const todo = drawingsToDownload([NO_SITE, A_SEC2, B_GEN, newer, A_GEN], {
+      [A_GEN.drawingId]: 1, // current
+      [newer.drawingId]: 2, // outdated
+      [A_SEC2.drawingId]: 5, // the phone is already ahead of the list: leave it
+    });
+    expect(todo.map((d) => d.drawingId)).toEqual([
+      newer.drawingId,
+      B_GEN.drawingId,
+      NO_SITE.drawingId,
+    ]);
+  });
+
+  it('is empty when everything is up to date or nothing is published', () => {
+    expect(drawingsToDownload([], {})).toEqual([]);
+    expect(drawingsToDownload([A_GEN], { [A_GEN.drawingId]: 1 })).toEqual([]);
   });
 });

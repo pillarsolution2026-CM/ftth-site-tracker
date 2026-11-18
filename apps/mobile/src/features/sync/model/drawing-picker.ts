@@ -58,3 +58,19 @@ export function pickInitialDrawing(
 export function defaultDrawingOfSite(group: SiteGroup): OfflineDrawing | null {
   return group.drawings[0] ?? null;
 }
+
+/**
+ * Drawings to fetch in the background: not on the phone, or older there than the latest published
+ * revision. Sorted like the picker (sites by name, General first) so the useful ones come first.
+ */
+export function drawingsToDownload(
+  drawings: readonly OfflineDrawing[],
+  downloaded: Readonly<Record<string, number>>,
+): OfflineDrawing[] {
+  return groupBySite(drawings)
+    .flatMap((group) => group.drawings)
+    .filter((d) => {
+      const held = downloaded[d.drawingId];
+      return held === undefined || held < d.revision.revNo;
+    });
+}
