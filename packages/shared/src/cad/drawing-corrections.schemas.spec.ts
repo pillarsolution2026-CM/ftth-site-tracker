@@ -122,3 +122,44 @@ describe('move_item and rotate_item (ADR-047)', () => {
     }
   });
 });
+
+describe('CAD ribbon corrections (ADR-050)', () => {
+  const ok = (input: object) => DrawingCorrectionInputSchema.safeParse(input).success;
+  it('accepts erase, copy, mirror, scale, a drawn line and the layer commands', () => {
+    expect(ok({ kind: 'erase_item', handle: 'C1' })).toBe(true);
+    expect(ok({ kind: 'copy_item', handle: 'C1', dx: 1, dy: -2 })).toBe(true);
+    expect(ok({ kind: 'mirror_item', handle: 'C1', x1: 0, y1: 0, x2: 1, y2: 0 })).toBe(true);
+    expect(ok({ kind: 'scale_item', handle: 'C1', x: 0, y: 0, factor: 2 })).toBe(true);
+    expect(
+      ok({
+        kind: 'add_curve',
+        layer: 'R',
+        points: [
+          [0, 0],
+          [1, 1],
+        ],
+      }),
+    ).toBe(true);
+    expect(ok({ kind: 'add_layer', layer: 'NEW', like: 'R' })).toBe(true);
+    expect(ok({ kind: 'rename_layer', from: 'R', to: 'R2' })).toBe(true);
+    expect(ok({ kind: 'delete_layer', layer: 'R' })).toBe(true);
+  });
+  it('refuses a mirror line of one point, a zero scale, one point, and same-name layers', () => {
+    expect(ok({ kind: 'mirror_item', handle: 'C1', x1: 1, y1: 1, x2: 1, y2: 1 })).toBe(false);
+    expect(ok({ kind: 'scale_item', handle: 'C1', x: 0, y: 0, factor: 0 })).toBe(false);
+    expect(ok({ kind: 'add_curve', layer: 'R', points: [[0, 0]] })).toBe(false);
+    expect(ok({ kind: 'add_layer', layer: 'R', like: 'R' })).toBe(false);
+    expect(ok({ kind: 'rename_layer', from: 'R', to: 'R' })).toBe(false);
+  });
+  it('a layer added or renamed takes the rule of its source, through chains', () => {
+    const rules = [{ source: 'layer', layer: 'R', target: 'route' }] as Parameters<
+      typeof moveLayerTargets
+    >[0];
+    const targets = moveLayerTargets(rules, [
+      { kind: 'add_layer', layer: 'NEW', like: 'R' },
+      { kind: 'rename_layer', from: 'NEW', to: 'NEW2' },
+      { kind: 'add_layer', layer: 'X', like: 'UNMAPPED' },
+    ]);
+    expect([...targets].sort()).toEqual(['NEW', 'NEW2', 'R']);
+  });
+});

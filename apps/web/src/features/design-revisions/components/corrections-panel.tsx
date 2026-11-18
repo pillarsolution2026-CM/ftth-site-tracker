@@ -228,5 +228,61 @@ function Values({ item }: { item: DrawingCorrection }) {
           </Ltr>
         </>
       );
+    case 'erase_item':
+      return <Ltr>{c.handle}</Ltr>;
+    case 'copy_item':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            (Δx {round(c.dx)}, Δy {round(c.dy)})
+          </Ltr>
+        </>
+      );
+    case 'mirror_item':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            ({round(c.x1)}, {round(c.y1)}) – ({round(c.x2)}, {round(c.y2)})
+          </Ltr>
+        </>
+      );
+    case 'scale_item':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            ×{round(c.factor)} @ ({round(c.x)}, {round(c.y)})
+          </Ltr>
+        </>
+      );
+    case 'add_curve':
+      return (
+        <>
+          <Ltr className="break-all">{c.layer}</Ltr> —{' '}
+          {t('design.corrections.values.curvePoints', { count: ltr(c.points.length) })}
+        </>
+      );
+    case 'add_layer':
+      return (
+        <>
+          <Ltr className="break-all">{c.layer}</Ltr> {t('design.corrections.values.layerLike')}{' '}
+          <Ltr className="break-all">{c.like}</Ltr>
+        </>
+      );
+    case 'rename_layer':
+      return (
+        <>
+          <Ltr className="break-all">{c.from}</Ltr> → <Ltr className="break-all">{c.to}</Ltr>
+        </>
+      );
+    case 'delete_layer':
+      return (
+        <>
+          <Ltr className="break-all">{c.layer}</Ltr> —{' '}
+          {t('design.corrections.values.layerEverything')}
+        </>
+      );
   }
 }

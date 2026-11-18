@@ -24,7 +24,14 @@ drawing units.
 - `move_item {handle, dx, dy}`: the insert's or text's point, or every point of the curve, moves by
   (dx, dy) (ADR-047);
 - `rotate_item {handle, x, y, angle}`: the same points turn by `angle` degrees counter-clockwise
-  about (x, y) (ADR-047). Only points are read: an insert or text keeps no orientation here.
+  about (x, y) (ADR-047). Only points are read: an insert or text keeps no orientation here;
+- the CAD ribbon (ADR-050): `erase_item {handle}` removes the row; `copy_item {handle, dx, dy}` adds
+  a moved copy with handle `FIX-<correction id>`; `mirror_item {handle, x1, y1, x2, y2}` reflects
+  the points across that line; `scale_item {handle, x, y, factor}` scales them about (x, y) (a
+  text's height too); `add_curve {layer, points, closed}` adds a line / polyline `FIX-<id>`;
+  `add_layer {layer, like}` and `rename_layer {from, to}` give a layer the rule of another (the
+  build copies that rule, `layer_aliases`), and a rename moves every row of `from` to `to`;
+  `delete_layer {layer}` removes every row on the layer.
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -63,6 +70,10 @@ MAX_CORRECTIONS = 5000
 MAX_CORRECTION_COORD = 1_000_000_000
 # |angle| of a rotation, degrees (as the contract).
 MAX_ROTATION_DEG = 360.0
+MIN_SCALE_FACTOR = 0.001
+MAX_SCALE_FACTOR = 1000.0
+MAX_CURVE_POINTS = 2000
+ADDED_CURVE_TYPE = "LWPOLYLINE"
 # Control characters U+0000-U+001F are refused in handles, layers and texts (as the contract).
 _CONTROL = re.compile(r"[\x00-\x1f]")
 FIX_HANDLE_PREFIX = "FIX-"
@@ -132,8 +143,76 @@ class RotateItem:
     angle: float
 
 
+@dataclass(frozen=True, slots=True)
+class EraseItem:
+    handle: str
+
+
+@dataclass(frozen=True, slots=True)
+class CopyItem:
+    handle: str
+    dx: float
+    dy: float
+
+
+@dataclass(frozen=True, slots=True)
+class MirrorItem:
+    handle: str
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+@dataclass(frozen=True, slots=True)
+class ScaleItem:
+    handle: str
+    x: float
+    y: float
+    factor: float
+
+
+@dataclass(frozen=True, slots=True)
+class AddCurve:
+    layer: str
+    points: tuple[Xy, ...]
+    closed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AddLayer:
+    layer: str
+    like: str
+
+
+@dataclass(frozen=True, slots=True)
+class RenameLayer:
+    from_layer: str
+    to_layer: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteLayer:
+    layer: str
+
+
 Correction = (
-    MoveLayer | SetText | AddText | AddItem | MergeRoutes | DismissProblem | MoveItem | RotateItem
+    MoveLayer
+    | SetText
+    | AddText
+    | AddItem
+    | MergeRoutes
+    | DismissProblem
+    | MoveItem
+    | RotateItem
+    | EraseItem
+    | CopyItem
+    | MirrorItem
+    | ScaleItem
+    | AddCurve
+    | AddLayer
+    | RenameLayer
+    | DeleteLayer
 )
 
 
@@ -159,6 +238,14 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "dismiss_problem": frozenset({"kind", "code", "handle", "reason"}),
     "move_item": frozenset({"kind", "handle", "dx", "dy"}),
     "rotate_item": frozenset({"kind", "handle", "x", "y", "angle"}),
+    "erase_item": frozenset({"kind", "handle"}),
+    "copy_item": frozenset({"kind", "handle", "dx", "dy"}),
+    "mirror_item": frozenset({"kind", "handle", "x1", "y1", "x2", "y2"}),
+    "scale_item": frozenset({"kind", "handle", "x", "y", "factor"}),
+    "add_curve": frozenset({"kind", "layer", "points", "closed"}),
+    "add_layer": frozenset({"kind", "layer", "like"}),
+    "rename_layer": frozenset({"kind", "from", "to"}),
+    "delete_layer": frozenset({"kind", "layer"}),
 }
 
 
@@ -239,6 +326,51 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
             _finite(cid, body, "y"),
             angle,
         )
+    if kind == "erase_item":
+        return EraseItem(_handle(cid, body.get("handle")))
+    if kind == "copy_item":
+        return CopyItem(
+            _handle(cid, body.get("handle")), _finite(cid, body, "dx"), _finite(cid, body, "dy")
+        )
+    if kind == "mirror_item":
+        m = MirrorItem(
+            _handle(cid, body.get("handle")),
+            _finite(cid, body, "x1"),
+            _finite(cid, body, "y1"),
+            _finite(cid, body, "x2"),
+            _finite(cid, body, "y2"),
+        )
+        if m.x1 == m.x2 and m.y1 == m.y2:
+            raise CorrectionInvalidError(f"correction {cid}: the mirror line needs two points")
+        return m
+    if kind == "scale_item":
+        factor = _number(body.get("factor"))
+        if factor is None or not MIN_SCALE_FACTOR <= factor <= MAX_SCALE_FACTOR:
+            raise CorrectionInvalidError(
+                f"correction {cid}: `factor` must be {MIN_SCALE_FACTOR:g}-{MAX_SCALE_FACTOR:g}"
+            )
+        return ScaleItem(
+            _handle(cid, body.get("handle")),
+            _finite(cid, body, "x"),
+            _finite(cid, body, "y"),
+            factor,
+        )
+    if kind == "add_curve":
+        return AddCurve(
+            _layer(cid, body, "layer"), _points(cid, body.get("points")), _flag(cid, body)
+        )
+    if kind == "add_layer":
+        added = AddLayer(_layer(cid, body, "layer"), _layer(cid, body, "like"))
+        if added.layer == added.like:
+            raise CorrectionInvalidError(f"correction {cid}: the new layer needs its own name")
+        return added
+    if kind == "rename_layer":
+        renamed = RenameLayer(_layer(cid, body, "from"), _layer(cid, body, "to"))
+        if renamed.from_layer == renamed.to_layer:
+            raise CorrectionInvalidError(f"correction {cid}: the new name must differ")
+        return renamed
+    if kind == "delete_layer":
+        return DeleteLayer(_layer(cid, body, "layer"))
     handles = body.get("handles")
     if not isinstance(handles, list) or not 2 <= len(handles) <= MAX_MERGE_PIECES:
         raise CorrectionInvalidError(
@@ -295,6 +427,29 @@ def _finite(cid: str, body: Mapping[str, object], key: str) -> float:
     return number
 
 
+def _points(cid: str, value: object) -> tuple[Xy, ...]:
+    if not isinstance(value, list) or not 2 <= len(value) <= MAX_CURVE_POINTS:
+        raise CorrectionInvalidError(
+            f"correction {cid}: `points` must be 2-{MAX_CURVE_POINTS} [x, y] pairs"
+        )
+    out: list[Xy] = []
+    for point in value:
+        if not isinstance(point, list) or len(point) != 2:
+            raise CorrectionInvalidError(f"correction {cid}: a point must be [x, y]")
+        x, y = _number(point[0]), _number(point[1])
+        if x is None or y is None or abs(x) > MAX_CORRECTION_COORD or abs(y) > MAX_CORRECTION_COORD:
+            raise CorrectionInvalidError(f"correction {cid}: a point is not a finite coordinate")
+        out.append((x, y))
+    return tuple(out)
+
+
+def _flag(cid: str, body: Mapping[str, object]) -> bool:
+    value = body.get("closed", False)
+    if not isinstance(value, bool):
+        raise CorrectionInvalidError(f"correction {cid}: `closed` must be true or false")
+    return value
+
+
 def _height(cid: str, value: object) -> float | None:
     if value is None:
         return None
@@ -311,13 +466,46 @@ def dismissed_places(corrections: Iterable[FrozenCorrection]) -> frozenset[tuple
     )
 
 
+def layer_aliases(corrections: Iterable[FrozenCorrection]) -> dict[str, str]:
+    """Layer -> the layer whose mapping rule it takes, from `add_layer` / `rename_layer` in order
+    (ADR-050); a chain resolves to the first layer. Mirror of `layerAliases` in the contract."""
+    out: dict[str, str] = {}
+    for fc in corrections:
+        c = fc.correction
+        if isinstance(c, AddLayer):
+            out[c.layer] = out.get(c.like, c.like)
+        elif isinstance(c, RenameLayer):
+            out[c.to_layer] = out.get(c.from_layer, c.from_layer)
+    return out
+
+
+def with_layer_aliases(raw_rules: object, aliases: Mapping[str, str]) -> object:
+    """The frozen mapping rules plus, for each aliased layer without a rule of its own, a copy of
+    the layer rule of its source (ADR-050). Anything else is returned as it is (parse_rules
+    checks it)."""
+    if not aliases or not isinstance(raw_rules, list):
+        return raw_rules
+    by_layer: dict[str, Mapping[str, object]] = {}
+    for item in raw_rules:
+        if isinstance(item, dict) and item.get("source") == "layer":
+            name = item.get("layer")
+            if isinstance(name, str):
+                by_layer[name] = cast(Mapping[str, object], item)
+    extra = [
+        {**by_layer[like], "layer": layer}
+        for layer, like in aliases.items()
+        if layer not in by_layer and like in by_layer
+    ]
+    return [*raw_rules, *extra]
+
+
 def curve_handles(corrections: Iterable[FrozenCorrection]) -> frozenset[str]:
     """Handles a correction may name as a curve: the build reads these curves even when their
     layer has no rule (e.g. a line moved onto a route layer)."""
     out: set[str] = set()
     for fc in corrections:
         c = fc.correction
-        if isinstance(c, MoveLayer | MoveItem | RotateItem):
+        if isinstance(c, MoveLayer | MoveItem | RotateItem | CopyItem | MirrorItem | ScaleItem):
             out.add(c.handle)
         elif isinstance(c, MergeRoutes):
             out.update(c.handles)
@@ -341,6 +529,8 @@ def apply_corrections(
     if not corrections:
         return drawing
     if move_targets is not None:
+        aliases = layer_aliases(corrections)
+        move_targets = move_targets | {a for a, like in aliases.items() if like in move_targets}
         for fc in corrections:
             c = fc.correction
             if isinstance(c, MoveLayer) and c.to_layer not in move_targets:
@@ -435,6 +625,36 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
             return (c.x + dx * cos - dy * sin, c.y + dx * sin + dy * cos)
 
         _transform(rows, c.handle, turn, where)
+    elif isinstance(c, EraseItem):
+        _erase(rows, c.handle, where)
+    elif isinstance(c, CopyItem):
+        _copy(rows, c, fc.fix_handle, where)
+    elif isinstance(c, MirrorItem):
+        _transform(rows, c.handle, _mirror(c), where)
+    elif isinstance(c, ScaleItem):
+        _transform(
+            rows,
+            c.handle,
+            lambda p: (c.x + (p[0] - c.x) * c.factor, c.y + (p[1] - c.y) * c.factor),
+            where,
+            height=c.factor,
+        )
+    elif isinstance(c, AddCurve):
+        _check_free(rows, fc.fix_handle, where)
+        rows.curves[fc.fix_handle] = SourceCurve(
+            fc.fix_handle, c.layer, c.points, c.closed, ADDED_CURVE_TYPE
+        )
+    elif isinstance(c, AddLayer):
+        return  # changes no row: the build copies the rule (with_layer_aliases)
+    elif isinstance(c, RenameLayer):
+        _relayer(rows, c.from_layer, c.to_layer)
+    elif isinstance(c, DeleteLayer):
+        for handle in [h for h, r in rows.inserts.items() if r.layer == c.layer]:
+            del rows.inserts[handle]
+        for handle in [h for h, t in rows.texts.items() if t.layer == c.layer]:
+            _erase(rows, handle, where)
+        for handle in [h for h, r in rows.curves.items() if r.layer == c.layer]:
+            del rows.curves[handle]
     else:
         merged = merge_curves([_piece(rows, h, where) for h in c.handles], touch, where)
         for h in c.handles:
@@ -454,18 +674,76 @@ def _move_layer(rows: _Rows, c: MoveLayer, where: str) -> None:
         raise CorrectionInvalidError(f"{where}: no item with handle {c.handle} in the drawing")
 
 
-def _transform(rows: _Rows, handle: str, move: Callable[[Xy], Xy], where: str) -> None:
-    """Moves the points of the insert, text or curve with this handle (ADR-047)."""
+def _transform(
+    rows: _Rows, handle: str, move: Callable[[Xy], Xy], where: str, *, height: float = 1.0
+) -> None:
+    """Moves the points of the insert, text or curve with this handle (ADR-047); `height`
+    multiplies a text's height (a scale, ADR-050)."""
     if (insert := rows.inserts.get(handle)) is not None:
         rows.inserts[handle] = dataclasses.replace(insert, position=move(insert.position))
     elif (text := rows.texts.get(handle)) is not None:
-        rows.put_text(dataclasses.replace(text, position=move(text.position)))
+        rows.put_text(
+            dataclasses.replace(text, position=move(text.position), height=text.height * height)
+        )
     elif (curve := rows.curves.get(handle)) is not None:
         rows.curves[handle] = dataclasses.replace(
             curve, points=tuple(move(p) for p in curve.points)
         )
     else:
         raise CorrectionInvalidError(f"{where}: no item with handle {handle} in the drawing")
+
+
+def _mirror(c: MirrorItem) -> Callable[[Xy], Xy]:
+    dx, dy = c.x2 - c.x1, c.y2 - c.y1
+    length_sq = dx * dx + dy * dy
+
+    def reflect(p: Xy) -> Xy:
+        t = ((p[0] - c.x1) * dx + (p[1] - c.y1) * dy) / length_sq
+        fx, fy = c.x1 + t * dx, c.y1 + t * dy
+        return (2 * fx - p[0], 2 * fy - p[1])
+
+    return reflect
+
+
+def _erase(rows: _Rows, handle: str, where: str) -> None:
+    if handle in rows.inserts:
+        del rows.inserts[handle]
+    elif (text := rows.texts.get(handle)) is not None:
+        rows.count_height(text, -1)
+        del rows.texts[handle]
+    elif handle in rows.curves:
+        del rows.curves[handle]
+    else:
+        raise CorrectionInvalidError(f"{where}: no item with handle {handle} in the drawing")
+
+
+def _copy(rows: _Rows, c: CopyItem, fix: str, where: str) -> None:
+    _check_free(rows, fix, where)
+
+    def shift(p: Xy) -> Xy:
+        return (p[0] + c.dx, p[1] + c.dy)
+
+    if (insert := rows.inserts.get(c.handle)) is not None:
+        rows.inserts[fix] = dataclasses.replace(insert, handle=fix, position=shift(insert.position))
+    elif (text := rows.texts.get(c.handle)) is not None:
+        rows.put_text(dataclasses.replace(text, handle=fix, position=shift(text.position)))
+    elif (curve := rows.curves.get(c.handle)) is not None:
+        rows.curves[fix] = dataclasses.replace(
+            curve, handle=fix, points=tuple(shift(p) for p in curve.points)
+        )
+    else:
+        raise CorrectionInvalidError(f"{where}: no item with handle {c.handle} in the drawing")
+
+
+def _relayer(rows: _Rows, source: str, target: str) -> None:
+    for handle, insert in list(rows.inserts.items()):
+        if insert.layer == source:
+            rows.inserts[handle] = dataclasses.replace(insert, layer=target)
+    for text in [t for t in rows.texts.values() if t.layer == source]:
+        rows.put_text(dataclasses.replace(text, layer=target))
+    for handle, curve in list(rows.curves.items()):
+        if curve.layer == source:
+            rows.curves[handle] = dataclasses.replace(curve, layer=target)
 
 
 def _check_free(rows: _Rows, handle: str, where: str) -> None:

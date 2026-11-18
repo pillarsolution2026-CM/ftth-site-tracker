@@ -259,6 +259,71 @@ describe('adding a correction', () => {
     ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['NOPE'] } });
   });
 
+  it('checks the handles of erase, copy, mirror and scale (ADR-050)', async () => {
+    await add({ correction: { kind: 'erase_item', handle: 'A2' }, problem: null });
+    await add({ correction: { kind: 'copy_item', handle: 'C1', dx: 1, dy: 1 }, problem: null });
+    await add({
+      correction: { kind: 'mirror_item', handle: 'A1', x1: 0, y1: 0, x2: 1, y2: 0 },
+      problem: null,
+    });
+    await add({
+      correction: { kind: 'scale_item', handle: 'C2', x: 0, y: 0, factor: 2 },
+      problem: null,
+    });
+    await expect(
+      add({ correction: { kind: 'erase_item', handle: 'NOPE' }, problem: null }),
+    ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['NOPE'] } });
+  });
+
+  it('a drawn line and an added layer need a usable rule; added layers then count (ADR-050)', async () => {
+    await expect(
+      add({
+        correction: {
+          kind: 'add_curve',
+          layer: 'BG',
+          points: [
+            [0, 0],
+            [1, 1],
+          ],
+          closed: false,
+        },
+        problem: null,
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'BG' } });
+    await expect(
+      add({ correction: { kind: 'add_layer', layer: 'NEW', like: 'BG' }, problem: null }),
+    ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'BG' } });
+    // A new layer like a route layer, then a line drawn on it and an item moved to it.
+    await add({
+      correction: { kind: 'add_layer', layer: 'NEW', like: 'N_DUC_CBL' },
+      problem: null,
+    });
+    await add({
+      correction: {
+        kind: 'add_curve',
+        layer: 'NEW',
+        points: [
+          [0, 0],
+          [5, 0],
+        ],
+        closed: false,
+      },
+      problem: null,
+    });
+    await add({ correction: { kind: 'move_layer', handle: 'C1', toLayer: 'NEW' }, problem: null });
+    // In one save as well.
+    await new CreateDrawingCorrectionUseCase(uow, clock, ids).executeMany({
+      projectId: PROJECT,
+      cadFileId: FILE,
+      actorId: ACTOR,
+      requests: [
+        { correction: { kind: 'rename_layer', from: 'N_MH', to: 'MH2' }, problem: null },
+        { correction: { kind: 'move_layer', handle: 'A2', toLayer: 'MH2' }, problem: null },
+      ],
+    });
+    expect(uow.corrections.rows.size).toBe(5);
+  });
+
   it('accepts add_text and add_item without any handle', async () => {
     await add({
       correction: { kind: 'add_text', layer: 'L', x: 1, y: 2, text: 'MH-1', height: null },

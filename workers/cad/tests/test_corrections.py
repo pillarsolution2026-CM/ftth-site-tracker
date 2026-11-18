@@ -12,20 +12,30 @@ from cad_worker.application.build_revision import compose_design
 from cad_worker.domain.corrections import (
     DEFAULT_TEXT_HEIGHT,
     MAX_CORRECTION_COORD,
+    AddCurve,
     AddItem,
+    AddLayer,
     AddText,
+    CopyItem,
     CorrectionInvalidError,
+    DeleteLayer,
     DismissProblem,
+    EraseItem,
     FrozenCorrection,
     MergeRoutes,
+    MirrorItem,
     MoveItem,
     MoveLayer,
+    RenameLayer,
     RotateItem,
+    ScaleItem,
     SetText,
     apply_corrections,
     curve_handles,
     dismissed_places,
+    layer_aliases,
     parse_corrections,
+    with_layer_aliases,
 )
 from cad_worker.domain.design_build import (
     FIX_BLOCK,
@@ -635,3 +645,117 @@ def test_moving_a_missing_handle_fails_loudly(correction: Any) -> None:
 def test_moved_and_rotated_curves_are_read_even_without_a_rule() -> None:
     frozen = [fix(MoveItem("c1", 1, 1), ID1), fix(RotateItem("c2", 0, 0, 5), ID2)]
     assert curve_handles(frozen) == frozenset({"c1", "c2"})
+
+
+# ---------- CAD ribbon (ADR-050) ----------
+
+
+def test_ribbon_kinds_are_parsed_strictly() -> None:
+    raw = [
+        {"id": str(uuid.UUID(int=i + 1)), "correction": body}
+        for i, body in enumerate(
+            [
+                {"kind": "erase_item", "handle": "c1"},
+                {"kind": "copy_item", "handle": "c1", "dx": 1, "dy": 2},
+                {"kind": "mirror_item", "handle": "c1", "x1": 0, "y1": 0, "x2": 1, "y2": 0},
+                {"kind": "scale_item", "handle": "c1", "x": 0, "y": 0, "factor": 2},
+                {"kind": "add_curve", "layer": "R", "points": [[0, 0], [1, 1]], "closed": False},
+                {"kind": "add_layer", "layer": "N", "like": "R"},
+                {"kind": "rename_layer", "from": "R", "to": "R2"},
+                {"kind": "delete_layer", "layer": "R"},
+            ]
+        )
+    ]
+    kinds = [type(p.correction).__name__ for p in parse_corrections(raw)]
+    assert kinds == [
+        "EraseItem",
+        "CopyItem",
+        "MirrorItem",
+        "ScaleItem",
+        "AddCurve",
+        "AddLayer",
+        "RenameLayer",
+        "DeleteLayer",
+    ]
+    for body in (
+        {"kind": "mirror_item", "handle": "c1", "x1": 1, "y1": 1, "x2": 1, "y2": 1},
+        {"kind": "scale_item", "handle": "c1", "x": 0, "y": 0, "factor": 0},
+        {"kind": "add_curve", "layer": "R", "points": [[0, 0]], "closed": False},
+        {"kind": "add_curve", "layer": "R", "points": [[0, 0], [1]], "closed": False},
+        {"kind": "add_layer", "layer": "R", "like": "R"},
+        {"kind": "rename_layer", "from": "R", "to": "R"},
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])
+
+
+def test_erase_copy_mirror_and_scale() -> None:
+    drawing = empty(
+        curves=(line("c1", "road", (1, 0), (3, 0)),),
+        inserts=(insert("i1", "Sap", "Sap", (2, 2)),),
+        texts=(label("t1", "jont 36", "Joint 36", (4, 4)),),
+    )
+    out = apply(
+        drawing,
+        CopyItem("c1", 0, 5),
+        EraseItem("i1"),
+        MirrorItem("c1", 0, 0, 0, 1),
+        ScaleItem("t1", 0, 0, 2),
+    )
+    curves = {c.handle: c.points for c in out.curves}
+    assert curves["c1"] == ((-1, 0), (-3, 0))
+    copy = next(h for h in curves if h.startswith("FIX-"))
+    assert curves[copy] == ((1, 5), (3, 5))
+    assert out.inserts == ()
+    assert out.texts[0].position == (8, 8) and out.texts[0].height == 4.0
+
+
+def test_a_drawn_route_is_a_route_and_ids_are_unique() -> None:
+    out = apply(empty(), AddCurve("DUCT 4", ((0, 0), (10, 0), (10, 5)), False))
+    assert out.curves[0].handle.startswith("FIX-")
+    assert out.curves[0].layer == "DUCT 4" and len(out.curves[0].points) == 3
+
+
+def test_layer_rename_and_delete_move_or_remove_every_row() -> None:
+    drawing = empty(
+        curves=(line("c1", "road", (0, 0), (1, 0)), line("c2", "keep", (0, 0), (1, 0))),
+        inserts=(insert("i1", "road", "B", (0, 0)),),
+        texts=(label("t1", "old", "x", (0, 0)),),
+    )
+    out = apply(drawing, RenameLayer("old", "new"), DeleteLayer("road"))
+    assert [c.handle for c in out.curves] == ["c2"]
+    assert out.inserts == ()
+    assert out.texts[0].layer == "new"
+
+
+def test_added_and_renamed_layers_take_the_rule_of_their_source() -> None:
+    frozen = [
+        fix(AddLayer("N", "DUCT 4"), ID1),
+        fix(RenameLayer("N", "N2"), ID2),
+    ]
+    aliases = layer_aliases(frozen)
+    assert aliases == {"N": "DUCT 4", "N2": "DUCT 4"}
+    rules = [{"source": "layer", "layer": "DUCT 4", "target": "route"}]
+    extended = with_layer_aliases(rules, aliases)
+    assert extended == [
+        *rules,
+        {"source": "layer", "layer": "N", "target": "route"},
+        {"source": "layer", "layer": "N2", "target": "route"},
+    ]
+    # A move to an added layer is allowed when its source may be targeted.
+    out = apply_corrections(
+        empty(curves=(line("c1", "x", (0, 0), (1, 0)),)),
+        [*frozen, fix(MoveLayer("c1", "N2"), str(uuid.UUID(int=9)))],
+        metres_per_unit=1.0,
+        move_targets=frozenset({"DUCT 4"}),
+    )
+    assert out.curves[0].layer == "N2"
+
+
+@pytest.mark.parametrize(
+    "correction",
+    [EraseItem("missing"), CopyItem("missing", 1, 1), ScaleItem("missing", 0, 0, 2)],
+)
+def test_ribbon_on_a_missing_handle_fails_loudly(correction: Any) -> None:
+    with pytest.raises(CorrectionInvalidError, match="no item with handle missing"):
+        apply(empty(), correction)

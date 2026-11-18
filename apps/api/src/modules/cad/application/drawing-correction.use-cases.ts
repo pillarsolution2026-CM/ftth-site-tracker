@@ -26,6 +26,10 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
     case 'move_layer':
     case 'move_item':
     case 'rotate_item':
+    case 'erase_item':
+    case 'copy_item':
+    case 'mirror_item':
+    case 'scale_item':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
     case 'set_text':
       return { handles: [input.handle], kinds: ['text'] };
@@ -33,6 +37,20 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
       return { handles: input.handles, kinds: ['curve'] };
     default:
       return { handles: [], kinds: [] };
+  }
+}
+
+/** Layers a correction puts items on (or takes the meaning of): each needs a usable rule. */
+function targetLayersOf(input: DrawingCorrectionInput): string[] {
+  switch (input.kind) {
+    case 'move_layer':
+      return [input.toLayer];
+    case 'add_curve':
+      return [input.layer];
+    case 'add_layer':
+      return [input.like];
+    default:
+      return [];
   }
 }
 
@@ -126,12 +144,19 @@ export class CreateDrawingCorrectionUseCase {
 
       // Owner 2026-11-09: a move only to a layer whose saved rule makes it a feature type or a
       // label; otherwise the item would drop out before the checks and its error would vanish.
-      const moves = requests.flatMap((request) =>
-        request.correction.kind === 'move_layer' ? [request.correction.toLayer] : [],
-      );
+      // The same holds for a drawn line and for the source of an added layer (ADR-050); layers
+      // added or renamed by corrections in force or in this save count with their source's rule.
+      const moves = requests.flatMap((request) => targetLayersOf(request.correction));
       if (moves.length > 0) {
         const mapping = await tx.mappings.find(projectId, cadFileId);
-        const targets = moveLayerTargets(mapping?.rules ?? []);
+        const inForce = (await tx.corrections.list(projectId, cadFileId))
+          .filter((item) => item.withdrawnAt === null)
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .map((item) => item.correction);
+        const targets = moveLayerTargets(mapping?.rules ?? [], [
+          ...inForce,
+          ...requests.map((request) => request.correction),
+        ]);
         const refused = moves.find((layer) => !targets.has(layer));
         if (refused !== undefined) {
           throw new AppError(

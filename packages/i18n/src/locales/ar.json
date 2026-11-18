@@ -1448,13 +1448,24 @@
         "merge_routes": "دمج مسارات",
         "dismiss_problem": "تجاهل خطأ",
         "move_item": "تحريك عنصر",
-        "rotate_item": "تدوير عنصر"
+        "rotate_item": "تدوير عنصر",
+        "erase_item": "حذف عنصر",
+        "copy_item": "نسخ عنصر",
+        "mirror_item": "عكس عنصر",
+        "scale_item": "تكبير/تصغير عنصر",
+        "add_curve": "رسم خط",
+        "add_layer": "إضافة طبقة",
+        "rename_layer": "تغيير اسم طبقة",
+        "delete_layer": "حذف طبقة"
       },
       "values": {
         "move_layer": "نقل",
         "set_text": "تعيين نص",
         "merge_routes": "{count} قطعة:",
-        "dismiss_problem": "متجاهَل، السبب"
+        "dismiss_problem": "متجاهَل، السبب",
+        "layerLike": "زي",
+        "curvePoints": "{count} نقطة",
+        "layerEverything": "كل اللي عليها"
       },
       "withdraw": "سحب التصحيح",
       "withdrawTitle": "سحب هذا التصحيح؟",

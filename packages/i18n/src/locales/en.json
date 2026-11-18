@@ -1448,13 +1448,24 @@
         "merge_routes": "Merge routes",
         "dismiss_problem": "Dismiss an error",
         "move_item": "Move an item",
-        "rotate_item": "Rotate an item"
+        "rotate_item": "Rotate an item",
+        "erase_item": "Erase an item",
+        "copy_item": "Copy an item",
+        "mirror_item": "Mirror an item",
+        "scale_item": "Scale an item",
+        "add_curve": "Draw a line",
+        "add_layer": "Add a layer",
+        "rename_layer": "Rename a layer",
+        "delete_layer": "Delete a layer"
       },
       "values": {
         "move_layer": "Move",
         "set_text": "Set the text of",
         "merge_routes": "{count} pieces:",
-        "dismiss_problem": "dismissed, reason"
+        "dismiss_problem": "dismissed, reason",
+        "layerLike": "like",
+        "curvePoints": "{count} points",
+        "layerEverything": "everything on it"
       },
       "withdraw": "Withdraw the correction",
       "withdrawTitle": "Withdraw this correction?",

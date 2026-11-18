@@ -46,7 +46,9 @@ from cad_worker.domain.corrections import (
     apply_corrections,
     curve_handles,
     dismissed_places,
+    layer_aliases,
     parse_corrections,
+    with_layer_aliases,
 )
 from cad_worker.domain.design import (
     FEATURE_TYPES,
@@ -151,13 +153,14 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
             return "superseded"
         inputs = tx.inputs
         try:
-            rules = parse_rules(inputs.rules)
+            corrections = parse_corrections(inputs.corrections)
+            # Layers added or renamed on the page take the rule of their source (ADR-050).
+            rules = parse_rules(with_layer_aliases(inputs.rules, layer_aliases(corrections)))
             place = make_placer(
                 parse_placement(inputs.placement),
                 inputs.crs_epsg,
                 float(inputs.metres_per_unit),  # geometry only; the exact factor stays stored
             )
-            corrections = parse_corrections(inputs.corrections)
             box_types = parse_frozen_box_types(inputs.box_types)
         except (
             MappingInvalidError,

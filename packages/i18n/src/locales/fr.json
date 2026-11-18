@@ -1448,13 +1448,24 @@
         "merge_routes": "Fusionner des tracés",
         "dismiss_problem": "Ignorer une erreur",
         "move_item": "Déplacer un élément",
-        "rotate_item": "Faire pivoter un élément"
+        "rotate_item": "Faire pivoter un élément",
+        "erase_item": "Effacer un élément",
+        "copy_item": "Copier un élément",
+        "mirror_item": "Symétrie d'un élément",
+        "scale_item": "Mettre à l'échelle",
+        "add_curve": "Tracer une ligne",
+        "add_layer": "Ajouter un calque",
+        "rename_layer": "Renommer un calque",
+        "delete_layer": "Supprimer un calque"
       },
       "values": {
         "move_layer": "Déplacer",
         "set_text": "Définir le texte de",
         "merge_routes": "{count} tronçons :",
-        "dismiss_problem": "ignorée, raison"
+        "dismiss_problem": "ignorée, raison",
+        "layerLike": "comme",
+        "curvePoints": "{count} points",
+        "layerEverything": "tout ce qu'il contient"
       },
       "withdraw": "Retirer la correction",
       "withdrawTitle": "Retirer cette correction ?",
