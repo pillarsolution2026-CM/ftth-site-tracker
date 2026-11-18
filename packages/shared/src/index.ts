@@ -10,6 +10,7 @@ export * from './events/domain-events.js';
 export * from './work-orders/work-order.schemas.js';
 export * from './work-orders/work-order-import.schemas.js';
 export * from './contracts/contract.schemas.js';
+export * from './contracts/item-groups.js';
 export * from './contractors/contractor.schemas.js';
 export * from './cad/cad-file.schemas.js';
 export * from './cad/drawing-kind.schemas.js';

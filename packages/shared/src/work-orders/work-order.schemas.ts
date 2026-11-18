@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ItemGroupSchema } from '../contracts/item-groups.js';
 import {
   CurrencyCodeSchema,
   Decimal4StringSchema,
@@ -235,6 +236,11 @@ export const WorkOrderItemSchema = z.object({
   workType: WorkTypeSchema.nullable(),
   /** Contract item this line comes from (ADR-028); null only for lines saved before it. */
   contractItemId: z.uuid().nullable(),
+  /**
+   * Groups of the contract item (ADR-048): the admin's choice, else the system rule. Null for a
+   * line without a contract item or a contract item nobody grouped yet.
+   */
+  group: ItemGroupSchema.nullable(),
   source: WorkOrderSourceSchema,
   /** Excel row number when imported. */
   sourceRow: z.number().int().min(1).nullable(),

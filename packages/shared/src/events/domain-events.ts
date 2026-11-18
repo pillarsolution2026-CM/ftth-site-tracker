@@ -93,6 +93,8 @@ export const EVENT_TYPES = {
   contractItemAdded: 'contract_item.added',
   contractItemUpdated: 'contract_item.updated',
   contractItemRemoved: 'contract_item.removed',
+  /** ADR-048. Payload: itemId, code, before {main, sub} | null, after {main, sub} | null (null = back to the rule). */
+  contractItemGroupSet: 'contract_item.group_set',
   contractAttachmentAdded: 'contract_attachment.added',
   contractAttachmentRemoved: 'contract_attachment.removed',
   /** Phase 4 (ADR-030). Payload: clientOpId, deviceId, featureId, kind, baseVersion, geometry, label, lengthM, flags. */
