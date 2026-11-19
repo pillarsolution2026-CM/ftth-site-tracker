@@ -1826,7 +1826,6 @@
         "stretchWindow": "Choisissez les objets à étirer par une fenêtre de capture (tirez un cadre).",
         "needLayer": "Choisissez un calque courant qui a une règle (groupe Calques) avant de dessiner.",
         "layerNoRule": "Le calque « {layer} » n'a pas de règle pour les éléments : choisissez-en un autre.",
-        "splitNoRule": "Ajuster ici coupe la ligne en deux, et le calque « {layer} » n'a pas de règle pour une nouvelle ligne.",
         "geometry": {
           "RADIUS": "La valeur doit être positive et non nulle.",
           "RADIUS_TOO_LARGE": "Le rayon est trop grand.",
@@ -1838,7 +1837,8 @@
           "PARALLEL": "Les lignes sont parallèles.",
           "CLOSED": "Impossible de raccorder une polyligne fermée."
         },
-        "layerNotesOnly": "Le calque « {layer} » n'a pas de règle : seules des cotes et lignes de repère peuvent y aller. Pour dessiner des lignes, choisissez un calque avec une règle (clair dans la liste)."
+        "drawingOnly": "Le calque « {layer} » n'a pas de sens pour la construction : ce que vous y dessinez n'est que du dessin. Pour qu'il compte, donnez-lui un sens dans Propriétés des calques (LA).",
+        "meaningSet": "Le calque « {layer} » signifie maintenant « {like} » : tout ce qui est dessus sera lu ainsi à la prochaine construction."
       },
       "tool": {
         "line": "Ligne",
@@ -1893,6 +1893,24 @@
         "matchprop": "Copier les propriétés",
         "laymcur": "Rendre courant",
         "laymch": "Faire correspondre le calque"
+      },
+      "manager": {
+        "title": "Gestionnaire des propriétés des calques",
+        "close": "Fermer le gestionnaire des propriétés des calques",
+        "setCurrent": "Rendre courant",
+        "search": "Rechercher un calque",
+        "current": "Calque courant",
+        "status": "État",
+        "name": "Nom",
+        "freeze": "Geler",
+        "lock": "Verrouiller",
+        "meaning": "Sens pour la construction",
+        "meaningOf": "Sens de {layer}",
+        "meaningHint": "Tout ce qui est sur ce calque est lu comme le calque choisi à la prochaine construction.",
+        "byMapping": "Sa règle de correspondance",
+        "drawingOnly": "Dessin seulement (non compté)",
+        "like": "Comme {layer}",
+        "count": "Tous : {shown} calques affichés sur {total}"
       }
     }
   },

@@ -260,7 +260,13 @@ export function applyInputs(
         break;
       }
       case 'add_layer':
-        aliases.set(correction.layer, aliases.get(correction.like) ?? correction.like);
+        // A layer for drawing only (like null) is known by its own name (ADR-051).
+        aliases.set(
+          correction.layer,
+          correction.like === null
+            ? correction.layer
+            : (aliases.get(correction.like) ?? correction.like),
+        );
         break;
       case 'rename_layer': {
         const moved = onLayer(correction.from);

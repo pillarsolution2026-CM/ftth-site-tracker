@@ -1826,7 +1826,6 @@
         "stretchWindow": "اسحب مربع (crossing window) حوالين النقط اللي عايز تشدها.",
         "needLayer": "مفيش Layer حالية. اختار Layer من القايمة اللي في جزء Layers في الشريط (زي Layer المسارات) وبعدين ارسم.",
         "layerNoRule": "الـ Layer «{layer}» مالهاش قاعدة للعناصر: اختار Layer تانية.",
-        "splitNoRule": "القص هنا بيقسم الخط لاتنين، والـ Layer «{layer}» مالهاش قاعدة لخط جديد.",
         "geometry": {
           "RADIUS": "Value must be positive and nonzero.",
           "RADIUS_TOO_LARGE": "Radius is too large.",
@@ -1838,7 +1837,8 @@
           "PARALLEL": "Lines are parallel.",
           "CLOSED": "Cannot fillet a closed polyline."
         },
-        "layerNotesOnly": "الـ Layer «{layer}» مالهاش قاعدة: ينفع عليها أبعاد وأسهم توضيح بس. علشان ترسم خطوط اختار Layer ليها قاعدة (اللي لونها واضح في القايمة، مش باهت)."
+        "drawingOnly": "الـ Layer «{layer}» مالهاش معنى في البناء: اللي هترسمه عليها رسم بس ومش هيتحسب. علشان يتحسب، اديها معنى من Layer Properties (اكتب LA).",
+        "meaningSet": "الـ Layer «{layer}» بقت معناها زي «{like}»: كل اللي عليها هيتقري كده في البناء الجاي."
       },
       "tool": {
         "line": "Line",
@@ -1893,6 +1893,24 @@
         "matchprop": "نقل الخصائص",
         "laymcur": "خليها الحالية",
         "laymch": "نفس الـ Layer"
+      },
+      "manager": {
+        "title": "Layer Properties Manager",
+        "close": "اقفل مدير الـ Layers",
+        "setCurrent": "خليها الحالية",
+        "search": "ابحث عن Layer",
+        "current": "الـ Layer الحالية",
+        "status": "الحالة",
+        "name": "الاسم",
+        "freeze": "تجميد",
+        "lock": "قفل",
+        "meaning": "معناها في البناء",
+        "meaningOf": "معنى {layer}",
+        "meaningHint": "كل اللي على الـ Layer دي هيتقري زي الـ Layer المختارة في البناء الجاي.",
+        "byMapping": "ليها قاعدة في الربط",
+        "drawingOnly": "رسم بس (مش بيتحسب)",
+        "like": "زي {layer}",
+        "count": "الكل: {shown} Layer ظاهرة من {total}"
       }
     }
   },

@@ -1826,7 +1826,6 @@
         "stretchWindow": "Select objects to stretch by a crossing window (drag a box).",
         "needLayer": "Pick a current layer that has a rule (Layers panel) before drawing.",
         "layerNoRule": "Layer \"{layer}\" has no rule for drawing items: choose another layer.",
-        "splitNoRule": "Trimming here splits the line in two, and layer \"{layer}\" has no rule for a new line.",
         "geometry": {
           "RADIUS": "Value must be positive and nonzero.",
           "RADIUS_TOO_LARGE": "Radius is too large.",
@@ -1838,7 +1837,8 @@
           "PARALLEL": "Lines are parallel.",
           "CLOSED": "Cannot fillet a closed polyline."
         },
-        "layerNotesOnly": "Layer \"{layer}\" has no rule: only dimensions and leaders can go on it. To draw lines, choose a layer with a rule (bright in the list)."
+        "drawingOnly": "Layer \"{layer}\" has no meaning for the build: what you draw on it is drawing only. To have it counted, give the layer a meaning in Layer Properties (LA).",
+        "meaningSet": "Layer \"{layer}\" now means the same as \"{like}\": everything on it is read that way at the next build."
       },
       "tool": {
         "line": "Line",
@@ -1893,6 +1893,24 @@
         "matchprop": "Match Properties",
         "laymcur": "Make Current",
         "laymch": "Match Layer"
+      },
+      "manager": {
+        "title": "Layer Properties Manager",
+        "close": "Close the Layer Properties Manager",
+        "setCurrent": "Set current",
+        "search": "Search for layer",
+        "current": "Current layer",
+        "status": "Status",
+        "name": "Name",
+        "freeze": "Freeze",
+        "lock": "Lock",
+        "meaning": "Means for the build",
+        "meaningOf": "What {layer} means",
+        "meaningHint": "Everything on this layer is read like the chosen layer at the next build.",
+        "byMapping": "Its rule in the mapping",
+        "drawingOnly": "Drawing only (not counted)",
+        "like": "Like {layer}",
+        "count": "All: {shown} layers displayed of {total} total layers"
       }
     }
   },

@@ -12,7 +12,7 @@ import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
 import { CadCommandLine, CadRibbon, CanvasButton, PenButton } from './cad-ribbon';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
-import { LayerManage, LayerPanel } from './layer-panel';
+import { LayerManager } from './layer-panel';
 
 /**
  * «عارض الرسومات» (ADR-039): the drawing as drawn, with the layers, the problem places and the
@@ -146,12 +146,13 @@ export function DrawingViewer({
   );
 }
 
-type PaletteKey = 'problems' | 'corrections' | 'layers';
+type PaletteKey = 'problems' | 'corrections';
 type DrawingViewerState = ReturnType<typeof useDrawingViewer>;
 
 /**
  * The AutoCAD-like workspace (ADR-051): the ribbon (edit mode), the black canvas across the whole
- * width, the command line under it, and palettes (errors, corrections, layers) that open and close
+ * width, the command line under it, palettes (errors, corrections) that open and close beside the
+ * drawing, and AutoCAD's Layer Properties Manager as a pop-up (owner 2026-11-19).
  * beside the drawing.
  */
 function Workspace({
@@ -165,7 +166,7 @@ function Workspace({
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState<ReadonlySet<PaletteKey>>(
-    () => new Set<PaletteKey>([problems ? 'problems' : 'layers']),
+    () => new Set<PaletteKey>(problems ? ['problems'] : []),
   );
   const toggle = (key: PaletteKey, on?: boolean) =>
     setOpen((previous) => {
@@ -174,12 +175,13 @@ function Workspace({
       else next.delete(key);
       return next;
     });
-  // LAYER / LA opens the Layer Properties palette.
+  // LAYER / LA and the Layers buttons open the Layer Properties Manager.
   const { layersNonce, edit, model } = viewer;
+  const [managerOpen, setManagerOpen] = useState(false);
   const [seenNonce, setSeenNonce] = useState(layersNonce);
   if (layersNonce !== seenNonce) {
     setSeenNonce(layersNonce);
-    if (!open.has('layers')) toggle('layers', true);
+    setManagerOpen(true);
   }
   const palettes: { key: PaletteKey; title: string; body: ReactNode }[] = [];
   if (problems) {
@@ -192,25 +194,6 @@ function Workspace({
       body: corrections,
     });
   }
-  palettes.push({
-    key: 'layers',
-    title: t('design.cad.palette.layers'),
-    body: (
-      <LayerPanel
-        rows={viewer.layerRows}
-        query={viewer.layerQuery}
-        onQuery={viewer.setLayerQuery}
-        onToggle={viewer.toggleLayer}
-        onSetListed={viewer.setShownForListed}
-        onFreeze={viewer.toggleFrozen}
-        onLock={viewer.toggleLocked}
-        onColor={viewer.setLayerColor}
-        current={edit.editing ? edit.currentLayer : undefined}
-        onMakeCurrent={edit.editing ? edit.chooseLayer : undefined}
-        manage={edit.editing ? <LayerManage edit={edit} /> : undefined}
-      />
-    ),
-  });
   if (!model) return null;
   const shownPalettes = palettes.filter((p) => open.has(p.key));
   return (
@@ -240,6 +223,13 @@ function Workspace({
               <CanvasButton label={t('design.viewer.fit')} onClick={viewer.fit}>
                 ⤢
               </CanvasButton>
+              <CanvasButton
+                label={t('design.cad.palette.layers')}
+                pressed={managerOpen}
+                onClick={() => setManagerOpen(!managerOpen)}
+              >
+                <span className="text-xs">{t('design.cad.palette.layers')}</span>
+              </CanvasButton>
               {palettes.map((p) => (
                 <CanvasButton
                   key={p.key}
@@ -255,6 +245,20 @@ function Workspace({
             <CanvasPopover viewer={viewer} />
           </DrawingCanvas>
           <CadCommandLine edit={edit} />
+          {managerOpen ? (
+            <LayerManager
+              rows={viewer.layerRows}
+              query={viewer.layerQuery}
+              onQuery={viewer.setLayerQuery}
+              onToggle={viewer.toggleLayer}
+              onSetListed={viewer.setShownForListed}
+              onFreeze={viewer.toggleFrozen}
+              onLock={viewer.toggleLocked}
+              onColor={viewer.setLayerColor}
+              edit={edit.editing ? edit : null}
+              onClose={() => setManagerOpen(false)}
+            />
+          ) : null}
         </div>
         {shownPalettes.length > 0 ? (
           <div className="flex flex-col gap-2 lg:w-96 lg:shrink-0 lg:ps-2">

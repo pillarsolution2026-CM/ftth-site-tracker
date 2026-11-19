@@ -323,6 +323,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       scene !== null && preview !== null && locked.has(effectiveLayer(scene, preview, index)),
     textHeight,
     onOpenLayers: () => setLayersNonce((n) => n + 1),
+    ruledLayers: tools.ruledLayers,
   });
   const shownPreview = edit.preview;
 
@@ -441,9 +442,20 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
-      setPopover(null);
-      setSelected(null);
       edit.pick(hit, world, additive);
+      // Between commands a click also shows the item and its error as in the normal view
+      // (owner 2026-11-19); while a command runs the click only answers the command.
+      if (edit.command === null && hit !== null) {
+        const handle = scene.view.entities[hit]?.handle ?? '';
+        const related =
+          markers.find((m) => routePieces(m.handle).includes(handle) || m.handle === handle) ??
+          null;
+        setSelected(hit);
+        setPopover({ x: world.x, y: world.y, entity: hit, marker: related });
+      } else {
+        setPopover(null);
+        setSelected(null);
+      }
       return;
     }
     const marker = hitMarker(markers, transform, size, sx, sy, MARKER_HIT_PX);

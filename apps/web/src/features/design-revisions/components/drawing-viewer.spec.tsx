@@ -198,10 +198,16 @@ describe('DrawingViewer status', () => {
 describe('DrawingViewer ready', () => {
   beforeEach(() => api.getDrawingViewState.mockResolvedValue(state('ready')));
 
+  const openLayers = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await screen.findByRole('button', { name: 'Layers' }));
+    return screen.getByRole('dialog', { name: 'Layer Properties Manager' });
+  };
+
   it('shows a focusable labelled canvas, layer checkboxes starting from `visible`, and draws', async () => {
     renderViewer();
     const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
     expect(canvas).toHaveAttribute('tabindex', '0');
+    await openLayers(userEvent.setup());
     expect(screen.getByRole('checkbox', { name: /Route/ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Hidden/ })).not.toBeChecked();
     await waitFor(() => expect(ctx.stroke).toHaveBeenCalled());
@@ -212,6 +218,8 @@ describe('DrawingViewer ready', () => {
     await screen.findByLabelText(/The drawing: drag to pan/);
     await waitFor(() => expect(ctx.stroke).toHaveBeenCalled());
     const user = userEvent.setup();
+    await openLayers(user);
+    await waitFor(() => expect(ctx.stroke).toHaveBeenCalled());
     ctx.stroke.mockClear();
     await user.click(screen.getByRole('checkbox', { name: /Hidden/ }));
     expect(screen.getByRole('checkbox', { name: /Hidden/ })).toBeChecked();
@@ -226,6 +234,7 @@ describe('DrawingViewer ready', () => {
   it('searches layers and switches the listed ones on or off together', async () => {
     renderViewer();
     const user = userEvent.setup();
+    await openLayers(user);
     await screen.findByRole('checkbox', { name: /Route/ });
     await user.type(screen.getByLabelText('Search layers'), 'sa');
     expect(screen.queryByRole('checkbox', { name: /Route/ })).not.toBeInTheDocument();
@@ -794,7 +803,7 @@ describe(
       expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
     });
 
-    it('LINE needs a current layer with a rule; then draws segments, typed or clicked; PLINE closes', async () => {
+    it('LINE needs a current layer; then draws segments, typed or clicked; PLINE closes', async () => {
       const { canvas, user } = await openWorkspace();
       await type(user, 'l');
       expect(prompt()).toMatch(/LINE Specify first point:/);
@@ -825,17 +834,72 @@ describe(
       expect((poly?.points as number[][]).length).toBe(3);
     });
 
-    it('a current layer without a rule takes notes only, and says so', async () => {
-    const { canvas, user } = await openWorkspace();
-    await chooseLayer(user, 'CABINET');
-    expect(history()).toMatch(/Layer "CABINET" has no rule: only dimensions and leaders/);
-    await type(user, 'l');
-    await click(user, canvas, 10, 10);
-    expect(history()).toMatch(/Layer "CABINET" has no rule for drawing items/);
-    expect(prompt()).toMatch(/LINE Specify first point:/);
-  });
+    it('draws on a layer without a rule as drawing only, and says how to have it counted', async () => {
+      const { canvas, user } = await openWorkspace();
+      await chooseLayer(user, 'CABINET');
+      expect(history()).toMatch(/Layer "CABINET" has no meaning for the build/);
+      await type(user, 'rec');
+      await click(user, canvas, 10, 10);
+      await type(user, '@5,5');
+      await save(user);
+      expect(sent()).toEqual([
+        {
+          kind: 'add_curve',
+          layer: 'CABINET',
+          points: [
+            [10, 10],
+            [15, 10],
+            [15, 15],
+            [10, 15],
+          ],
+          closed: true,
+        },
+      ]);
+    });
 
-  it('CIRCLE by centre and radius, RECTANG by two corners, ARC through three points', async () => {
+    it('a layer without a rule gets a meaning; a new layer may be for drawing only', async () => {
+      const { canvas, user } = await openWorkspace();
+      await type(user, 'la');
+      const manager = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
+      // Mapped layers keep their rule; the others say what they mean for the build.
+      expect(within(manager).queryByLabelText('What Route means')).not.toBeInTheDocument();
+      await user.selectOptions(within(manager).getByLabelText('What CABINET means'), 'Like Route');
+      expect(history()).toMatch(/"CABINET" now means the same as "Route"/);
+      await user.click(within(manager).getByRole('button', { name: 'New layer' }));
+      const form = within(manager).getByRole('group', { name: 'New layer' });
+      await user.type(within(form).getByLabelText('Layer name'), 'HOUSES');
+      await user.selectOptions(
+        within(form).getByLabelText('Means for the build'),
+        'Drawing only (not counted)',
+      );
+      await user.click(within(form).getByRole('button', { name: 'Add the layer' }));
+      expect(screen.getByRole('button', { name: 'Layer: HOUSES' })).toBeInTheDocument();
+      await user.click(
+        within(manager).getByRole('button', { name: 'Close the Layer Properties Manager' }),
+      );
+      await type(user, 'pl');
+      await click(user, canvas, 0, 30);
+      await type(user, '@5,0');
+      await type(user, '@0,5');
+      await type(user, 'c');
+      await save(user);
+      expect(sent()).toEqual([
+        { kind: 'add_layer', layer: 'CABINET', like: 'Route' },
+        { kind: 'add_layer', layer: 'HOUSES', like: null },
+        expect.objectContaining({ kind: 'add_curve', layer: 'HOUSES', closed: true }),
+      ]);
+    });
+
+    it('between commands a click picks the item and shows its panel as in the normal view', async () => {
+      const { canvas, user } = await openWorkspace();
+      await click(user, canvas, 75, 25);
+      expect(await screen.findByText('B')).toBeInTheDocument();
+      expect(screen.getByLabelText('Color')).toBeEnabled();
+      await type(user, 'm');
+      expect(prompt()).toMatch(/MOVE Specify base point/);
+    });
+
+    it('CIRCLE by centre and radius, RECTANG by two corners, ARC through three points', async () => {
       const { user } = await openWorkspace();
       await chooseLayer(user, 'Route');
       await type(user, 'c');
@@ -1009,7 +1073,8 @@ describe(
 
     it('layers: freeze hides and locks keep objects from being picked, for the screen only', async () => {
       const { canvas, user } = await openWorkspace();
-      const palette = screen.getByRole('complementary', { name: 'Layers' });
+      await user.click(screen.getByRole('button', { name: 'Layer Properties' }));
+      const palette = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       await click(user, canvas, 75, 25);
       expect(screen.getByLabelText('Color')).toBeDisabled();
@@ -1029,20 +1094,23 @@ describe(
       expect(api.createCorrections).not.toHaveBeenCalled();
     });
 
-    it('LA opens the Layers palette; a new layer like another one becomes current for POINT', async () => {
+    it('LA opens the Layer Properties Manager; a new layer like another one becomes current', async () => {
       const { canvas, user } = await openWorkspace();
-      await user.click(screen.getByRole('button', { name: 'Close Layers' }));
-      expect(screen.queryByRole('complementary', { name: 'Layers' })).not.toBeInTheDocument();
       await type(user, 'la');
-      const palette = screen.getByRole('complementary', { name: 'Layers' });
-      await user.click(within(palette).getByRole('button', { name: '+ New layer' }));
-      const dialog = screen.getByRole('dialog', { name: 'New layer' });
-      await user.click(within(dialog).getByRole('button', { name: 'Add the layer' }));
-      expect(within(dialog).getByText('Type the name and pick the layer.')).toBeInTheDocument();
-      await user.type(within(dialog).getByLabelText('Layer name'), 'DUCT NEW');
-      await user.selectOptions(within(dialog).getByLabelText('Means the same as'), 'Route');
-      await user.click(within(dialog).getByRole('button', { name: 'Add the layer' }));
+      const manager = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
+      expect(within(manager).getByText(/All: .*4.* layers displayed of .*4.* total layers/)).toBeInTheDocument();
+      await user.click(within(manager).getByRole('button', { name: 'New layer' }));
+      const form = within(manager).getByRole('group', { name: 'New layer' });
+      await user.click(within(form).getByRole('button', { name: 'Add the layer' }));
+      expect(within(form).getByText('Type the name and pick the layer.')).toBeInTheDocument();
+      await user.type(within(form).getByLabelText('Layer name'), 'DUCT NEW');
+      await user.selectOptions(within(form).getByLabelText('Means for the build'), 'Like Route');
+      await user.click(within(form).getByRole('button', { name: 'Add the layer' }));
       expect(screen.getByRole('button', { name: 'Layer: DUCT NEW' })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      expect(
+        screen.queryByRole('dialog', { name: 'Layer Properties Manager' }),
+      ).not.toBeInTheDocument();
       await type(user, 'po');
       await click(user, canvas, 40, 40);
       await save(user);

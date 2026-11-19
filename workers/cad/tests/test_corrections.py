@@ -856,3 +856,27 @@ def test_notes_and_styles_change_no_row_and_no_problem() -> None:
     )
     assert out == drawing
     assert problems(out) == problems(drawing)
+
+
+def test_a_layer_for_drawing_only_and_a_layer_given_a_meaning() -> None:
+    """Owner 2026-11-19 (ADR-051): a line may be drawn on any layer; on one without a rule the
+    build ignores it, and a layer of the drawing without a rule can be given another's meaning."""
+    parsed = parse_corrections(
+        [{"id": ID1, "correction": {"kind": "add_layer", "layer": "HOUSES", "like": None}}]
+    )
+    assert parsed[0].correction == AddLayer("HOUSES", None)
+    assert layer_aliases(parsed) == {}
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    houses = apply(drawing, AddCurve("HOUSES", ((0, 5), (5, 5), (5, 9), (0, 9)), True))
+    built = build_features(houses, RULES, unit_placer(1.0))
+    assert built.features == build_features(drawing, RULES, unit_placer(1.0)).features
+    assert problems(houses) == problems(drawing)
+    # «buildings» has no rule: once it means what DUCT 4 means, a line drawn on it is a route.
+    frozen = [fix(AddLayer("buildings", "DUCT 4"), ID1)]
+    rules = with_layer_aliases(
+        [{"source": "layer", "layer": "DUCT 4", "target": "route"}], layer_aliases(frozen)
+    )
+    assert rules == [
+        {"source": "layer", "layer": "DUCT 4", "target": "route"},
+        {"source": "layer", "layer": "buildings", "target": "route"},
+    ]

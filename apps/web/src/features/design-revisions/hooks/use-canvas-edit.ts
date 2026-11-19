@@ -296,7 +296,17 @@ export interface CanvasEditState {
   currentLayer: string;
   /** The layer drop-down: with objects picked they move to it, else it becomes current. */
   chooseLayer: (value: string) => void;
-  addLayer: (name: string, like: string) => string | null;
+  /** A new layer; `like` null = for drawing only (the build ignores what is on it). */
+  addLayer: (name: string, like: string | null) => string | null;
+  /**
+   * What a layer means for the build (ADR-051): `rule` (its own rule in the mapping), `like` (the
+   * mapped layer it was made to mean, on the page), or `none` (drawing only).
+   */
+  meaningOf: (
+    layer: string,
+  ) => { kind: 'rule' } | { kind: 'like'; like: string } | { kind: 'none' };
+  /** A layer without a rule of its own takes the meaning of a mapped one (everything on it). */
+  setMeaning: (layer: string, like: string) => void;
   renameLayer: (from: string, to: string) => string | null;
   deleteLayer: (name: string) => void;
   // Properties (screen only, ADR-051)
@@ -331,6 +341,8 @@ interface Input {
   textHeight?: number;
   /** LAYER: open the Layer Properties palette. */
   onOpenLayers?: () => void;
+  /** Layers with a rule of their own in the mapping (any target). */
+  ruledLayers?: ReadonlySet<string>;
 }
 
 /** Degrees counter-clockwise from the base point to the point (0 = to the right, as CAD). */
@@ -394,7 +406,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   );
   const layers = useMemo(() => {
     const out = new Set(mapped);
-    for (const [name, like] of aliases) if (mapped.includes(like)) out.add(name);
+    for (const [name, like] of aliases) {
+      // A layer with a rule of its own keeps it (the worker does the same, ADR-051).
+      if (mapped.includes(like) && !input.ruledLayers?.has(name)) out.add(name);
+    }
     return [...out].filter((name) => !removed.has(name)).sort((a, b) => a.localeCompare(b));
   }, [mapped, aliases, removed]);
   const allLayers = useMemo(() => {
@@ -403,7 +418,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     return [...out].filter((name) => !removed.has(name)).sort((a, b) => a.localeCompare(b));
   }, [scene, aliases, removed]);
   const current = allLayers.includes(currentLayer) ? currentLayer : '';
-  const drawLayer = layers.includes(current) ? current : '';
+  // Owner 2026-11-19 (ADR-051): drawing goes on any layer; on one without a rule it is for
+  // drawing only, and giving the layer a meaning makes the build read it.
+  const drawLayer = current;
+  const ruled = input.ruledLayers ?? new Set<string>();
+  const [warned, setWarned] = useState<ReadonlySet<string>>(new Set());
 
   // ---------- helpers ----------
 
@@ -754,10 +773,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const needDrawLayer = (): boolean => {
-    if (drawLayer) return true;
-    // A current layer without a rule: the build would not read what is drawn on it.
-    say(current ? msg('layerNoRule', { layer: current }) : msg('needLayer'));
-    return false;
+    if (!drawLayer) {
+      say(msg('needLayer'));
+      return false;
+    }
+    // Once per layer: what is drawn on a layer without a meaning is not counted.
+    if (!layers.includes(drawLayer) && !warned.has(drawLayer)) {
+      say(msg('drawingOnly', { layer: drawLayer }));
+      setWarned((previous) => new Set(previous).add(drawLayer));
+    }
+    return true;
   };
 
   /** After the objects are picked: the next step of the command. */
@@ -1032,11 +1057,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const geom = curveGeom(r.target);
     if (!geom) return;
     const layer = layerNameOf(r.target);
-    if (!layers.includes(layer)) {
-      say(msg('layerNoRule', { layer }));
-      setRun({ ...r, step: 'offsetPick', target: null });
-      return;
-    }
     try {
       const points = offsetCurve(geom.points, geom.closed, offsetDist, pt(side));
       const made = add([pointsCurveEdit(layer, points, geom.closed)]);
@@ -1071,12 +1091,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           if (!first) out.push({ kind: 'erase_item', handle });
           else out.push(setCurveEdit(handle, first, false));
           if (second) {
-            const layer = layerNameOf(index);
-            if (!layers.includes(layer)) {
-              say(msg('splitNoRule', { layer }));
-              return;
-            }
-            out.push(pointsCurveEdit(layer, second, false));
+            out.push(pointsCurveEdit(layerNameOf(index), second, false));
           }
           const made = add(out);
           setRun({ ...r, made: [...r.made, made.length] });
@@ -1606,15 +1621,25 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       setCurrentLayer(value);
       say(msg('currentNow', { layer: value }));
-      if (!layers.includes(value)) say(msg('layerNotesOnly', { layer: value }));
+      if (!layers.includes(value)) say(msg('drawingOnly', { layer: value }));
     },
     addLayer: (name, like) => {
       const value = name.trim();
-      if (!value || !like) return 'design.cad.layerNameMissing';
+      if (!value) return 'design.cad.layerNameMissing';
       if (allLayers.includes(value)) return 'design.cad.layerExists';
       add([{ kind: 'add_layer', layer: value, like }]);
       setCurrentLayer(value);
       return null;
+    },
+    meaningOf: (layer) => {
+      if (ruled.has(layer)) return { kind: 'rule' };
+      const like = aliases.get(layer);
+      return like !== undefined && like !== layer ? { kind: 'like', like } : { kind: 'none' };
+    },
+    setMeaning: (layer, like) => {
+      if (!layer || !like || ruled.has(layer) || !mapped.includes(like)) return;
+      add([{ kind: 'add_layer', layer, like }]);
+      say(msg('meaningSet', { layer, like }));
     },
     renameLayer: (from, to) => {
       const value = to.trim();

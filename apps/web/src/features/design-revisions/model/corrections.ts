@@ -183,6 +183,12 @@ export function pointLayersOf(view: CadMappingView | undefined): PointLayer[] {
 export const layerNamesOf = (view: CadMappingView | undefined): string[] =>
   [...moveLayerTargets(view?.mapping?.rules ?? [])].sort((a, b) => a.localeCompare(b));
 
+/** Layers that have a layer rule of their own (whatever it makes them), ADR-051. */
+export const ruledLayersOf = (view: CadMappingView | undefined): Set<string> =>
+  new Set(
+    (view?.mapping?.rules ?? []).flatMap((rule) => (rule.source === 'layer' ? [rule.layer] : [])),
+  );
+
 export function metresPerUnitOf(view: CadMappingView | undefined): number | null {
   const value = Number(view?.mapping?.metresPerUnit);
   return Number.isFinite(value) && value > 0 ? value : null;

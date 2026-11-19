@@ -221,3 +221,25 @@ describe('AutoCAD-like screen corrections (ADR-051)', () => {
     expect([...SCREEN_ONLY_CORRECTION_KINDS].sort()).toEqual(['add_note', 'set_style']);
   });
 });
+
+describe('layers for drawing only and layer meanings (owner 2026-11-19, ADR-051)', () => {
+  const rules = [
+    { source: 'layer', layer: 'R', target: 'route' },
+    { source: 'layer', layer: 'BG', target: 'background' },
+  ] as Parameters<typeof moveLayerTargets>[0];
+  it('a new layer may be for drawing only (like null), and it means nothing', () => {
+    expect(
+      DrawingCorrectionInputSchema.safeParse({ kind: 'add_layer', layer: 'HOUSES', like: null })
+        .success,
+    ).toBe(true);
+    const targets = moveLayerTargets(rules, [{ kind: 'add_layer', layer: 'HOUSES', like: null }]);
+    expect([...targets]).toEqual(['R']);
+  });
+  it('a layer without a rule takes a meaning; one with its own rule keeps it', () => {
+    const targets = moveLayerTargets(rules, [
+      { kind: 'add_layer', layer: 'buildings', like: 'R' },
+      { kind: 'add_layer', layer: 'BG', like: 'R' },
+    ]);
+    expect([...targets].sort()).toEqual(['R', 'buildings']);
+  });
+});

@@ -46,15 +46,18 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
   }
 }
 
-/** Layers a correction puts items on (or takes the meaning of): each needs a usable rule. */
+/**
+ * Layers a correction moves an item to (or takes the meaning of): each needs a usable rule, so an
+ * item of the drawing never drops out of the checks with its error (owner 2026-11-09). A line drawn
+ * on the page may go on any layer (owner 2026-11-19, ADR-051): on a layer without a rule the build
+ * ignores it, and it hides no error.
+ */
 function targetLayersOf(input: DrawingCorrectionInput): string[] {
   switch (input.kind) {
     case 'move_layer':
       return [input.toLayer];
-    case 'add_curve':
-      return [input.layer];
     case 'add_layer':
-      return [input.like];
+      return input.like === null ? [] : [input.like];
     default:
       return [];
   }

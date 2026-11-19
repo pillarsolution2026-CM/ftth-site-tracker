@@ -30,7 +30,9 @@ drawing units.
   the points across that line; `scale_item {handle, x, y, factor}` scales them about (x, y) (a
   text's height too); `add_curve {layer, points, closed}` adds a line / polyline `FIX-<id>`;
   `add_layer {layer, like}` and `rename_layer {from, to}` give a layer the rule of another (the
-  build copies that rule, `layer_aliases`), and a rename moves every row of `from` to `to`;
+  build copies that rule to a layer without one, `layer_aliases`; ADR-051: also a layer of the
+  drawing without a rule, so what is drawn on it counts; `like` null = a layer for drawing only),
+  and a rename moves every row of `from` to `to`;
   `delete_layer {layer}` removes every row on the layer.
 - the AutoCAD-like screen (ADR-051): `set_curve {handle, points, closed}` replaces a curve's points
   (the result of Trim, Fillet, Stretch or Extend; handle and layer stay); `add_note {note, layer,
@@ -192,7 +194,8 @@ class AddCurve:
 @dataclass(frozen=True, slots=True)
 class AddLayer:
     layer: str
-    like: str
+    # None: a layer for drawing only (owner 2026-11-19, ADR-051): no rule, the build ignores it.
+    like: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,7 +406,8 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
             _layer(cid, body, "layer"), _points(cid, body.get("points")), _flag(cid, body)
         )
     if kind == "add_layer":
-        added = AddLayer(_layer(cid, body, "layer"), _layer(cid, body, "like"))
+        like = None if body.get("like") is None else _layer(cid, body, "like")
+        added = AddLayer(_layer(cid, body, "layer"), like)
         if added.layer == added.like:
             raise CorrectionInvalidError(f"correction {cid}: the new layer needs its own name")
         return added
@@ -556,7 +560,8 @@ def layer_aliases(corrections: Iterable[FrozenCorrection]) -> dict[str, str]:
     for fc in corrections:
         c = fc.correction
         if isinstance(c, AddLayer):
-            out[c.layer] = out.get(c.like, c.like)
+            if c.like is not None:
+                out[c.layer] = out.get(c.like, c.like)
         elif isinstance(c, RenameLayer):
             out[c.to_layer] = out.get(c.from_layer, c.from_layer)
     return out

@@ -275,21 +275,7 @@ describe('adding a correction', () => {
     ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['NOPE'] } });
   });
 
-  it('a drawn line and an added layer need a usable rule; added layers then count (ADR-050)', async () => {
-    await expect(
-      add({
-        correction: {
-          kind: 'add_curve',
-          layer: 'BG',
-          points: [
-            [0, 0],
-            [1, 1],
-          ],
-          closed: false,
-        },
-        problem: null,
-      }),
-    ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'BG' } });
+  it('an added layer needs a usable source; added layers then count (ADR-050)', async () => {
     await expect(
       add({ correction: { kind: 'add_layer', layer: 'NEW', like: 'BG' }, problem: null }),
     ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'BG' } });
@@ -322,6 +308,39 @@ describe('adding a correction', () => {
       ],
     });
     expect(uow.corrections.rows.size).toBe(5);
+  });
+
+  it('draws on any layer and adds a layer for drawing only (owner 2026-11-19, ADR-051)', async () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [1, 1],
+    ];
+    // On a background layer or one without a rule the build ignores the line: it hides no error.
+    for (const layer of ['BG', 'NO_RULE_LAYER']) {
+      await add({
+        correction: { kind: 'add_curve', layer, points: line, closed: false },
+        problem: null,
+      });
+    }
+    await add({ correction: { kind: 'add_layer', layer: 'HOUSES', like: null }, problem: null });
+    // A layer of the drawing without a rule takes the meaning of a route layer...
+    await add({
+      correction: { kind: 'add_layer', layer: 'buildings', like: 'N_DUC_CBL' },
+      problem: null,
+    });
+    await add({
+      correction: { kind: 'move_layer', handle: 'C1', toLayer: 'buildings' },
+      problem: null,
+    });
+    // ...but a layer with a rule of its own keeps it, so items still may not move there.
+    await add({ correction: { kind: 'add_layer', layer: 'BG', like: 'N_DUC_CBL' }, problem: null });
+    await expect(
+      add({ correction: { kind: 'move_layer', handle: 'C2', toLayer: 'BG' }, problem: null }),
+    ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'BG' } });
+    // Moving an item to a layer for drawing only would hide its error: refused.
+    await expect(
+      add({ correction: { kind: 'move_layer', handle: 'C2', toLayer: 'HOUSES' }, problem: null }),
+    ).rejects.toMatchObject({ details: { reason: 'LAYER_HAS_NO_RULE', layer: 'HOUSES' } });
   });
 
   it('set_curve needs a curve; a style needs an item; a note needs neither (ADR-051)', async () => {

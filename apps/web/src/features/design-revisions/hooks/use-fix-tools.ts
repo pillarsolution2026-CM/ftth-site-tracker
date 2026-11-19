@@ -17,6 +17,7 @@ import {
   correctionError,
   dismissRequest,
   layerNamesOf,
+  ruledLayersOf,
   mergeRoutesRequest,
   metresPerUnitOf,
   moveLayerRequest,
@@ -38,6 +39,8 @@ export interface FixTools {
   isPending: (code: DrawingProblemCode, handle: string) => boolean;
   /** Every layer of the file (to move an item or label to). */
   layers: string[];
+  /** Layers with a rule of their own (any target): they cannot take another layer's meaning. */
+  ruledLayers: ReadonlySet<string>;
   /** Layers mapped to a point type (where an item of the label's type can go). */
   pointLayers: PointLayer[];
   metresPerUnit: number | null;
@@ -67,7 +70,9 @@ export function useFixTools(
   );
   const layers = useMemo(() => layerNamesOf(mapping.data), [mapping.data]);
   const pointLayers = useMemo(() => pointLayersOf(mapping.data), [mapping.data]);
+  const ruledLayers = useMemo(() => ruledLayersOf(mapping.data), [mapping.data]);
   return {
+    ruledLayers,
     enabled,
     isPending: (code, handle) => pending.has(placeKey(code, handle)),
     layers,

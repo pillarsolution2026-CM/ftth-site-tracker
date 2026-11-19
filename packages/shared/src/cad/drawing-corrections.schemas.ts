@@ -223,14 +223,16 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
     closed: z.boolean().default(false),
   }),
   /**
-   * A new layer that means what `like` means in the mapping (ADR-050): items moved or drawn on it
-   * are read with the rule of `like`. The layer has nothing on it until an item is put there.
+   * A layer that means what `like` means in the mapping (ADR-050): items moved or drawn on it are
+   * read with the rule of `like`. A new name starts empty; a layer of the drawing that has no rule
+   * takes `like`'s meaning for everything on it (owner 2026-11-19: «the program understands what
+   * was drawn»). `like: null` is a new layer for drawing only: the build ignores what is on it.
    */
   z
     .strictObject({
       kind: z.literal('add_layer'),
       layer: LayerName,
-      like: LayerName,
+      like: LayerName.nullable(),
     })
     .refine((a) => a.layer !== a.like, 'The new layer needs its own name'),
   /** Every item on `from` moves to `to`, which keeps the rule of `from` (ADR-050). */
@@ -375,12 +377,16 @@ export function moveLayerTargets(
   corrections: readonly DrawingCorrectionInput[] = [],
 ): Set<string> {
   const out = new Set<string>();
+  const ruled = new Set<string>();
   for (const rule of rules) {
-    if (rule.source === 'layer' && MOVE_LAYER_TARGETS.includes(rule.target)) out.add(rule.layer);
+    if (rule.source !== 'layer') continue;
+    ruled.add(rule.layer);
+    if (MOVE_LAYER_TARGETS.includes(rule.target)) out.add(rule.layer);
   }
-  // A layer added or renamed by a correction means what its source layer means (ADR-050).
+  // A layer added or renamed by a correction means what its source layer means (ADR-050), unless
+  // it has a rule of its own (the worker keeps that rule, ADR-051).
   for (const [layer, like] of layerAliases(corrections)) {
-    if (out.has(like)) out.add(layer);
+    if (out.has(like) && !ruled.has(layer)) out.add(layer);
   }
   return out;
 }
@@ -392,8 +398,9 @@ export function moveLayerTargets(
 export function layerAliases(corrections: readonly DrawingCorrectionInput[]): Map<string, string> {
   const out = new Map<string, string>();
   for (const c of corrections) {
-    if (c.kind === 'add_layer') out.set(c.layer, out.get(c.like) ?? c.like);
-    else if (c.kind === 'rename_layer') out.set(c.to, out.get(c.from) ?? c.from);
+    if (c.kind === 'add_layer') {
+      if (c.like !== null) out.set(c.layer, out.get(c.like) ?? c.like);
+    } else if (c.kind === 'rename_layer') out.set(c.to, out.get(c.from) ?? c.from);
   }
   return out;
 }
