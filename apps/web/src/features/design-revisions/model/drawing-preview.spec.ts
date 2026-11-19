@@ -191,3 +191,81 @@ describe('CAD ribbon in the preview (ADR-050)', () => {
     expect(preview.erased.has(2)).toBe(false); // A1 is on Sap, not CABINET
   });
 });
+
+describe('AutoCAD-like screen in the preview (ADR-051)', () => {
+  const at = (n: number) => ({ createdAt: `2026-11-09T10:00:0${n}+00:00` });
+  it('set_curve replaces the points (moves before it are in them); notes and styles are kept', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction({ kind: 'move_item', handle: 'A', dx: 5, dy: 0 }, at(1)),
+        correction(
+          {
+            kind: 'set_curve',
+            handle: 'A',
+            points: [
+              [5, 0],
+              [30, 0],
+            ],
+            closed: false,
+          },
+          at(2),
+        ),
+        correction(
+          { kind: 'add_note', note: 'leader', layer: 'Route', points: [[1, 2]], text: 'ODB' },
+          at(3),
+        ),
+        correction(
+          {
+            kind: 'set_style',
+            handle: 'B',
+            color: '#00ff00',
+            linetype: 'dashed',
+            lineweight: null,
+          },
+          at(4),
+        ),
+        correction(
+          { kind: 'set_style', handle: 'B', color: null, linetype: 'center', lineweight: 0.5 },
+          at(5),
+        ),
+      ],
+      2.5,
+    );
+    expect(preview.curveOf.get(0)).toEqual({
+      points: [
+        [5, 0],
+        [30, 0],
+      ],
+      closed: false,
+    });
+    expect(preview.transformOf.has(0)).toBe(false);
+    expect(preview.notes).toEqual([
+      {
+        note: 'leader',
+        points: [[1, 2]],
+        text: 'ODB',
+        layer: 0,
+        color: '#ff0000',
+        layerName: 'Route',
+      },
+    ]);
+    // The latest style wins.
+    expect(preview.styleOf.get(1)).toEqual({ color: null, linetype: 'center', lineweight: 0.5 });
+  });
+
+  it('a deleted layer takes its notes with it', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction(
+          { kind: 'add_note', note: 'dimension', layer: 'Route', points: [[0, 0]], text: null },
+          at(1),
+        ),
+        correction({ kind: 'delete_layer', layer: 'Route' }, at(2)),
+      ],
+      2.5,
+    );
+    expect(preview.notes).toEqual([]);
+  });
+});

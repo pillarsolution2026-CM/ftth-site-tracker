@@ -284,5 +284,38 @@ function Values({ item }: { item: DrawingCorrection }) {
           {t('design.corrections.values.layerEverything')}
         </>
       );
+    case 'set_curve':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr> —{' '}
+          {t('design.corrections.values.curvePoints', { count: ltr(c.points.length) })}
+        </>
+      );
+    case 'add_note':
+      return (
+        <>
+          {t(`design.corrections.values.note_${c.note}`)} <Ltr className="break-all">{c.layer}</Ltr>
+          {c.text !== null && (
+            <>
+              {' '}
+              — <bdi>{c.text}</bdi>
+            </>
+          )}{' '}
+          ({t('design.corrections.values.screenOnly')})
+        </>
+      );
+    case 'set_style': {
+      const byLayer = t('design.corrections.values.byLayer');
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            {c.color ?? byLayer} · {c.linetype ?? byLayer} ·{' '}
+            {c.lineweight === null ? byLayer : `${round(c.lineweight)} mm`}
+          </Ltr>{' '}
+          ({t('design.corrections.values.screenOnly')})
+        </>
+      );
+    }
   }
 }

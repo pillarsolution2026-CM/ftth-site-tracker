@@ -32,6 +32,11 @@ drawing units.
   `add_layer {layer, like}` and `rename_layer {from, to}` give a layer the rule of another (the
   build copies that rule, `layer_aliases`), and a rename moves every row of `from` to `to`;
   `delete_layer {layer}` removes every row on the layer.
+- the AutoCAD-like screen (ADR-051): `set_curve {handle, points, closed}` replaces a curve's points
+  (the result of Trim, Fillet, Stretch or Extend; handle and layer stay); `add_note {note, layer,
+  points, text}` (a dimension or leader) and `set_style {handle, color, linetype, lineweight}` are
+  checked and then ignored: they are drawn on the screen only and change no row, quantity or
+  problem.
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -73,6 +78,11 @@ MAX_ROTATION_DEG = 360.0
 MIN_SCALE_FACTOR = 0.001
 MAX_SCALE_FACTOR = 1000.0
 MAX_CURVE_POINTS = 2000
+MAX_NOTE_POINTS = 50
+MAX_LINEWEIGHT_MM = 10.0
+NOTE_KINDS = frozenset({"dimension", "leader"})
+LINETYPES = frozenset({"continuous", "dashed", "dotted", "center"})
+_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 ADDED_CURVE_TYPE = "LWPOLYLINE"
 # Control characters U+0000-U+001F are refused in handles, layers and texts (as the contract).
 _CONTROL = re.compile(r"[\x00-\x1f]")
@@ -196,6 +206,33 @@ class DeleteLayer:
     layer: str
 
 
+@dataclass(frozen=True, slots=True)
+class SetCurve:
+    handle: str
+    points: tuple[Xy, ...]
+    closed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AddNote:
+    """Screen only (ADR-051): the build ignores it."""
+
+    note: str
+    layer: str
+    points: tuple[Xy, ...]
+    text: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SetStyle:
+    """Screen only (ADR-051): the build ignores it."""
+
+    handle: str
+    color: str | None
+    linetype: str | None
+    lineweight: float | None
+
+
 Correction = (
     MoveLayer
     | SetText
@@ -213,6 +250,9 @@ Correction = (
     | AddLayer
     | RenameLayer
     | DeleteLayer
+    | SetCurve
+    | AddNote
+    | SetStyle
 )
 
 
@@ -246,6 +286,9 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "add_layer": frozenset({"kind", "layer", "like"}),
     "rename_layer": frozenset({"kind", "from", "to"}),
     "delete_layer": frozenset({"kind", "layer"}),
+    "set_curve": frozenset({"kind", "handle", "points", "closed"}),
+    "add_note": frozenset({"kind", "note", "layer", "points", "text"}),
+    "set_style": frozenset({"kind", "handle", "color", "linetype", "lineweight"}),
 }
 
 
@@ -371,6 +414,14 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         return renamed
     if kind == "delete_layer":
         return DeleteLayer(_layer(cid, body, "layer"))
+    if kind == "set_curve":
+        return SetCurve(
+            _handle(cid, body.get("handle")), _points(cid, body.get("points")), _flag(cid, body)
+        )
+    if kind == "add_note":
+        return _note(cid, body)
+    if kind == "set_style":
+        return _style(cid, body)
     handles = body.get("handles")
     if not isinstance(handles, list) or not 2 <= len(handles) <= MAX_MERGE_PIECES:
         raise CorrectionInvalidError(
@@ -427,10 +478,42 @@ def _finite(cid: str, body: Mapping[str, object], key: str) -> float:
     return number
 
 
-def _points(cid: str, value: object) -> tuple[Xy, ...]:
-    if not isinstance(value, list) or not 2 <= len(value) <= MAX_CURVE_POINTS:
+def _note(cid: str, body: Mapping[str, object]) -> AddNote:
+    note = body.get("note")
+    if note not in NOTE_KINDS:
+        raise CorrectionInvalidError(f"correction {cid}: unknown note {note!r}")
+    text = None if body.get("text") is None else _text(cid, body)
+    points = _points(cid, body.get("points"), least=1, most=MAX_NOTE_POINTS)
+    return AddNote(str(note), _layer(cid, body, "layer"), points, text)
+
+
+def _style(cid: str, body: Mapping[str, object]) -> SetStyle:
+    color = body.get("color")
+    if color is not None and not (isinstance(color, str) and _COLOR.fullmatch(color)):
+        raise CorrectionInvalidError(f"correction {cid}: `color` must be #rrggbb or null")
+    linetype = body.get("linetype")
+    if linetype is not None and linetype not in LINETYPES:
+        raise CorrectionInvalidError(f"correction {cid}: unknown line type {linetype!r}")
+    raw_weight = body.get("lineweight")
+    weight = None if raw_weight is None else _number(raw_weight)
+    if raw_weight is not None and (weight is None or not 0 <= weight <= MAX_LINEWEIGHT_MM):
         raise CorrectionInvalidError(
-            f"correction {cid}: `points` must be 2-{MAX_CURVE_POINTS} [x, y] pairs"
+            f"correction {cid}: `lineweight` must be 0-{MAX_LINEWEIGHT_MM:g} mm or null"
+        )
+    return SetStyle(
+        _handle(cid, body.get("handle")),
+        color if isinstance(color, str) else None,
+        linetype if isinstance(linetype, str) else None,
+        weight,
+    )
+
+
+def _points(
+    cid: str, value: object, *, least: int = 2, most: int = MAX_CURVE_POINTS
+) -> tuple[Xy, ...]:
+    if not isinstance(value, list) or not least <= len(value) <= most:
+        raise CorrectionInvalidError(
+            f"correction {cid}: `points` must be {least}-{most} [x, y] pairs"
         )
     out: list[Xy] = []
     for point in value:
@@ -505,7 +588,9 @@ def curve_handles(corrections: Iterable[FrozenCorrection]) -> frozenset[str]:
     out: set[str] = set()
     for fc in corrections:
         c = fc.correction
-        if isinstance(c, MoveLayer | MoveItem | RotateItem | CopyItem | MirrorItem | ScaleItem):
+        if isinstance(
+            c, MoveLayer | MoveItem | RotateItem | CopyItem | MirrorItem | ScaleItem | SetCurve
+        ):
             out.add(c.handle)
         elif isinstance(c, MergeRoutes):
             out.update(c.handles)
@@ -646,6 +731,13 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
         )
     elif isinstance(c, AddLayer):
         return  # changes no row: the build copies the rule (with_layer_aliases)
+    elif isinstance(c, SetCurve):
+        curve = rows.curves.get(c.handle)
+        if curve is None:
+            raise CorrectionInvalidError(f"{where}: no line with handle {c.handle} in the drawing")
+        rows.curves[c.handle] = dataclasses.replace(curve, points=c.points, closed=c.closed)
+    elif isinstance(c, AddNote | SetStyle):
+        return  # screen only (ADR-051): no row, quantity or problem changes
     elif isinstance(c, RenameLayer):
         _relayer(rows, c.from_layer, c.to_layer)
     elif isinstance(c, DeleteLayer):

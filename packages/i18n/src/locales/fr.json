@@ -1475,7 +1475,10 @@
         "add_curve": "Tracer une ligne",
         "add_layer": "Ajouter un calque",
         "rename_layer": "Renommer un calque",
-        "delete_layer": "Supprimer un calque"
+        "delete_layer": "Supprimer un calque",
+        "set_curve": "Modifier une ligne",
+        "add_note": "Note sur le dessin",
+        "set_style": "Style de ligne"
       },
       "values": {
         "move_layer": "Déplacer",
@@ -1484,7 +1487,11 @@
         "dismiss_problem": "ignorée, raison",
         "layerLike": "comme",
         "curvePoints": "{count} points",
-        "layerEverything": "tout ce qu'il contient"
+        "layerEverything": "tout ce qu'il contient",
+        "note_dimension": "Cote",
+        "note_leader": "Ligne de repère",
+        "screenOnly": "écran seulement, sans effet sur la construction",
+        "byLayer": "du calque"
       },
       "withdraw": "Retirer la correction",
       "withdrawTitle": "Retirer cette correction ?",

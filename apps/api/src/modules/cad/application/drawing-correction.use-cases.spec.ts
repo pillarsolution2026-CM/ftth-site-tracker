@@ -324,6 +324,57 @@ describe('adding a correction', () => {
     expect(uow.corrections.rows.size).toBe(5);
   });
 
+  it('set_curve needs a curve; a style needs an item; a note needs neither (ADR-051)', async () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [2, 0],
+    ];
+    await add({
+      correction: { kind: 'set_curve', handle: 'C1', points: line, closed: false },
+      problem: null,
+    });
+    await expect(
+      add({
+        correction: { kind: 'set_curve', handle: 'A1', points: line, closed: false },
+        problem: null,
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['A1'] } });
+    for (const handle of ['A1', 'A2', 'C2']) {
+      await add({
+        correction: {
+          kind: 'set_style',
+          handle,
+          color: '#ff0000',
+          linetype: 'dashed',
+          lineweight: 0.5,
+        },
+        problem: null,
+      });
+    }
+    await expect(
+      add({
+        correction: {
+          kind: 'set_style',
+          handle: 'NOPE',
+          color: null,
+          linetype: null,
+          lineweight: null,
+        },
+        problem: null,
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['NOPE'] } });
+    // A note may sit on any layer, even one without a rule: the build ignores it.
+    await add({
+      correction: { kind: 'add_note', note: 'dimension', layer: 'BG', points: line, text: null },
+      problem: null,
+    });
+    await add({
+      correction: { kind: 'add_note', note: 'leader', layer: 'ANY', points: line, text: 'ODB' },
+      problem: null,
+    });
+    expect(uow.corrections.rows.size).toBe(6);
+  });
+
   it('accepts add_text and add_item without any handle', async () => {
     await add({
       correction: { kind: 'add_text', layer: 'L', x: 1, y: 2, text: 'MH-1', height: null },

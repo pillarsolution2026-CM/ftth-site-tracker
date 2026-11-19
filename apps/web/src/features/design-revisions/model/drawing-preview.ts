@@ -1,4 +1,9 @@
-import type { DrawingCorrection, DrawingCorrectionInput } from '@ftth/shared';
+import type {
+  DrawingCorrection,
+  DrawingCorrectionInput,
+  DrawingLinetype,
+  DrawingNoteKind,
+} from '@ftth/shared';
 import {
   compose,
   IDENTITY,
@@ -42,6 +47,23 @@ export interface PreviewCurve {
   layerName: string;
 }
 
+/** A dimension or leader drawn on the page (add_note, ADR-051): screen only. */
+export interface PreviewNote {
+  note: DrawingNoteKind;
+  points: readonly (readonly [number, number])[];
+  text: string | null;
+  layer: number;
+  color: string;
+  layerName: string;
+}
+
+/** How an entity is drawn (set_style, ADR-051); null = by layer. Screen only. */
+export interface PreviewStyle {
+  color: string | null;
+  linetype: DrawingLinetype | null;
+  lineweight: number | null;
+}
+
 /**
  * Corrections in force drawn on top of the view at once (ADR-039); the official result is only
  * the next build. Entities are addressed by index into the view's entity list.
@@ -67,6 +89,15 @@ export interface DrawingPreview {
   extraCurves: readonly PreviewCurve[];
   /** Layer added or renamed on the page → the view layer whose colour it takes (ADR-050). */
   aliases: ReadonlyMap<string, string>;
+  /**
+   * Entity → its new points in drawing units (set_curve: Trim, Fillet, Stretch; ADR-051), drawn
+   * instead of its own path, after which `transformOf` moves it.
+   */
+  curveOf: ReadonlyMap<number, { points: readonly (readonly [number, number])[]; closed: boolean }>;
+  /** Dimensions and leaders (add_note; ADR-051). */
+  notes: readonly PreviewNote[];
+  /** Entity → its latest style (set_style; ADR-051). */
+  styleOf: ReadonlyMap<number, PreviewStyle>;
 }
 
 export const EMPTY_PREVIEW: DrawingPreview = {
@@ -80,6 +111,9 @@ export const EMPTY_PREVIEW: DrawingPreview = {
   copies: [],
   extraCurves: [],
   aliases: new Map(),
+  curveOf: new Map(),
+  notes: [],
+  styleOf: new Map(),
 };
 
 /** Text height of an added label that has none: 0.25 m, or 2.5 drawing units without a scale. */
@@ -138,6 +172,9 @@ export function applyInputs(
   const erased = new Set(base.erased);
   const copies = [...base.copies];
   const aliases = new Map(base.aliases);
+  const curveOf = new Map(base.curveOf);
+  let notes = [...base.notes];
+  const styleOf = new Map(base.styleOf);
   const layers = scene.view.layers;
   const layerIndex = (name: string) =>
     scene.layerByName.get(name) ?? scene.layerByName.get(aliases.get(name) ?? '') ?? -1;
@@ -235,6 +272,7 @@ export function applyInputs(
         extraTexts = extraTexts.map(rename);
         extraItems = extraItems.map(rename);
         extraCurves = extraCurves.map(rename);
+        notes = notes.map(rename);
         break;
       }
       case 'delete_layer': {
@@ -243,8 +281,37 @@ export function applyInputs(
         extraTexts = extraTexts.filter(keep);
         extraItems = extraItems.filter(keep);
         extraCurves = extraCurves.filter(keep);
+        notes = notes.filter(keep);
         break;
       }
+      case 'set_curve':
+        // New points replace the curve; moves made before are already in them.
+        for (const index of indexes(correction.handle)) {
+          curveOf.set(index, { points: correction.points, closed: correction.closed });
+          transformOf.delete(index);
+        }
+        break;
+      case 'add_note': {
+        const layer = layerIndex(correction.layer);
+        notes.push({
+          note: correction.note,
+          points: correction.points,
+          text: correction.text,
+          layer,
+          color: colorOf(layer),
+          layerName: correction.layer,
+        });
+        break;
+      }
+      case 'set_style':
+        for (const index of indexes(correction.handle)) {
+          styleOf.set(index, {
+            color: correction.color,
+            linetype: correction.linetype,
+            lineweight: correction.lineweight,
+          });
+        }
+        break;
       case 'dismiss_problem':
         break; // changes nothing on the drawing (ADR-046)
     }
@@ -260,6 +327,9 @@ export function applyInputs(
     copies,
     extraCurves,
     aliases,
+    curveOf,
+    notes,
+    styleOf,
   };
 }
 

@@ -15,6 +15,7 @@ from cad_worker.domain.corrections import (
     AddCurve,
     AddItem,
     AddLayer,
+    AddNote,
     AddText,
     CopyItem,
     CorrectionInvalidError,
@@ -29,6 +30,8 @@ from cad_worker.domain.corrections import (
     RenameLayer,
     RotateItem,
     ScaleItem,
+    SetCurve,
+    SetStyle,
     SetText,
     apply_corrections,
     curve_handles,
@@ -759,3 +762,97 @@ def test_added_and_renamed_layers_take_the_rule_of_their_source() -> None:
 def test_ribbon_on_a_missing_handle_fails_loudly(correction: Any) -> None:
     with pytest.raises(CorrectionInvalidError, match="no item with handle missing"):
         apply(empty(), correction)
+
+
+# ---------- AutoCAD-like screen (ADR-051) ----------
+
+
+def test_screen_kinds_are_parsed_strictly() -> None:
+    raw = [
+        {"id": str(uuid.UUID(int=i + 1)), "correction": body}
+        for i, body in enumerate(
+            [
+                {"kind": "set_curve", "handle": "c1", "points": [[0, 0], [2, 0]], "closed": False},
+                {
+                    "kind": "add_note",
+                    "note": "dimension",
+                    "layer": "DIM",
+                    "points": [[0, 0], [4, 0], [2, 1]],
+                    "text": None,
+                },
+                {
+                    "kind": "add_note",
+                    "note": "leader",
+                    "layer": "DIM",
+                    "points": [[1, 1]],
+                    "text": "ODB",
+                },
+                {
+                    "kind": "set_style",
+                    "handle": "c1",
+                    "color": "#FF00aa",
+                    "linetype": "dashed",
+                    "lineweight": 0.35,
+                },
+                {
+                    "kind": "set_style",
+                    "handle": "c1",
+                    "color": None,
+                    "linetype": None,
+                    "lineweight": None,
+                },
+            ]
+        )
+    ]
+    parsed = [p.correction for p in parse_corrections(raw)]
+    assert parsed[0] == SetCurve("c1", ((0, 0), (2, 0)), False)
+    assert parsed[1] == AddNote("dimension", "DIM", ((0, 0), (4, 0), (2, 1)), None)
+    assert parsed[2] == AddNote("leader", "DIM", ((1, 1),), "ODB")
+    assert parsed[3] == SetStyle("c1", "#FF00aa", "dashed", 0.35)
+    assert parsed[4] == SetStyle("c1", None, None, None)
+    note = {"kind": "add_note", "note": "leader", "layer": "DIM", "text": None}
+    style = {"kind": "set_style", "handle": "c1", "color": None, "linetype": None}
+    for body in (
+        {"kind": "set_curve", "handle": "c1", "points": [[0, 0]], "closed": False},
+        {"kind": "set_curve", "handle": "c1", "points": [[0, 0], [1, 1]], "layer": "R"},
+        {**note, "points": []},
+        {**note, "points": [[i, i] for i in range(51)]},
+        {**note, "note": "table", "points": [[0, 0]]},
+        {**note, "points": [[0, 0]], "text": "  "},
+        {**style, "color": "red", "lineweight": None},
+        {**style, "linetype": "zigzag", "lineweight": None},
+        {**style, "lineweight": 11},
+        {**style, "lineweight": True},
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])
+
+
+def test_set_curve_replaces_the_points_and_keeps_handle_and_layer() -> None:
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0), (10, 5)),))
+    out = apply(drawing, SetCurve("c1", ((0, 0), (6, 0)), False))
+    assert out.curves == (SourceCurve("c1", "DUCT 4", ((0, 0), (6, 0)), False, "LWPOLYLINE"),)
+    assert "c1" in curve_handles([fix(SetCurve("c1", ((0, 0), (1, 0)), False))])
+    with pytest.raises(CorrectionInvalidError, match="no line with handle t1"):
+        apply(
+            empty(texts=(label("t1", "L", "x", (0, 0)),)),
+            SetCurve("t1", ((0, 0), (1, 0)), False),
+        )
+
+
+def test_notes_and_styles_change_no_row_and_no_problem() -> None:
+    drawing = empty(
+        curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),),
+        inserts=(insert("i1", "Sap", "Sap", (2, 2)),),
+        texts=(label("t1", "jont 36", "Joint 36", (4, 4)),),
+    )
+    out = apply(
+        drawing,
+        AddNote("dimension", "DIM", ((0, 0), (10, 0), (5, 2)), None),
+        AddNote("leader", "NO RULE", ((1, 1), (3, 3)), "ODB"),
+        SetStyle("c1", "#ff0000", "dashed", 0.5),
+        # The build never looks the handle up: a style of a gone item is harmless.
+        SetStyle("gone", None, None, None),
+    )
+    assert out == drawing
+    assert problems(out) == problems(drawing)

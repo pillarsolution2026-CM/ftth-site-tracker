@@ -1475,7 +1475,10 @@
         "add_curve": "Draw a line",
         "add_layer": "Add a layer",
         "rename_layer": "Rename a layer",
-        "delete_layer": "Delete a layer"
+        "delete_layer": "Delete a layer",
+        "set_curve": "Edit a line",
+        "add_note": "Note on the drawing",
+        "set_style": "Line style"
       },
       "values": {
         "move_layer": "Move",
@@ -1484,7 +1487,11 @@
         "dismiss_problem": "dismissed, reason",
         "layerLike": "like",
         "curvePoints": "{count} points",
-        "layerEverything": "everything on it"
+        "layerEverything": "everything on it",
+        "note_dimension": "Dimension",
+        "note_leader": "Leader",
+        "screenOnly": "screen only, no effect on the build",
+        "byLayer": "by layer"
       },
       "withdraw": "Withdraw the correction",
       "withdrawTitle": "Withdraw this correction?",

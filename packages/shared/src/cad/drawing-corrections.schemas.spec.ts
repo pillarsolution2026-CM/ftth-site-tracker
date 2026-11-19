@@ -4,6 +4,9 @@ import {
   DrawingCorrectionInputSchema,
   MAX_CORRECTIONS_PER_SAVE,
   MAX_CORRECTION_COORD,
+  MAX_LINEWEIGHT_MM,
+  MAX_NOTE_POINTS,
+  SCREEN_ONLY_CORRECTION_KINDS,
   moveLayerTargets,
 } from './drawing-corrections.schemas.js';
 
@@ -161,5 +164,60 @@ describe('CAD ribbon corrections (ADR-050)', () => {
       { kind: 'add_layer', layer: 'X', like: 'UNMAPPED' },
     ]);
     expect([...targets].sort()).toEqual(['NEW', 'NEW2', 'R']);
+  });
+});
+
+describe('AutoCAD-like screen corrections (ADR-051)', () => {
+  const parse = (input: object) => DrawingCorrectionInputSchema.safeParse(input);
+  const ok = (input: object) => parse(input).success;
+  const line = [
+    [0, 0],
+    [3, 4],
+  ];
+  it('set_curve replaces a curve with 2+ finite points, open by default', () => {
+    const parsed = parse({ kind: 'set_curve', handle: 'C1', points: line });
+    expect(parsed.success && parsed.data).toMatchObject({ kind: 'set_curve', closed: false });
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: line, closed: true })).toBe(true);
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: [[0, 0]] })).toBe(false);
+    expect(
+      ok({
+        kind: 'set_curve',
+        handle: 'C1',
+        points: [
+          [0, 0],
+          [Infinity, 1],
+        ],
+      }),
+    ).toBe(false);
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: line, layer: 'R' })).toBe(false);
+  });
+  it('add_note takes a dimension or leader of 1-MAX_NOTE_POINTS points, text optional', () => {
+    const parsed = parse({ kind: 'add_note', note: 'dimension', layer: 'DIM', points: line });
+    expect(parsed.success && parsed.data).toMatchObject({ text: null });
+    expect(
+      ok({ kind: 'add_note', note: 'leader', layer: 'DIM', points: [[1, 1]], text: 'ODB' }),
+    ).toBe(true);
+    const many = Array.from({ length: MAX_NOTE_POINTS + 1 }, (_, i) => [i, i]);
+    expect(ok({ kind: 'add_note', note: 'leader', layer: 'DIM', points: many })).toBe(false);
+    expect(ok({ kind: 'add_note', note: 'leader', layer: 'DIM', points: [] })).toBe(false);
+    expect(ok({ kind: 'add_note', note: 'table', layer: 'DIM', points: line })).toBe(false);
+    expect(
+      ok({ kind: 'add_note', note: 'leader', layer: 'DIM', points: line, text: '\u0007' }),
+    ).toBe(false);
+  });
+  it('set_style takes a #rrggbb colour, a known line type and a bounded weight; null = by layer', () => {
+    const parsed = parse({ kind: 'set_style', handle: 'C1', color: '#FF0000' });
+    expect(parsed.success && parsed.data).toMatchObject({ linetype: null, lineweight: null });
+    expect(ok({ kind: 'set_style', handle: 'C1', linetype: 'dashed', lineweight: 0.35 })).toBe(
+      true,
+    );
+    expect(ok({ kind: 'set_style', handle: 'C1' })).toBe(true);
+    expect(ok({ kind: 'set_style', handle: 'C1', color: 'red' })).toBe(false);
+    expect(ok({ kind: 'set_style', handle: 'C1', linetype: 'zigzag' })).toBe(false);
+    expect(ok({ kind: 'set_style', handle: 'C1', lineweight: MAX_LINEWEIGHT_MM + 1 })).toBe(false);
+    expect(ok({ kind: 'set_style', handle: 'C1', lineweight: -1 })).toBe(false);
+  });
+  it('only notes and styles are screen-only', () => {
+    expect([...SCREEN_ONLY_CORRECTION_KINDS].sort()).toEqual(['add_note', 'set_style']);
   });
 });

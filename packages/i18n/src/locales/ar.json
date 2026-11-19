@@ -1475,7 +1475,10 @@
         "add_curve": "رسم خط",
         "add_layer": "إضافة طبقة",
         "rename_layer": "تغيير اسم طبقة",
-        "delete_layer": "حذف طبقة"
+        "delete_layer": "حذف طبقة",
+        "set_curve": "تعديل خط",
+        "add_note": "ملاحظة على الرسمة",
+        "set_style": "شكل الخط"
       },
       "values": {
         "move_layer": "نقل",
@@ -1484,7 +1487,11 @@
         "dismiss_problem": "متجاهَل، السبب",
         "layerLike": "زي",
         "curvePoints": "{count} نقطة",
-        "layerEverything": "كل اللي عليها"
+        "layerEverything": "كل اللي عليها",
+        "note_dimension": "بُعد",
+        "note_leader": "سهم توضيح",
+        "screenOnly": "للشاشة بس، مالهاش أثر على البناء",
+        "byLayer": "حسب الطبقة"
       },
       "withdraw": "سحب التصحيح",
       "withdrawTitle": "سحب هذا التصحيح؟",

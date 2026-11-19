@@ -58,6 +58,9 @@ export const DRAWING_CORRECTION_KINDS = [
   'add_layer',
   'rename_layer',
   'delete_layer',
+  'set_curve',
+  'add_note',
+  'set_style',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
@@ -76,6 +79,23 @@ export const MIN_SCALE_FACTOR = 0.001;
 export const MAX_SCALE_FACTOR = 1000;
 /** Points of one drawn line or polyline (`add_curve`). */
 export const MAX_CURVE_POINTS = 2000;
+/** Points of one dimension or leader note (`add_note`, ADR-051). */
+export const MAX_NOTE_POINTS = 50;
+/** A line weight of `set_style`, millimetres as in CAD (technical bound, not a rule). */
+export const MAX_LINEWEIGHT_MM = 10;
+/** Notes the drawing screen saves and draws, ignored by the build (ADR-051). */
+export const DRAWING_NOTE_KINDS = ['dimension', 'leader'] as const;
+export const DrawingNoteKindSchema = z.enum(DRAWING_NOTE_KINDS);
+export type DrawingNoteKind = z.infer<typeof DrawingNoteKindSchema>;
+export const DRAWING_LINETYPES = ['continuous', 'dashed', 'dotted', 'center'] as const;
+export const DrawingLinetypeSchema = z.enum(DRAWING_LINETYPES);
+export type DrawingLinetype = z.infer<typeof DrawingLinetypeSchema>;
+/** Corrections the build ignores: only the drawing screen reads them (ADR-051). */
+export const SCREEN_ONLY_CORRECTION_KINDS: readonly DrawingCorrectionKind[] = [
+  'add_note',
+  'set_style',
+];
+const Point = z.tuple([Coord, Coord]);
 
 export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   /** An insert, text or curve moves to another layer (its rule then decides what it is). */
@@ -225,6 +245,49 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('delete_layer'),
     layer: LayerName,
+  }),
+  /**
+   * A curve's points are replaced (ADR-051): the result of Trim, Fillet, Stretch or Extend on the
+   * drawing screen. The curve keeps its handle and layer.
+   */
+  z.strictObject({
+    kind: z.literal('set_curve'),
+    handle: Handle,
+    points: z.array(Point).min(2).max(MAX_CURVE_POINTS),
+    closed: z.boolean().default(false),
+  }),
+  /**
+   * A dimension (2 points measured + 1 for the dimension line) or a leader (arrow tip first) drawn
+   * on the screen (ADR-051). Saved and drawn; the build ignores it (no quantity, item or error).
+   */
+  z.strictObject({
+    kind: z.literal('add_note'),
+    note: DrawingNoteKindSchema,
+    layer: LayerName,
+    points: z.array(Point).min(1).max(MAX_NOTE_POINTS),
+    text: Text.max(MAX_TEXT_LENGTH).nullable().default(null),
+  }),
+  /**
+   * How an item is drawn on the screen (ADR-051): colour `#rrggbb`, line type, line weight in mm;
+   * null = by layer (all null: back to the layer's look). The latest style of an item wins.
+   * Saved and drawn; the build ignores it.
+   */
+  z.strictObject({
+    kind: z.literal('set_style'),
+    handle: Handle,
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, 'A colour is #rrggbb')
+      .nullable()
+      .default(null),
+    linetype: DrawingLinetypeSchema.nullable().default(null),
+    lineweight: z
+      .number()
+      .refine(Number.isFinite)
+      .min(0)
+      .max(MAX_LINEWEIGHT_MM)
+      .nullable()
+      .default(null),
   }),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;

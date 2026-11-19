@@ -20,7 +20,10 @@ const handleNotFound = (handles: string[]) =>
     422,
   );
 
-/** The handles a correction points at and the kinds of rows each may be (add_* point at none). */
+/**
+ * The handles a correction points at and the kinds of rows each may be (add_* point at none). A
+ * note (`add_note`) is screen-only and names no item nor a layer rule (ADR-051).
+ */
 function references(input: DrawingCorrectionInput): { handles: string[]; kinds: HandleKind[] } {
   switch (input.kind) {
     case 'move_layer':
@@ -30,7 +33,10 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
     case 'copy_item':
     case 'mirror_item':
     case 'scale_item':
+    case 'set_style':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
+    case 'set_curve':
+      return { handles: [input.handle], kinds: ['curve'] };
     case 'set_text':
       return { handles: [input.handle], kinds: ['text'] };
     case 'merge_routes':
