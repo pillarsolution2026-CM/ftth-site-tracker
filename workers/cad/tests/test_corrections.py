@@ -810,9 +810,9 @@ def test_screen_kinds_are_parsed_strictly() -> None:
     assert parsed[2] == AddNote("leader", "DIM", ((1, 1),), "ODB")
     assert parsed[3] == SetStyle("c1", "#FF00aa", "dashed", 0.35)
     assert parsed[4] == SetStyle("c1", None, None, None)
-    note = {"kind": "add_note", "note": "leader", "layer": "DIM", "text": None}
-    style = {"kind": "set_style", "handle": "c1", "color": None, "linetype": None}
-    for body in (
+    note: dict[str, Any] = {"kind": "add_note", "note": "leader", "layer": "DIM", "text": None}
+    style: dict[str, Any] = {"kind": "set_style", "handle": "c1", "color": None, "linetype": None}
+    bad: tuple[dict[str, Any], ...] = (
         {"kind": "set_curve", "handle": "c1", "points": [[0, 0]], "closed": False},
         {"kind": "set_curve", "handle": "c1", "points": [[0, 0], [1, 1]], "layer": "R"},
         {**note, "points": []},
@@ -823,7 +823,8 @@ def test_screen_kinds_are_parsed_strictly() -> None:
         {**style, "linetype": "zigzag", "lineweight": None},
         {**style, "lineweight": 11},
         {**style, "lineweight": True},
-    ):
+    )
+    for body in bad:
         with pytest.raises(CorrectionInvalidError):
             parse_corrections([{"id": ID1, "correction": body}])
 
