@@ -29,6 +29,7 @@ import {
   METRES_PER_UNIT,
   PublishBlockedDetailsSchema,
   PublishDesignRevisionRequestSchema,
+  PUBLISH_CHECK_KEYS,
   PublishReadinessSchema,
   SetBoxTypesRequestSchema,
   ReviewTextLinkRequestSchema,
@@ -73,7 +74,11 @@ export interface MockCadFile {
   originalName: string;
   processed: boolean;
   drawingKind: DrawingKind;
-  /** A newer version of the same kind exists: nothing can be built from it. */
+  /** ADR-049 part B: the drawing (line of versions) this file belongs to and its site. */
+  drawingId: string;
+  siteId: string | null;
+  drawingOrdinal: number;
+  /** A newer version of the same drawing exists: nothing can be built from it. */
   superseded: boolean;
   userId: string;
   layers: { name: string; aciColor: number; counts: Record<string, number> }[];
@@ -344,6 +349,9 @@ function summary(rev: RevisionRecord) {
     cadFileId: rev.cad.id,
     cadFileName: rev.cad.originalName,
     drawingKind: rev.cad.drawingKind,
+    drawingId: rev.cad.drawingId,
+    siteId: rev.cad.siteId,
+    drawingOrdinal: rev.cad.drawingOrdinal,
     revNo: rev.publishedRevNo,
     status,
     crsEpsg: rev.mapping.crsEpsg,
@@ -483,10 +491,10 @@ export async function handleDesignRevisions(
       if (mapping.version !== body.data.mappingVersion) {
         return h.sendError(res, 409, 'CONFLICT', { reason: 'MAPPING_VERSION_MISMATCH' });
       }
-      // One open revision per kind (ADR-040): a General and a Secondary draft can exist together.
+      // One open revision per drawing (ADR-049): the drafts of a site's drawings can exist together.
       const open = [...revisions.values()].some(
         (rev) =>
-          rev.cad.drawingKind === cad.drawingKind &&
+          rev.cad.drawingId === cad.drawingId &&
           ['queued', 'building', 'draft'].includes(statusOf(rev)),
       );
       if (open) return h.sendError(res, 409, 'CONFLICT', { reason: 'REVISION_IN_PROGRESS' });
@@ -596,68 +604,15 @@ export async function handleDesignRevisions(
   // point) with no drawing errors, so the pair only needs both drafts and the open items.
   const otherDraft = [...revisions.values()].find(
     (candidate) =>
-      candidate.cad.drawingKind !== rev.cad.drawingKind && statusOf(candidate) === 'draft',
+      candidate.cad.siteId === rev.cad.siteId &&
+      candidate.cad.drawingKind !== rev.cad.drawingKind &&
+      statusOf(candidate) === 'draft',
   );
-  const ownInstallation = reportOf(rev);
-  const ownBoxTypes = boxTypesReportOf(rev);
   const openOf = (r: RevisionRecord) => r.links.filter((link) => link.status === 'review').length;
   const openItems = openOf(rev) + (otherDraft ? openOf(otherDraft) : 0);
 
   if (sub === 'publish-readiness' && method === 'GET') {
-    return h.send(
-      res,
-      200,
-      PublishReadinessSchema.parse({
-        checks: [
-          { key: 'crs_known', ok: true, count: null },
-          { key: 'control_point', ok: true, count: 1 },
-          { key: 'no_problems', ok: true, count: 0 },
-          { key: 'open_items', ok: openItems === 0, count: openItems },
-          {
-            key: 'other_drawing',
-            ok:
-              otherDraft !== undefined &&
-              reportOf(otherDraft).ok &&
-              boxTypesReportOf(otherDraft).ok,
-            count: otherDraft ? 0 : null,
-          },
-          // ADR-041: the mock drawings carry the same (sub) cabinets, so the pair matches.
-          { key: 'cabinets_match', ok: otherDraft !== undefined, count: otherDraft ? 0 : null },
-          // ADR-042: the General's installation (always ok, no count, on a Secondary).
-          {
-            key: 'installation',
-            ok: ownInstallation.ok,
-            count: ownInstallation.applies ? ownInstallation.issueCount : null,
-          },
-          // ADR-043: the Secondary's box types (always ok, no count, on a General).
-          {
-            key: 'box_types',
-            ok: ownBoxTypes.ok,
-            count: ownBoxTypes.applies ? ownBoxTypes.issueCount : null,
-          },
-        ],
-        canPublish:
-          status === 'draft' &&
-          otherDraft !== undefined &&
-          ownInstallation.ok &&
-          ownBoxTypes.ok &&
-          reportOf(otherDraft).ok &&
-          boxTypesReportOf(otherDraft).ok,
-        drawingKind: rev.cad.drawingKind,
-        otherRevisionId: otherDraft?.id ?? null,
-        needsAcknowledgement: openItems > 0,
-        cabinets: otherDraft
-          ? {
-              ok: true,
-              general: { count: 2, unnamed: 0, missingInOther: [] },
-              secondary: { count: 2, unnamed: 0, missingInOther: [] },
-            }
-          : null,
-        warningCount: 0,
-        installation: ownInstallation.applies ? ownInstallation : null,
-        boxTypes: ownBoxTypes.applies ? ownBoxTypes : null,
-      }),
-    );
+    return h.send(res, 200, PublishReadinessSchema.parse(readinessOf(rev, otherDraft, status)));
   }
 
   if (sub === 'box-types' && method === 'GET') {
@@ -672,14 +627,28 @@ export async function handleDesignRevisions(
     const body = PublishDesignRevisionRequestSchema.safeParse(await h.readJson(req));
     if (!body.success) return h.sendError(res, 422, 'VALIDATION_FAILED');
     if (status !== 'draft') return h.sendError(res, 409, 'CONFLICT', { reason: 'NOT_DRAFT' });
+    if (rev.cad.siteId === null) {
+      return h.sendError(
+        res,
+        409,
+        'CONFLICT',
+        PublishBlockedDetailsSchema.parse({
+          reason: 'SITE_UNASSIGNED',
+          drawingKind: rev.cad.drawingKind,
+          drawingId: rev.cad.drawingId,
+          ordinal: rev.cad.drawingOrdinal,
+        }),
+      );
+    }
     if (!otherDraft) {
       return h.sendError(
         res,
         409,
         'CONFLICT',
         PublishBlockedDetailsSchema.parse({
-          reason: 'OTHER_DRAWING_MISSING',
-          drawingKind: otherDrawingKind(rev.cad.drawingKind),
+          reason: 'SITE_INCOMPLETE',
+          siteId: rev.cad.siteId,
+          missingKinds: [otherDrawingKind(rev.cad.drawingKind)],
         }),
       );
     }
@@ -745,6 +714,119 @@ export async function handleDesignRevisions(
   }
 
   return h.sendError(res, 404, 'NOT_FOUND');
+}
+
+/** The open and the latest published revision of one drawing (ADR-049), for the drawings list. */
+export function drawingRevisionState(drawingId: string) {
+  const own = [...revisions.values()].filter((rev) => rev.cad.drawingId === drawingId);
+  const open = own.find((rev) => ['queued', 'building', 'draft'].includes(statusOf(rev)));
+  const published = own.filter((rev) => statusOf(rev) === 'published').at(-1);
+  return {
+    openRevision: open
+      ? { id: open.id, status: statusOf(open) as 'queued' | 'building' | 'draft' }
+      : null,
+    latestPublished:
+      published && published.publishedRevNo !== null && published.publishedAt !== null
+        ? { id: published.id, revNo: published.publishedRevNo, publishedAt: published.publishedAt }
+        : null,
+  };
+}
+
+/** The first open draft of a site, or undefined: the site route asks the API about it (ADR-049). */
+export function siteDraftId(siteId: string): string | undefined {
+  return [...revisions.values()].find(
+    (rev) => rev.cad.siteId === siteId && statusOf(rev) === 'draft',
+  )?.id;
+}
+
+/** The checklist of a site that has no draft at all. */
+export function emptySiteReadiness(siteId: string) {
+  return PublishReadinessSchema.parse({
+    siteId,
+    checks: PUBLISH_CHECK_KEYS.map((key) => ({
+      key,
+      ok: key === 'open_items' || key === 'cabinets_other_site',
+      count: key === 'crs_known' ? null : 0,
+    })),
+    canPublish: false,
+    needsAcknowledgement: false,
+  });
+}
+
+/** One checklist for the whole site: every draft of the site goes out together. */
+function readinessOf(
+  rev: RevisionRecord,
+  otherDraft: RevisionRecord | undefined,
+  status: ReturnType<typeof statusOf>,
+) {
+  const ownInstallation = reportOf(rev);
+  const ownBoxTypes = boxTypesReportOf(rev);
+  const openOf = (r: RevisionRecord) => r.links.filter((link) => link.status === 'review').length;
+  const drafts = otherDraft ? [rev, otherDraft] : [rev];
+  const openItems = drafts.reduce((sum, r) => sum + openOf(r), 0);
+  const installationOk = drafts.every((r) => reportOf(r).ok);
+  const boxTypesOk = drafts.every((r) => boxTypesReportOf(r).ok);
+  const siteOk = otherDraft !== undefined && rev.cad.siteId !== null;
+  const secondary = drafts.find((r) => r.cad.drawingKind === 'secondary');
+  return {
+    siteId: rev.cad.siteId,
+    checks: [
+      { key: 'crs_known', ok: true, count: null },
+      { key: 'control_point', ok: true, count: 1 },
+      { key: 'no_problems', ok: true, count: 0 },
+      { key: 'open_items', ok: openItems === 0, count: openItems },
+      { key: 'site_drawings', ok: siteOk, count: siteOk ? 0 : 1 },
+      // ADR-041: the mock drawings carry the same (sub) cabinets, so the site matches.
+      { key: 'cabinets_match', ok: siteOk, count: 0 },
+      { key: 'cabinets_other_site', ok: true, count: 0 },
+      {
+        key: 'installation',
+        ok: installationOk,
+        count: ownInstallation.applies ? ownInstallation.issueCount : null,
+      },
+      {
+        key: 'box_types',
+        ok: boxTypesOk,
+        count: ownBoxTypes.applies ? ownBoxTypes.issueCount : null,
+      },
+    ],
+    canPublish: status === 'draft' && siteOk && installationOk && boxTypesOk,
+    revisionId: rev.id,
+    drawingKind: rev.cad.drawingKind,
+    siteRevisionIds: drafts.map((r) => r.id),
+    drawings: drafts.map((r) => ({
+      drawingId: r.cad.drawingId,
+      drawingKind: r.cad.drawingKind,
+      ordinal: r.cad.drawingOrdinal,
+      draftRevisionId: r.id,
+      state: 'draft',
+      checks: [],
+      warningCount: 0,
+      installation: reportOf(r).applies ? reportOf(r) : null,
+      boxTypes: boxTypesReportOf(r).applies ? boxTypesReportOf(r) : null,
+    })),
+    needsAcknowledgement: openItems > 0,
+    cabinets: siteOk
+      ? {
+          ok: true,
+          general: { drawingId: null, count: 2, unnamed: 0 },
+          secondaries: secondary
+            ? [
+                {
+                  drawingId: secondary.cad.drawingId,
+                  ordinal: secondary.cad.drawingOrdinal,
+                  side: { count: 2, unnamed: 0, missingInOther: [] },
+                },
+              ]
+            : [],
+          inSeveralSecondaries: [],
+          missingInGeneral: [],
+          missingInSecondaries: [],
+        }
+      : null,
+    cabinetsInOtherSites: [],
+    warningCount: 0,
+  };
 }
 
 // ---------- installation question, trench marks, General-cabinet points (ADR-042) ----------
@@ -1092,7 +1174,10 @@ export function handleGeneralCabinets(res: ServerResponse, cad: MockCadFile, h: 
   const general = [...revisions.values()]
     .reverse()
     .find(
-      (rev) => rev.cad.drawingKind === 'general' && ['draft', 'published'].includes(statusOf(rev)),
+      (rev) =>
+        rev.cad.drawingKind === 'general' &&
+        rev.cad.siteId === cad.siteId &&
+        ['draft', 'published'].includes(statusOf(rev)),
     );
   if (!general) return refuse('GENERAL_NOT_BUILT');
   const point = (name: string, x: number, y: number, lat: number, lon: number) => ({

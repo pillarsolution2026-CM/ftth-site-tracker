@@ -7,6 +7,11 @@ import {
   CadInsertPageSchema,
   CadLayerListResponseSchema,
   CadTextPageSchema,
+  AssignDrawingSiteRequestSchema,
+  SiteDrawingsResponseSchema,
+  type AssignDrawingSiteRequest,
+  type SiteDrawingsResponse,
+  type UploadCadFileQuery,
   type CadCurveListQuery,
   type CadCurvePage,
   type CadFileDetail,
@@ -18,9 +23,14 @@ import {
   type CadLayerListResponse,
   type CadTextListQuery,
   type CadTextPage,
-  type DrawingKind,
 } from '@ftth/shared';
-import { bffJson, bffUpload, projectApiPath, type UploadOptions } from '@/shared/api/bff-client';
+import {
+  bffJson,
+  bffUpload,
+  bffVoid,
+  projectApiPath,
+  type UploadOptions,
+} from '@/shared/api/bff-client';
 
 const root = (projectId: string) => projectApiPath(projectId, '/cad-files');
 const one = (projectId: string, id: string) => `${root(projectId)}/${encodeURIComponent(id)}`;
@@ -85,20 +95,49 @@ export function reprocessCadFile(projectId: string, id: string): Promise<CadFile
 }
 
 /**
- * Upload a CAD file as the General or the Secondary of the work order (ADR-040). Without
- * `newVersion` the API refuses (409 KIND_EXISTS) when the kind already has a current file.
+ * Upload a CAD file into a site of the work order (ADR-049 part B): a new drawing of the kind, or
+ * a new version of `drawingId`. The API refuses with `UploadRefusedDetails` (409 / 404).
  */
 export function uploadCadFile(
   projectId: string,
   file: File,
-  kind: DrawingKind,
-  newVersion: boolean,
+  query: UploadCadFileQuery,
   options?: UploadOptions,
 ): Promise<CadFileSummary> {
   const form = new FormData();
   form.append('file', file);
-  const query = toQueryString({ kind, newVersion: newVersion ? 'true' : undefined });
-  return bffUpload(`${root(projectId)}${query}`, form, CadFileSummarySchema, options);
+  const qs = toQueryString({
+    siteId: query.siteId,
+    kind: query.kind,
+    target: query.target,
+    drawingId: query.drawingId,
+  });
+  return bffUpload(`${root(projectId)}${qs}`, form, CadFileSummarySchema, options);
+}
+
+const drawingsRoot = (projectId: string) => projectApiPath(projectId, '/site-drawings');
+
+export function listSiteDrawings(projectId: string): Promise<SiteDrawingsResponse> {
+  return bffJson(drawingsRoot(projectId), SiteDrawingsResponseSchema);
+}
+
+/** «اربط بموقع»: links a drawing from before sites to a site, once. */
+export function assignDrawingSite(
+  projectId: string,
+  drawingId: string,
+  body: AssignDrawingSiteRequest,
+): Promise<void> {
+  return bffVoid(`${drawingsRoot(projectId)}/${encodeURIComponent(drawingId)}/assign-site`, {
+    method: 'POST',
+    body: AssignDrawingSiteRequestSchema.parse(body),
+  });
+}
+
+/** «سحب من الموقع»: only for a drawing that was never published. */
+export function withdrawDrawing(projectId: string, drawingId: string): Promise<void> {
+  return bffVoid(`${drawingsRoot(projectId)}/${encodeURIComponent(drawingId)}/withdraw`, {
+    method: 'POST',
+  });
 }
 
 /** Plain link to the original file; the browser sends its session cookie to the proxy. */

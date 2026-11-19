@@ -29,6 +29,9 @@ const SAFE_SEGMENT = /^[A-Za-z0-9._~-]{1,128}$/;
 const ALLOWED_RESOURCES = new Set([
   'work-orders',
   'cad-files',
+  // ADR-049 part B: drawings per site and the checklist of a site.
+  'site-drawings',
+  'sites',
   'design-revisions',
   'contract',
   'contractors',

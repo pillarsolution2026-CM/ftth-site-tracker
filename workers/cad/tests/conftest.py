@@ -105,12 +105,21 @@ def make_cad_file(db: psycopg.Connection[Any]) -> Any:
             target = storage_root / key
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
+        drawing_id = uuid.uuid4()
+        db.execute(
+            "INSERT INTO site_drawings (id, project_id, drawing_kind, ordinal) "
+            "VALUES (%s, %s, 'general', 1)",
+            (drawing_id, project_id),
+        )
         db.execute(
             "INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, "
-            "storage_key, status, current_job_id, queued_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s, now())",
-            (file_id, project_id, f"drawing.{fmt}", fmt, max(len(data), 1), "a" * 64, key, job_id),
-        )
+            "storage_key, status, current_job_id, queued_at, drawing_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s, now(), %s)",
+            (
+                file_id, project_id, f"drawing.{fmt}", fmt, max(len(data), 1), "a" * 64, key,
+                job_id, drawing_id,
+            ),
+        )  # fmt: skip
         return QueuedFile(project_id, file_id, job_id, key, fmt)
 
     return factory

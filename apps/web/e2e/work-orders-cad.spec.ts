@@ -17,6 +17,24 @@ async function openProject(page: Page, section: 'Work orders' | 'CAD files') {
   await page.getByRole('link', { name: section, exact: true }).click();
 }
 
+/**
+ * ADR-049 part B: a drawing belongs to a site. The mock keeps one test-only site «Site A» so no
+ * work order is needed (the Excel-import spec needs the project without one).
+ */
+async function ensureSite(page: Page): Promise<string> {
+  const headers = { origin: BASE, 'content-type': 'application/json' };
+  const listed = await page.request.get(`/api/projects/${PROJECT_ID}/site-drawings`);
+  expect(listed.status(), await listed.text()).toBe(200);
+  const existing = ((await listed.json()) as { sites: { siteId: string }[] }).sites[0];
+  if (existing) return existing.siteId;
+  const saved = await page.request.put(`/api/projects/${PROJECT_ID}/sites`, {
+    headers,
+    data: { names: ['Site A'] },
+  });
+  expect(saved.ok()).toBe(true);
+  return ((await saved.json()) as { items: { id: string }[] }).items[0]?.id as string;
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test('upload a DXF and watch it go queued, processing, processed; inspect layers and texts', async ({
@@ -24,11 +42,15 @@ test('upload a DXF and watch it go queued, processing, processed; inspect layers
 }) => {
   await login(page);
   await openProject(page, 'CAD files');
-  await expect(page.getByText('No General has been uploaded yet')).toBeVisible();
-  await expect(page.getByText('No Secondary has been uploaded yet')).toBeVisible();
+  // No site yet: the dialog says so and links to the work order page.
+  await expect(page.getByText(/has no sites yet/)).toBeVisible();
+  await expect(page.getByRole('link', { name: /Sites section/ })).toBeVisible();
+  const siteId = await ensureSite(page);
+  await page.reload();
 
-  // The kind comes first: the file input stays locked until General or Secondary is chosen.
+  // The site and the kind come first: the file input stays locked until they are chosen.
   await expect(page.locator('#cad-file-input')).toBeDisabled();
+  await page.locator('#upload-site').selectOption(siteId);
   await page.getByRole('radio', { name: 'General (main)' }).check();
   await page.locator('#cad-file-input').setInputFiles({
     name: 'route-14.dxf',
@@ -68,9 +90,13 @@ test('upload a DXF and watch it go queued, processing, processed; inspect layers
 test('the proxy streams a 20 MB upload, rejects CSRF and unknown paths', async ({ page }) => {
   await login(page);
   const size = 20 * 1024 * 1024;
+  const siteId = await ensureSite(page);
+  const listed = await page.request.get(`/api/projects/${PROJECT_ID}/site-drawings`);
+  const general = ((await listed.json()) as { sites: { drawings: { id: string }[] }[] }).sites[0]
+    ?.drawings[0] as { id: string };
 
   const upload = await page.request.post(
-    `/api/projects/${PROJECT_ID}/cad-files?kind=general&newVersion=true`,
+    `/api/projects/${PROJECT_ID}/cad-files?siteId=${siteId}&kind=general&target=new_version&drawingId=${general.id}`,
     {
       headers: { origin: BASE },
       multipart: {
@@ -86,7 +112,7 @@ test('the proxy streams a 20 MB upload, rejects CSRF and unknown paths', async (
   expect((await upload.json()).sizeBytes).toBe(size); // the whole file reached the API
   expect((await upload.json()).drawingKind).toBe('general'); // the query string reached the API
 
-  // The kind is required, and a kind that already has a current file asks first (ADR-040).
+  // The site, the kind and the target are required; a second General is refused (ADR-049 part B).
   const small = {
     name: 'x.dxf',
     mimeType: 'application/octet-stream',
@@ -97,14 +123,17 @@ test('the proxy streams a 20 MB upload, rejects CSRF and unknown paths', async (
     multipart: { file: small },
   });
   expect(noKind.status()).toBe(422);
-  const exists = await page.request.post(`/api/projects/${PROJECT_ID}/cad-files?kind=general`, {
-    headers: { origin: BASE },
-    multipart: { file: small },
-  });
+  const exists = await page.request.post(
+    `/api/projects/${PROJECT_ID}/cad-files?siteId=${siteId}&kind=general&target=new_drawing`,
+    {
+      headers: { origin: BASE },
+      multipart: { file: small },
+    },
+  );
   expect(exists.status()).toBe(409);
   expect((await exists.json()).details).toMatchObject({
-    reason: 'KIND_EXISTS',
-    kind: 'general',
+    reason: 'GENERAL_EXISTS',
+    siteId,
     currentFileName: 'big.dxf',
   });
 
@@ -140,29 +169,17 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await login(page);
   await openProject(page, 'CAD files');
 
-  // The work order already has a General (big.dxf): the PM is asked if this is a new version.
+  // The site already has a General (big.dxf): only a new version of it is offered (ADR-049 part B).
   const dxf = Buffer.from('0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n');
+  await page.locator('#upload-site').selectOption(await ensureSite(page));
   await page.getByRole('radio', { name: 'General (main)' }).check();
+  await expect(page.getByText(/already has its General/)).toBeVisible();
+  await expect(page.getByRole('radio', { name: /new version of General/ })).toBeChecked();
   await page.locator('#cad-file-input').setInputFiles({
     name: 'mapping-1.dxf',
     mimeType: 'application/octet-stream',
     buffer: dxf,
   });
-  const question = page.getByRole('alertdialog');
-  await expect(question).toContainText('Is this a new version of the General?');
-  await expect(question).toContainText('big.dxf');
-  await question.getByRole('button', { name: 'No' }).click();
-  await expect(
-    page.getByText('A work order has only one General — the file was not uploaded'),
-  ).toBeVisible();
-  await expect(page.getByRole('row', { name: /mapping-1\.dxf/ })).toHaveCount(0);
-
-  await page.locator('#cad-file-input').setInputFiles({
-    name: 'mapping-1.dxf',
-    mimeType: 'application/octet-stream',
-    buffer: dxf,
-  });
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Yes, a new version' }).click();
   // The older General stays as history in the system but is no longer listed (owner 2026-11-11).
   await expect(page.getByRole('row', { name: /big\.dxf/ })).toHaveCount(0);
   const row = page.getByRole('row', { name: /mapping-1\.dxf/ });
@@ -202,7 +219,9 @@ test('mapping to a published design revision: unit, save, build, review, publish
   const unclear = page.getByRole('region', { name: 'Before publishing' });
   await expect(unclear).toContainText('Installation method (pull / trench) is clear');
   await expect(unclear).toContainText('The installation question is not answered');
-  await expect(unclear.getByRole('button', { name: 'Publish', exact: true })).toBeDisabled();
+  await expect(
+    unclear.getByRole('button', { name: 'Publish the site', exact: true }),
+  ).toBeDisabled();
   const installation = page.getByRole('region', { name: 'Installation method' });
   await installation.getByRole('button', { name: 'All pulled through old pipes' }).click();
   await expect(
@@ -245,17 +264,17 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(checklist).toContainText('Open items reviewed');
   // The answer was frozen by the second build: the installation row is done.
   await expect(checklist).toContainText('Installation method (pull / trench) is clear');
-  // The other drawing has no draft yet: publishing is locked and says so (ADR-040).
+  // The site has no Secondary draft yet: publishing is locked and says so (ADR-049 part B).
   await expect(checklist.getByText('❌')).toHaveCount(3);
   await expect(checklist).toContainText('Cabinets match in both drawings (name and count)');
-  await expect(checklist).toContainText('There is no draft for the Secondary to compare with');
-  await expect(checklist).toContainText('There is no draft for the Secondary yet');
-  await expect(checklist).toContainText('both drawings together');
-  const publish = checklist.getByRole('button', { name: 'Publish', exact: true });
+  await expect(checklist).toContainText('Every drawing of the site is ready');
+  await expect(checklist).toContainText('every draft of this site together');
+  const publish = checklist.getByRole('button', { name: 'Publish the site', exact: true });
   await expect(publish).toBeDisabled();
 
   // Upload the Secondary, map it and build its draft.
   await page.getByRole('link', { name: 'CAD files', exact: true }).click();
+  await page.locator('#upload-site').selectOption(await ensureSite(page));
   await page.getByRole('radio', { name: 'Secondary', exact: true }).check();
   await page.locator('#cad-file-input').setInputFiles({
     name: 'secondary-1.dxf',
@@ -347,19 +366,17 @@ test('mapping to a published design revision: unit, save, build, review, publish
   await expect(
     pairChecklist.getByRole('listitem').filter({ hasText: 'work-order line' }),
   ).toContainText('Done');
-  await expect(pairChecklist).toContainText('The other drawing (General (main)) is ready');
+  await expect(pairChecklist).toContainText('Every drawing of the site is ready');
   await expect(pairChecklist).toContainText('The Secondary is all trench — no question.');
-  await expect(
-    pairChecklist.getByRole('link', { name: 'Open the General (main) draft' }),
-  ).toBeVisible();
-  const pairPublish = pairChecklist.getByRole('button', { name: 'Publish', exact: true });
+  await expect(pairChecklist.getByRole('link', { name: 'Open the draft' })).toBeVisible();
+  const pairPublish = pairChecklist.getByRole('button', { name: 'Publish the site', exact: true });
   await expect(pairPublish).toBeDisabled(); // open items of both drawings need the acknowledgement
   await pairChecklist.getByLabel(/I understand/).check();
   await expect(pairPublish).toBeEnabled();
   await pairPublish.click();
 
   await expect(page.getByRole('heading', { name: /Design revision\s+#1/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Publish the site', exact: true })).toHaveCount(0);
 
   await page.getByRole('link', { name: 'Design revisions', exact: true }).first().click();
   const revisionTable = page.getByRole('table', { name: 'Design revisions' });

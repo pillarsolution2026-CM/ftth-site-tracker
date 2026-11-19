@@ -108,6 +108,8 @@ export interface ContractorHoldings {
 export interface WorkOrderSiteRepository {
   /** In list order. */
   list(projectId: string, workOrderId: string): Promise<WorkOrderSite[]>;
+  /** Every site of the project's work orders, in list order (the cad module's port reads it). */
+  listOfProject(projectId: string): Promise<WorkOrderSite[]>;
   /** Applies the plan (removals, updates, inserts) in the current transaction. */
   apply(projectId: string, workOrderId: string, plan: SiteReplacement): Promise<void>;
 }

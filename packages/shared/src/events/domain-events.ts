@@ -7,6 +7,8 @@ export const EVENT_ENTITIES = {
   workOrderItem: 'work_order_item',
   workOrderAttachment: 'work_order_attachment',
   cadFile: 'cad_file',
+  /** ADR-049 part B: rows of `site_drawings`. */
+  siteDrawing: 'site_drawing',
   cadMapping: 'cad_mapping',
   gpsProposal: 'gps_proposal',
   drawingCorrection: 'drawing_correction',
@@ -43,6 +45,12 @@ export const EVENT_TYPES = {
   workOrderItemRemoved: 'work_order_item.removed',
   workOrderAttachmentAdded: 'work_order_attachment.added',
   workOrderAttachmentRemoved: 'work_order_attachment.removed',
+  /** ADR-049 part B. Payload: { siteId, kind, ordinal }. */
+  siteDrawingCreated: 'site_drawing.created',
+  /** ADR-049 part B. Payload: { siteId, siteName }. */
+  siteDrawingAssigned: 'site_drawing.assigned',
+  /** ADR-049 part B, a drawing never published. Payload: { siteId, kind, ordinal }. */
+  siteDrawingWithdrawn: 'site_drawing.withdrawn',
   cadFileUploaded: 'cad_file.uploaded',
   cadFileQueued: 'cad_file.queued',
   /** Written by the worker (actor_id NULL). */

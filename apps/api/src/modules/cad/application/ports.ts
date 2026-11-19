@@ -29,6 +29,22 @@ export interface WorkOrderLineRef {
   description: string;
 }
 
+/** One site of the project's work order as the drawings need it (ADR-049 part B). */
+export interface WorkOrderSiteRef {
+  id: string;
+  workOrderId: string;
+  name: string;
+  position: number;
+}
+
+/**
+ * The sites of the project's work order, read through the work-orders module's exported
+ * application service (ADR-049 part B). Empty when the project has no work order or no sites.
+ */
+export interface WorkOrderSites {
+  listOfProject(projectId: string): Promise<WorkOrderSiteRef[]>;
+}
+
 /**
  * The project's work order lines, read through the work-orders module's exported application
  * service (ADR-043). `exists` is false when the project has no work order yet.

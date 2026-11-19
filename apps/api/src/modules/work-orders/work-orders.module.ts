@@ -24,6 +24,8 @@ import {
 } from './application/import.use-cases.js';
 import type { ProjectCurrencyLookup, WorkbookReader } from './application/ports.js';
 import { FindWorkOrderLinesUseCase } from './application/work-order-lines.js';
+import { FindWorkOrderSitesUseCase } from './application/work-order-sites-port.js';
+import { DrizzleWorkOrderSiteRepository } from './infrastructure/drizzle-work-order-site.repository.js';
 import { UpdateWorkOrderUseCase } from './application/update-work-order.use-case.js';
 import {
   AddWorkOrderItemUseCase,
@@ -39,6 +41,7 @@ import type {
   ContractCatalog,
   ContractItemGroups,
   WorkOrderAttachmentRepository,
+  WorkOrderSiteRepository,
   WorkOrderRepository,
   WorkOrderUnitOfWork,
 } from './domain/work-order.repository.js';
@@ -64,8 +67,10 @@ import {
   CONTRACT_CATALOG,
   CONTRACT_ITEM_GROUPS,
   FIND_WORK_ORDER_LINES,
+  FIND_WORK_ORDER_SITES,
   PROJECT_CURRENCY_LOOKUP,
   WORK_ORDER_REPOSITORY,
+  WORK_ORDER_SITE_REPOSITORY,
   WORK_ORDER_UNIT_OF_WORK,
   WORKBOOK_READER,
 } from './work-orders.tokens.js';
@@ -112,6 +117,16 @@ const providers: Provider[] = [
     provide: FIND_WORK_ORDER_LINES,
     inject: [WORK_ORDER_REPOSITORY],
     useFactory: (orders: WorkOrderRepository) => new FindWorkOrderLinesUseCase(orders),
+  },
+  {
+    provide: WORK_ORDER_SITE_REPOSITORY,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleWorkOrderSiteRepository(db),
+  },
+  {
+    provide: FIND_WORK_ORDER_SITES,
+    inject: [WORK_ORDER_SITE_REPOSITORY],
+    useFactory: (sites: WorkOrderSiteRepository) => new FindWorkOrderSitesUseCase(sites),
   },
   {
     provide: ListContractItemAvailabilityUseCase,
@@ -261,8 +276,8 @@ const providers: Provider[] = [
     WorkOrderAttachmentsController,
     WorkOrderSitesController,
   ],
-  // The cad module reads the work order's lines for box types (ADR-043) through this service.
-  exports: [FIND_WORK_ORDER_LINES],
+  // The cad module reads the work order's lines (ADR-043) and sites (ADR-049 B) through these services.
+  exports: [FIND_WORK_ORDER_LINES, FIND_WORK_ORDER_SITES],
   providers,
 })
 export class WorkOrdersModule {}

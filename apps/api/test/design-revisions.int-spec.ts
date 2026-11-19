@@ -29,6 +29,7 @@ import { ensureMember, eventTypes, loginAs, projectIds, SEED_LOGINS } from './su
 import { makeBoxTypesClear } from './support/box-types-fixtures.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing, linkDrawingsToSite } from './support/drawing-fixtures.js';
 
 const TILE_SECRET = 'integration-tile-secret-integration-tile-secret';
 const TILES_URL = 'https://tiles.example.test';
@@ -118,11 +119,16 @@ async function insertCadFile(
   kind: 'general' | 'secondary' = 'general',
 ): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(
+    (text, values) => ctx.pool.query(text, values),
+    project,
+    kind,
+  );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
                             status, current_job_id, ins_units, crs_detection, processed_at,
-                            drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9)`,
+                            drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, $5, $6, 1, $7, $8, $9, $10)`,
     [
       id,
       project,
@@ -133,6 +139,7 @@ async function insertCadFile(
       status === 'processed' ? JSON.stringify(DETECTION) : null,
       status === 'processed' ? new Date() : null,
       kind,
+      drawingId,
     ],
   );
   if (kind === 'general') await answerPullOnly(project, id);
@@ -1323,43 +1330,51 @@ describe('a built draft revision', () => {
     );
     expect(stranger.status).toBe(404);
 
-    // Both drawings are published together: without a Secondary draft nothing else is checked.
+    // A drawing with no site cannot be published; once linked, the site needs its Secondary and
+    // every drawing of the site is published together (ADR-049 part B).
     await setPlacement(place(false));
-    await refused({ reason: 'OTHER_DRAWING_MISSING', drawingKind: 'secondary' });
+    await refused({ reason: 'SITE_UNASSIGNED', drawingKind: 'general' });
+    expect(await readiness()).toMatchObject({ siteId: null, canPublish: false });
+    await linkDrawingsToSite(ctx.pool, projectA);
+    await refused({ reason: 'SITE_INCOMPLETE', missingKinds: ['secondary'] });
     expect(await readiness()).toMatchObject({
       drawingKind: 'general',
-      otherRevisionId: null,
+      siteRevisionIds: [revisionId],
       canPublish: false,
     });
     const secondaryId = await secondaryDraft();
+    await linkDrawingsToSite(ctx.pool, projectA);
 
     // Warnings from the problems test above are still stored: 3 problem places.
     await setPlacement(null);
     await refused({ reason: 'CRS_UNKNOWN', drawingKind: 'general' });
-    expect(await readiness()).toEqual({
-      checks: [
-        { key: 'crs_known', ok: false, count: null },
-        { key: 'control_point', ok: false, count: 0 },
-        { key: 'no_problems', ok: false, count: 3 },
-        { key: 'open_items', ok: false, count: 2 },
-        { key: 'other_drawing', ok: true, count: 0 },
-        { key: 'cabinets_match', ok: true, count: 0 },
-        { key: 'installation', ok: true, count: 0 },
-        { key: 'box_types', ok: true, count: null },
-      ],
+    const notReady = await readiness();
+    expect(notReady.checks.map((c) => [c.key, c.ok])).toEqual([
+      ['crs_known', false],
+      ['control_point', false],
+      ['no_problems', false],
+      ['open_items', false],
+      ['site_drawings', true],
+      ['cabinets_match', true],
+      ['cabinets_other_site', true],
+      ['installation', true],
+      ['box_types', true],
+    ]);
+    expect(notReady.checks.find((c) => c.key === 'no_problems')?.count).toBe(3);
+    expect(notReady.checks.find((c) => c.key === 'open_items')?.count).toBe(2);
+    expect(notReady).toMatchObject({
       canPublish: false,
       drawingKind: 'general',
-      otherRevisionId: secondaryId,
+      siteRevisionIds: [revisionId, secondaryId],
       needsAcknowledgement: true,
       switchedOff: [],
-      cabinets: {
-        ok: true,
-        general: { count: 0, unnamed: 0, missingInOther: [] },
-        secondary: { count: 0, unnamed: 0, missingInOther: [] },
-      },
+      cabinets: { ok: true, general: { count: 0, unnamed: 0 } },
       warningCount: 0,
-      installation: expect.objectContaining({ applies: true, ok: true, issueCount: 0 }),
-      boxTypes: null,
+    });
+    expect(notReady.drawings[0]?.installation).toMatchObject({
+      applies: true,
+      ok: true,
+      issueCount: 0,
     });
 
     await setPlacement(place(true));
@@ -1372,16 +1387,18 @@ describe('a built draft revision', () => {
 
     await setWarnings(revisionId, []);
     const ready = await readiness();
-    expect(ready.checks).toEqual([
-      { key: 'crs_known', ok: true, count: null },
-      { key: 'control_point', ok: true, count: 1 },
-      { key: 'no_problems', ok: true, count: 0 },
-      { key: 'open_items', ok: false, count: 2 },
-      { key: 'other_drawing', ok: true, count: 0 },
-      { key: 'cabinets_match', ok: true, count: 0 },
-      { key: 'installation', ok: true, count: 0 },
-      { key: 'box_types', ok: true, count: null },
+    expect(ready.checks.map((c) => [c.key, c.ok])).toEqual([
+      ['crs_known', true],
+      ['control_point', true],
+      ['no_problems', true],
+      ['open_items', false],
+      ['site_drawings', true],
+      ['cabinets_match', true],
+      ['cabinets_other_site', true],
+      ['installation', true],
+      ['box_types', true],
     ]);
+    expect(ready.checks.find((c) => c.key === 'open_items')?.count).toBe(2);
     expect(ready).toMatchObject({ canPublish: true, needsAcknowledgement: true });
     await refused({ reason: 'OPEN_ITEMS', textLinksToReview: 1, diffConflicts: 1 });
     const still = await ctx.pool.query(
@@ -1425,7 +1442,7 @@ describe('a built draft revision', () => {
       textLinksToReview: 1,
       diffConflicts: 1,
       drawingKind: 'general',
-      pairRevisionId: secondaryId,
+      siteRevisionIds: [revisionId, secondaryId],
     });
     expect((await readiness()).canPublish).toBe(false);
   });

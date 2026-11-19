@@ -150,8 +150,11 @@ export class DrizzleExecutionTx implements ExecutionTx {
     return row?.ok === true;
   }
 
-  async latestPublishedRevision(projectId: string): Promise<LatestRevision | null> {
-    return latestPublished(this.db, projectId);
+  async latestPublishedRevision(
+    projectId: string,
+    ofRevisionId?: string,
+  ): Promise<LatestRevision | null> {
+    return latestPublished(this.db, projectId, { ofRevisionId });
   }
 
   async featureInRevision(
@@ -474,24 +477,39 @@ function projectGeometry(geometry: AsBuiltGeometry, srid: number): SQL {
   })}::text), ${srid}::int)`;
 }
 
+/**
+ * The latest published revision (ADR-049 part B): of `drawingId`, of the drawing of
+ * `ofRevisionId`, else of the General published last in the project. A revision number is shared
+ * by one site publication, so ties are broken by the publication time.
+ */
 export async function latestPublished(
   db: DbHandle,
   projectId: string,
+  scope: { drawingId?: string | undefined; ofRevisionId?: string | undefined } = {},
 ): Promise<LatestRevision | null> {
+  const drawing = scope.drawingId
+    ? sql`AND drawing_id = ${scope.drawingId}`
+    : scope.ofRevisionId
+      ? sql`AND drawing_id = (SELECT drawing_id FROM design_revisions
+                              WHERE project_id = ${projectId} AND id = ${scope.ofRevisionId})`
+      : sql`AND drawing_kind = 'general'`;
   const [row] = await rowsOf<{
     id: string;
+    drawing_id: string;
     rev_no: number;
     published_at: Date;
     tiles_storage_key: string | null;
   }>(
     db,
-    sql`SELECT id, rev_no, published_at, tiles_storage_key FROM design_revisions
-        WHERE project_id = ${projectId} AND status = 'published' AND drawing_kind = 'general'
-        ORDER BY rev_no DESC LIMIT 1`,
+    sql`SELECT id, drawing_id, rev_no, published_at, tiles_storage_key FROM design_revisions
+        WHERE project_id = ${projectId} AND status = 'published' ${drawing}
+        ORDER BY ${scope.drawingId || scope.ofRevisionId ? sql`rev_no DESC` : sql`published_at DESC, rev_no DESC`}
+        LIMIT 1`,
   );
   return row
     ? {
         id: row.id,
+        drawingId: row.drawing_id,
         revNo: row.rev_no,
         publishedAt: new Date(row.published_at),
         hasTiles: row.tiles_storage_key !== null,

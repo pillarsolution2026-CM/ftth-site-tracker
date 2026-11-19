@@ -177,7 +177,7 @@ export class PushSyncUseCase {
       throw new Rejection('PHOTO_ID_REUSED');
     }
 
-    const latest = await tx.latestPublishedRevision(projectId);
+    const latest = await tx.latestPublishedRevision(projectId, payload.designRevisionId);
     const revisionIsLatest = latest?.id === payload.designRevisionId;
     const featureInLatestRevision = revisionIsLatest
       ? true
@@ -419,7 +419,7 @@ export class PushSyncUseCase {
       }
     }
 
-    const latest = await tx.latestPublishedRevision(projectId);
+    const latest = await tx.latestPublishedRevision(projectId, payload.designRevisionId);
     const revisionIsLatest = latest?.id === payload.designRevisionId;
     // Added features are not drawn in any design revision: they cannot be "removed" from one.
     const featureInLatestRevision =

@@ -16,6 +16,7 @@ import {
   FakeClock,
   InMemoryCadUnitOfWork,
   InMemoryWorkOrderLines,
+  InMemoryWorkOrderSites,
   RecordingJobQueue,
 } from '../testing/in-memory.js';
 import {
@@ -67,6 +68,9 @@ function file(id: string, kind: DrawingKind, overrides: Partial<CadFile> = {}): 
     convertedStorageKey: null,
     status: 'processed',
     drawingKind: kind,
+    drawingId: id,
+    siteId: 'abababab-abab-4bab-8bab-abababababab',
+    drawingOrdinal: 1,
     supersededAt: null,
     supersededById: null,
     currentJobId: '44444444-4444-4444-8444-444444444444',
@@ -420,16 +424,21 @@ describe('freezing and checking (ADR-043)', () => {
       changedSinceBuild: false,
     });
 
-    const readiness = await new GetPublishReadinessUseCase(uow, lines, DRAWING_FLOW_ALL_ON).execute(
-      PROJECT,
-      draft.id,
-    );
+    const readiness = await new GetPublishReadinessUseCase(
+      uow,
+      lines,
+      new InMemoryWorkOrderSites(),
+      DRAWING_FLOW_ALL_ON,
+    ).execute(PROJECT, draft.id);
     expect(readiness.checks.find((c) => c.key === 'box_types')).toEqual({
       key: 'box_types',
       ok: false,
       count: 1,
     });
-    expect(readiness.boxTypes).toMatchObject({ applies: true, issueCount: 1 });
+    expect(readiness.drawings.find((d) => d.drawingKind === 'secondary')?.boxTypes).toMatchObject({
+      applies: true,
+      issueCount: 1,
+    });
     expect(readiness.canPublish).toBe(false);
     expect(readiness.checks.at(-1)?.key).toBe('box_types');
 
@@ -453,6 +462,9 @@ describe('freezing and checking (ADR-043)', () => {
       cadFileId: SECONDARY,
       cadFileName: 'plan.dxf',
       drawingKind: 'secondary',
+      drawingId: SECONDARY,
+      siteId: 'abababab-abab-4bab-8bab-abababababab',
+      drawingOrdinal: 1,
       revNo: null,
       status: 'draft',
       currentJobId: '88888888-8888-4888-8888-888888888888',

@@ -9,6 +9,7 @@ import { DrizzleDrawingProblemRepository } from './drizzle-drawing-problem.repos
 import { DrizzleGpsProposalRepository } from './drizzle-gps-proposal.repository.js';
 import { DrizzleBoxTypeRepository } from './drizzle-box-type.repository.js';
 import { DrizzleInstallationRepository } from './drizzle-installation.repository.js';
+import { DrizzleSiteDrawingRepository } from './drizzle-site-drawing.repository.js';
 import { DrizzleTextLinkRepository } from './drizzle-text-link.repository.js';
 
 /** Repositories and the event log share one transaction, so a state change and its event commit together. */
@@ -19,6 +20,7 @@ export class DrizzleCadUnitOfWork implements CadUnitOfWork {
     return this.db.transaction((tx) =>
       work({
         files: new DrizzleCadFileRepository(tx),
+        drawings: new DrizzleSiteDrawingRepository(tx),
         mappings: new DrizzleCadMappingRepository(tx),
         revisions: new DrizzleDesignRevisionRepository(tx),
         links: new DrizzleTextLinkRepository(tx),

@@ -94,12 +94,21 @@ def processed_drawings(
             key = f"projects/{project_id}/cad/{file_id}/original.{fmt}"
             (root / key).parent.mkdir(parents=True)
             shutil.copyfile(drawing, root / key)
+            drawing_id = uuid.uuid4()
+            db.execute(
+                "INSERT INTO site_drawings (id, project_id, drawing_kind, ordinal) "
+                "VALUES (%s, %s, 'general', 1)",
+                (drawing_id, project_id),
+            )
             db.execute(
                 "INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, "
-                "storage_key, status, current_job_id, queued_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s, now())",
-                (file_id, project_id, name, fmt, drawing.stat().st_size, "b" * 64, key, job_id),
-            )
+                "storage_key, status, current_job_id, queued_at, drawing_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s, now(), %s)",
+                (
+                    file_id, project_id, name, fmt, drawing.stat().st_size, "b" * 64, key, job_id,
+                    drawing_id,
+                ),
+            )  # fmt: skip
             started = time.monotonic()
             outcome = run_import(make_job(project_id, file_id, job_id, key, fmt), deps, "golden")
             elapsed = time.monotonic() - started

@@ -17,6 +17,7 @@ import {
   EXECUTION_LIMITS,
   OfflineBundleSchema,
   PhotoUploadStatusSchema,
+  SyncBootstrapQuerySchema,
   SyncChangesQuerySchema,
   SyncChangesResponseSchema,
   SyncPushRequestSchema,
@@ -25,6 +26,7 @@ import {
   type OfflineBundle,
   type Permission,
   type PhotoUploadStatus,
+  type SyncBootstrapQuery,
   type SyncChangesQuery,
   type SyncChangesResponse,
   type SyncPushRequest,
@@ -140,10 +142,12 @@ export class SyncController {
   @ApiOkResponse({ schema: openApiSchema(OfflineBundleSchema) })
   getBundle(
     @ProjectIdParam() projectId: string,
+    @Query(new ZodValidationPipe(SyncBootstrapQuerySchema)) query: SyncBootstrapQuery,
     @Req() request: AuthenticatedRequest,
   ): Promise<OfflineBundle> {
     return this.bundle.execute({
       projectId: canonical(projectId),
+      drawingId: query.drawingId,
       scope: scopeOf(request, 'execution:read'),
       asBuiltScope: scopeOrNull(request, 'asbuilt:read'),
     });

@@ -91,12 +91,17 @@ def seed_processed_file(
             (project_id,),
         )
     file_id = uuid.uuid4()
+    drawing_id = uuid.uuid4()
+    db.execute(
+        "INSERT INTO site_drawings (id, project_id, drawing_kind, ordinal) VALUES (%s, %s, %s, 1)",
+        (drawing_id, project_id, drawing_kind),
+    )
     db.execute(
         "INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, "
-        "storage_key, status, current_job_id, ins_units, drawing_kind) "
-        "VALUES (%s, %s, 'd.dwg', 'dwg', 1, %s, %s, %s, %s, 1, %s)",
+        "storage_key, status, current_job_id, ins_units, drawing_kind, drawing_id) "
+        "VALUES (%s, %s, 'd.dwg', 'dwg', 1, %s, %s, %s, %s, 1, %s, %s)",
         (file_id, project_id, "c" * 64, f"projects/{project_id}/cad/{file_id}/original.dwg",
-         status, uuid.uuid4(), drawing_kind),
+         status, uuid.uuid4(), drawing_kind, drawing_id),
     )  # fmt: skip
     ids = (project_id, file_id)
     curves = [

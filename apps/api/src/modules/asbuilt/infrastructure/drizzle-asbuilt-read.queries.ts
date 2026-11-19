@@ -11,7 +11,7 @@ import type {
 import { sql } from 'drizzle-orm';
 import { toDecimalText, toDecimalTextOrNull } from '../../../common/decimal-text.js';
 import type { DbHandle } from '../../../db/db.module.js';
-import { rowsOf } from '../../../db/sql.js';
+import { rowsOf, uuidArray } from '../../../db/sql.js';
 import type {
   AsBuiltEditFeed,
   AsBuiltLengthsPort,
@@ -38,15 +38,17 @@ export class DrizzleAsBuiltReadQueries
 {
   constructor(private readonly db: DbHandle) {}
 
-  private async latestRevisionId(projectId: string): Promise<string | null> {
-    const [row] = await rowsOf<{ id: string }>(
+  /** The latest published revision of every General drawing, the General published last first. */
+  private async latestRevisionIds(projectId: string): Promise<string[]> {
+    const rows = await rowsOf<{ id: string }>(
       this.db,
-      sql`SELECT id FROM design_revisions
-          WHERE project_id = ${projectId} AND status = 'published'
-            AND drawing_kind = 'general'
-          ORDER BY rev_no DESC LIMIT 1`,
+      sql`SELECT id FROM (
+            SELECT DISTINCT ON (drawing_id) id, published_at, rev_no FROM design_revisions
+            WHERE project_id = ${projectId} AND status = 'published' AND drawing_kind = 'general'
+            ORDER BY drawing_id, rev_no DESC) latest
+          ORDER BY published_at DESC, rev_no DESC, id`,
     );
-    return row?.id ?? null;
+    return rows.map((row) => row.id);
   }
 
   async listEdits(
@@ -106,7 +108,7 @@ export class DrizzleAsBuiltReadQueries
             AND df.feature_id = ${edit.featureId}`,
     );
 
-    const latest = await this.latestRevisionId(projectId);
+    const latest = await this.latestRevisionIds(projectId);
     const [stateRow] = await rowsOf<StateRow>(
       this.db,
       stateQuery(projectId, latest, { kind: 'project' }, edit.featureId),
@@ -144,20 +146,21 @@ export class DrizzleAsBuiltReadQueries
       sql`SELECT crs_epsg FROM projects WHERE id = ${projectId}`,
     );
     if (!project) return null;
-    const revisionId = await this.latestRevisionId(projectId);
+    const revisionIds = await this.latestRevisionIds(projectId);
     return {
-      revisionId,
+      revisionId: revisionIds[0] ?? null,
+      revisionIds,
       crsEpsg: project.crs_epsg,
-      features: await this.stateInScope(projectId, scope, revisionId),
+      features: await this.stateInScope(projectId, scope, revisionIds),
     };
   }
 
   async stateInScope(
     projectId: string,
     scope: AsBuiltScope,
-    knownLatest?: string | null,
+    knownLatest?: readonly string[],
   ): Promise<AsBuiltFeatureState[]> {
-    const latest = knownLatest === undefined ? await this.latestRevisionId(projectId) : knownLatest;
+    const latest = knownLatest ?? (await this.latestRevisionIds(projectId));
     const rows = await rowsOf<StateRow>(this.db, stateQuery(projectId, latest, scope));
     return rows.map(mapState);
   }
@@ -184,8 +187,8 @@ export class DrizzleAsBuiltReadQueries
     projectId: string,
     scope: AsBuiltScope = { kind: 'project' },
   ): Promise<AsBuiltLengthsResponse> {
-    const revisionId = await this.latestRevisionId(projectId);
-    if (!revisionId) return { revisionId: null, routes: [] };
+    const revisionIds = await this.latestRevisionIds(projectId);
+    if (revisionIds.length === 0) return { revisionId: null, revisionIds: [], routes: [] };
     const rows = await rowsOf<{
       feature_id: string;
       code: string | null;
@@ -204,7 +207,7 @@ export class DrizzleAsBuiltReadQueries
         FROM design_features df
         LEFT JOIN asbuilt_features a
           ON a.project_id = df.project_id AND a.feature_id = df.feature_id
-        WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
+        WHERE df.project_id = ${projectId} AND df.revision_id = ANY(${uuidArray(revisionIds)})
           AND df.feature_type = 'route'
           AND ${stateScope(scope)}
         UNION ALL
@@ -224,6 +227,6 @@ export class DrizzleAsBuiltReadQueries
       source: row.has_asbuilt ? 'asbuilt' : 'design',
       geometryVersion: row.geometry_version,
     }));
-    return { revisionId, routes };
+    return { revisionId: revisionIds[0] ?? null, revisionIds, routes };
   }
 }

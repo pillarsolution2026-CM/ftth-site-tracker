@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PublishReadiness } from '@ftth/shared';
+import type { InstallationReport, PublishReadiness } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
 import { QC_ACCESS, renderScreen } from '@/test-utils/render';
@@ -56,26 +56,53 @@ const revision = {
   status: 'draft',
 };
 
-function readiness(overrides: Partial<PublishReadiness> = {}): PublishReadiness {
+/**
+ * ADR-049 part B: the installation report lives on the checklist's drawings and the other draft of the
+ * site is in `siteRevisionIds`. These fixtures keep naming both at the top level.
+ */
+function readiness(
+  input: Partial<PublishReadiness> & {
+    installation?: InstallationReport | null;
+    otherRevisionId?: string | null;
+  } = {},
+): PublishReadiness {
+  const { installation = null, otherRevisionId = null, ...overrides } = input;
   return {
+    siteId: null,
+    revisionId: null,
+    siteRevisionIds: otherRevisionId ? [otherRevisionId] : [],
+    cabinetsInOtherSites: [],
+    drawings: installation
+      ? [
+          {
+            drawingId: '11111111-1111-4111-8111-111111111111',
+            drawingKind: 'general',
+            ordinal: 1,
+            draftRevisionId: null,
+            state: 'draft',
+            checks: [],
+            warningCount: 0,
+            installation,
+            boxTypes: null,
+          },
+        ]
+      : [],
     checks: [
       { key: 'crs_known', ok: true, count: null },
       { key: 'control_point', ok: true, count: 1 },
       { key: 'no_problems', ok: true, count: 0 },
       { key: 'open_items', ok: true, count: 0 },
-      { key: 'other_drawing', ok: true, count: 0 },
+      { key: 'site_drawings', ok: true, count: 0 },
       { key: 'cabinets_match', ok: true, count: 0 },
+      { key: 'cabinets_other_site', ok: true, count: 0 },
       { key: 'installation', ok: true, count: 0 },
       { key: 'box_types', ok: true, count: null },
     ],
     canPublish: true,
     drawingKind: 'general',
-    otherRevisionId: null,
     needsAcknowledgement: false,
     cabinets: null,
     warningCount: 0,
-    installation: null,
-    boxTypes: null,
     switchedOff: [],
     ...overrides,
   };
@@ -131,7 +158,7 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     api.getPublishReadiness.mockResolvedValue(readiness());
     api.publishDesignRevision.mockResolvedValue(revision);
     renderDetail();
-    const button = await screen.findByRole('button', { name: 'Publish' });
+    const button = await screen.findByRole('button', { name: 'Publish the site' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
     expect(api.publishDesignRevision).toHaveBeenCalledWith('p', revision.id, {
@@ -151,7 +178,7 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     );
     api.publishDesignRevision.mockResolvedValue(revision);
     renderDetail();
-    const button = await screen.findByRole('button', { name: 'Publish' });
+    const button = await screen.findByRole('button', { name: 'Publish the site' });
     const box = await screen.findByLabelText(/I understand/);
     expect(button).toBeDisabled();
     await user.click(box);
@@ -172,7 +199,7 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     renderDetail();
     const link = await screen.findByRole('link', { name: 'Open the coordinates screen' });
     expect(link).toHaveAttribute('href', `/en/projects/p/cad-files/${CAD_FILE}/mapping`);
-    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Publish the site' })).toBeDisabled();
   });
 
   it('shows the refusal reason of a 409 and refetches the checklist', async () => {
@@ -181,12 +208,14 @@ describe('DesignRevisionDetailScreen publish checklist', () => {
     api.publishDesignRevision.mockRejectedValue(
       new ApiClientError('CONFLICT', 409, {
         reason: 'PROBLEMS_OPEN',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         drawingKind: 'secondary',
         problemCount: 4,
       }),
     );
     renderDetail();
-    const button = await screen.findByRole('button', { name: 'Publish' });
+    const button = await screen.findByRole('button', { name: 'Publish the site' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
     expect(
@@ -236,7 +265,7 @@ describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
     api.getDesignRevision.mockResolvedValue({ ...revision, drawingKind: 'secondary' });
     api.getPublishReadiness.mockResolvedValue(readiness({ drawingKind: 'secondary' }));
     renderDetail();
-    await screen.findByRole('button', { name: 'Publish' });
+    await screen.findByRole('button', { name: 'Publish the site' });
     expect(installationApi.getInstallation).not.toHaveBeenCalled();
     expect(screen.queryByText(/pulled through old pipes/)).not.toBeInTheDocument();
   });
@@ -283,6 +312,8 @@ describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
     api.publishDesignRevision.mockRejectedValue(
       new ApiClientError('CONFLICT', 409, {
         reason: 'INSTALLATION_UNCLEAR',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         drawingKind: 'general',
         issueCount: 1,
         issues: [
@@ -298,7 +329,7 @@ describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
       }),
     );
     renderDetail();
-    const button = await screen.findByRole('button', { name: 'Publish' });
+    const button = await screen.findByRole('button', { name: 'Publish the site' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
     expect(
@@ -309,26 +340,37 @@ describe('DesignRevisionDetailScreen installation (ADR-042)', () => {
   });
 });
 
-describe('DesignRevisionDetailScreen pair publishing', () => {
-  it('explains the other drawing and links to its draft', async () => {
+describe('DesignRevisionDetailScreen site publishing (ADR-049 part B)', () => {
+  it('lists the drawings of the site and links to the draft of the other one', async () => {
     const other = '44444444-4444-4444-8444-444444444444';
-    api.getPublishReadiness.mockResolvedValue(
-      readiness({
+    const drawing = (n: number, kind: 'general' | 'secondary', draft: string) => ({
+      drawingId: `11111111-1111-4111-8111-11111111111${n}`,
+      drawingKind: kind,
+      ordinal: 1,
+      draftRevisionId: draft,
+      state: 'draft' as const,
+      checks: [],
+      warningCount: 0,
+      installation: null,
+      boxTypes: null,
+    });
+    api.getPublishReadiness.mockResolvedValue({
+      ...readiness({
         checks: [
           { key: 'crs_known', ok: true, count: null },
           { key: 'control_point', ok: true, count: 1 },
           { key: 'no_problems', ok: true, count: 0 },
           { key: 'open_items', ok: true, count: 0 },
-          { key: 'other_drawing', ok: false, count: 3 },
+          { key: 'site_drawings', ok: false, count: 1 },
         ],
         canPublish: false,
-        otherRevisionId: other,
       }),
-    );
+      drawings: [drawing(1, 'general', revision.id), drawing(2, 'secondary', other)],
+    });
     renderDetail();
-    const link = await screen.findByRole('link', { name: 'Open the Secondary draft' });
+    const link = await screen.findByRole('link', { name: 'Open the draft' });
     expect(link).toHaveAttribute('href', `/en/projects/p/design-revisions/${other}`);
-    expect(screen.getByText(/3.* errors in it/)).toBeInTheDocument();
+    expect(screen.getByText('Drawings of the site')).toBeInTheDocument();
   });
 });
 
@@ -339,7 +381,7 @@ describe('DesignRevisionDetailScreen drawing corrections', () => {
   it('offers the fix tools and the rebuild on a draft to a user who can write designs', async () => {
     api.getPublishReadiness.mockResolvedValue(readiness());
     renderDetail();
-    await screen.findByRole('button', { name: 'Publish' });
+    await screen.findByRole('button', { name: 'Publish the site' });
     expect(lastProps(sections.problems)).toMatchObject({ canFix: true, cadFileId: CAD_FILE });
     expect(lastProps(sections.corrections)).toMatchObject({
       canEdit: true,
@@ -438,6 +480,8 @@ describe('DesignRevisionDetailScreen box types (ADR-043)', () => {
     api.publishDesignRevision.mockRejectedValue(
       new ApiClientError('CONFLICT', 409, {
         reason: 'BOX_TYPES_UNCLEAR',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
         drawingKind: 'secondary',
         issueCount: 1,
         issues: [
@@ -451,7 +495,7 @@ describe('DesignRevisionDetailScreen box types (ADR-043)', () => {
       }),
     );
     renderDetail();
-    const button = await screen.findByRole('button', { name: 'Publish' });
+    const button = await screen.findByRole('button', { name: 'Publish the site' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
     expect(

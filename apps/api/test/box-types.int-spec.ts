@@ -17,6 +17,11 @@ import {
 import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import {
+  insertDrawing,
+  linkDrawingsToSite,
+  supersedeByNewFile,
+} from './support/drawing-fixtures.js';
 
 /** ADR-043: box type by the drawn shape — the choices, the freeze, the check and publishing. */
 
@@ -105,10 +110,11 @@ async function newProject(
 
 async function insertFile(kind: 'general' | 'secondary', p: string): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(q, p, kind);
   await q(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, processed_at, drawing_kind)
-     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, 1, now(), $6)`,
+                            status, current_job_id, ins_units, processed_at, drawing_kind, drawing_id)
+     VALUES ($1, $2, $3, 'dxf', 100, repeat('a', 64), $4, 'processed', $5, 1, now(), $6, $7)`,
     [
       id,
       p,
@@ -116,6 +122,7 @@ async function insertFile(kind: 'general' | 'secondary', p: string): Promise<str
       `projects/${p}/cad/${id}/original.dxf`,
       randomUUID(),
       kind,
+      drawingId,
     ],
   );
   return id;
@@ -271,14 +278,18 @@ const report = async (sc: Scenario, revision: string) =>
   BoxTypesReportSchema.parse(
     (await as(sc.pm)(http().get(`${revisionsUrl(sc.project)}/${revision}/box-types`))).body,
   );
-const readiness = async (sc: Scenario, revision: string) =>
-  PublishReadinessSchema.parse(
+const readiness = async (sc: Scenario, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, sc.project);
+  return PublishReadinessSchema.parse(
     (await as(admin)(http().get(`${revisionsUrl(sc.project)}/${revision}/publish-readiness`))).body,
   );
-const publish = (sc: Scenario, revision: string) =>
-  as(admin)(http().post(`${revisionsUrl(sc.project)}/${revision}/publish`)).send({
+};
+const publish = async (sc: Scenario, revision: string) => {
+  await linkDrawingsToSite(ctx.pool, sc.project);
+  return as(admin)(http().post(`${revisionsUrl(sc.project)}/${revision}/publish`)).send({
     acknowledgeOpenItems: true,
   });
+};
 const rebuild = async (sc: Scenario, revision: string, version: number): Promise<string> => {
   const res = await as(sc.pm)(http().post(`${revisionsUrl(sc.project)}/${revision}/rebuild`)).send({
     mappingVersion: version,
@@ -452,11 +463,7 @@ describe('choosing box types', () => {
     const sc = await scenario();
     await secondaryDraft(sc);
     await choose(sc, [{ shape: SHAPE_1, workOrderLineId: sc.lines.L1 ?? '' }]);
-    const next = await insertFile('secondary', sc.project);
-    await q(`UPDATE cad_files SET superseded_at = now(), superseded_by = $2 WHERE id = $1`, [
-      sc.secondary,
-      next,
-    ]);
+    const next = await supersedeByNewFile(ctx.pool, sc.secondary);
     const state = BoxTypeStateSchema.parse((await getState(sc, next)).body);
     expect(state.active).toEqual([]);
     expect(state.previousVersion).toEqual({
@@ -653,7 +660,7 @@ describe('readiness and publishing (BOX_TYPES_UNCLEAR)', () => {
 
     const ready = await readiness(sc, secondary.revision);
     expect(ready.checks.at(-1)).toEqual({ key: 'box_types', ok: false, count: 2 });
-    expect(ready.boxTypes).toMatchObject({
+    expect(ready.drawings.find((d) => d.drawingKind === 'secondary')?.boxTypes).toMatchObject({
       applies: true,
       issueCount: 2,
       issues: [
@@ -662,15 +669,15 @@ describe('readiness and publishing (BOX_TYPES_UNCLEAR)', () => {
       ],
     });
     expect(ready.canPublish).toBe(false);
-    // The General: its own box_types is ok (null), but the Secondary's is part of other_drawing.
+    // The checklist is the site's: asked from the General, it shows the Secondary's box types too.
     const generalReady = await readiness(sc, general);
     expect(generalReady.checks.find((c) => c.key === 'box_types')).toEqual({
       key: 'box_types',
-      ok: true,
-      count: null,
+      ok: false,
+      count: 2,
     });
-    expect(generalReady.boxTypes).toBeNull();
-    expect(generalReady.checks.find((c) => c.key === 'other_drawing')?.ok).toBe(false);
+    expect(generalReady.drawings.find((d) => d.drawingKind === 'general')?.boxTypes).toBeNull();
+    expect(generalReady.canPublish).toBe(false);
 
     const blocked = await publish(sc, general);
     expect(blocked.status).toBe(409);
@@ -781,7 +788,7 @@ describe('readiness and publishing (BOX_TYPES_UNCLEAR)', () => {
     const ready = await readiness(sc, legacy);
     expect(ready.checks.at(-1)).toEqual({ key: 'box_types', ok: false, count: 1 });
     expect(ready.canPublish).toBe(false);
-    expect((await readiness(sc, general)).checks.find((c) => c.key === 'other_drawing')?.ok).toBe(
+    expect((await readiness(sc, general)).checks.find((c) => c.key === 'box_types')?.ok).toBe(
       false,
     );
     for (const target of [general, legacy]) {

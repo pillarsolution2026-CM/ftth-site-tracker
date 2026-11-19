@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { ensureMember, loginAs, SEED_LOGINS } from './support/helpers.js';
 import { startRedis, type TestRedis } from './support/redis.js';
 import { createTestContext, type TestContext } from './support/test-app.js';
+import { insertDrawing } from './support/drawing-fixtures.js';
 
 let testRedis: TestRedis;
 let redis: Redis;
@@ -59,10 +60,15 @@ const viewUrl = (file: string, p = project) => `/projects/${p}/cad-files/${file}
 
 async function insertFile(status: 'processed' | 'uploaded' = 'processed'): Promise<string> {
   const id = randomUUID();
+  const drawingId = await insertDrawing(
+    (text, values) => ctx.pool.query(text, values),
+    project,
+    'general',
+  );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
-                            status, current_job_id, ins_units, processed_at)
-     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, $4, $5, 1, $6)`,
+                            status, current_job_id, ins_units, processed_at, drawing_id)
+     VALUES ($1, $2, 'plan.dxf', 'dxf', 100, repeat('a', 64), $3, $4, $5, 1, $6, $7)`,
     [
       id,
       project,
@@ -70,6 +76,7 @@ async function insertFile(status: 'processed' | 'uploaded' = 'processed'): Promi
       status,
       status === 'uploaded' ? null : randomUUID(),
       status === 'processed' ? new Date() : null,
+      drawingId,
     ],
   );
   return id;

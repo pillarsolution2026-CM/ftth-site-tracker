@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CabinetsComparisonSchema,
   compareCabinets,
+  compareSiteCabinets,
+  SiteCabinetsComparisonSchema,
   DesignRevisionCountsSchema,
   PUBLISH_CHECK_KEYS,
   PublishBlockedDetailsSchema,
@@ -193,16 +195,73 @@ describe('shared cabinets across the pair (ADR-040)', () => {
   it('adds the cabinets check, blocker and readiness fields', () => {
     expect(PUBLISH_CHECK_KEYS).toContain('cabinets_match');
     const cabinets = compareCabinets([null], ['1-1']);
-    const blocked = PublishBlockedDetailsSchema.parse({ reason: 'CABINETS_MISMATCH', cabinets });
+    expect(CabinetsComparisonSchema.parse(cabinets)).toEqual(cabinets);
+    const site = compareSiteCabinets({ drawingId: null, names: [null] }, [
+      { drawingId: '11111111-1111-4111-8111-111111111111', ordinal: 1, names: ['1-1'] },
+    ]);
+    const blocked = PublishBlockedDetailsSchema.parse({
+      reason: 'CABINETS_MISMATCH',
+      cabinets: site,
+    });
     expect(blocked.reason).toBe('CABINETS_MISMATCH');
     const readiness = PublishReadinessSchema.parse({
+      siteId: null,
       checks: PUBLISH_CHECK_KEYS.map((key) => ({ key, ok: true, count: null })),
       canPublish: true,
-      drawingKind: 'general',
-      otherRevisionId: null,
       needsAcknowledgement: false,
     });
-    expect(readiness).toMatchObject({ cabinets: null, warningCount: 0 });
+    expect(readiness).toMatchObject({ cabinets: null, warningCount: 0, siteRevisionIds: [] });
+  });
+});
+
+describe('site cabinets (ADR-049 part B)', () => {
+  const S1 = '11111111-1111-4111-8111-111111111111';
+  const S2 = '22222222-2222-4222-8222-222222222222';
+  const general = (...names: (string | null)[]) => ({ drawingId: null, names });
+
+  it('the General is the disjoint union of the Secondaries', () => {
+    const result = compareSiteCabinets(general('1-1', '1-2', '1-3'), [
+      { drawingId: S1, ordinal: 1, names: ['1-1', '1 - 2'] },
+      { drawingId: S2, ordinal: 2, names: ['1-3'] },
+    ]);
+    expect(result.ok).toBe(true);
+    expect(SiteCabinetsComparisonSchema.parse(result)).toEqual(result);
+  });
+
+  it('a name in two Secondaries is an error', () => {
+    const result = compareSiteCabinets(general('1-1', '1-2'), [
+      { drawingId: S1, ordinal: 1, names: ['1-1', '1-2'] },
+      { drawingId: S2, ordinal: 2, names: ['1-2'] },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.inSeveralSecondaries).toEqual(['1-2']);
+  });
+
+  it('names missing in the General or in every Secondary are listed', () => {
+    const result = compareSiteCabinets(general('1-1', '1-9'), [
+      { drawingId: S1, ordinal: 1, names: ['1-1', '1-2'] },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.missingInGeneral).toEqual(['1-2']);
+    expect(result.missingInSecondaries).toEqual(['1-9']);
+    expect(result.secondaries[0]?.side.missingInOther).toEqual(['1-2']);
+  });
+
+  it('an unnamed cabinet cannot match', () => {
+    expect(
+      compareSiteCabinets(general(null), [{ drawingId: S1, ordinal: 1, names: ['1-1'] }]).ok,
+    ).toBe(false);
+  });
+
+  it('the blocker for another site carries names and sites', () => {
+    const parsed = PublishBlockedDetailsSchema.parse({
+      reason: 'CABINET_IN_OTHER_SITE',
+      cabinets: [{ name: '1-1', otherSiteId: S2, otherSiteName: 'موقع آخر' }],
+    });
+    expect(parsed.reason).toBe('CABINET_IN_OTHER_SITE');
+    expect(PublishBlockedDetailsSchema.safeParse({ reason: 'OTHER_DRAWING_MISSING' }).success).toBe(
+      false,
+    );
   });
 });
 
