@@ -1824,7 +1824,7 @@
         "joined": "{count} objects joined into 1 polyline.",
         "joinNeedsTwo": "اختار خطين أو أكتر علشان تدمجهم.",
         "stretchWindow": "اسحب مربع (crossing window) حوالين النقط اللي عايز تشدها.",
-        "needLayer": "اختار Layer حالي ليه قاعدة (من جزء Layers) قبل ما ترسم.",
+        "needLayer": "مفيش Layer حالية. اختار Layer من القايمة اللي في جزء Layers في الشريط (زي Layer المسارات) وبعدين ارسم.",
         "layerNoRule": "الـ Layer «{layer}» مالهاش قاعدة للعناصر: اختار Layer تانية.",
         "splitNoRule": "القص هنا بيقسم الخط لاتنين، والـ Layer «{layer}» مالهاش قاعدة لخط جديد.",
         "geometry": {

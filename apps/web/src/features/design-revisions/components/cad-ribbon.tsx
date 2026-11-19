@@ -688,7 +688,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
     >
       <div role="log" aria-label={t('design.cad.history')} className="px-2 pt-1 opacity-75">
         {edit.history.slice(-3).map((line, i) => (
-          <div key={`${edit.history.length}-${i}`} className="truncate">
+          <div key={`${edit.history.length}-${i}`} dir="auto" className="truncate text-start">
             {line}
           </div>
         ))}
