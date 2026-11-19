@@ -673,7 +673,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { focusNonce } = edit;
   useEffect(() => {
-    if (focusNonce > 0) inputRef.current?.focus();
+    if (focusNonce > 0) inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
   if (!edit.available || !edit.editing) return null;
   const name = edit.command ? COMMANDS[edit.command].name : null;

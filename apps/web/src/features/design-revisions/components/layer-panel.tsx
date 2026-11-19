@@ -47,7 +47,7 @@ export function LayerManager(props: LayerManagerProps) {
   const [message, setMessage] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    panelRef.current?.focus();
+    panelRef.current?.focus({ preventScroll: true });
   }, []);
   // Esc closes it wherever the focus is (AutoCAD's palettes close the same way).
   useEffect(() => {
