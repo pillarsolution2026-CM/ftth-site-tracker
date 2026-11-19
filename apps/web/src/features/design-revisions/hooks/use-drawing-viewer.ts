@@ -37,7 +37,6 @@ import {
   type Size,
   type ViewTransform,
 } from '../model/view-transform';
-import { previewWithEdits } from '../model/canvas-edit';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
@@ -73,8 +72,12 @@ export interface ViewerPopover {
 export interface LayerRow {
   index: number;
   name: string;
+  /** The colour on screen (the user's choice, else the drawing's). */
   color: string;
   shown: boolean;
+  /** Screen only (ADR-051): a frozen layer is not drawn; a locked one cannot be picked. */
+  frozen: boolean;
+  locked: boolean;
 }
 
 export interface DrawingViewer {
@@ -105,6 +108,11 @@ export interface DrawingViewer {
   setLayerQuery: (value: string) => void;
   toggleLayer: (index: number) => void;
   setShownForListed: (shown: boolean) => void;
+  toggleFrozen: (index: number) => void;
+  toggleLocked: (index: number) => void;
+  setLayerColor: (index: number, color: string | null) => void;
+  /** LAYER: the Layer Properties palette is asked for (changes on each request). */
+  layersNonce: number;
   // View
   size: Size;
   setSize: (size: Size) => void;
@@ -243,25 +251,41 @@ export function useDrawingViewer(input: Input): DrawingViewer {
 
   // Layers: the view's `visible` is the start; the user's choices override it.
   const [overrides, setOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
+  // Screen only (ADR-051): frozen and locked layers, and colours chosen for the screen.
+  const [frozen, setFrozen] = useState<ReadonlySet<number>>(new Set());
+  const [locked, setLocked] = useState<ReadonlySet<number>>(new Set());
+  const [layerColor, setLayerColorMap] = useState<ReadonlyMap<number, string>>(new Map());
+  const [layersNonce, setLayersNonce] = useState(0);
   const [layerQuery, setLayerQuery] = useState('');
   const layers = scene?.view.layers;
   const isShown = useCallback(
     (index: number) => {
       if (index < 0) return true;
-      return overrides.get(index) ?? layers?.[index]?.visible ?? true;
+      return (overrides.get(index) ?? layers?.[index]?.visible ?? true) && !frozen.has(index);
     },
-    [overrides, layers],
+    [overrides, layers, frozen],
   );
   const layerRows = useMemo<LayerRow[]>(
     () =>
       (layers ?? []).map((layer, index) => ({
         index,
         name: layer.name,
-        color: layer.color,
+        color: layerColor.get(index) ?? layer.color,
         shown: overrides.get(index) ?? layer.visible,
+        frozen: frozen.has(index),
+        locked: locked.has(index),
       })),
-    [layers, overrides],
+    [layers, overrides, frozen, locked, layerColor],
   );
+  const toggleIn =
+    (set: (update: (previous: ReadonlySet<number>) => ReadonlySet<number>) => void) =>
+    (index: number) =>
+      set((previous) => {
+        const next = new Set(previous);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
   const toggleLayer = useCallback(
     (index: number) =>
       setOverrides((previous) => {
@@ -284,6 +308,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [layers, layerQuery],
   );
 
+  const textHeight = defaultTextHeight(tools.metresPerUnit);
   const edit = useCanvasEdit({
     projectId,
     cadFileId,
@@ -291,17 +316,15 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     scene,
     preview,
     layers: tools.layers,
-    // Box picking asks per entity: its layer (after saved moves) must be switched on.
+    // Picking asks per entity: its layer (after saved moves) must be drawn, and not locked.
     isShown: (index) =>
       scene !== null && preview !== null && isShown(effectiveLayer(scene, preview, index)),
+    isLocked: (index) =>
+      scene !== null && preview !== null && locked.has(effectiveLayer(scene, preview, index)),
+    textHeight,
+    onOpenLayers: () => setLayersNonce((n) => n + 1),
   });
-  const shownPreview = useMemo(
-    () =>
-      scene && preview
-        ? previewWithEdits(scene, preview, edit.edits, defaultTextHeight(tools.metresPerUnit))
-        : null,
-    [scene, preview, edit.edits, tools.metresPerUnit],
-  );
+  const shownPreview = edit.preview;
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -376,9 +399,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             band: edit.band,
             ghost: edit.ghost,
             sketch: edit.sketch,
+            layerColor,
+            noteHeight: textHeight,
           }
         : null,
     [
+      layerColor,
+      textHeight,
       edit.chosen,
       edit.band,
       edit.ghost,
@@ -397,7 +424,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
 
   const click = (sx: number, sy: number, additive = false) => {
     if (!scene || !shownPreview) return;
-    if (edit.editing && edit.tool !== null) {
+    // Between commands an error mark still opens its fix tools.
+    const onMarker =
+      edit.editing && edit.command === null
+        ? hitMarker(markers, transform, size, sx, sy, MARKER_HIT_PX)
+        : null;
+    if (edit.editing && !onMarker) {
       const world = toWorld(transform, size, sx, sy);
       const hit = hitEntity(
         scene,
@@ -407,6 +439,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         (index) =>
           !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
         shownPreview.transformOf,
+        shownPreview.curveOf,
       );
       setPopover(null);
       setSelected(null);
@@ -428,6 +461,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       (index) =>
         !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
       shownPreview.transformOf,
+      shownPreview.curveOf,
     );
     if (entity === null) {
       setSelected(null);
@@ -488,6 +522,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     setLayerQuery,
     toggleLayer,
     setShownForListed,
+    toggleFrozen: toggleIn(setFrozen),
+    toggleLocked: toggleIn(setLocked),
+    setLayerColor: (index, color) =>
+      setLayerColorMap((previous) => {
+        const next = new Map(previous);
+        if (color === null) next.delete(index);
+        else next.set(index, color);
+        return next;
+      }),
+    layersNonce,
     size,
     setSize,
     transform,

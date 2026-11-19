@@ -11,7 +11,7 @@ import {
 import { Ltr } from '@/shared/ui/ltr';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
-import { drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
+import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
 /** Scenes up to this many entities are redrawn whole on every frame; bigger ones cache the base. */
@@ -64,6 +64,8 @@ export function DrawingCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<BaseState | null>(null);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  /** The pointer on screen: AutoCAD's crosshair is drawn there (ADR-051). */
+  const [hair, setHair] = useState<Pointer | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
   const pointers = useRef(new Map<number, Pointer>());
   const downAt = useRef<Pointer | null>(null);
@@ -74,7 +76,6 @@ export function DrawingCanvas({
   /** Edit mode, layer tool: a left drag draws a selection box instead of panning (ADR-047). */
   const bandFrom = useRef<{ x: number; y: number } | null>(null);
   const boxing = viewer.edit.boxing;
-  const picking = viewer.edit.editing && viewer.edit.tool !== null;
 
   // Canvas size follows the (resizable) container.
   useEffect(() => {
@@ -117,7 +118,7 @@ export function DrawingCanvas({
         const dx = (base.tf.cx - transform.cx) * transform.scale;
         const dy = (transform.cy - base.tf.cy) * transform.scale;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = CANVAS_BG;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(base.canvas, Math.round(dx * dpr), Math.round(dy * dpr));
         drawOverlay(ctx, model, cache, transform, viewport);
@@ -204,6 +205,7 @@ export function DrawingCanvas({
     const p = local(event);
     const world = toWorld(transform, size, p.x, p.y);
     setCursor({ x: world.x, y: world.y });
+    setHair(p);
     if (viewer.edit.tracking) viewer.edit.hover(world);
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
@@ -296,7 +298,7 @@ export function DrawingCanvas({
     <div
       ref={containerRef}
       dir="ltr"
-      className="relative h-[60vh] min-h-72 resize-y overflow-hidden rounded-md border border-(--color-border) bg-white"
+      className="relative h-[72vh] min-h-80 resize-y overflow-hidden border border-[#3b4048] bg-black"
     >
       <canvas
         ref={canvasRef}
@@ -304,21 +306,34 @@ export function DrawingCanvas({
         tabIndex={0}
         aria-label={t('design.viewer.canvasLabel')}
         aria-describedby="drawing-canvas-help"
-        className={`block size-full touch-none ${picking ? 'cursor-crosshair' : 'cursor-grab'} focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)`}
+        className="block size-full cursor-none touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
         style={{ width: '100%', height: '100%' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => setCursor(null)}
+        onPointerLeave={() => {
+          setCursor(null);
+          setHair(null);
+        }}
         onKeyDown={onKeyDown}
       />
+      {hair ? (
+        <div aria-hidden="true" data-testid="crosshair" className="pointer-events-none">
+          <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: hair.x }} />
+          <div className="absolute inset-x-0 h-px bg-white/70" style={{ top: hair.y }} />
+          <div
+            className="absolute size-2.5 border border-white"
+            style={{ left: hair.x - 5, top: hair.y - 5 }}
+          />
+        </div>
+      ) : null}
       <p id="drawing-canvas-help" className="sr-only">
         {t('design.viewer.keysHelp')}
       </p>
       <div
         data-testid="drawing-coords"
-        className="pointer-events-none absolute bottom-1 left-1 rounded bg-white/90 px-2 py-0.5 font-mono text-xs text-black"
+        className="pointer-events-none absolute bottom-1 left-1 rounded bg-[#1d2127]/90 px-2 py-0.5 font-mono text-xs text-[#d7dbe0]"
       >
         <span className="font-sans">{t('design.viewer.coords')}: </span>
         <Ltr>{cursor ? `X ${cursor.x.toFixed(2)}  Y ${cursor.y.toFixed(2)}` : '—'}</Ltr>

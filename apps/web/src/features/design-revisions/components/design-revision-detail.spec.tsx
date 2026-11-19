@@ -28,10 +28,13 @@ vi.mock('./diff-section', () => ({ DiffSection: () => null }));
 const sections = vi.hoisted(() => ({
   problems: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   corrections: vi.fn<(props: Record<string, unknown>) => null>(() => null),
-  // The viewer shows the errors list beside the drawing (ADR-050 part 3).
-  viewer: vi.fn<(props: Record<string, unknown>) => ReactNode>(
-    (props) => (props.sidePanel as ReactNode) ?? null,
-  ),
+  // The viewer shows the errors and the corrections as palettes beside the drawing (ADR-051).
+  viewer: vi.fn<(props: Record<string, unknown>) => ReactNode>((props) => (
+    <>
+      {props.sidePanel as ReactNode}
+      {props.correctionsPanel as ReactNode}
+    </>
+  )),
   boxTypes: vi.fn<(props: Record<string, unknown>) => null>(() => null),
   refresh: vi.fn<(props: Record<string, unknown>) => null>(() => null),
 }));
@@ -112,7 +115,12 @@ beforeEach(() => {
   sections.problems.mockClear();
   sections.corrections.mockClear();
   sections.viewer.mockClear();
-  sections.viewer.mockImplementation((props) => (props.sidePanel as ReactNode) ?? null);
+  sections.viewer.mockImplementation((props) => (
+    <>
+      {props.sidePanel as ReactNode}
+      {props.correctionsPanel as ReactNode}
+    </>
+  ));
   sections.refresh.mockClear();
   sections.boxTypes.mockClear();
 });

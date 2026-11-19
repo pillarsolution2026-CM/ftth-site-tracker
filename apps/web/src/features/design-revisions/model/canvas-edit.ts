@@ -5,47 +5,13 @@ import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
 import type { Bounds } from './view-transform';
 
 /**
- * The drawing's edit mode, a CAD-like ribbon (ADR-047, ADR-050): the project manager runs commands
- * on the canvas; the edits stay in the page (drawn at once) until «حفظ» sends them as corrections,
- * all at once, or «إلغاء» drops them. The original drawing is never changed.
+ * The drawing's edit mode, an AutoCAD-like workspace (ADR-047, ADR-050, ADR-051): the project
+ * manager runs commands on the canvas; the edits stay in the page (drawn at once) until «حفظ» sends
+ * them as corrections, all at once, or «إلغاء» drops them. The original drawing is never changed.
  */
-export type EditTool =
-  // Modify (pick items first)
-  | 'layer'
-  | 'text'
-  | 'move'
-  | 'copy'
-  | 'rotate'
-  | 'mirror'
-  | 'scale'
-  | 'erase'
-  // Draw (on the current layer)
-  | 'line'
-  | 'polyline'
-  | 'addText'
-  | 'point';
 
-/** Tools that start by picking items. */
-export const PICK_TOOLS: readonly EditTool[] = [
-  'layer',
-  'text',
-  'move',
-  'copy',
-  'rotate',
-  'mirror',
-  'scale',
-  'erase',
-];
-/** Tools that pick several items (click or box). */
-export const MULTI_PICK_TOOLS: readonly EditTool[] = PICK_TOOLS.filter((tool) => tool !== 'text');
-/** Draw tools: they put something new on the current layer. */
-export const DRAW_TOOLS: readonly EditTool[] = ['line', 'polyline', 'addText', 'point'];
-
-/** An unsaved edit: any correction the ribbon makes. */
-export type CanvasEdit = Exclude<
-  DrawingCorrectionInput,
-  { kind: 'dismiss_problem' } | { kind: 'merge_routes' }
->;
+/** An unsaved edit: any correction the workspace makes. */
+export type CanvasEdit = Exclude<DrawingCorrectionInput, { kind: 'dismiss_problem' }>;
 
 /** DXF types whose text a `set_text` may replace (the extraction keeps these as texts). */
 const TEXT_KINDS = new Set(['TEXT', 'MTEXT']);
@@ -59,7 +25,7 @@ export function isTextEntity(scene: DrawingScene, index: number): boolean {
 export const stepOf = (edit: CanvasEdit): Affine | null => stepOfInput(edit);
 
 /** Edits that a later edit of the same handle replaces (the others add up, in order). */
-const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>(['move_layer', 'set_text']);
+const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>(['move_layer', 'set_text', 'set_style']);
 
 export function addEdits(edits: readonly CanvasEdit[], added: readonly CanvasEdit[]): CanvasEdit[] {
   const key = (edit: CanvasEdit) =>
@@ -141,6 +107,33 @@ export function curveEdit(layer: string, points: readonly Point[], closed: boole
   };
 }
 
+/** A curve's new points (Trim, Fillet, Stretch; ADR-051). */
+export function setCurveEdit(
+  handle: string,
+  points: readonly (readonly [number, number])[],
+  closed: boolean,
+): CanvasEdit {
+  return {
+    kind: 'set_curve',
+    handle,
+    points: points.map((p) => [r(p[0]), r(p[1])] as [number, number]),
+    closed,
+  };
+}
+
+/** A drawn curve from [x, y] points (Offset, Circle, Arc, Rectangle, a split by Trim). */
+export function pointsCurveEdit(
+  layer: string,
+  points: readonly (readonly [number, number])[],
+  closed: boolean,
+): CanvasEdit {
+  return curveEdit(
+    layer,
+    points.map((p) => ({ x: p[0], y: p[1] })),
+    closed,
+  );
+}
+
 /** The handles of chosen entities, each once (an INSERT's shapes share one handle). */
 export function handlesOf(scene: DrawingScene, chosen: Iterable<number>): string[] {
   const out = new Set<string>();
@@ -173,6 +166,8 @@ export function entitiesInBand(
   transformOf: ReadonlyMap<number, Affine> = new Map(),
   /** Erased entities are not picked. */
   erased: ReadonlySet<number> = new Set(),
+  /** Curves with new points (set_curve, ADR-051) are picked by those points. */
+  curveOf: DrawingPreview['curveOf'] = new Map(),
 ): number[] {
   const minX = Math.min(band.x0, band.x1);
   const maxX = Math.max(band.x0, band.x1);
@@ -183,15 +178,27 @@ export function entitiesInBand(
   const count = scene.view.entities.length;
   for (let index = 0; index < count; index++) {
     if (erased.has(index)) continue;
-    const drawn = tightBox(scene, index);
+    const replaced = curveOf.get(index);
+    const drawn = replaced ? pointsBox(replaced.points) : tightBox(scene, index);
     if (drawn === null) continue;
-    const moved = transformOf.get(index);
+    const moved = replaced ? undefined : transformOf.get(index);
     const box = moved ? boxThrough(moved, drawn) : drawn;
     const inside = box.minX >= minX && box.maxX <= maxX && box.minY >= minY && box.maxY <= maxY;
     const touches = box.maxX >= minX && box.minX <= maxX && box.maxY >= minY && box.minY <= maxY;
     if ((crossing ? touches : inside) && isShown(index)) out.push(index);
   }
   return out;
+}
+
+function pointsBox(points: readonly (readonly [number, number])[]): Bounds {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+  };
 }
 
 /**

@@ -9,10 +9,10 @@ import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { TrenchMarksPanel } from '@/features/installation/components/trench-marks-panel';
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
-import { CadCommandLine, CadRibbon, PenButton } from './cad-ribbon';
+import { CadCommandLine, CadRibbon, CanvasButton, PenButton } from './cad-ribbon';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
-import { LayerPanel } from './layer-panel';
+import { LayerManage, LayerPanel } from './layer-panel';
 
 /**
  * «عارض الرسومات» (ADR-039): the drawing as drawn, with the layers, the problem places and the
@@ -30,6 +30,7 @@ export function DrawingViewer({
   onShowOnDrawing,
   onUnsavedChange,
   sidePanel,
+  correctionsPanel,
   focus,
 }: {
   projectId: string;
@@ -47,8 +48,10 @@ export function DrawingViewer({
   onShowOnDrawing?: (place: Omit<ShowPlace, 'nonce'>) => void;
   /** Number of unsaved edits of the edit mode (ADR-047): the page's refresh waits for «حفظ». */
   onUnsavedChange?: (count: number) => void;
-  /** The errors work list, shown in a tab beside the drawing (ADR-050 part 3). */
+  /** The errors work list, a palette beside the drawing (ADR-050 part 3, ADR-051). */
   sidePanel?: ReactNode;
+  /** The corrections table, a palette beside the drawing (ADR-051). */
+  correctionsPanel?: ReactNode;
   focus: ShowPlace | null;
 }) {
   const { t } = useI18n();
@@ -111,59 +114,22 @@ export function DrawingViewer({
       {status === 'ready' && model ? (
         <>
           {viewer.truncated ? <Notice kind="warning">{t('design.viewer.truncated')}</Notice> : null}
-          <div className="flex flex-col gap-3 lg:flex-row">
-            <div className="min-w-0 flex-1">
-              <CadRibbon edit={viewer.edit} />
-              <DrawingCanvas viewer={viewer} model={model}>
-                <div
-                  dir="ltr"
-                  role="group"
-                  aria-label={t('design.viewer.toolbar')}
-                  className="absolute right-2 top-2 flex gap-1"
-                >
-                  <ToolButton label={t('design.viewer.zoomIn')} onClick={viewer.zoomIn}>
-                    +
-                  </ToolButton>
-                  <ToolButton label={t('design.viewer.zoomOut')} onClick={viewer.zoomOut}>
-                    −
-                  </ToolButton>
-                  <ToolButton label={t('design.viewer.fit')} onClick={viewer.fit}>
-                    ⤢
-                  </ToolButton>
-                  <PenButton edit={viewer.edit} />
-                </div>
-                <CadCommandLine edit={viewer.edit} />
-                <CanvasPopover viewer={viewer} />
-              </DrawingCanvas>
-              <p className="mt-1 text-sm opacity-80">{t('design.viewer.legend')}</p>
-              {viewer.trench.visible ? (
-                <p className="text-sm opacity-80">{t('design.viewer.trenchLegend')}</p>
-              ) : null}
-              {viewer.boxTypes.available ? (
-                <div className="mt-1 flex flex-col gap-1">
-                  <Checkbox
-                    id="viewer-box-types"
-                    label={t('design.viewer.boxTypesToggle', { count: ltr(viewer.boxTypes.count) })}
-                    checked={viewer.boxTypes.shown}
-                    onChange={(event) => viewer.boxTypes.setShown(event.target.checked)}
-                  />
-                  <p className="text-sm opacity-80">{t('design.viewer.boxTypesLegend')}</p>
-                </div>
-              ) : null}
+          <Workspace viewer={viewer} problems={sidePanel} corrections={correctionsPanel} />
+          <p className="mt-1 text-sm opacity-80">{t('design.viewer.legend')}</p>
+          {viewer.trench.visible ? (
+            <p className="text-sm opacity-80">{t('design.viewer.trenchLegend')}</p>
+          ) : null}
+          {viewer.boxTypes.available ? (
+            <div className="mt-1 flex flex-col gap-1">
+              <Checkbox
+                id="viewer-box-types"
+                label={t('design.viewer.boxTypesToggle', { count: ltr(viewer.boxTypes.count) })}
+                checked={viewer.boxTypes.shown}
+                onChange={(event) => viewer.boxTypes.setShown(event.target.checked)}
+              />
+              <p className="text-sm opacity-80">{t('design.viewer.boxTypesLegend')}</p>
             </div>
-            <SideTabs
-              problems={sidePanel}
-              layers={
-                <LayerPanel
-                  rows={viewer.layerRows}
-                  query={viewer.layerQuery}
-                  onQuery={viewer.setLayerQuery}
-                  onToggle={viewer.toggleLayer}
-                  onSetListed={viewer.setShownForListed}
-                />
-              }
-            />
-          </div>
+          ) : null}
           {viewer.trench.visible ? (
             <TrenchMarksPanel
               tool={viewer.trench}
@@ -180,64 +146,141 @@ export function DrawingViewer({
   );
 }
 
-function ToolButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: string;
-}) {
-  return (
-    <Button
-      variant="outline"
-      className="bg-white px-3 text-lg"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
-      <span aria-hidden="true">{children}</span>
-    </Button>
-  );
-}
+type PaletteKey = 'problems' | 'corrections' | 'layers';
+type DrawingViewerState = ReturnType<typeof useDrawingViewer>;
 
-/** Beside the drawing: the errors (when given) and the layers, as two tabs. */
-function SideTabs({ problems, layers }: { problems?: ReactNode; layers: ReactNode }) {
+/**
+ * The AutoCAD-like workspace (ADR-051): the ribbon (edit mode), the black canvas across the whole
+ * width, the command line under it, and palettes (errors, corrections, layers) that open and close
+ * beside the drawing.
+ */
+function Workspace({
+  viewer,
+  problems,
+  corrections,
+}: {
+  viewer: DrawingViewerState;
+  problems?: ReactNode;
+  corrections?: ReactNode;
+}) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<'problems' | 'layers'>(problems ? 'problems' : 'layers');
-  if (!problems) return <div className="lg:w-72 lg:shrink-0">{layers}</div>;
-  const tabs = [
-    { key: 'problems', label: t('design.problems.title') },
-    { key: 'layers', label: t('design.viewer.layersTab') },
-  ] as const;
+  const [open, setOpen] = useState<ReadonlySet<PaletteKey>>(
+    () => new Set<PaletteKey>([problems ? 'problems' : 'layers']),
+  );
+  const toggle = (key: PaletteKey, on?: boolean) =>
+    setOpen((previous) => {
+      const next = new Set(previous);
+      if (on ?? !next.has(key)) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  // LAYER / LA opens the Layer Properties palette.
+  const { layersNonce, edit, model } = viewer;
+  const [seenNonce, setSeenNonce] = useState(layersNonce);
+  if (layersNonce !== seenNonce) {
+    setSeenNonce(layersNonce);
+    if (!open.has('layers')) toggle('layers', true);
+  }
+  const palettes: { key: PaletteKey; title: string; body: ReactNode }[] = [];
+  if (problems) {
+    palettes.push({ key: 'problems', title: t('design.cad.palette.problems'), body: problems });
+  }
+  if (corrections) {
+    palettes.push({
+      key: 'corrections',
+      title: t('design.cad.palette.corrections'),
+      body: corrections,
+    });
+  }
+  palettes.push({
+    key: 'layers',
+    title: t('design.cad.palette.layers'),
+    body: (
+      <LayerPanel
+        rows={viewer.layerRows}
+        query={viewer.layerQuery}
+        onQuery={viewer.setLayerQuery}
+        onToggle={viewer.toggleLayer}
+        onSetListed={viewer.setShownForListed}
+        onFreeze={viewer.toggleFrozen}
+        onLock={viewer.toggleLocked}
+        onColor={viewer.setLayerColor}
+        current={edit.editing ? edit.currentLayer : undefined}
+        onMakeCurrent={edit.editing ? edit.chooseLayer : undefined}
+        manage={edit.editing ? <LayerManage edit={edit} /> : undefined}
+      />
+    ),
+  });
+  if (!model) return null;
+  const shownPalettes = palettes.filter((p) => open.has(p.key));
   return (
-    <div className="flex flex-col gap-2 lg:w-96 lg:shrink-0">
-      <div role="tablist" aria-label={t('design.viewer.sideTabs')} className="flex gap-1">
-        {tabs.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            role="tab"
-            id={`side-tab-${item.key}`}
-            aria-selected={tab === item.key}
-            aria-controls={`side-panel-${item.key}`}
-            onClick={() => setTab(item.key)}
-            className={`min-h-10 flex-1 rounded-t-md border-b-2 px-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
-              tab === item.key ? 'border-(--color-brand)' : 'border-transparent opacity-70'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <div
-        role="tabpanel"
-        id={`side-panel-${tab}`}
-        aria-labelledby={`side-tab-${tab}`}
-        className="max-h-[75vh] overflow-y-auto pe-1"
-      >
-        {tab === 'problems' ? problems : layers}
+    <div className="flex flex-col">
+      <CadRibbon
+        edit={edit}
+        rows={viewer.layerRows}
+        onToggleLayer={viewer.toggleLayer}
+        onToggleFrozen={viewer.toggleFrozen}
+        onToggleLocked={viewer.toggleLocked}
+      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:gap-0">
+        <div className="min-w-0 flex-1">
+          <DrawingCanvas viewer={viewer} model={model}>
+            <div
+              dir="ltr"
+              role="group"
+              aria-label={t('design.viewer.toolbar')}
+              className="absolute right-2 top-2 flex flex-wrap justify-end gap-1"
+            >
+              <CanvasButton label={t('design.viewer.zoomIn')} onClick={viewer.zoomIn}>
+                +
+              </CanvasButton>
+              <CanvasButton label={t('design.viewer.zoomOut')} onClick={viewer.zoomOut}>
+                −
+              </CanvasButton>
+              <CanvasButton label={t('design.viewer.fit')} onClick={viewer.fit}>
+                ⤢
+              </CanvasButton>
+              {palettes.map((p) => (
+                <CanvasButton
+                  key={p.key}
+                  label={p.title}
+                  pressed={open.has(p.key)}
+                  onClick={() => toggle(p.key)}
+                >
+                  <span className="text-xs">{p.title}</span>
+                </CanvasButton>
+              ))}
+              <PenButton edit={edit} />
+            </div>
+            <CanvasPopover viewer={viewer} />
+          </DrawingCanvas>
+          <CadCommandLine edit={edit} />
+        </div>
+        {shownPalettes.length > 0 ? (
+          <div className="flex flex-col gap-2 lg:w-96 lg:shrink-0 lg:ps-2">
+            {shownPalettes.map((p) => (
+              <aside
+                key={p.key}
+                aria-label={p.title}
+                className="flex max-h-[75vh] min-h-0 flex-col rounded-md border border-(--color-border)"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-(--color-border) bg-[#2b2f36] px-2 py-1 text-[#e8eaed]">
+                  <span className="text-sm font-semibold">{p.title}</span>
+                  <button
+                    type="button"
+                    aria-label={t('design.cad.palette.close', { name: p.title })}
+                    title={t('design.cad.palette.close', { name: p.title })}
+                    onClick={() => toggle(p.key, false)}
+                    className="min-h-8 min-w-8 rounded hover:bg-white/10"
+                  >
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                </div>
+                <div className="overflow-y-auto p-2 pe-1">{p.body}</div>
+              </aside>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

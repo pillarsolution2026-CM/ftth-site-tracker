@@ -5,6 +5,8 @@ import { applyAffine, invert, type Affine } from './affine';
 import { placeKey } from './corrections';
 
 const NO_TRANSFORMS: ReadonlyMap<number, Affine> = new Map();
+const NO_CURVES: ReadonlyMap<number, { points: readonly (readonly [number, number])[] }> =
+  new Map();
 import { toScreen, type Size, type ViewTransform } from './view-transform';
 
 export function distToSegment(
@@ -73,11 +75,27 @@ export function hitEntity(
   isShown: (index: number) => boolean,
   /** Moved / turned entities (ADR-047) are hit where they are drawn now. */
   transformOf: ReadonlyMap<number, Affine> = NO_TRANSFORMS,
+  /** Curves with new points (set_curve, ADR-051) are hit on those points. */
+  curveOf: ReadonlyMap<number, { points: readonly (readonly [number, number])[] }> = NO_CURVES,
 ): number | null {
   let best: number | null = null;
   let bestDistance = tolerance;
   const entities = scene.view.entities;
+  for (const [i, curve] of curveOf) {
+    if (!isShown(i)) continue;
+    const pts = curve.points;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const a = pts[k] as readonly [number, number];
+      const b = pts[k + 1] as readonly [number, number];
+      const d = distToSegment(px, py, a[0], a[1], b[0], b[1]);
+      if (d <= bestDistance) {
+        best = i;
+        bestDistance = d;
+      }
+    }
+  }
   for (let i = 0; i < entities.length; i++) {
+    if (curveOf.has(i)) continue;
     const moved = transformOf.get(i);
     // A rigid move keeps distances: test the point moved back instead of the entity moved on.
     const at = moved ? applyAffine(invert(moved), px, py) : { x: px, y: py };

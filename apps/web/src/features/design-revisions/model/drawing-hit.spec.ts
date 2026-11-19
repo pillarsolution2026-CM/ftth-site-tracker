@@ -80,3 +80,21 @@ describe('hit testing', () => {
     }
   });
 });
+
+describe('curves with new points (set_curve, ADR-051)', () => {
+  it('are hit on the new points, not on the old ones', () => {
+    const curveOf = new Map([
+      [
+        1,
+        {
+          points: [
+            [50, 25],
+            [60, 25],
+          ] as [number, number][],
+        },
+      ],
+    ]);
+    expect(hitEntity(scene, 55, 25, 1, always, new Map(), curveOf)).toBe(1);
+    expect(hitEntity(scene, 90, 25, 1, always, new Map(), curveOf)).toBeNull();
+  });
+});

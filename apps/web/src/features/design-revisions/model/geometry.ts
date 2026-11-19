@@ -412,3 +412,58 @@ export class GeometryError extends Error {
     this.name = 'GeometryError';
   }
 }
+
+// ---------- dimensions ----------
+
+export interface LinearDimension {
+  /** Horizontal (measures X) or vertical (measures Y), chosen by where the line is put. */
+  direction: 'horizontal' | 'vertical';
+  /** The dimension line, from the first to the second extension line. */
+  line: [Pt, Pt];
+  /** Extension lines: from each measured point to the dimension line. */
+  extensions: [[Pt, Pt], [Pt, Pt]];
+  value: number;
+  /** Middle of the dimension line (the text goes there). */
+  middle: Pt;
+}
+
+/**
+ * DIMLINEAR as AutoCAD places it: a dimension line put above or below the two points measures X;
+ * put left or right of them, it measures Y; otherwise the longer side.
+ */
+export function linearDimension(a: Pt, b: Pt, at: Pt): LinearDimension {
+  const minX = Math.min(a[0], b[0]);
+  const maxX = Math.max(a[0], b[0]);
+  const minY = Math.min(a[1], b[1]);
+  const maxY = Math.max(a[1], b[1]);
+  const besideX = at[0] < minX || at[0] > maxX;
+  const besideY = at[1] < minY || at[1] > maxY;
+  const horizontal =
+    besideY && !besideX ? true : besideX && !besideY ? false : maxX - minX >= maxY - minY;
+  if (horizontal) {
+    const p: Pt = [a[0], at[1]];
+    const q: Pt = [b[0], at[1]];
+    return {
+      direction: 'horizontal',
+      line: [p, q],
+      extensions: [
+        [a, p],
+        [b, q],
+      ],
+      value: maxX - minX,
+      middle: [(a[0] + b[0]) / 2, at[1]],
+    };
+  }
+  const p: Pt = [at[0], a[1]];
+  const q: Pt = [at[0], b[1]];
+  return {
+    direction: 'vertical',
+    line: [p, q],
+    extensions: [
+      [a, p],
+      [b, q],
+    ],
+    value: maxY - minY,
+    middle: [at[0], (a[1] + b[1]) / 2],
+  };
+}

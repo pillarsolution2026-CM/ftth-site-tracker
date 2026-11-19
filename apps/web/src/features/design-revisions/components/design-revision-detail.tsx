@@ -115,6 +115,17 @@ export function DesignRevisionDetailScreen({
                 onShowOnDrawing={showOnDrawing}
               />
             }
+            correctionsPanel={
+              <CorrectionsSection
+                projectId={projectId}
+                revisionId={revisionId}
+                cadFileId={revision.cadFileId}
+                builtAt={revision.builtAt}
+                listPath={listPath}
+                enabled={state.canRead && state.built}
+                canEdit={state.canReview}
+              />
+            }
             focus={focus}
           />
         </Card>
@@ -192,17 +203,6 @@ export function DesignRevisionDetailScreen({
               />
             </Card>
           ) : null}
-          <Card>
-            <CorrectionsSection
-              projectId={projectId}
-              revisionId={revisionId}
-              cadFileId={revision.cadFileId}
-              builtAt={revision.builtAt}
-              listPath={listPath}
-              enabled={state.canRead && state.built}
-              canEdit={state.canReview}
-            />
-          </Card>
           <Card>
             <TextReviewView state={review} canReview={state.canReview} />
           </Card>
