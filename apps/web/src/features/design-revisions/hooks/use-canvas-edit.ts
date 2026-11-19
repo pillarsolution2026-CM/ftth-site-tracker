@@ -62,7 +62,23 @@ import {
   trimCurve,
   type Box,
   type Pt,
+  nearestOnCurve,
 } from '../model/geometry';
+import {
+  arcCenter,
+  arcEndDirection,
+  arcStartEnd,
+  arcThroughEndDirection,
+  chamferPolygon,
+  circleTangentTangent,
+  endDirection,
+  extendCurve,
+  filletPolyline,
+  rectangleFrom,
+  rotatedRectangle,
+  tangentArc,
+  throughDistance,
+} from '../model/geometry-options';
 import type { ErrorMessage } from '../model/revision-errors';
 
 export type { Point } from '../model/cad-commands';
@@ -125,7 +141,44 @@ export type PromptKey =
   | 'matchDest'
   | 'laymcurPick'
   | 'laymchSelect'
-  | 'laymchDest';
+  | 'laymchDest'
+  | 'removeObjects'
+  | 'displacement'
+  | 'copyMode'
+  | 'refAngle'
+  | 'newAngle'
+  | 'firstPoint'
+  | 'refLength'
+  | 'newLength'
+  | 'mirrorErase'
+  | 'arcEndpoint'
+  | 'plineLength'
+  | 'ttrFirst'
+  | 'ttrSecond'
+  | 'arcCenterPoint'
+  | 'includedAngle'
+  | 'arcRadius'
+  | 'chamferFirst'
+  | 'chamferSecond'
+  | 'rectFilletRadius'
+  | 'rectLength'
+  | 'rectWidth'
+  | 'rectRotation'
+  | 'rectArea'
+  | 'rectAreaBy'
+  | 'rectAreaLength'
+  | 'rectAreaWidth'
+  | 'trimEdges'
+  | 'trimErase'
+  | 'filletTrim'
+  | 'filletPoly'
+  | 'offsetErase'
+  | 'offsetLayer'
+  | 'offsetThrough'
+  | 'dimSelect'
+  | 'dimTextValue'
+  | 'layerName'
+  | 'secondPointOr';
 
 export interface CommandPrompt {
   key: PromptKey;
@@ -179,7 +232,79 @@ type Step =
   | 'source'
   | 'dest'
   | 'laymcurPick'
-  | 'laymchDest';
+  | 'laymchDest'
+  | 'displacement'
+  | 'copyMode'
+  | 'refAngle'
+  | 'refAngle2'
+  | 'newAngle'
+  | 'newAngleP1'
+  | 'newAngleP2'
+  | 'refLength'
+  | 'refLength2'
+  | 'newLength'
+  | 'newLengthP1'
+  | 'newLengthP2'
+  | 'mirrorErase'
+  | 'plineLength'
+  | 'plineArc2'
+  | 'plineArc3'
+  | 'ttr1'
+  | 'ttr2'
+  | 'ttrRadius'
+  | 'arcCenter'
+  | 'arcCStart'
+  | 'arcCEnd'
+  | 'arcCAngle'
+  | 'arcEEnd'
+  | 'arcEOpt'
+  | 'arcERadius'
+  | 'arcEAngle'
+  | 'chamfer1'
+  | 'chamfer2'
+  | 'rectFillet'
+  | 'rectLength'
+  | 'rectWidth'
+  | 'rectSide'
+  | 'rectRotation'
+  | 'rectArea'
+  | 'rectAreaBy'
+  | 'rectAreaLength'
+  | 'rectAreaWidth'
+  | 'trimEdges'
+  | 'trimErase'
+  | 'filletTrim'
+  | 'filletPoly'
+  | 'offsetErase'
+  | 'offsetLayer'
+  | 'dimSelect'
+  | 'dimTextValue'
+  | 'laymchName';
+
+/** What a command's options set while it runs (AutoCAD's sub-options). */
+interface Flags {
+  /** ROTATE / SCALE Copy: the objects stay, a turned / scaled copy is made. */
+  copy?: boolean;
+  refAngle?: number;
+  refLength?: number;
+  /** PLINE: arc segments; the direction the polyline ends in; where each segment starts. */
+  arcMode?: boolean;
+  direction?: Pt;
+  segments?: number[];
+  /** CIRCLE Ttr: the lines picked and where. */
+  tangents?: { seg: readonly [Pt, Pt]; at: Pt }[];
+  chamfer1?: number;
+  /** TRIM cuTting edges: only these objects cut. */
+  edges?: number[];
+  /** FILLET / OFFSET Multiple. */
+  multiple?: boolean;
+  multipleCount?: number;
+  /** DIMLINEAR Text, Horizontal / Vertical. */
+  dimText?: string | null;
+  dimDirection?: 'h' | 'v';
+  /** «Select objects:» after R (Remove), until A (Add). */
+  removing?: boolean;
+}
 
 interface Run {
   cmd: CommandId;
@@ -196,6 +321,7 @@ interface Run {
   height: number | null;
   /** Edits made by this command, for its Undo option (copies, segments, trims). */
   made: number[];
+  flags: Flags;
 }
 
 const newRun = (cmd: CommandId, step: Step): Run => ({
@@ -209,10 +335,17 @@ const newRun = (cmd: CommandId, step: Step): Run => ({
   textAt: null,
   height: null,
   made: [],
+  flags: {},
 });
 
 /** Steps where the command line takes free text (spaces are part of it, not Enter). */
-const TEXT_STEPS: readonly Step[] = ['textValue', 'editValue', 'leaderText'];
+const TEXT_STEPS: readonly Step[] = [
+  'textValue',
+  'editValue',
+  'leaderText',
+  'dimTextValue',
+  'laymchName',
+];
 /** Steps that take a point: the pointer is followed for the rubber band. */
 const TRACKED: readonly Step[] = [
   'second',
@@ -231,6 +364,20 @@ const TRACKED: readonly Step[] = [
   'dim2',
   'dim3',
   'leaderNext',
+  'refAngle2',
+  'newAngle',
+  'newAngleP2',
+  'refLength2',
+  'newLength',
+  'newLengthP2',
+  'plineArc2',
+  'plineArc3',
+  'ttrRadius',
+  'arcCEnd',
+  'arcEOpt',
+  'arcERadius',
+  'rectSide',
+  'rectRotation',
 ];
 const OBJECT_STEPS: readonly Step[] = [
   'trimPick',
@@ -242,6 +389,12 @@ const OBJECT_STEPS: readonly Step[] = [
   'dest',
   'laymcurPick',
   'laymchDest',
+  'trimEdges',
+  'trimErase',
+  'filletPoly',
+  'ttr1',
+  'ttr2',
+  'dimSelect',
 ];
 
 const CURVE_KINDS = new Set(['LINE', 'LWPOLYLINE', 'POLYLINE']);
@@ -369,6 +522,22 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const [currentLayer, setCurrentLayer] = useState('');
   const [filletRadius, setFilletRadius] = useState(0);
   const [offsetDist, setOffsetDist] = useState(1);
+  // AutoCAD keeps these settings from one use of a command to the next.
+  const [copyMultiple, setCopyMultiple] = useState(true);
+  const [offsetThrough, setOffsetThrough] = useState(false);
+  const [offsetErase, setOffsetErase] = useState(false);
+  const [offsetOnCurrent, setOffsetOnCurrent] = useState(false);
+  const [filletTrim, setFilletTrim] = useState(true);
+  const [lastRadius, setLastRadius] = useState<number | null>(null);
+  const [rect, setRect] = useState<{
+    chamfer: [number, number] | null;
+    fillet: number | null;
+    rotation: number;
+    length: number;
+    width: number;
+    area: number;
+  }>({ chamfer: null, fillet: null, rotation: 0, length: 10, width: 10, area: 100 });
+  const [previous, setPrevious] = useState<ReadonlySet<number>>(NONE);
   const [edits, setEdits] = useState<readonly CanvasEdit[]>([]);
   const [error, setError] = useState<ErrorMessage | null>(null);
 
@@ -538,8 +707,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       fallback,
     });
     if (!r) return p('command');
+    const f = r.flags;
     switch (r.step) {
       case 'select':
+        if (f.removing) return p('removeObjects');
         return r.cmd === 'stretch'
           ? p('stretchSelect')
           : r.cmd === 'join'
@@ -548,29 +719,89 @@ export function useCanvasEdit(input: Input): CanvasEditState {
               ? p('laymchSelect')
               : p('selectObjects');
       case 'base':
-        return p('basePoint');
-      case 'second':
         return r.cmd === 'copy'
+          ? p('basePoint', [opt('Displacement', 'D'), opt('mOde', 'O')], 'Displacement')
+          : r.cmd === 'move' || r.cmd === 'stretch'
+            ? p('basePoint', [opt('Displacement', 'D')], 'Displacement')
+            : p('basePoint');
+      case 'displacement':
+        return p('displacement', [], '0.0000, 0.0000');
+      case 'copyMode':
+        return p(
+          'copyMode',
+          [opt('Single', 'S'), opt('Multiple', 'M')],
+          copyMultiple ? 'Multiple' : 'Single',
+        );
+      case 'second':
+        return r.cmd === 'copy' && r.made.length > 0
           ? p('secondPoint', [opt('Exit', 'E'), opt('Undo', 'U')], 'Exit')
-          : p('secondPoint');
+          : p('secondPointOr', [], 'use first point as displacement');
       case 'angle':
-        return p('rotationAngle');
+        return p('rotationAngle', [opt('Copy', 'C'), opt('Reference', 'R')], '0');
+      case 'refAngle':
+        return p('refAngle', [], '0');
+      case 'refAngle2':
+      case 'newAngleP2':
+      case 'refLength2':
+      case 'newLengthP2':
+        return p('secondPoint');
+      case 'newAngle':
+        return p('newAngle', [opt('Points', 'P')], '0');
+      case 'newAngleP1':
+      case 'newLengthP1':
+        return p('firstPoint');
       case 'factor':
-        return p('scaleFactor');
+        return p('scaleFactor', [opt('Copy', 'C'), opt('Reference', 'R')]);
+      case 'refLength':
+        return p('refLength', [], acadNumber(1));
+      case 'newLength':
+        return p('newLength', [opt('Points', 'P')], acadNumber(1));
       case 'mirror1':
         return p('mirrorFirst');
       case 'mirror2':
         return p('mirrorSecond');
+      case 'mirrorErase':
+        return p('mirrorErase', [opt('Yes', 'Y'), opt('No', 'N')], 'No');
       case 'first':
         return r.cmd === 'pline' ? p('plineStart') : p('lineFirst');
       case 'next':
-        return r.points.length >= (r.cmd === 'pline' ? 2 : 3) || r.made.length >= 2
+        if (r.cmd === 'pline') {
+          if (f.arcMode) {
+            return p('arcEndpoint', [
+              ...(r.points.length >= 3 ? [opt('CLose', 'CL')] : []),
+              opt('Line', 'L'),
+              opt('Second pt', 'S'),
+              opt('Undo', 'U'),
+            ]);
+          }
+          return p('nextPoint', [
+            opt('Arc', 'A'),
+            ...(r.points.length >= 3 ? [opt('Close', 'C')] : []),
+            opt('Length', 'L'),
+            opt('Undo', 'U'),
+          ]);
+        }
+        return r.made.length >= 2
           ? p('nextPoint', [opt('Close', 'C'), opt('Undo', 'U')])
           : p('nextPoint', [opt('Undo', 'U')]);
+      case 'plineLength':
+        return p('plineLength');
+      case 'plineArc2':
+        return p('arcSecond');
+      case 'plineArc3':
+        return p('arcEnd');
       case 'center':
-        return p('circleCenter', [opt('3P', '3P'), opt('2P', '2P')]);
+        return p('circleCenter', [
+          opt('3P', '3P'),
+          opt('2P', '2P'),
+          opt('Ttr (tan tan radius)', 'T'),
+        ]);
       case 'radius':
-        return p('circleRadius', [opt('Diameter', 'D')]);
+        return p(
+          'circleRadius',
+          [opt('Diameter', 'D')],
+          lastRadius ? acadNumber(lastRadius) : null,
+        );
       case 'diameter':
         return p('circleDiameter');
       case 'c3p1':
@@ -583,32 +814,109 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return p('diameterFirst');
       case 'c2p2':
         return p('diameterSecond');
+      case 'ttr1':
+        return p('ttrFirst');
+      case 'ttr2':
+        return p('ttrSecond');
+      case 'ttrRadius':
+        return p('circleRadius');
       case 'arc1':
-        return p('arcStart');
+        return p('arcStart', [opt('Center', 'C')]);
       case 'arc2':
-        return p('arcSecond');
+        return p('arcSecond', [opt('Center', 'C'), opt('End', 'E')]);
       case 'arc3':
         return p('arcEnd');
+      case 'arcCenter':
+        return p('arcCenterPoint');
+      case 'arcCStart':
+        return p('arcStart');
+      case 'arcCEnd':
+        return p('arcEnd', [opt('Angle', 'A')]);
+      case 'arcCAngle':
+      case 'arcEAngle':
+        return p('includedAngle');
+      case 'arcEEnd':
+        return p('arcEnd');
+      case 'arcEOpt':
+        return p('arcCenterPoint', [opt('Angle', 'A'), opt('Radius', 'R')]);
+      case 'arcERadius':
+        return p('arcRadius');
       case 'corner1':
-        return p('rectFirst');
+        return p('rectFirst', [opt('Chamfer', 'C'), opt('Fillet', 'F')]);
+      case 'chamfer1':
+        return p('chamferFirst', [], acadNumber(rect.chamfer?.[0] ?? 0));
+      case 'chamfer2':
+        return p('chamferSecond', [], acadNumber(f.chamfer1 ?? rect.chamfer?.[1] ?? 0));
+      case 'rectFillet':
+        return p('rectFilletRadius', [], acadNumber(rect.fillet ?? 0));
       case 'corner2':
+        return p('rectOther', [opt('Area', 'A'), opt('Dimensions', 'D'), opt('Rotation', 'R')]);
+      case 'rectLength':
+        return p('rectLength', [], acadNumber(rect.length));
+      case 'rectWidth':
+        return p('rectWidth', [], acadNumber(rect.width));
+      case 'rectSide':
         return p('rectOther');
+      case 'rectRotation':
+        return p('rectRotation', [], acadNumber(rect.rotation));
+      case 'rectArea':
+        return p('rectArea', [], acadNumber(rect.area));
+      case 'rectAreaBy':
+        return p('rectAreaBy', [opt('Length', 'L'), opt('Width', 'W')], 'Length');
+      case 'rectAreaLength':
+        return p('rectAreaLength', [], acadNumber(rect.length));
+      case 'rectAreaWidth':
+        return p('rectAreaWidth', [], acadNumber(rect.width));
       case 'pointAt':
         return p('pointAt');
       case 'trimPick':
-        return p('trimPick', [opt('Undo', 'U')]);
+        return p('trimPick', [opt('cuTting edges', 'T'), opt('eRase', 'R'), opt('Undo', 'U')]);
+      case 'trimEdges':
+        return p('trimEdges', [], 'select all');
+      case 'trimErase':
+        return p('trimErase', [], 'exit');
       case 'filletFirst':
-        return p('filletFirst', [opt('Undo', 'U'), opt('Radius', 'R')]);
+        return p('filletFirst', [
+          opt('Undo', 'U'),
+          opt('Polyline', 'P'),
+          opt('Radius', 'R'),
+          opt('Trim', 'T'),
+          opt('Multiple', 'M'),
+        ]);
       case 'filletSecond':
         return p('filletSecond', [opt('Radius', 'R')]);
       case 'filletRadius':
         return p('filletRadius', [], acadNumber(filletRadius));
+      case 'filletTrim':
+        return p(
+          'filletTrim',
+          [opt('Trim', 'T'), opt('No trim', 'N')],
+          filletTrim ? 'Trim' : 'No trim',
+        );
+      case 'filletPoly':
+        return p('filletPoly');
       case 'offsetDistance':
-        return p('offsetDistance', [], acadNumber(offsetDist));
+        return p(
+          'offsetDistance',
+          [opt('Through', 'T'), opt('Erase', 'E'), opt('Layer', 'L')],
+          offsetThrough ? 'Through' : acadNumber(offsetDist),
+        );
+      case 'offsetErase':
+        return p('offsetErase', [opt('Yes', 'Y'), opt('No', 'N')], offsetErase ? 'Yes' : 'No');
+      case 'offsetLayer':
+        return p(
+          'offsetLayer',
+          [opt('Current', 'C'), opt('Source', 'S')],
+          offsetOnCurrent ? 'Current' : 'Source',
+        );
       case 'offsetPick':
         return p('offsetPick', [opt('Exit', 'E'), opt('Undo', 'U')], 'Exit');
       case 'offsetSide':
-        return p('offsetSide', [opt('Exit', 'E')], 'Exit');
+        return p(
+          offsetThrough ? 'offsetThrough' : 'offsetSide',
+          [opt('Exit', 'E'), opt('Multiple', 'M'), opt('Undo', 'U')],
+          'Exit',
+        );
       case 'textStart':
         return p('textStart');
       case 'textHeight':
@@ -616,19 +924,30 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'textValue':
         return p('textValue');
       case 'editPick':
-        return p('editPick');
+        return p('editPick', [opt('Undo', 'U')]);
       case 'editValue':
         return p('editValue');
       case 'dim1':
-        return p('dimFirst');
+        return p('dimFirst', [], 'select object');
+      case 'dimSelect':
+        return p('dimSelect');
       case 'dim2':
         return p('dimSecond');
       case 'dim3':
-        return p('dimLocation');
+        return p('dimLocation', [
+          opt('Mtext', 'M'),
+          opt('Text', 'T'),
+          opt('Horizontal', 'H'),
+          opt('Vertical', 'V'),
+        ]);
+      case 'dimTextValue':
+        return p('dimTextValue');
       case 'leaderStart':
         return p('leaderStart');
       case 'leaderNext':
-        return p('nextPoint', [opt('Undo', 'U')], r.points.length >= 2 ? 'Annotation' : null);
+        return r.points.length >= 2
+          ? p('nextPoint', [opt('Annotation', 'A'), opt('Undo', 'U')], 'Annotation')
+          : p('nextPoint');
       case 'leaderText':
         return p('leaderText');
       case 'source':
@@ -638,7 +957,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'laymcurPick':
         return p('laymcurPick');
       case 'laymchDest':
-        return p('laymchDest');
+        return p('laymchDest', [opt('Name', 'N')]);
+      case 'laymchName':
+        return p('layerName');
     }
   };
 
@@ -648,12 +969,17 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   // ---------- running ----------
 
   const finish = (keepSelection = false) => {
+    if (handles.length > 0) setPrevious(selection);
     setRun(null);
     setPointer(null);
     setBand(null);
     setText('');
     if (!keepSelection) setSelection(NONE);
   };
+
+  const go = (r: Run, step: Step, patch: Partial<Run> = {}) => setRun({ ...r, ...patch, step });
+  const flag = (r: Run, patch: Partial<Flags>, step?: Step) =>
+    setRun({ ...r, step: step ?? r.step, flags: { ...r.flags, ...patch } });
 
   const begin = (cmd: CommandId) => {
     if (!scene) return;
@@ -670,6 +996,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'copy':
       case 'rotate':
       case 'scale':
+        if (cmd === 'copy')
+          say(msg('copySettings', { mode: copyMultiple ? 'Multiple' : 'Single' }));
+        if (cmd === 'rotate') say(msg('rotateSettings'));
         return next(picked ? 'base' : 'select');
       case 'mirror':
         return next(picked ? 'mirror1' : 'select');
@@ -692,6 +1021,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'laymch':
         return next(picked ? 'laymchDest' : 'select');
       case 'line':
+        return next('first');
       case 'pline':
         return next('first');
       case 'circle':
@@ -699,21 +1029,44 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'arc':
         return next('arc1');
       case 'rectang':
+        if (rect.chamfer || rect.fillet) {
+          say(
+            rect.fillet
+              ? msg('rectFilletMode', { radius: acadNumber(rect.fillet) })
+              : msg('rectChamferMode', {
+                  first: acadNumber(rect.chamfer?.[0] ?? 0),
+                  second: acadNumber(rect.chamfer?.[1] ?? 0),
+                }),
+          );
+        }
         return next('corner1');
       case 'point':
+        say(msg('pointModes'));
         return next('pointAt');
       case 'trim':
         setSelection(NONE);
+        say(msg('trimSettings'));
         return next('trimPick');
       case 'fillet':
         setSelection(NONE);
-        say(msg('filletSettings', { radius: acadNumber(filletRadius) }));
+        say(
+          msg('filletSettings', {
+            mode: filletTrim ? 'TRIM' : 'NOTRIM',
+            radius: acadNumber(filletRadius),
+          }),
+        );
         return next('filletFirst');
       case 'offset':
         setSelection(NONE);
-        say(msg('offsetSettings'));
+        say(
+          msg('offsetSettings', {
+            erase: offsetErase ? 'Yes' : 'No',
+            layer: offsetOnCurrent ? 'Current' : 'Source',
+          }),
+        );
         return next('offsetDistance');
       case 'text':
+        say(msg('textSettings', { height: acadNumber(textHeight) }));
         return next('textStart');
       case 'textedit': {
         const [only] = [...selection];
@@ -739,6 +1092,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           r.target = only;
           setRun(r);
           setSelection(NONE);
+          say(msg('matchSettings'));
           return;
         }
         setSelection(NONE);
@@ -800,10 +1154,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         join(handles);
         return;
       case 'mirror':
-        setRun({ ...r, step: 'mirror1' });
+        go(r, 'mirror1');
         return;
       case 'laymch':
-        setRun({ ...r, step: 'laymchDest' });
+        go(r, 'laymchDest');
         return;
       case 'stretch':
         if (!r.window) {
@@ -811,75 +1165,196 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           finish();
           return;
         }
-        setRun({ ...r, step: 'base' });
+        go(r, 'base');
         return;
       default:
-        setRun({ ...r, step: 'base' });
+        go(r, 'base');
     }
+  };
+
+  /** A copy of the picked objects stays where they are; the originals are then changed. */
+  const keepCopy = (copy: boolean | undefined): CanvasEdit[] =>
+    copy ? copyEdits(handles, 0, 0) : [];
+
+  const moveBy = (r: Run, dx: number, dy: number) => {
+    if (r.cmd === 'move') {
+      add(moveEdits(handles, dx, dy));
+      finish();
+    } else if (r.cmd === 'copy') {
+      const made = add(copyEdits(handles, dx, dy));
+      if (!copyMultiple) finish();
+      else go(r, 'second', { made: [...r.made, made.length] });
+    } else if (r.cmd === 'stretch') {
+      stretch(r, dx, dy);
+    }
+  };
+
+  const rotateBy = (r: Run, angle: number) => {
+    if (!r.base) return;
+    if (Math.abs(angle) > 360) {
+      say(msg('badValue'));
+      return;
+    }
+    add([...keepCopy(r.flags.copy), ...rotateEdits(handles, r.base.x, r.base.y, angle)]);
+    finish();
+  };
+
+  const feedFactor = (r: Run, factor: number) => {
+    if (!r.base) return;
+    if (!(factor >= 0.001 && factor <= 1000)) {
+      say(msg('badFactor'));
+      return;
+    }
+    add([...keepCopy(r.flags.copy), ...scaleEdits(handles, r.base.x, r.base.y, factor)]);
+    finish();
+  };
+
+  /** RECTANG: the rectangle with the chamfer or fillet of the corners asked for. */
+  const rectangle = (corners: Pt[]) => {
+    try {
+      let shape = corners;
+      if (rect.fillet && rect.fillet > 0) shape = filletPolyline(corners, true, rect.fillet).points;
+      else if (rect.chamfer) shape = chamferPolygon(corners, rect.chamfer[0], rect.chamfer[1]);
+      add([pointsCurveEdit(drawLayer, shape, true)]);
+      finish();
+    } catch (caught) {
+      geometryMessage(caught);
+    }
+  };
+
+  /** PLINE: points of the polyline so far, and where each segment started (for Undo). */
+  const plineAdd = (r: Run, added: Point[], patch: Partial<Flags> = {}) =>
+    setRun({
+      ...r,
+      points: [...r.points, ...added],
+      flags: { ...r.flags, ...patch, segments: [...(r.flags.segments ?? []), r.points.length] },
+    });
+
+  const plineArcTo = (r: Run, end: Point) => {
+    const pts = r.points.map(pt);
+    const dir = r.flags.direction ?? endDirection(pts);
+    const from = pt(r.points[r.points.length - 1] as Point);
+    const arc = tangentArc(from, dir, pt(end));
+    plineAdd(r, arc.map(xy), { direction: arcEndDirection(from, dir, pt(end)) });
   };
 
   /** A point given for the step (clicked, typed, or by direct distance). */
   const feedPoint = (r: Run, p: Point) => {
     const last = r.points[r.points.length - 1] ?? null;
+    const f = r.flags;
     switch (r.step) {
       case 'base':
-        setRun({
-          ...r,
-          step: r.cmd === 'rotate' ? 'angle' : r.cmd === 'scale' ? 'factor' : 'second',
-          base: p,
-        });
+        go(r, r.cmd === 'rotate' ? 'angle' : r.cmd === 'scale' ? 'factor' : 'second', { base: p });
         setPointer(p);
         return;
-      case 'second': {
-        if (!r.base) return;
-        const dx = p.x - r.base.x;
-        const dy = p.y - r.base.y;
-        if (r.cmd === 'move') {
-          add(moveEdits(handles, dx, dy));
-          finish();
-        } else if (r.cmd === 'copy') {
-          const made = add(copyEdits(handles, dx, dy));
-          setRun({ ...r, made: [...r.made, made.length] });
-        } else if (r.cmd === 'stretch') {
-          stretch(r, dx, dy);
-        }
+      case 'displacement':
+        // A typed point is the displacement itself (AutoCAD).
+        moveBy(r, p.x, p.y);
+        return;
+      case 'second':
+        if (r.base) moveBy(r, p.x - r.base.x, p.y - r.base.y);
+        return;
+      case 'angle':
+        if (r.base) rotateBy(r, directionOf(r.base, p));
+        return;
+      case 'refAngle':
+        go(r, 'refAngle2', { points: [p] });
+        setPointer(p);
+        return;
+      case 'refAngle2': {
+        const [a] = r.points;
+        if (a) flag(r, { refAngle: directionOf(a, p) }, 'newAngle');
         return;
       }
-      case 'angle':
-        if (!r.base) return;
-        add(rotateEdits(handles, r.base.x, r.base.y, directionOf(r.base, p)));
-        finish();
+      case 'newAngle':
+        if (r.base) rotateBy(r, directionOf(r.base, p) - (f.refAngle ?? 0));
         return;
+      case 'newAngleP1':
+        go(r, 'newAngleP2', { points: [p] });
+        setPointer(p);
+        return;
+      case 'newAngleP2': {
+        const [a] = r.points;
+        if (a) rotateBy(r, directionOf(a, p) - (f.refAngle ?? 0));
+        return;
+      }
       case 'factor':
-        if (!r.base) return;
-        feedFactor(r, distance(pt(r.base), pt(p)));
+        if (r.base) feedFactor(r, distance(pt(r.base), pt(p)));
         return;
+      case 'refLength':
+        go(r, 'refLength2', { points: [p] });
+        setPointer(p);
+        return;
+      case 'refLength2': {
+        const [a] = r.points;
+        if (!a) return;
+        const length = distance(pt(a), pt(p));
+        if (length > 0) flag(r, { refLength: length }, 'newLength');
+        else say(msg('badValue'));
+        return;
+      }
+      case 'newLength':
+        if (r.base) feedFactor(r, distance(pt(r.base), pt(p)) / (f.refLength ?? 1));
+        return;
+      case 'newLengthP1':
+        go(r, 'newLengthP2', { points: [p] });
+        setPointer(p);
+        return;
+      case 'newLengthP2': {
+        const [a] = r.points;
+        if (a) feedFactor(r, distance(pt(a), pt(p)) / (f.refLength ?? 1));
+        return;
+      }
       case 'mirror1':
-        setRun({ ...r, step: 'mirror2', base: p });
+        go(r, 'mirror2', { base: p });
         setPointer(p);
         return;
       case 'mirror2':
         if (!r.base || (p.x === r.base.x && p.y === r.base.y)) return;
-        add(mirrorEdits(handles, r.base, p));
-        finish();
+        go(r, 'mirrorErase', { points: [r.base, p] });
         return;
       case 'first':
         if (!needDrawLayer()) return;
-        setRun({ ...r, step: 'next', points: [p] });
+        go(r, 'next', { points: [p] });
         setPointer(p);
         return;
       case 'next':
         if (!last) return;
         if (r.cmd === 'line') {
           const made = add([curveEdit(drawLayer, [last, p], false)]);
-          setRun({ ...r, points: [...r.points, p], made: [...r.made, made.length] });
+          go(r, 'next', { points: [...r.points, p], made: [...r.made, made.length] });
+        } else if (f.arcMode) {
+          plineArcTo(r, p);
         } else {
-          setRun({ ...r, points: [...r.points, p] });
+          plineAdd(r, [p], { direction: endDirection([pt(last), pt(p)]) });
         }
         return;
+      case 'plineArc2':
+        go(r, 'plineArc3', { base: p });
+        return;
+      case 'plineArc3': {
+        if (!last || !r.base) return;
+        try {
+          const arc = arcThrough(pt(last), pt(r.base), pt(p)).slice(1);
+          setRun({
+            ...r,
+            step: 'next',
+            base: null,
+            points: [...r.points, ...arc.map(xy)],
+            flags: {
+              ...f,
+              direction: arcThroughEndDirection(pt(last), pt(r.base), pt(p)),
+              segments: [...(f.segments ?? []), r.points.length],
+            },
+          });
+        } catch (caught) {
+          geometryMessage(caught);
+        }
+        return;
+      }
       case 'center':
         if (!needDrawLayer()) return;
-        setRun({ ...r, step: 'radius', base: p });
+        go(r, 'radius', { base: p });
         setPointer(p);
         return;
       case 'radius':
@@ -888,7 +1363,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       case 'c3p1':
       case 'c3p2':
-        setRun({ ...r, step: r.step === 'c3p1' ? 'c3p2' : 'c3p3', points: [...r.points, p] });
+        go(r, r.step === 'c3p1' ? 'c3p2' : 'c3p3', { points: [...r.points, p] });
         setPointer(p);
         return;
       case 'c3p3': {
@@ -902,7 +1377,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       }
       case 'c2p1':
-        setRun({ ...r, step: 'c2p2', points: [p] });
+        go(r, 'c2p2', { points: [p] });
         setPointer(p);
         return;
       case 'c2p2': {
@@ -911,37 +1386,84 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         circle({ x: (a.x + p.x) / 2, y: (a.y + p.y) / 2 }, distance(pt(a), pt(p)) / 2);
         return;
       }
+      case 'ttrRadius':
+        if (r.points[0] && r.points[1]) feedNumber(r, distance(pt(r.points[0]), pt(p)));
+        return;
       case 'arc1':
         if (!needDrawLayer()) return;
-        setRun({ ...r, step: 'arc2', points: [p] });
+        go(r, 'arc2', { points: [p] });
         setPointer(p);
         return;
       case 'arc2':
-        setRun({ ...r, step: 'arc3', points: [...r.points, p] });
+        go(r, 'arc3', { points: [...r.points, p] });
         return;
       case 'arc3': {
         const [a, b] = r.points;
         if (!a || !b) return;
-        try {
-          add([pointsCurveEdit(drawLayer, arcThrough(pt(a), pt(b), pt(p)), false)]);
-          finish();
-        } catch (caught) {
-          geometryMessage(caught);
+        drawArc(() => arcThrough(pt(a), pt(b), pt(p)));
+        return;
+      }
+      case 'arcCenter':
+        // C at the first prompt: centre, then start; C at the second: the start is known.
+        if (r.points.length > 0) go(r, 'arcCEnd', { base: p });
+        else go(r, 'arcCStart', { base: p });
+        setPointer(p);
+        return;
+      case 'arcCStart':
+        if (!needDrawLayer()) return;
+        go(r, 'arcCEnd', { points: [p] });
+        return;
+      case 'arcCEnd': {
+        const [s] = r.points;
+        if (s && r.base) drawArc(() => arcCenter(pt(r.base as Point), pt(s), pt(p), null));
+        return;
+      }
+      case 'arcEEnd':
+        go(r, 'arcEOpt', { base: p });
+        return;
+      case 'arcEOpt': {
+        // A centre point: from start about it, counter-clockwise to the end's direction.
+        const [s] = r.points;
+        if (s && r.base) drawArc(() => arcCenter(pt(p), pt(s), pt(r.base as Point), null));
+        return;
+      }
+      case 'arcERadius': {
+        const [s] = r.points;
+        if (s && r.base) {
+          const radius = distance(pt(r.base), pt(p));
+          drawArc(() => arcStartEnd(pt(s), pt(r.base as Point), { radius }));
         }
         return;
       }
       case 'corner1':
         if (!needDrawLayer()) return;
-        setRun({ ...r, step: 'corner2', base: p });
+        go(r, 'corner2', { base: p });
         setPointer(p);
         return;
       case 'corner2':
         if (!r.base) return;
         try {
-          add([pointsCurveEdit(drawLayer, rectanglePoints(pt(r.base), pt(p)), true)]);
-          finish();
+          rectangle(
+            rect.rotation
+              ? rotatedRectangle(pt(r.base), pt(p), rect.rotation)
+              : rectanglePoints(pt(r.base), pt(p)),
+          );
         } catch (caught) {
           geometryMessage(caught);
+        }
+        return;
+      case 'rectSide':
+        if (!r.base) return;
+        try {
+          rectangle(rectangleFrom(pt(r.base), rect.length, rect.width, rect.rotation, pt(p)));
+        } catch (caught) {
+          geometryMessage(caught);
+        }
+        return;
+      case 'rectRotation':
+        if (r.base) {
+          setRect((previous) => ({ ...previous, rotation: directionOf(r.base as Point, p) }));
+          go(r, 'corner2');
         }
         return;
       case 'pointAt':
@@ -954,64 +1476,81 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       case 'textStart':
         if (!needDrawLayer()) return;
-        setRun({ ...r, step: 'textHeight', textAt: p });
+        go(r, 'textHeight', { textAt: p });
         return;
       case 'textHeight':
         if (r.textAt) feedHeight(r, distance(pt(r.textAt), pt(p)));
         return;
       case 'dim1':
-        setRun({ ...r, step: 'dim2', points: [p] });
+        go(r, 'dim2', { points: [p] });
         setPointer(p);
         return;
       case 'dim2':
-        setRun({ ...r, step: 'dim3', points: [...r.points, p] });
+        go(r, 'dim3', { points: [...r.points, p] });
         return;
-      case 'dim3': {
-        const [a, b] = r.points;
-        if (!a || !b) return;
-        const dim = linearDimension(pt(a), pt(b), pt(p));
-        add([
-          {
-            kind: 'add_note',
-            note: 'dimension',
-            layer: current || '0',
-            points: [a, b, p].map((q) => [roundCoord(q.x), roundCoord(q.y)] as [number, number]),
-            text: null,
-          },
-        ]);
-        say(msg('dimText', { value: acadNumber(dim.value) }));
-        finish();
+      case 'dim3':
+        dimension(r, p);
         return;
-      }
       case 'leaderStart':
-        setRun({ ...r, step: 'leaderNext', points: [p] });
+        go(r, 'leaderNext', { points: [p] });
         setPointer(p);
         return;
       case 'leaderNext':
-        setRun({ ...r, points: [...r.points, p] });
+        go(r, 'leaderNext', { points: [...r.points, p] });
         return;
       default:
         return;
     }
   };
 
-  const circle = (center: Point, radius: number) => {
+  const drawArc = (make: () => Pt[]) => {
     try {
-      add([pointsCurveEdit(drawLayer, circlePoints(pt(center), radius), true)]);
+      add([pointsCurveEdit(drawLayer, make(), false)]);
       finish();
     } catch (caught) {
       geometryMessage(caught);
     }
   };
 
-  const feedFactor = (r: Run, factor: number) => {
-    if (!r.base) return;
-    if (!(factor >= 0.001 && factor <= 1000)) {
-      say(msg('badFactor'));
-      return;
+  /** DIMLINEAR at the dimension line location, with Text / Horizontal / Vertical if chosen. */
+  const dimension = (r: Run, at: Point) => {
+    const [a, b] = r.points;
+    if (!a || !b) return;
+    let place = at;
+    // Horizontal / Vertical: the line is put where it measures that way (above / beside).
+    if (r.flags.dimDirection === 'h') {
+      const top = Math.max(a.y, b.y);
+      const bottom = Math.min(a.y, b.y);
+      const y = at.y > bottom && at.y < top ? top + Math.max(1e-3, (top - bottom) * 0.1) : at.y;
+      place = { x: (a.x + b.x) / 2, y };
+    } else if (r.flags.dimDirection === 'v') {
+      const right = Math.max(a.x, b.x);
+      const left = Math.min(a.x, b.x);
+      const x = at.x > left && at.x < right ? right + Math.max(1e-3, (right - left) * 0.1) : at.x;
+      place = { x, y: (a.y + b.y) / 2 };
     }
-    add(scaleEdits(handles, r.base.x, r.base.y, factor));
+    const dim = linearDimension(pt(a), pt(b), pt(place));
+    add([
+      {
+        kind: 'add_note',
+        note: 'dimension',
+        layer: current || '0',
+        points: [a, b, place].map((q) => [roundCoord(q.x), roundCoord(q.y)] as [number, number]),
+        text: r.flags.dimText ?? null,
+      },
+    ]);
+    say(msg('dimText', { value: r.flags.dimText ?? acadNumber(dim.value) }));
     finish();
+  };
+
+  const circle = (center: Point, radius: number) => {
+    try {
+      add([pointsCurveEdit(drawLayer, circlePoints(pt(center), radius), true)]);
+      setLastRadius(radius);
+      finish();
+    } catch (caught) {
+      geometryMessage(caught);
+    }
   };
 
   const feedHeight = (r: Run, height: number | null) => {
@@ -1019,7 +1558,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       say(msg('badValue'));
       return;
     }
-    setRun({ ...r, step: 'textValue', height });
+    go(r, 'textValue', { height });
     setFocusNonce((n) => n + 1);
   };
 
@@ -1053,25 +1592,35 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const offsetTo = (r: Run, side: Point) => {
-    if (r.target === null) return;
+    if (r.target === null || !scene) return;
     const geom = curveGeom(r.target);
-    if (!geom) return;
-    const layer = layerNameOf(r.target);
+    const handle = scene.view.entities[r.target]?.handle;
+    if (!geom || !handle) return;
+    const layer = offsetOnCurrent && drawLayer ? drawLayer : layerNameOf(r.target);
     try {
-      const points = offsetCurve(geom.points, geom.closed, offsetDist, pt(side));
-      const made = add([pointsCurveEdit(layer, points, geom.closed)]);
-      setRun({ ...r, step: 'offsetPick', target: null, made: [...r.made, made.length] });
-      setSelection(NONE);
+      const dist = offsetThrough ? throughDistance(geom.points, geom.closed, pt(side)) : offsetDist;
+      // Multiple: each new offset goes on from the last one (AutoCAD).
+      const steps = (r.flags.multipleCount ?? 0) + 1;
+      const points = offsetCurve(geom.points, geom.closed, dist * steps, pt(side));
+      const out: CanvasEdit[] = [pointsCurveEdit(layer, points, geom.closed)];
+      if (offsetErase && !r.flags.multiple) out.push({ kind: 'erase_item', handle });
+      const made = add(out);
+      if (r.flags.multiple) {
+        flag({ ...r, made: [...r.made, made.length] }, { multipleCount: steps });
+      } else {
+        go(r, 'offsetPick', { target: null, made: [...r.made, made.length] });
+        setSelection(NONE);
+      }
     } catch (caught) {
       geometryMessage(caught);
     }
   };
 
-  /** An object clicked for the step. */
-  const feedObject = (r: Run, index: number | null, at: Point) => {
+  /** An object clicked for the step (`shift`: Shift held, as AutoCAD's shift-select). */
+  const feedObject = (r: Run, index: number | null, at: Point, shift = false) => {
     if (!scene) return;
     if (index === null || !pickable(index)) {
-      if (r.step === 'trimPick' || r.step === 'dest') return;
+      if (r.step === 'trimPick' || r.step === 'dest' || r.step === 'trimErase') return;
       say(msg('nothingThere'));
       return;
     }
@@ -1083,21 +1632,43 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
+        const edgeList = r.flags.edges
+          ? r.flags.edges.flatMap((i) => {
+              const g = curveGeom(i);
+              return g && i !== index ? [g] : [];
+            })
+          : edgesNear(boxAround(geom.points), index);
         try {
-          const box = boxAround(geom.points);
-          const pieces = trimCurve(geom.points, geom.closed, edgesNear(box, index), pt(at));
           const out: CanvasEdit[] = [];
-          const [first, second] = pieces;
-          if (!first) out.push({ kind: 'erase_item', handle });
-          else out.push(setCurveEdit(handle, first, false));
-          if (second) {
-            out.push(pointsCurveEdit(layerNameOf(index), second, false));
+          if (shift) {
+            // Shift-select extends the picked end to the nearest edge (AutoCAD).
+            if (geom.closed) {
+              say(msg('notCurve'));
+              return;
+            }
+            out.push(setCurveEdit(handle, extendCurve(geom.points, edgeList, pt(at)), false));
+          } else {
+            const pieces = trimCurve(geom.points, geom.closed, edgeList, pt(at));
+            const [first, second] = pieces;
+            if (!first) out.push({ kind: 'erase_item', handle });
+            else out.push(setCurveEdit(handle, first, false));
+            if (second) out.push(pointsCurveEdit(layerNameOf(index), second, false));
           }
           const made = add(out);
-          setRun({ ...r, made: [...r.made, made.length] });
+          go(r, 'trimPick', { made: [...r.made, made.length] });
         } catch (caught) {
           geometryMessage(caught);
         }
+        return;
+      }
+      case 'trimEdges':
+        flag(r, { edges: [...(r.flags.edges ?? []), index] });
+        setSelection((previous) => new Set(previous).add(index));
+        say(msg('found', { count: 1 }));
+        return;
+      case 'trimErase': {
+        const made = add([{ kind: 'erase_item', handle }]);
+        go(r, 'trimErase', { made: [...r.made, made.length] });
         return;
       }
       case 'filletFirst':
@@ -1105,7 +1676,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
-        setRun({ ...r, step: 'filletSecond', target: index, targetAt: at });
+        go(r, 'filletSecond', { target: index, targetAt: at });
         setSelection(new Set([index]));
         return;
       case 'filletSecond': {
@@ -1122,16 +1693,69 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           return;
         }
         try {
-          const [p, q] = fillet(
+          // Shift-select: a sharp corner (radius 0) whatever the radius set.
+          const radius = shift ? 0 : filletRadius;
+          const [p, q, arc] = fillet(
             { points: a.points, closed: a.closed, pick: pt(r.targetAt) },
             { points: b.points, closed: b.closed, pick: pt(at) },
-            filletRadius,
+            radius,
           );
-          add([setCurveEdit(first, p, false), setCurveEdit(handle, q, false)]);
+          if (!filletTrim) {
+            // No trim: the lines stay as they are and only the arc is drawn.
+            if (arc.length >= 2) add([pointsCurveEdit(layerNameOf(r.target), arc, false)]);
+          } else {
+            add([setCurveEdit(first, p, false), setCurveEdit(handle, q, false)]);
+          }
+          if (r.flags.multiple) {
+            go(r, 'filletFirst', { target: null, targetAt: null });
+            setSelection(NONE);
+          } else finish();
+        } catch (caught) {
+          geometryMessage(caught);
+        }
+        return;
+      }
+      case 'filletPoly': {
+        const geom = curveGeom(index);
+        if (!geom || scene.view.entities[index]?.kind === 'LINE') {
+          say(msg('notPolyline'));
+          return;
+        }
+        try {
+          const done = filletPolyline(geom.points, geom.closed, filletRadius);
+          if (done.filleted > 0) add([setCurveEdit(handle, done.points, geom.closed)]);
+          say(msg('polyFilleted', { count: done.filleted }));
+          if (done.tooShort > 0) say(msg('tooShort', { count: done.tooShort }));
           finish();
         } catch (caught) {
           geometryMessage(caught);
         }
+        return;
+      }
+      case 'ttr1':
+      case 'ttr2': {
+        const geom = curveGeom(index);
+        if (!geom) {
+          say(msg('notCurve'));
+          return;
+        }
+        const near = nearestOnCurve(geom.points, geom.closed, pt(at));
+        const loop = geom.closed ? [...geom.points, geom.points[0] as Pt] : geom.points;
+        const seg = [loop[near.segment] as Pt, loop[near.segment + 1] as Pt] as const;
+        const tangents = [...(r.flags.tangents ?? []), { seg, at: pt(at) }];
+        if (r.step === 'ttr1') flag(r, { tangents }, 'ttr2');
+        else flag(r, { tangents }, 'ttrRadius');
+        return;
+      }
+      case 'dimSelect': {
+        const geom = curveGeom(index);
+        if (!geom) {
+          say(msg('notCurve'));
+          return;
+        }
+        const near = nearestOnCurve(geom.points, geom.closed, pt(at));
+        const loop = geom.closed ? [...geom.points, geom.points[0] as Pt] : geom.points;
+        go(r, 'dim3', { points: [xy(loop[near.segment] as Pt), xy(loop[near.segment + 1] as Pt)] });
         return;
       }
       case 'offsetPick':
@@ -1139,7 +1763,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
-        setRun({ ...r, step: 'offsetSide', target: index });
+        setRun({
+          ...r,
+          step: 'offsetSide',
+          target: index,
+          flags: { ...r.flags, multiple: false, multipleCount: 0 },
+        });
         setSelection(new Set([index]));
         return;
       case 'editPick':
@@ -1150,7 +1779,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         editText(index);
         return;
       case 'source':
-        setRun({ ...r, step: 'dest', target: index });
+        go(r, 'dest', { target: index });
         say(msg('matchSettings'));
         return;
       case 'dest': {
@@ -1170,30 +1799,72 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         finish(true);
         return;
       }
-      case 'laymchDest': {
-        const layer = layerNameOf(index);
-        if (!layers.includes(layer)) {
-          say(msg('layerNoRule', { layer }));
-          return;
-        }
-        add(handles.map((h) => ({ kind: 'move_layer', handle: h, toLayer: layer }) as CanvasEdit));
-        say(msg('changedToLayer', { count: handles.length, layer }));
-        finish();
+      case 'laymchDest':
+        toLayer(layerNameOf(index));
         return;
-      }
       default:
         return;
     }
   };
 
-  /** Enter (or Space, or an empty right answer) for the step. */
+  /** LAYMCH: the picked objects go to that layer (it needs a rule: owner 2026-11-09). */
+  const toLayer = (layer: string) => {
+    if (!allLayers.includes(layer)) {
+      say(msg('noSuchLayer', { layer }));
+      return;
+    }
+    if (!layers.includes(layer)) {
+      say(msg('layerNoRule', { layer }));
+      return;
+    }
+    add(handles.map((h) => ({ kind: 'move_layer', handle: h, toLayer: layer }) as CanvasEdit));
+    say(msg('changedToLayer', { count: handles.length, layer }));
+    finish();
+  };
+
+  /** Enter (or Space, or an empty right answer) for the step: AutoCAD's default in <…>. */
   const feedEnter = (r: Run) => {
+    const f = r.flags;
     switch (r.step) {
       case 'select':
+        if (f.removing) {
+          flag(r, { removing: false });
+          afterSelect(r);
+          return;
+        }
         afterSelect(r);
         return;
+      case 'base':
+        if (r.cmd === 'move' || r.cmd === 'copy' || r.cmd === 'stretch') go(r, 'displacement');
+        return;
+      case 'displacement':
+        finish();
+        return;
+      case 'copyMode':
+        go(r, 'base');
+        return;
       case 'second':
-        if (r.cmd === 'copy') finish();
+        if (r.cmd === 'copy' && r.made.length > 0) finish();
+        // <use first point as displacement>
+        else if (r.base) moveBy(r, r.base.x, r.base.y);
+        return;
+      case 'angle':
+        rotateBy(r, 0);
+        return;
+      case 'refAngle':
+        flag(r, { refAngle: 0 }, 'newAngle');
+        return;
+      case 'newAngle':
+        rotateBy(r, -(f.refAngle ?? 0));
+        return;
+      case 'refLength':
+        flag(r, { refLength: 1 }, 'newLength');
+        return;
+      case 'newLength':
+        feedFactor(r, 1 / (f.refLength ?? 1));
+        return;
+      case 'mirrorErase':
+        mirror(r, false);
         return;
       case 'next':
         if (r.cmd === 'pline' && r.points.length >= 2) {
@@ -1201,18 +1872,73 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         }
         finish();
         return;
+      case 'radius':
+        if (lastRadius && r.base) circle(r.base, lastRadius);
+        return;
       case 'filletRadius':
-        setRun({ ...r, step: 'filletFirst' });
+        go(r, 'filletFirst');
+        return;
+      case 'filletTrim':
+        go(r, 'filletFirst');
         return;
       case 'offsetDistance':
-        setRun({ ...r, step: 'offsetPick' });
+        go(r, 'offsetPick');
+        return;
+      case 'offsetErase':
+      case 'offsetLayer':
+        go(r, 'offsetDistance');
+        return;
+      case 'offsetSide':
+        if (f.multiple) go(r, 'offsetPick', { target: null });
+        else finish();
+        return;
+      case 'trimEdges':
+        // <select all>: no edge picked means every object is an edge, as before.
+        go(r, 'trimPick');
+        setSelection(NONE);
+        return;
+      case 'trimErase':
+        go(r, 'trimPick');
         return;
       case 'textHeight':
         feedHeight(r, null);
         return;
+      case 'dim1':
+        go(r, 'dimSelect');
+        return;
+      case 'chamfer1':
+        feedNumber(r, rect.chamfer?.[0] ?? 0);
+        return;
+      case 'chamfer2':
+        feedNumber(r, f.chamfer1 ?? 0);
+        return;
+      case 'rectFillet':
+        feedNumber(r, rect.fillet ?? 0);
+        return;
+      case 'rectLength':
+        feedNumber(r, rect.length);
+        return;
+      case 'rectWidth':
+        feedNumber(r, rect.width);
+        return;
+      case 'rectRotation':
+        feedNumber(r, rect.rotation);
+        return;
+      case 'rectArea':
+        feedNumber(r, rect.area);
+        return;
+      case 'rectAreaBy':
+        go(r, 'rectAreaLength');
+        return;
+      case 'rectAreaLength':
+        feedNumber(r, rect.length);
+        return;
+      case 'rectAreaWidth':
+        feedNumber(r, rect.width);
+        return;
       case 'leaderNext':
         if (r.points.length >= 2) {
-          setRun({ ...r, step: 'leaderText' });
+          go(r, 'leaderText');
           setFocusNonce((n) => n + 1);
         } else finish();
         return;
@@ -1221,51 +1947,209 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     }
   };
 
+  /** MIRROR after «Erase source objects?»: No keeps a copy where the objects were. */
+  const mirror = (r: Run, eraseSource: boolean) => {
+    const [a, b] = r.points;
+    if (!a || !b) return;
+    add([...keepCopy(!eraseSource), ...mirrorEdits(handles, a, b)]);
+    finish();
+  };
+
   const feedOption = (r: Run, key: string) => {
-    switch (key) {
-      case 'U': {
-        if (r.step === 'next' && r.points.length > 1) {
-          if (r.cmd === 'line') dropEdits(1);
-          setRun({ ...r, points: r.points.slice(0, -1), made: r.made.slice(0, -1) });
-        } else if (r.step === 'leaderNext' && r.points.length > 1) {
-          setRun({ ...r, points: r.points.slice(0, -1) });
-        } else if (r.made.length > 0) {
-          dropEdits(r.made[r.made.length - 1] ?? 0);
-          setRun({ ...r, made: r.made.slice(0, -1) });
-        } else say(msg('nothingToUndo'));
+    const f = r.flags;
+    switch (r.step) {
+      case 'base':
+        if (key === 'D') go(r, 'displacement');
+        else if (key === 'O') go(r, 'copyMode');
         return;
-      }
-      case 'C': {
-        const first = r.points[0];
-        const last = r.points[r.points.length - 1];
-        if (!first || !last) return;
-        if (r.cmd === 'line' && r.points.length >= 3) {
-          add([curveEdit(drawLayer, [last, first], false)]);
+      case 'copyMode':
+        setCopyMultiple(key === 'M');
+        go(r, 'base');
+        return;
+      case 'second':
+        if (key === 'E') finish();
+        else if (key === 'U') undoMade(r);
+        return;
+      case 'angle':
+        if (key === 'C') {
+          say(msg('rotateCopy'));
+          flag(r, { copy: true });
+        } else if (key === 'R') go(r, 'refAngle');
+        return;
+      case 'newAngle':
+        go(r, 'newAngleP1');
+        return;
+      case 'factor':
+        if (key === 'C') {
+          say(msg('scaleCopy'));
+          flag(r, { copy: true });
+        } else if (key === 'R') go(r, 'refLength');
+        return;
+      case 'newLength':
+        go(r, 'newLengthP1');
+        return;
+      case 'mirrorErase':
+        mirror(r, key === 'Y');
+        return;
+      case 'next':
+        if (key === 'U') {
+          undoPoint(r);
+          return;
+        }
+        if (r.cmd === 'line' && key === 'C') {
+          const first = r.points[0];
+          const last = r.points[r.points.length - 1];
+          if (first && last) add([curveEdit(drawLayer, [last, first], false)]);
           finish();
-        } else if (r.cmd === 'pline' && r.points.length >= 3) {
-          add([curveEdit(drawLayer, r.points, true)]);
+          return;
+        }
+        if (key === 'C' || key === 'CL') {
+          if (f.arcMode) {
+            const first = r.points[0];
+            const last = r.points[r.points.length - 1];
+            if (first && last) {
+              const arc = tangentArc(
+                pt(last),
+                f.direction ?? endDirection(r.points.map(pt)),
+                pt(first),
+              );
+              add([curveEdit(drawLayer, [...r.points, ...arc.slice(0, -1).map(xy)], true)]);
+            }
+          } else add([curveEdit(drawLayer, r.points, true)]);
           finish();
+          return;
+        }
+        if (key === 'A') flag(r, { arcMode: true });
+        else if (key === 'L' && f.arcMode) flag(r, { arcMode: false });
+        else if (key === 'L') go(r, 'plineLength');
+        else if (key === 'S') go(r, 'plineArc2');
+        return;
+      case 'center':
+        if (key === '3P') go(r, 'c3p1');
+        else if (key === '2P') go(r, 'c2p1');
+        else if (key === 'T') {
+          if (needDrawLayer()) flag(r, { tangents: [] }, 'ttr1');
         }
         return;
-      }
-      case 'E':
-        finish();
+      case 'radius':
+        go(r, 'diameter');
         return;
-      case 'R':
-        setRun({ ...r, step: 'filletRadius' });
+      case 'arc1':
+        if (needDrawLayer()) go(r, 'arcCenter');
         return;
-      case 'D':
-        setRun({ ...r, step: 'diameter' });
+      case 'arc2':
+        go(r, key === 'C' ? 'arcCenter' : 'arcEEnd');
         return;
-      case '3P':
-        setRun({ ...r, step: 'c3p1' });
+      case 'arcCEnd':
+        go(r, 'arcCAngle');
         return;
-      case '2P':
-        setRun({ ...r, step: 'c2p1' });
+      case 'arcEOpt':
+        go(r, key === 'A' ? 'arcEAngle' : 'arcERadius');
+        return;
+      case 'corner1':
+        go(r, key === 'C' ? 'chamfer1' : 'rectFillet');
+        return;
+      case 'corner2':
+        go(r, key === 'A' ? 'rectArea' : key === 'D' ? 'rectLength' : 'rectRotation');
+        return;
+      case 'rectAreaBy':
+        go(r, key === 'W' ? 'rectAreaWidth' : 'rectAreaLength');
+        return;
+      case 'trimPick':
+        if (key === 'T') {
+          say(msg('trimEdgesSettings'));
+          flag(r, { edges: [] }, 'trimEdges');
+        } else if (key === 'R') go(r, 'trimErase');
+        else if (key === 'U') undoMade(r);
+        return;
+      case 'filletFirst':
+        if (key === 'U') undoMade(r);
+        else if (key === 'P') go(r, 'filletPoly');
+        else if (key === 'R') go(r, 'filletRadius');
+        else if (key === 'T') go(r, 'filletTrim');
+        else if (key === 'M') flag(r, { multiple: true });
+        return;
+      case 'filletSecond':
+        go(r, 'filletRadius');
+        return;
+      case 'filletTrim':
+        setFilletTrim(key === 'T');
+        go(r, 'filletFirst');
+        return;
+      case 'offsetDistance':
+        if (key === 'T') {
+          setOffsetThrough(true);
+          go(r, 'offsetPick');
+        } else go(r, key === 'E' ? 'offsetErase' : 'offsetLayer');
+        return;
+      case 'offsetErase':
+        setOffsetErase(key === 'Y');
+        go(r, 'offsetDistance');
+        return;
+      case 'offsetLayer':
+        setOffsetOnCurrent(key === 'C');
+        go(r, 'offsetDistance');
+        return;
+      case 'offsetPick':
+        if (key === 'E') finish();
+        else undoMade(r);
+        return;
+      case 'offsetSide':
+        if (key === 'E') finish();
+        else if (key === 'M') flag(r, { multiple: true, multipleCount: 0 });
+        else undoMade(r);
+        return;
+      case 'editPick':
+        dropEdits(1);
+        return;
+      case 'dim3':
+        if (key === 'T' || key === 'M') {
+          go(r, 'dimTextValue');
+          setFocusNonce((n) => n + 1);
+        } else flag(r, { dimDirection: key === 'H' ? 'h' : 'v' });
+        return;
+      case 'leaderNext':
+        if (key === 'A') feedEnter(r);
+        else undoPoint(r);
+        return;
+      case 'laymchDest':
+        go(r, 'laymchName');
+        setFocusNonce((n) => n + 1);
         return;
       default:
         return;
     }
+  };
+
+  const undoMade = (r: Run) => {
+    if (r.made.length > 0) {
+      dropEdits(r.made[r.made.length - 1] ?? 0);
+      go(r, r.step, { made: r.made.slice(0, -1) });
+    } else say(msg('nothingToUndo'));
+  };
+
+  /** Undo of LINE, PLINE and LEADER: the last segment (a PLINE arc goes as one). */
+  const undoPoint = (r: Run) => {
+    if (r.points.length <= 1) {
+      say(msg('nothingToUndo'));
+      return;
+    }
+    if (r.cmd === 'line') {
+      dropEdits(1);
+      go(r, r.step, { points: r.points.slice(0, -1), made: r.made.slice(0, -1) });
+      return;
+    }
+    if (r.cmd === 'pline') {
+      const segments = r.flags.segments ?? [];
+      const keep = segments[segments.length - 1] ?? r.points.length - 1;
+      setRun({
+        ...r,
+        points: r.points.slice(0, keep),
+        flags: { ...r.flags, segments: segments.slice(0, -1), direction: undefined },
+      });
+      return;
+    }
+    go(r, r.step, { points: r.points.slice(0, -1) });
   };
 
   /** Drops the last `count` edits (a command's Undo). */
@@ -1275,35 +2159,150 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const feedNumber = (r: Run, value: number) => {
     const last = r.points[r.points.length - 1] ?? r.base;
+    const f = r.flags;
+    const positive = (then: () => void, allowZero = false) => {
+      if (value > 0 || (allowZero && value === 0)) then();
+      else say(msg('badValue'));
+    };
     switch (r.step) {
       case 'angle':
-        if (r.base && Math.abs(value) <= 360) {
-          add(rotateEdits(handles, r.base.x, r.base.y, value));
-          finish();
-        } else say(msg('badValue'));
+        rotateBy(r, value);
+        return;
+      case 'refAngle':
+        flag(r, { refAngle: value }, 'newAngle');
+        return;
+      case 'newAngle':
+        rotateBy(r, value - (f.refAngle ?? 0));
         return;
       case 'factor':
         feedFactor(r, value);
         return;
+      case 'refLength':
+        positive(() => flag(r, { refLength: value }, 'newLength'));
+        return;
+      case 'newLength':
+        positive(() => feedFactor(r, value / (f.refLength ?? 1)));
+        return;
       case 'radius':
       case 'diameter':
-        if (r.base && value > 0) circle(r.base, r.step === 'diameter' ? value / 2 : value);
-        else say(msg('badValue'));
+        positive(() => r.base && circle(r.base, r.step === 'diameter' ? value / 2 : value));
         return;
+      case 'ttrRadius': {
+        const [ta, tb] = f.tangents ?? [];
+        if (!ta || !tb) return;
+        positive(() => {
+          try {
+            circle(xy(circleTangentTangent(ta.seg, ta.at, tb.seg, tb.at, value)), value);
+          } catch (caught) {
+            geometryMessage(caught);
+          }
+        });
+        return;
+      }
+      case 'plineLength': {
+        const end = r.points[r.points.length - 1];
+        if (!end) return;
+        positive(() => {
+          const dir = f.direction ?? endDirection(r.points.map(pt));
+          const p = { x: end.x + dir[0] * value, y: end.y + dir[1] * value };
+          setRun({
+            ...r,
+            step: 'next',
+            points: [...r.points, p],
+            flags: { ...f, segments: [...(f.segments ?? []), r.points.length] },
+          });
+        });
+        return;
+      }
+      case 'arcCAngle': {
+        const [s] = r.points;
+        if (s && r.base) drawArc(() => arcCenter(pt(r.base as Point), pt(s), null, value));
+        return;
+      }
+      case 'arcEAngle': {
+        const [s] = r.points;
+        if (s && r.base) drawArc(() => arcStartEnd(pt(s), pt(r.base as Point), { angle: value }));
+        return;
+      }
+      case 'arcERadius': {
+        const [s] = r.points;
+        if (s && r.base) drawArc(() => arcStartEnd(pt(s), pt(r.base as Point), { radius: value }));
+        return;
+      }
       case 'filletRadius':
-        if (value >= 0) {
+        positive(() => {
           setFilletRadius(value);
-          setRun({ ...r, step: 'filletFirst' });
-        } else say(msg('badValue'));
+          go(r, 'filletFirst');
+        }, true);
         return;
       case 'offsetDistance':
-        if (value > 0) {
+        positive(() => {
           setOffsetDist(value);
-          setRun({ ...r, step: 'offsetPick' });
-        } else say(msg('badValue'));
+          setOffsetThrough(false);
+          go(r, 'offsetPick');
+        });
         return;
       case 'textHeight':
         feedHeight(r, value);
+        return;
+      case 'chamfer1':
+        positive(() => flag(r, { chamfer1: value }, 'chamfer2'), true);
+        return;
+      case 'chamfer2':
+        positive(() => {
+          const first = f.chamfer1 ?? 0;
+          setRect((previous) => ({
+            ...previous,
+            chamfer: first > 0 || value > 0 ? [first, value] : null,
+            fillet: null,
+          }));
+          say(msg('rectChamferMode', { first: acadNumber(first), second: acadNumber(value) }));
+          go(r, 'corner1');
+        }, true);
+        return;
+      case 'rectFillet':
+        positive(() => {
+          setRect((previous) => ({ ...previous, fillet: value > 0 ? value : null, chamfer: null }));
+          say(msg('rectFilletMode', { radius: acadNumber(value) }));
+          go(r, 'corner1');
+        }, true);
+        return;
+      case 'rectLength':
+        positive(() => {
+          setRect((previous) => ({ ...previous, length: value }));
+          go(r, 'rectWidth');
+        });
+        return;
+      case 'rectWidth':
+        positive(() => {
+          setRect((previous) => ({ ...previous, width: value }));
+          go(r, 'rectSide');
+        });
+        return;
+      case 'rectRotation':
+        setRect((previous) => ({ ...previous, rotation: value }));
+        go(r, 'corner2');
+        return;
+      case 'rectArea':
+        positive(() => {
+          setRect((previous) => ({ ...previous, area: value }));
+          go(r, 'rectAreaBy');
+        });
+        return;
+      case 'rectAreaLength':
+      case 'rectAreaWidth':
+        positive(() => {
+          if (!r.base) return;
+          const lengthSide = r.step === 'rectAreaLength';
+          const length = lengthSide ? value : rect.area / value;
+          const width = lengthSide ? rect.area / value : value;
+          setRect((previous) => ({ ...previous, length, width }));
+          try {
+            rectangle(rectangleFrom(pt(r.base), length, width, rect.rotation, null));
+          } catch (caught) {
+            geometryMessage(caught);
+          }
+        });
         return;
       default:
         // AutoCAD's direct distance entry: that far toward the pointer from the last point.
@@ -1348,7 +2347,44 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         },
       ]);
       finish();
+      return;
     }
+    if (r.step === 'dimTextValue') {
+      flag(r, { dimText: trimmed || null }, 'dim3');
+      return;
+    }
+    if (r.step === 'laymchName') {
+      if (trimmed) toLayer(trimmed);
+      else finish();
+    }
+  };
+
+  /** AutoCAD's selection words at «Select objects:»: ALL, Previous, Remove, Add. */
+  const selectionWord = (r: Run, word: string): boolean => {
+    if (!scene || !shown) return false;
+    if (word === 'ALL') {
+      const all = new Set<number>();
+      scene.view.entities.forEach((_, index) => {
+        if (pickable(index)) all.add(index);
+      });
+      setSelection(all);
+      say(msg('found', { count: all.size }));
+      return true;
+    }
+    if (word === 'P' || word === 'PREVIOUS') {
+      setSelection(previous);
+      say(msg('found', { count: previous.size }));
+      return true;
+    }
+    if (word === 'R' || word === 'REMOVE') {
+      flag(r, { removing: true });
+      return true;
+    }
+    if (word === 'A' || word === 'ADD') {
+      flag(r, { removing: false });
+      return true;
+    }
+    return false;
   };
 
   const submit = () => {
@@ -1381,7 +2417,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     else if (entry.kind === 'word') {
       const key = matchOption(promptOf(run).options, entry.word);
       if (key) feedOption(run, key);
-      else say(msg('badKeyword'));
+      else if (!(run.step === 'select' && selectionWord(run, entry.word))) say(msg('badKeyword'));
     } else say(msg('badPoint'));
   };
 
@@ -1392,7 +2428,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const undo = () => {
     if (run && (run.step === 'next' || run.step === 'leaderNext') && run.points.length > 1) {
-      feedOption(run, 'U');
+      undoPoint(run);
       return;
     }
     setEdits((previous) => previous.slice(0, -1));
@@ -1421,7 +2457,15 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     if (base && (step === 'second' || step === 'angle' || step === 'factor') && !sketch) {
       sketch = { points: [base, at], closed: false };
     }
-    if (step === 'next' || step === 'leaderNext' || step === 'dim2') {
+    if (step === 'next' && run.cmd === 'pline' && run.flags.arcMode && run.points.length > 0) {
+      // PLINE Arc: the tangent arc to the pointer.
+      const lastPoint = run.points[run.points.length - 1] as Point;
+      const dir = run.flags.direction ?? endDirection(run.points.map(pt));
+      sketch = {
+        points: [...run.points, ...tangentArc(pt(lastPoint), dir, pt(at)).map(xy)],
+        closed: false,
+      };
+    } else if (step === 'next' || step === 'leaderNext' || step === 'dim2') {
       sketch = { points: [...run.points, at], closed: false };
     } else if (step === 'dim3' && run.points.length === 2) {
       sketch = { points: [...run.points, at], closed: false };
@@ -1438,7 +2482,32 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     } else if (step === 'arc2' || step === 'c3p3' || step === 'c2p2') {
       sketch = { points: [...run.points, at], closed: false };
     } else if (base && step === 'corner2' && at.x !== base.x && at.y !== base.y) {
-      sketch = { points: rectanglePoints(pt(base), pt(at)).map(xy), closed: true };
+      try {
+        const corners = rect.rotation
+          ? rotatedRectangle(pt(base), pt(at), rect.rotation)
+          : rectanglePoints(pt(base), pt(at));
+        sketch = { points: corners.map(xy), closed: true };
+      } catch {
+        sketch = null;
+      }
+    } else if (base && step === 'rectSide') {
+      sketch = {
+        points: rectangleFrom(pt(base), rect.length, rect.width, rect.rotation, pt(at)).map(xy),
+        closed: true,
+      };
+    } else if (step === 'plineArc3' && run.base && run.points.length > 0) {
+      try {
+        const lastPoint = run.points[run.points.length - 1] as Point;
+        sketch = {
+          points: [
+            ...run.points,
+            ...arcThrough(pt(lastPoint), pt(run.base), pt(at)).slice(1).map(xy),
+          ],
+          closed: false,
+        };
+      } catch {
+        sketch = null;
+      }
     } else if (step === 'offsetSide' && run.target !== null) {
       const geom = curveGeom(run.target);
       if (geom) {
@@ -1533,7 +2602,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       if (!editing || !scene) return;
       setError(null);
       if (run && OBJECT_STEPS.includes(run.step)) {
-        feedObject(run, entity, at);
+        feedObject(run, entity, at, additive);
         return;
       }
       if (run && run.step !== 'select') {
@@ -1544,11 +2613,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (entity !== null && isLocked(entity)) say(msg('locked', { count: 1 }));
         return;
       }
-      // AutoCAD: a click adds to the selection; Shift + click takes it off.
-      setSelection((previous) => {
-        const next = new Set(previous);
-        if (additive && previous.has(entity)) next.delete(entity);
-        else next.add(entity);
+      // AutoCAD: a click adds to the selection; Shift + click (or Remove mode) takes it off.
+      const removing = run?.flags.removing === true;
+      setSelection((before) => {
+        const next = new Set(before);
+        if ((additive || removing) && before.has(entity)) next.delete(entity);
+        else if (!removing) next.add(entity);
         return next;
       });
       if (run) say(msg('found', { count: 1 }));
@@ -1588,9 +2658,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           },
         });
       }
-      setSelection((previous) => {
-        const next = new Set(additive ? previous : run ? previous : NONE);
-        for (const index of found) next.add(index);
+      setSelection((before) => {
+        const next = new Set(additive ? before : run ? before : NONE);
+        for (const index of found) {
+          if (run?.flags.removing) next.delete(index);
+          else next.add(index);
+        }
         return next;
       });
       if (run) say(msg('found', { count: found.length }));

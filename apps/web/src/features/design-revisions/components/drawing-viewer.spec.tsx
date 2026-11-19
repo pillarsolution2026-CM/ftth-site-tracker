@@ -736,9 +736,9 @@ describe(
       const { canvas, user } = await openWorkspace();
       await drag(user, canvas, [19, 23], [23, 19]);
       await type(user, 'm');
-      expect(prompt()).toMatch(/^MOVE Specify base point:$/);
+      expect(prompt()).toBe('MOVE Specify base point or [Displacement] <Displacement>:');
       await type(user, '0,0');
-      expect(prompt()).toMatch(/MOVE Specify second point:/);
+      expect(prompt()).toBe('MOVE Specify second point or <use first point as displacement>:');
       await type(user, '@0,10');
       await save(user);
       expect(sent()).toEqual([{ kind: 'move_item', handle: 'A1', dx: 0, dy: 10 }]);
@@ -769,7 +769,7 @@ describe(
       await click(user, canvas, 75, 25);
       await type(user, '');
       await click(user, canvas, 50, 25);
-      expect(prompt()).toMatch(/ROTATE Specify rotation angle:/);
+      expect(prompt()).toBe('ROTATE Specify rotation angle or [Copy/Reference] <0>:');
       await type(user, '90');
       // B turned 90° about (50, 25): it is picked where it is drawn now.
       await type(user, 'sc');
@@ -821,7 +821,7 @@ describe(
       await type(user, '0,0');
       await type(user, '10,0');
       await type(user, '10,10');
-      expect(prompt()).toMatch(/or \[Close\/Undo\]/);
+      expect(prompt()).toBe('PLINE Specify next point or [Arc/Close/Length/Undo]:');
       await user.click(screen.getByRole('button', { name: 'Close' }));
       await save(user);
       const [line, poly] = sent();
@@ -940,7 +940,7 @@ describe(
       await click(user, canvas, 90, 25);
       await type(user, '');
       await type(user, 'o');
-      expect(prompt()).toMatch(/OFFSET Specify offset distance <1.0000>:/);
+      expect(prompt()).toBe('OFFSET Specify offset distance or [Through/Erase/Layer] <1.0000>:');
       await type(user, '2');
       await click(user, canvas, 60, 25);
       await click(user, canvas, 60, 30);
@@ -1098,7 +1098,9 @@ describe(
       const { canvas, user } = await openWorkspace();
       await type(user, 'la');
       const manager = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
-      expect(within(manager).getByText(/All: .*4.* layers displayed of .*4.* total layers/)).toBeInTheDocument();
+      expect(
+        within(manager).getByText(/All: .*4.* layers displayed of .*4.* total layers/),
+      ).toBeInTheDocument();
       await user.click(within(manager).getByRole('button', { name: 'New layer' }));
       const form = within(manager).getByRole('group', { name: 'New layer' });
       await user.click(within(form).getByRole('button', { name: 'Add the layer' }));
@@ -1130,6 +1132,287 @@ describe(
       expect(prompt()).toBe('Type a command');
       await type(user, '');
       expect(prompt()).toMatch(/^CIRCLE /);
+    });
+
+    describe('AutoCAD command options (owner 2026-11-19)', () => {
+      const points = (c: Record<string, unknown> | undefined) => c?.points as number[][];
+      const last = (c: Record<string, unknown> | undefined) => points(c)[points(c).length - 1];
+      const closeTo = (p: number[] | undefined, x: number, y: number) => {
+        expect(p?.[0]).toBeCloseTo(x, 4);
+        expect(p?.[1]).toBeCloseTo(y, 4);
+      };
+
+      it('MOVE Displacement and «use first point as displacement»; COPY mOde Single', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'm');
+        await click(user, canvas, 75, 25);
+        await type(user, '');
+        await type(user, '');
+        expect(prompt()).toBe('MOVE Specify displacement <0.0000, 0.0000>:');
+        await type(user, '5,0');
+        await type(user, 'm');
+        await click(user, canvas, 25, 0);
+        await type(user, '');
+        await type(user, '3,4');
+        await type(user, '');
+        await type(user, 'co');
+        await click(user, canvas, 75, 25);
+        await type(user, '');
+        await type(user, 'o');
+        expect(prompt()).toBe('COPY Enter a copy mode option or [Single/Multiple] <Multiple>:');
+        await type(user, 's');
+        await type(user, '0,0');
+        await type(user, '@0,5');
+        expect(prompt()).toBe('Type a command');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'move_item', handle: 'B', dx: 5, dy: 0 },
+          { kind: 'move_item', handle: 'A', dx: 3, dy: 4 },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 5 },
+        ]);
+      });
+
+      it('ROTATE Copy and Reference; SCALE Reference; MIRROR keeps or erases the source', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'ro');
+        await click(user, canvas, 75, 25);
+        await type(user, '');
+        await type(user, '50,25');
+        await type(user, 'c');
+        expect(history()).toMatch(/Rotating a copy of the selected objects/);
+        await type(user, '90');
+        await type(user, 'ro');
+        await click(user, canvas, 25, 0);
+        await type(user, '');
+        await type(user, '0,0');
+        await type(user, 'r');
+        expect(prompt()).toBe('ROTATE Specify the reference angle <0>:');
+        await type(user, '30');
+        expect(prompt()).toBe('ROTATE Specify the new angle or [Points] <0>:');
+        await type(user, '90');
+        await type(user, 'sc');
+        await click(user, canvas, 21, 20);
+        await type(user, '');
+        await type(user, '20,20');
+        await type(user, 'r');
+        await type(user, '2');
+        await type(user, '6');
+        await type(user, 'mi');
+        await click(user, canvas, 31, 31);
+        await type(user, '');
+        await type(user, '0,0');
+        await type(user, '0,10');
+        expect(prompt()).toBe('MIRROR Erase source objects? or [Yes/No] <No>:');
+        await type(user, '');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0 },
+          expect.objectContaining({ kind: 'rotate_item', handle: 'B', angle: 90 }),
+          expect.objectContaining({ kind: 'rotate_item', handle: 'A', angle: 60 }),
+          expect.objectContaining({ kind: 'scale_item', handle: 'A1', factor: 3 }),
+          { kind: 'copy_item', handle: 'T1', dx: 0, dy: 0 },
+          expect.objectContaining({ kind: 'mirror_item', handle: 'T1' }),
+        ]);
+      });
+
+      it('PLINE Arc, Line and Length', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Route');
+        await type(user, 'pl');
+        await type(user, '0,0');
+        await type(user, '10,0');
+        await type(user, 'a');
+        expect(prompt()).toBe('PLINE Specify endpoint of arc or [Line/Second pt/Undo]:');
+        await type(user, '20,10');
+        await type(user, 'l');
+        await type(user, 'l');
+        expect(prompt()).toBe('PLINE Specify length of line:');
+        await type(user, '5');
+        await type(user, '');
+        await save(user);
+        const [poly] = sent();
+        expect(poly).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: false });
+        // The arc is tangent to the first line: a quarter circle about (10, 10).
+        expect(points(poly).length).toBeGreaterThan(5);
+        for (const p of points(poly).slice(1, -1)) {
+          expect(Math.hypot((p[0] as number) - 10, (p[1] as number) - 10)).toBeCloseTo(10, 4);
+        }
+        // Length goes on in the direction the arc ends in (up), 5 units.
+        closeTo(last(poly), 20, 15);
+      });
+
+      it('CIRCLE Ttr, ARC Center and Start-End-Radius, RECTANG Fillet with Dimensions', async () => {
+        const { canvas, user } = await openWorkspace();
+        await chooseLayer(user, 'Route');
+        await type(user, 'c');
+        await type(user, 'ttr');
+        expect(prompt()).toBe('CIRCLE Specify point on object for first tangent of circle:');
+        await click(user, canvas, 25, 0);
+        await click(user, canvas, 50, 12);
+        await type(user, '5');
+        await type(user, 'a');
+        await type(user, 'c');
+        await type(user, '0,0');
+        await type(user, '10,0');
+        await type(user, '-10,0');
+        await type(user, 'a');
+        await type(user, '10,0');
+        await type(user, 'e');
+        await type(user, '-10,0');
+        await type(user, 'r');
+        await type(user, '10');
+        await type(user, 'rec');
+        await type(user, 'f');
+        await type(user, '1');
+        expect(history()).toMatch(/Current rectangle modes: {2}Fillet=1.0000/);
+        await type(user, '0,0');
+        await type(user, 'd');
+        await type(user, '10');
+        await type(user, '5');
+        await type(user, '20,20');
+        await save(user);
+        const [circle, arcC, arcR, rect] = sent();
+        for (const p of points(circle)) {
+          expect(Math.hypot((p[0] as number) - 45, (p[1] as number) - 5)).toBeCloseTo(5, 4);
+        }
+        closeTo(points(arcC)[0], 10, 0);
+        closeTo(last(arcC), -10, 0);
+        expect(points(arcC).every((p) => (p[1] as number) >= -1e-6)).toBe(true);
+        for (const p of points(arcR)) {
+          expect(Math.hypot(p[0] as number, p[1] as number)).toBeCloseTo(10, 4);
+        }
+        expect(rect).toMatchObject({ kind: 'add_curve', closed: true });
+        expect(points(rect).length).toBeGreaterThan(4);
+        const xs = points(rect).map((p) => p[0] as number);
+        expect(Math.max(...xs)).toBeCloseTo(10, 4);
+      });
+
+      it('TRIM: shift-select extends, eRase erases, cuTting edges asks for edges', async () => {
+        const { canvas, user } = await openWorkspace();
+        await chooseLayer(user, 'Route');
+        await type(user, 'l');
+        await type(user, '110,20');
+        await type(user, '110,30');
+        await type(user, '');
+        await type(user, 'tr');
+        expect(prompt()).toBe(
+          'TRIM Select object to trim or shift-select to extend or [cuTting edges/eRase/Undo]:',
+        );
+        await user.keyboard('{Shift>}');
+        await click(user, canvas, 95, 25);
+        await user.keyboard('{/Shift}');
+        await type(user, 't');
+        expect(prompt()).toBe('TRIM Select cutting edges ... Select objects or <select all>:');
+        await type(user, '');
+        await type(user, 'r');
+        await click(user, canvas, 31, 31);
+        await type(user, '');
+        await type(user, '');
+        await save(user);
+        const [, extend, erase] = sent();
+        expect(extend).toEqual({
+          kind: 'set_curve',
+          handle: 'B',
+          points: [
+            [50, 25],
+            [110, 25],
+          ],
+          closed: false,
+        });
+        expect(erase).toEqual({ kind: 'erase_item', handle: 'T1' });
+      });
+
+      it('FILLET Polyline rounds every corner; Trim mode «No trim» draws only the arc', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'f');
+        await type(user, 'r');
+        await type(user, '2');
+        await type(user, 'p');
+        await click(user, canvas, 25, 0);
+        expect(history()).toMatch(/1 lines were filleted/);
+        await type(user, 'f');
+        await type(user, 't');
+        expect(prompt()).toBe('FILLET Enter Trim mode option or [Trim/No trim] <Trim>:');
+        await type(user, 'n');
+        await type(user, 'r');
+        await type(user, '5');
+        await click(user, canvas, 50, 10);
+        await click(user, canvas, 80, 25);
+        await save(user);
+        const [poly, arc] = sent();
+        expect(poly).toMatchObject({ kind: 'set_curve', handle: 'A' });
+        expect(points(poly).length).toBeGreaterThan(3);
+        expect(arc).toMatchObject({ kind: 'add_curve', layer: 'Route' });
+        expect(sent()).toHaveLength(2);
+      });
+
+      it('OFFSET Through a point, and Erase source', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'o');
+        await type(user, 't');
+        await click(user, canvas, 75, 25);
+        expect(prompt()).toBe('OFFSET Specify through point or [Exit/Multiple/Undo] <Exit>:');
+        await click(user, canvas, 75, 28);
+        await type(user, '');
+        await type(user, 'o');
+        await type(user, 'e');
+        await type(user, 'y');
+        await type(user, '2');
+        await click(user, canvas, 25, 0);
+        await click(user, canvas, 25, -5);
+        await type(user, '');
+        await save(user);
+        const [through, offset, erase] = sent();
+        expect(through).toMatchObject({ kind: 'add_curve', layer: 'Route' });
+        closeTo(points(through)[0], 50, 28);
+        expect(offset).toMatchObject({ kind: 'add_curve', layer: 'Route' });
+        closeTo(points(offset)[0], 0, -2);
+        expect(erase).toEqual({ kind: 'erase_item', handle: 'A' });
+      });
+
+      it('DIMLINEAR <select object>, Text and Horizontal; LAYMCH Name; selection ALL and Remove', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'dli');
+        expect(prompt()).toBe('DIMLINEAR Specify first extension line origin or <select object>:');
+        await type(user, '');
+        await click(user, canvas, 75, 25);
+        await type(user, 't');
+        await type(user, '50 m');
+        await type(user, 'h');
+        await type(user, '75,30');
+        expect(history()).toMatch(/Dimension text = 50 m/);
+        await click(user, canvas, 75, 25);
+        await type(user, 'laymch');
+        await type(user, 'n');
+        await type(user, 'Sap');
+        await type(user, 'm');
+        await type(user, 'all');
+        expect(history()).toMatch(/4 found/);
+        await type(user, 'r');
+        expect(prompt()).toBe('MOVE Remove objects:');
+        await click(user, canvas, 75, 25);
+        await type(user, '');
+        await type(user, '0,0');
+        await type(user, '@1,0');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'add_note',
+            note: 'dimension',
+            layer: '0',
+            points: [
+              [50, 25],
+              [100, 25],
+              [75, 30],
+            ],
+            text: '50 m',
+          },
+          { kind: 'move_layer', handle: 'B', toLayer: 'Sap' },
+          { kind: 'move_item', handle: 'A', dx: 1, dy: 0 },
+          { kind: 'move_item', handle: 'A1', dx: 1, dy: 0 },
+          { kind: 'move_item', handle: 'T1', dx: 1, dy: 0 },
+        ]);
+      });
     });
 
     it('keeps the edits and says why when the save is refused', async () => {

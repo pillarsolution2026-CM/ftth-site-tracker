@@ -69,7 +69,8 @@ describe('typed entries', () => {
     expect(parseEntry('25', last)).toEqual({ kind: 'number', value: 25 });
     expect(parseEntry('-0.5', last)).toEqual({ kind: 'number', value: -0.5 });
     expect(parseEntry('c', last)).toEqual({ kind: 'word', word: 'C' });
-    expect(parseEntry('3P', last)).toEqual({ kind: 'bad' });
+    expect(parseEntry('3P', last)).toEqual({ kind: 'word', word: '3P' });
+    expect(parseEntry('3', last)).toEqual({ kind: 'number', value: 3 });
     expect(parseEntry('', last)).toEqual({ kind: 'empty' });
     expect(parseEntry('1,2,3', last)).toEqual({ kind: 'bad' });
   });

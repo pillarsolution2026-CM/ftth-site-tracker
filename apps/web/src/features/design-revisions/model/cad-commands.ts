@@ -143,8 +143,10 @@ export function parseEntry(text: string, last: Point | null): Entry {
     return { kind: 'point', point: { x: from.x + d * Math.cos(a), y: from.y + d * Math.sin(a) } };
   }
   if (NUMBER.test(value)) return { kind: 'number', value: Number(value) };
-  if (/^[A-Za-z_.-][A-Za-z0-9_.-]*$/.test(value))
+  // A word: a command or an option (AutoCAD's options may start with a digit, e.g. 3P).
+  if (/^[A-Za-z0-9_.-]*[A-Za-z][A-Za-z0-9_.-]*$/.test(value)) {
     return { kind: 'word', word: value.toUpperCase() };
+  }
   return { kind: 'bad' };
 }
 
@@ -164,7 +166,13 @@ export interface CommandOption {
 
 export function matchOption(options: readonly CommandOption[], word: string): string | null {
   const upper = word.toUpperCase();
-  const hit = options.find((o) => o.key === upper || o.word.toUpperCase() === upper);
+  // The short form, the whole word, or its first word (`TTR` for «Ttr (tan tan radius)»).
+  const hit = options.find(
+    (o) =>
+      o.key === upper ||
+      o.word.toUpperCase() === upper ||
+      o.word.split(' ')[0]?.toUpperCase() === upper,
+  );
   return hit ? hit.key : null;
 }
 

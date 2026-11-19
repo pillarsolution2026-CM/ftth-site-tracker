@@ -308,7 +308,7 @@ export interface FilletPick {
  * extended to their corner. Radius > 0: they stop where an arc of that radius touches them and
  * the arc is added to the first curve (both then meet at the end of the arc).
  */
-export function fillet(first: FilletPick, second: FilletPick, radius: number): [Pt[], Pt[]] {
+export function fillet(first: FilletPick, second: FilletPick, radius: number): [Pt[], Pt[], Pt[]] {
   if (first.closed || second.closed) throw new GeometryError('CLOSED');
   if (radius < 0) throw new GeometryError('RADIUS');
   const s1 = pickedSegment(first);
@@ -317,7 +317,7 @@ export function fillet(first: FilletPick, second: FilletPick, radius: number): [
   if (!corner) throw new GeometryError('PARALLEL');
   const k1 = keptSide(first, s1, corner);
   const k2 = keptSide(second, s2, corner);
-  if (radius === 0) return [k1.withEnd(corner), k2.withEnd(corner)];
+  if (radius === 0) return [k1.withEnd(corner), k2.withEnd(corner), []];
   const u1 = unit(sub(k1.toward, corner));
   const u2 = unit(sub(k2.toward, corner));
   const theta = Math.acos(Math.max(-1, Math.min(1, dot(u1, u2))));
@@ -337,7 +337,8 @@ export function fillet(first: FilletPick, second: FilletPick, radius: number): [
   const arc = arcPoints(center, radius, from, sweep);
   arc[0] = t1;
   arc[arc.length - 1] = t2;
-  return [k1.withEnd(...arc), k2.withEnd(t2)];
+  // The third: the arc alone (FILLET with Trim mode «No trim» draws only it).
+  return [k1.withEnd(...arc), k2.withEnd(t2), arc];
 }
 
 function pickedSegment(c: FilletPick): { i: number; a: Pt; b: Pt; t: number } {
