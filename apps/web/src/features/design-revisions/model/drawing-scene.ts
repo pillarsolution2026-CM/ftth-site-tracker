@@ -111,6 +111,17 @@ export function resolveColor(
   return entity.color ?? layerColor;
 }
 
+/**
+ * The AutoCAD-like canvas is black (ADR-051): colours show as AutoCAD shows them on black, and a
+ * black or near-black stroke (it would vanish) is drawn white, like AutoCAD's colour 7.
+ */
+export function screenColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b < 16 ? '#ffffff' : hex;
+}
+
 /** The paper is white: near-white strokes would vanish, so they are drawn dark. */
 export function paperColor(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16);

@@ -1,9 +1,19 @@
 import type { DrawingViewEntity } from '@ftth/shared';
-import { angleOf, applyAffine, boxThrough, compose, IDENTITY, type Affine } from './affine';
+import {
+  angleOf,
+  applyAffine,
+  boxThrough,
+  compose,
+  IDENTITY,
+  scaleOf,
+  type Affine,
+} from './affine';
 import { isCrossing, type Band } from './canvas-edit';
-import { effectiveLayer, type DrawingPreview } from './drawing-preview';
+import { LINETYPE_DASH, lineweightPx } from './cad-commands';
+import { effectiveLayer, type DrawingPreview, type PreviewNote } from './drawing-preview';
 import type { ProblemMarker } from './drawing-hit';
-import { boxOf, cullEntities, paperColor, resolveColor, type DrawingScene } from './drawing-scene';
+import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
+import { linearDimension, type Pt } from './geometry';
 import { toScreen, visibleBounds, type Size, type ViewTransform } from './view-transform';
 
 /** Texts smaller than this on screen (px of text height) are not drawn. */
@@ -19,7 +29,9 @@ const MAX_MARKER_LABELS = 300;
 export const MARKER_ERROR_COLOR = '#d32f2f';
 export const MARKER_FIXED_COLOR = '#2e7d32';
 const HIGHLIGHT_HALO = '#ffb300';
-const SELECTED_COLOR = '#0277bd';
+const SELECTED_COLOR = '#4fc3f7';
+/** The model space background, black as in AutoCAD (ADR-051). */
+export const CANVAS_BG = '#000000';
 /** Routes marked for trench (ADR-042): dashed purple, never colour alone (also a text label). */
 export const TRENCH_COLOR = '#6a1b9a';
 
@@ -61,6 +73,30 @@ export interface DrawModel {
   band?: Band | null;
   /** Picked entities shown where a move / turn in progress would put them (ADR-047). */
   ghost?: { indexes: readonly number[]; step: Affine } | null;
+  /** The line / polyline / mirror line being drawn (ADR-050): fixed points, then the pointer. */
+  sketch?: { points: readonly { x: number; y: number }[]; closed: boolean } | null;
+  /** Layer index → colour the user chose for the screen (ADR-051; not saved). */
+  layerColor?: ReadonlyMap<number, string>;
+  /** Height of dimension and leader texts, drawing units. */
+  noteHeight?: number;
+}
+
+/** The colour an entity is drawn in now: its style, else its own, else its layer's (ADR-051). */
+function colorOf(model: DrawModel, index: number): string {
+  const { scene, preview } = model;
+  const entity = scene.view.entities[index] as DrawingViewEntity;
+  const styled = preview.styleOf.get(index)?.color;
+  if (styled) return screenColor(styled);
+  const layer = effectiveLayer(scene, preview, index);
+  const moved = preview.layerOf.has(index);
+  const override = model.layerColor?.get(layer);
+  if (override && (moved || entity.color === null)) return screenColor(override);
+  return screenColor(resolveColor(entity, scene.view.layers, layer, moved));
+}
+
+/** Colour of a layer (by index) on screen: the user's choice, else the drawing's. */
+function layerColorOf(model: DrawModel, layer: number, fallback: string): string {
+  return screenColor(model.layerColor?.get(layer) ?? fallback);
 }
 
 export interface Viewport extends Size {
@@ -135,7 +171,7 @@ function fillTextAt(
   ctx.restore();
 }
 
-/** The drawing itself: entity strokes, then texts, on white. Heavy; redraw only on change. */
+/** The drawing itself: entity strokes, then texts, on black. Heavy; redraw only on change. */
 export function drawBase(
   ctx: CanvasRenderingContext2D,
   model: DrawModel,
@@ -144,9 +180,9 @@ export function drawBase(
   vp: Viewport,
 ): void {
   const { scene, preview } = model;
-  const { entities, layers } = scene.view;
+  const { entities } = scene.view;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = CANVAS_BG;
   ctx.fillRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
 
   const candidates = cullEntities(scene, visibleBounds(tf, vp));
@@ -157,6 +193,7 @@ export function drawBase(
   }
   const shown: number[] = [];
   for (const index of candidates) {
+    if (preview.erased.has(index)) continue;
     if (model.layerShown(effectiveLayer(scene, preview, index))) shown.push(index);
   }
 
@@ -165,27 +202,41 @@ export function drawBase(
   ctx.lineJoin = 'round';
   let current = '';
   const texted: number[] = [];
+  const styled: number[] = [];
   for (const index of shown) {
     const entity = entities[index] as DrawingViewEntity;
     if (entity.texts.length > 0) texted.push(index);
     if (entity.paths.length === 0) continue;
+    if (preview.styleOf.has(index)) {
+      styled.push(index);
+      continue;
+    }
     const box = boxOf(scene, index);
     if (
+      !preview.curveOf.has(index) &&
       (box.maxX - box.minX) * tf.scale < MIN_SHAPE_PX &&
       (box.maxY - box.minY) * tf.scale < MIN_SHAPE_PX
     ) {
       continue;
     }
-    const moved = preview.layerOf.has(index);
-    const color = paperColor(
-      resolveColor(entity, layers, effectiveLayer(scene, preview, index), moved),
-    );
+    const color = colorOf(model, index);
     if (color !== current) {
       ctx.strokeStyle = color;
       current = color;
     }
     strokeEntity(ctx, model, cache, index);
   }
+  // Line types and weights (set_style; ADR-051): dashes and widths in screen pixels.
+  for (const index of styled) {
+    const style = preview.styleOf.get(index);
+    const weight = style?.lineweight ?? null;
+    ctx.strokeStyle = colorOf(model, index);
+    ctx.lineWidth = (weight !== null ? lineweightPx(weight) : 1) / tf.scale;
+    ctx.setLineDash(LINETYPE_DASH[style?.linetype ?? 'continuous'].map((v) => v / tf.scale));
+    strokeEntity(ctx, model, cache, index);
+  }
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1 / tf.scale;
 
   setScreenTransform(ctx, vp);
   ctx.textBaseline = 'alphabetic';
@@ -193,10 +244,7 @@ export function drawBase(
   current = '';
   for (const index of texted) {
     const entity = entities[index] as DrawingViewEntity;
-    const moved = preview.layerOf.has(index);
-    const color = paperColor(
-      resolveColor(entity, layers, effectiveLayer(scene, preview, index), moved),
-    );
+    const color = colorOf(model, index);
     if (color !== current) {
       ctx.fillStyle = color;
       current = color;
@@ -211,7 +259,7 @@ export function drawBase(
         vp,
         at.x,
         at.y,
-        text.height,
+        text.height * (turned ? scaleOf(turned) : 1),
         text.rotation + (turned ? angleOf(turned) : 0),
         i === 0 && replaced !== undefined ? replaced : text.text,
       );
@@ -219,8 +267,135 @@ export function drawBase(
   }
   for (const extra of preview.extraTexts) {
     if (!model.layerShown(extra.layer)) continue;
-    ctx.fillStyle = paperColor(extra.color);
+    ctx.fillStyle = layerColorOf(model, extra.layer, extra.color);
     fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
+  }
+  drawAdded(ctx, model, cache, tf, vp);
+}
+
+/** Copies and lines added on the page (ADR-050), in their layers' colours. */
+function drawAdded(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  const { scene, preview } = model;
+  const { copies, extraCurves, notes } = preview;
+  if (copies.length === 0 && extraCurves.length === 0 && notes.length === 0) return;
+  const { entities } = scene.view;
+  setWorldTransform(ctx, scene, tf, vp);
+  ctx.lineWidth = 1 / tf.scale;
+  for (const copy of preview.copies) {
+    const entity = entities[copy.index];
+    if (!entity || !model.layerShown(effectiveLayer(scene, preview, copy.index))) continue;
+    ctx.strokeStyle = colorOf(model, copy.index);
+    if (entity.paths.length) strokeWith(ctx, model, cache, copy.index, copy.transform);
+  }
+  const { x: ox, y: oy } = scene.origin;
+  for (const curve of preview.extraCurves) {
+    if (!model.layerShown(curve.layer)) continue;
+    ctx.strokeStyle = layerColorOf(model, curve.layer, curve.color);
+    ctx.beginPath();
+    for (let i = 0; i + 1 < curve.path.length; i += 2) {
+      const x = (curve.path[i] as number) - ox;
+      const y = (curve.path[i + 1] as number) - oy;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    if (curve.closed) ctx.closePath();
+    ctx.stroke();
+  }
+  setScreenTransform(ctx, vp);
+  for (const copy of preview.copies) {
+    const entity = entities[copy.index];
+    if (!entity?.texts.length || !model.layerShown(effectiveLayer(scene, preview, copy.index))) {
+      continue;
+    }
+    ctx.fillStyle = colorOf(model, copy.index);
+    for (const text of entity.texts) {
+      const at = applyAffine(copy.transform, text.x, text.y);
+      fillTextAt(
+        ctx,
+        tf,
+        vp,
+        at.x,
+        at.y,
+        text.height * scaleOf(copy.transform),
+        text.rotation + angleOf(copy.transform),
+        text.text,
+      );
+    }
+  }
+  for (const note of notes) {
+    if (model.layerShown(note.layer)) drawNote(ctx, model, tf, vp, note);
+  }
+}
+
+/** A dimension or leader (add_note; ADR-051) as AutoCAD draws them; screen only. */
+function drawNote(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+  note: PreviewNote,
+): void {
+  const color = layerColorOf(model, note.layer, note.color);
+  const height = model.noteHeight ?? 2.5;
+  const fontPx = Math.max(9, height * tf.scale * TEXT_FONT_FACTOR);
+  const s = (p: Pt) => toScreen(tf, vp, p[0], p[1]);
+  setScreenTransform(ctx, vp);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  const segment = (a: Pt, b: Pt) => {
+    const p = s(a);
+    const q = s(b);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(q.x, q.y);
+    ctx.stroke();
+  };
+  const arrow = (tip: Pt, from: Pt) => {
+    const p = s(tip);
+    const q = s(from);
+    const angle = Math.atan2(q.y - p.y, q.x - p.x);
+    const size = Math.max(5, Math.min(12, fontPx * 0.8));
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + size * Math.cos(angle - 0.3), p.y + size * Math.sin(angle - 0.3));
+    ctx.lineTo(p.x + size * Math.cos(angle + 0.3), p.y + size * Math.sin(angle + 0.3));
+    ctx.closePath();
+    ctx.fill();
+  };
+  const points = note.points.map((p) => [p[0], p[1]] as Pt);
+  const [a, b, c] = points;
+  ctx.font = `${fontPx}px sans-serif`;
+  if (note.note === 'dimension' && a && b && c) {
+    const dim = linearDimension(a, b, c);
+    segment(...dim.extensions[0]);
+    segment(...dim.extensions[1]);
+    segment(...dim.line);
+    arrow(dim.line[0], dim.line[1]);
+    arrow(dim.line[1], dim.line[0]);
+    const at = s(dim.middle);
+    ctx.save();
+    ctx.translate(at.x, at.y);
+    if (dim.direction === 'vertical') ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText(note.text ?? dim.value.toFixed(2), 0, -3);
+    ctx.restore();
+    ctx.textAlign = 'left';
+    return;
+  }
+  for (let i = 0; i + 1 < points.length; i++) segment(points[i] as Pt, points[i + 1] as Pt);
+  if (a && b) arrow(a, b);
+  const last = points[points.length - 1];
+  if (last && note.text) {
+    const at = s(last);
+    ctx.fillText(note.text, at.x + 4, at.y + 4);
   }
 }
 
@@ -421,7 +596,7 @@ export function drawOverlay(
     ctx.lineWidth = 10 / tf.scale;
     strokeEntity(ctx, model, cache, index);
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = '#000000';
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2.5 / tf.scale;
     strokeEntity(ctx, model, cache, index);
   }
@@ -445,6 +620,7 @@ export function drawOverlay(
   if (model.chosen && model.chosen.size > 0) drawChosen(ctx, model, cache, tf, vp);
   if (model.band) drawBand(ctx, model.band, tf, vp);
   if (model.ghost) drawGhost(ctx, model, cache, tf, vp, model.ghost);
+  if (model.sketch && model.sketch.points.length > 0) drawSketch(ctx, model.sketch, tf, vp);
 
   if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
   if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
@@ -452,7 +628,7 @@ export function drawOverlay(
   for (const item of preview.extraItems) {
     if (!model.layerShown(item.layer)) continue;
     const p = toScreen(tf, vp, item.x, item.y);
-    ctx.strokeStyle = paperColor(item.color);
+    ctx.strokeStyle = layerColorOf(model, item.layer, item.color);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
@@ -473,9 +649,11 @@ export function drawOverlay(
   for (const marker of onScreen) drawMarker(ctx, marker, tf, vp, withLabel);
 }
 
-const CHOSEN_COLOR = '#0057d9';
+/** AutoCAD shows picked objects dashed and light, with blue grips. */
+const CHOSEN_COLOR = '#5a9bff';
+const GRIP_COLOR = '#1e6bff';
 
-/** Picked items: a thick blue stroke and a box around each (dashed for texts and blocks). */
+/** Picked items as AutoCAD shows them: dashed, with a grip at the corners of each one's box. */
 function drawChosen(
   ctx: CanvasRenderingContext2D,
   model: DrawModel,
@@ -487,12 +665,26 @@ function drawChosen(
   const chosen = model.chosen ?? new Set<number>();
   setWorldTransform(ctx, scene, tf, vp);
   ctx.strokeStyle = CHOSEN_COLOR;
-  ctx.lineWidth = 3 / tf.scale;
+  ctx.lineWidth = 2 / tf.scale;
+  ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
   for (const index of chosen) {
     if (scene.view.entities[index]?.paths.length) strokeEntity(ctx, model, cache, index);
   }
+  ctx.setLineDash([]);
   setScreenTransform(ctx, vp);
-  for (const index of chosen) boxOutline(ctx, model, tf, vp, index, CHOSEN_COLOR);
+  ctx.fillStyle = GRIP_COLOR;
+  for (const index of chosen) {
+    const box = shownBox(model, index);
+    for (const [x, y] of [
+      [box.minX, box.minY],
+      [box.maxX, box.maxY],
+      [box.minX, box.maxY],
+      [box.maxX, box.minY],
+    ] as const) {
+      const p = toScreen(tf, vp, x, y);
+      ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+    }
+  }
 }
 
 /** Window (to the right): solid blue; crossing (to the left): dashed green, like AutoCAD. */
@@ -534,12 +726,47 @@ function strokeEntity(
   index: number,
   extra?: Affine,
 ): void {
+  const replaced = model.preview.curveOf.get(index);
+  if (replaced) {
+    strokePoints(ctx, model, replaced.points, replaced.closed, extra);
+    return;
+  }
   const saved = model.preview.transformOf.get(index);
   const t = extra ? compose(saved ?? IDENTITY, extra) : saved;
   if (!t) {
     ctx.stroke(cache.get(index));
     return;
   }
+  strokeWith(ctx, model, cache, index, t);
+}
+
+/** Strokes drawing points (a curve with new points, ADR-051); the world transform must be set. */
+function strokePoints(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  points: readonly (readonly [number, number])[],
+  closed: boolean,
+  extra?: Affine,
+): void {
+  const { x: ox, y: oy } = model.scene.origin;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const q = extra ? applyAffine(extra, p[0], p[1]) : { x: p[0], y: p[1] };
+    if (i === 0) ctx.moveTo(q.x - ox, q.y - oy);
+    else ctx.lineTo(q.x - ox, q.y - oy);
+  });
+  if (closed) ctx.closePath();
+  ctx.stroke();
+}
+
+/** Strokes an entity with exactly this transform (world transform set). */
+function strokeWith(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  index: number,
+  t: Affine,
+): void {
   // Paths are relative to the scene origin o: local' = A·(local + o) + t − o.
   const { x: ox, y: oy } = model.scene.origin;
   ctx.save();
@@ -585,4 +812,26 @@ function drawGhost(
     ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
   }
   ctx.setLineDash([]);
+}
+
+/** The line being drawn: fixed points solid, the segment to the pointer dashed (ADR-050). */
+function drawSketch(
+  ctx: CanvasRenderingContext2D,
+  sketch: { points: readonly { x: number; y: number }[]; closed: boolean },
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  setScreenTransform(ctx, vp);
+  const pts = sketch.points.map((p) => toScreen(tf, vp, p.x, p.y));
+  // AutoCAD's rubber band: thin and light on black.
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  if (sketch.closed && pts.length > 2) ctx.closePath();
+  ctx.stroke();
+  for (const p of pts) {
+    ctx.strokeRect(p.x - 3, p.y - 3, 6, 6);
+  }
 }

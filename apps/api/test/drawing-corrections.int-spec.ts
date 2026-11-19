@@ -378,6 +378,45 @@ describe('corrections routes', () => {
     expect((await addCorrection(fileId, { correction: { kind: 'bogus' } })).status).toBe(400);
   });
 
+  it('keeps curve edits, notes and styles of the AutoCAD-like screen (ADR-051)', async () => {
+    const fileId = await insertDrawing();
+    expect((await saveMapping(fileId)).status).toBe(200);
+    const line = [
+      [0, 0],
+      [4, 0],
+    ];
+    const status = async (correction: object) =>
+      (await addCorrection(fileId, { correction })).status;
+    expect(await status({ kind: 'set_curve', handle: 'C1', points: line })).toBe(201);
+    const notCurve = await addCorrection(fileId, {
+      correction: { kind: 'set_curve', handle: 'T1', points: line },
+    });
+    expect(notCurve.status).toBe(422);
+    expect(notCurve.body.details).toMatchObject({ reason: 'HANDLE_NOT_FOUND', handles: ['T1'] });
+    expect(await status({ kind: 'set_style', handle: 'I1', color: '#00ff00' })).toBe(201);
+    expect(await status({ kind: 'set_style', handle: 'C2', linetype: 'center' })).toBe(201);
+    expect(await status({ kind: 'set_style', handle: 'ZZ', lineweight: 0.3 })).toBe(422);
+    expect(await status({ kind: 'set_style', handle: 'C2', color: 'green' })).toBe(400);
+    expect(
+      await status({ kind: 'add_note', note: 'dimension', layer: 'NO_RULE', points: line }),
+    ).toBe(201);
+    expect(
+      await status({ kind: 'add_note', note: 'leader', layer: 'DIM', points: line, text: 'ODB' }),
+    ).toBe(201);
+    expect(await status({ kind: 'add_note', note: 'table', layer: 'DIM', points: line })).toBe(400);
+    const list = DrawingCorrectionListSchema.parse(
+      (await as(pm)(http().get(correctionsUrl(fileId)))).body,
+    );
+    expect(list.activeCount).toBe(5);
+    expect(list.items[0]?.correction).toEqual({
+      kind: 'add_note',
+      note: 'leader',
+      layer: 'DIM',
+      points: line,
+      text: 'ODB',
+    });
+  });
+
   it('refuses a file that is not processed', async () => {
     const fileId = await insertFile('uploaded');
     const res = await addCorrection(fileId, {

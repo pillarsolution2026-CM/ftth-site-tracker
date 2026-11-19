@@ -51,7 +51,7 @@ describe('correction preview', () => {
       2.5,
     );
     expect(preview.extraTexts).toEqual([
-      { x: 5, y: 6, height: 2.5, text: 'NEW', layer: 1, color: '#00aa00' },
+      { x: 5, y: 6, height: 2.5, text: 'NEW', layer: 1, color: '#00aa00', layerName: 'Sap' },
     ]);
   });
 
@@ -61,7 +61,9 @@ describe('correction preview', () => {
       [correction({ kind: 'add_item', layer: 'CABINET', x: 1, y: 2 })],
       2.5,
     );
-    expect(preview.extraItems).toEqual([{ x: 1, y: 2, layer: 2, color: '#0000ff' }]);
+    expect(preview.extraItems).toEqual([
+      { x: 1, y: 2, layer: 2, color: '#0000ff', layerName: 'CABINET' },
+    ]);
   });
 
   it('merge_routes marks the pieces merged without changing them', () => {
@@ -134,5 +136,136 @@ describe('moves and turns in the preview (ADR-047)', () => {
     expect((t?.[0] ?? 0) * 50 + (t?.[2] ?? 0) * 25 + (t?.[4] ?? 0)).toBeCloseTo(50, 9);
     expect((t?.[1] ?? 0) * 50 + (t?.[3] ?? 0) * 25 + (t?.[5] ?? 0)).toBeCloseTo(35, 9);
     expect(preview.transformOf.has(0)).toBe(false);
+  });
+});
+
+describe('CAD ribbon in the preview (ADR-050)', () => {
+  const at = (n: number) => ({ createdAt: `2026-11-09T10:00:0${n}+00:00` });
+  it('erases, copies, mirrors and scales; draws added lines', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction({ kind: 'erase_item', handle: 'A' }, at(1)),
+        correction({ kind: 'copy_item', handle: 'B', dx: 0, dy: 10 }, at(2)),
+        correction({ kind: 'mirror_item', handle: 'A1', x1: 0, y1: 0, x2: 0, y2: 1 }, at(3)),
+        correction({ kind: 'scale_item', handle: 'T1', x: 0, y: 0, factor: 2 }, at(4)),
+        correction(
+          {
+            kind: 'add_curve',
+            layer: 'Route',
+            points: [
+              [0, 0],
+              [5, 5],
+            ],
+            closed: false,
+          },
+          at(5),
+        ),
+      ],
+      2.5,
+    );
+    expect([...preview.erased]).toEqual([0]);
+    expect(preview.copies).toEqual([{ index: 1, transform: [1, 0, 0, 1, 0, 10] }]);
+    const m = preview.transformOf.get(2);
+    expect(m?.[0]).toBeCloseTo(-1, 9);
+    expect(preview.transformOf.get(3)).toEqual([2, 0, 0, 2, 0, 0]);
+    expect(preview.extraCurves).toEqual([
+      { path: [0, 0, 5, 5], closed: false, layer: 0, color: '#ff0000', layerName: 'Route' },
+    ]);
+  });
+
+  it('a new layer takes the colour of its source; rename moves, delete erases', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction({ kind: 'add_layer', layer: 'NEW', like: 'Sap' }, at(1)),
+        correction({ kind: 'move_layer', handle: 'A', toLayer: 'NEW' }, at(2)),
+        correction({ kind: 'rename_layer', from: 'Route', to: 'R2' }, at(3)),
+        correction({ kind: 'delete_layer', layer: 'CABINET' }, at(4)),
+      ],
+      2.5,
+    );
+    expect(preview.layerOf.get(0)).toBe(1); // NEW draws like Sap
+    expect(preview.layerOf.get(1)).toBe(0); // B renamed with Route, same colour
+    expect(preview.aliases.get('R2')).toBe('Route');
+    expect(preview.erased.has(2)).toBe(false); // A1 is on Sap, not CABINET
+  });
+});
+
+describe('AutoCAD-like screen in the preview (ADR-051)', () => {
+  const at = (n: number) => ({ createdAt: `2026-11-09T10:00:0${n}+00:00` });
+  it('set_curve replaces the points (moves before it are in them); notes and styles are kept', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction({ kind: 'move_item', handle: 'A', dx: 5, dy: 0 }, at(1)),
+        correction(
+          {
+            kind: 'set_curve',
+            handle: 'A',
+            points: [
+              [5, 0],
+              [30, 0],
+            ],
+            closed: false,
+          },
+          at(2),
+        ),
+        correction(
+          { kind: 'add_note', note: 'leader', layer: 'Route', points: [[1, 2]], text: 'ODB' },
+          at(3),
+        ),
+        correction(
+          {
+            kind: 'set_style',
+            handle: 'B',
+            color: '#00ff00',
+            linetype: 'dashed',
+            lineweight: null,
+          },
+          at(4),
+        ),
+        correction(
+          { kind: 'set_style', handle: 'B', color: null, linetype: 'center', lineweight: 0.5 },
+          at(5),
+        ),
+      ],
+      2.5,
+    );
+    expect(preview.curveOf.get(0)).toEqual({
+      points: [
+        [5, 0],
+        [30, 0],
+      ],
+      closed: false,
+    });
+    expect(preview.transformOf.has(0)).toBe(false);
+    expect(preview.notes).toEqual([
+      {
+        note: 'leader',
+        points: [[1, 2]],
+        text: 'ODB',
+        layer: 0,
+        color: '#ff0000',
+        layerName: 'Route',
+      },
+    ]);
+    // The latest style wins.
+    expect(preview.styleOf.get(1)).toEqual({ color: null, linetype: 'center', lineweight: 0.5 });
+  });
+
+  it('a deleted layer takes its notes with it', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        correction(
+          { kind: 'add_note', note: 'dimension', layer: 'Route', points: [[0, 0]], text: null },
+          at(1),
+        ),
+        correction({ kind: 'delete_layer', layer: 'Route' }, at(2)),
+      ],
+      2.5,
+    );
+    expect(preview.notes).toEqual([]);
   });
 });

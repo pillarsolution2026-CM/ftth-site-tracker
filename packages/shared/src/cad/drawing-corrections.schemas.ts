@@ -50,6 +50,17 @@ export const DRAWING_CORRECTION_KINDS = [
   'dismiss_problem',
   'move_item',
   'rotate_item',
+  'erase_item',
+  'copy_item',
+  'mirror_item',
+  'scale_item',
+  'add_curve',
+  'add_layer',
+  'rename_layer',
+  'delete_layer',
+  'set_curve',
+  'add_note',
+  'set_style',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
@@ -63,6 +74,28 @@ export const MAX_CORRECTIONS_PER_FILE = 5000;
 export const MAX_CORRECTION_ROWS_PER_FILE = 4 * MAX_CORRECTIONS_PER_FILE;
 /** A rotation in degrees, counter-clockwise as in CAD; one turn at most either way. */
 export const MAX_ROTATION_DEG = 360;
+/** A scale factor of `scale_item` (technical bounds, not a rule). */
+export const MIN_SCALE_FACTOR = 0.001;
+export const MAX_SCALE_FACTOR = 1000;
+/** Points of one drawn line or polyline (`add_curve`). */
+export const MAX_CURVE_POINTS = 2000;
+/** Points of one dimension or leader note (`add_note`, ADR-051). */
+export const MAX_NOTE_POINTS = 50;
+/** A line weight of `set_style`, millimetres as in CAD (technical bound, not a rule). */
+export const MAX_LINEWEIGHT_MM = 10;
+/** Notes the drawing screen saves and draws, ignored by the build (ADR-051). */
+export const DRAWING_NOTE_KINDS = ['dimension', 'leader'] as const;
+export const DrawingNoteKindSchema = z.enum(DRAWING_NOTE_KINDS);
+export type DrawingNoteKind = z.infer<typeof DrawingNoteKindSchema>;
+export const DRAWING_LINETYPES = ['continuous', 'dashed', 'dotted', 'center'] as const;
+export const DrawingLinetypeSchema = z.enum(DRAWING_LINETYPES);
+export type DrawingLinetype = z.infer<typeof DrawingLinetypeSchema>;
+/** Corrections the build ignores: only the drawing screen reads them (ADR-051). */
+export const SCREEN_ONLY_CORRECTION_KINDS: readonly DrawingCorrectionKind[] = [
+  'add_note',
+  'set_style',
+];
+const Point = z.tuple([Coord, Coord]);
 
 export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   /** An insert, text or curve moves to another layer (its rule then decides what it is). */
@@ -141,6 +174,122 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
       .refine(Number.isFinite, 'Must be a finite number')
       .min(-MAX_ROTATION_DEG)
       .max(MAX_ROTATION_DEG),
+  }),
+  /** The CAD ribbon (ADR-050): an insert, text or curve is erased from the build. */
+  z.strictObject({
+    kind: z.literal('erase_item'),
+    handle: Handle,
+  }),
+  /**
+   * A copy of an insert, text or curve, moved by (dx, dy) (ADR-050); the copy gets the handle
+   * `FIX-<correction id>` and keeps the layer, block and attributes of the original.
+   */
+  z.strictObject({
+    kind: z.literal('copy_item'),
+    handle: Handle,
+    dx: Coord,
+    dy: Coord,
+  }),
+  /** Mirrored across the line through (x1, y1) and (x2, y2) (ADR-050); the two points differ. */
+  z
+    .strictObject({
+      kind: z.literal('mirror_item'),
+      handle: Handle,
+      x1: Coord,
+      y1: Coord,
+      x2: Coord,
+      y2: Coord,
+    })
+    .refine((m) => m.x1 !== m.x2 || m.y1 !== m.y2, 'The mirror line needs two different points'),
+  /** Scaled by `factor` about (x, y) (ADR-050); a text's height scales too. */
+  z.strictObject({
+    kind: z.literal('scale_item'),
+    handle: Handle,
+    x: Coord,
+    y: Coord,
+    factor: z.number().refine(Number.isFinite).min(MIN_SCALE_FACTOR).max(MAX_SCALE_FACTOR),
+  }),
+  /**
+   * A new line (2 points) or polyline drawn on `layer` (ADR-050), handle `FIX-<correction id>`;
+   * the layer's rule decides what it is (e.g. a route).
+   */
+  z.strictObject({
+    kind: z.literal('add_curve'),
+    layer: LayerName,
+    points: z
+      .array(z.tuple([Coord, Coord]))
+      .min(2)
+      .max(MAX_CURVE_POINTS),
+    closed: z.boolean().default(false),
+  }),
+  /**
+   * A layer that means what `like` means in the mapping (ADR-050): items moved or drawn on it are
+   * read with the rule of `like`. A new name starts empty; a layer of the drawing that has no rule
+   * takes `like`'s meaning for everything on it (owner 2026-11-19: «the program understands what
+   * was drawn»). `like: null` is a new layer for drawing only: the build ignores what is on it.
+   */
+  z
+    .strictObject({
+      kind: z.literal('add_layer'),
+      layer: LayerName,
+      like: LayerName.nullable(),
+    })
+    .refine((a) => a.layer !== a.like, 'The new layer needs its own name'),
+  /** Every item on `from` moves to `to`, which keeps the rule of `from` (ADR-050). */
+  z
+    .strictObject({
+      kind: z.literal('rename_layer'),
+      from: LayerName,
+      to: LayerName,
+    })
+    .refine((r) => r.from !== r.to, 'The new name must differ'),
+  /** Every item on the layer is erased from the build (ADR-050). */
+  z.strictObject({
+    kind: z.literal('delete_layer'),
+    layer: LayerName,
+  }),
+  /**
+   * A curve's points are replaced (ADR-051): the result of Trim, Fillet, Stretch or Extend on the
+   * drawing screen. The curve keeps its handle and layer.
+   */
+  z.strictObject({
+    kind: z.literal('set_curve'),
+    handle: Handle,
+    points: z.array(Point).min(2).max(MAX_CURVE_POINTS),
+    closed: z.boolean().default(false),
+  }),
+  /**
+   * A dimension (2 points measured + 1 for the dimension line) or a leader (arrow tip first) drawn
+   * on the screen (ADR-051). Saved and drawn; the build ignores it (no quantity, item or error).
+   */
+  z.strictObject({
+    kind: z.literal('add_note'),
+    note: DrawingNoteKindSchema,
+    layer: LayerName,
+    points: z.array(Point).min(1).max(MAX_NOTE_POINTS),
+    text: Text.max(MAX_TEXT_LENGTH).nullable().default(null),
+  }),
+  /**
+   * How an item is drawn on the screen (ADR-051): colour `#rrggbb`, line type, line weight in mm;
+   * null = by layer (all null: back to the layer's look). The latest style of an item wins.
+   * Saved and drawn; the build ignores it.
+   */
+  z.strictObject({
+    kind: z.literal('set_style'),
+    handle: Handle,
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, 'A colour is #rrggbb')
+      .nullable()
+      .default(null),
+    linetype: DrawingLinetypeSchema.nullable().default(null),
+    lineweight: z
+      .number()
+      .refine(Number.isFinite)
+      .min(0)
+      .max(MAX_LINEWEIGHT_MM)
+      .nullable()
+      .default(null),
   }),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;
@@ -223,10 +372,35 @@ export const RebuildDesignRevisionResponseSchema = DesignRevisionSummarySchema;
  */
 export const MOVE_LAYER_TARGETS: readonly string[] = [...FEATURE_TYPES, 'label'];
 
-export function moveLayerTargets(rules: readonly MappingRule[]): Set<string> {
+export function moveLayerTargets(
+  rules: readonly MappingRule[],
+  corrections: readonly DrawingCorrectionInput[] = [],
+): Set<string> {
   const out = new Set<string>();
+  const ruled = new Set<string>();
   for (const rule of rules) {
-    if (rule.source === 'layer' && MOVE_LAYER_TARGETS.includes(rule.target)) out.add(rule.layer);
+    if (rule.source !== 'layer') continue;
+    ruled.add(rule.layer);
+    if (MOVE_LAYER_TARGETS.includes(rule.target)) out.add(rule.layer);
+  }
+  // A layer added or renamed by a correction means what its source layer means (ADR-050), unless
+  // it has a rule of its own (the worker keeps that rule, ADR-051).
+  for (const [layer, like] of layerAliases(corrections)) {
+    if (out.has(like) && !ruled.has(layer)) out.add(layer);
+  }
+  return out;
+}
+
+/**
+ * Layer → the mapped layer whose rule it takes, from `add_layer` and `rename_layer` corrections in
+ * order (ADR-050). A chain (A renamed to B, B renamed to C) resolves to the first layer.
+ */
+export function layerAliases(corrections: readonly DrawingCorrectionInput[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of corrections) {
+    if (c.kind === 'add_layer') {
+      if (c.like !== null) out.set(c.layer, out.get(c.like) ?? c.like);
+    } else if (c.kind === 'rename_layer') out.set(c.to, out.get(c.from) ?? c.from);
   }
   return out;
 }

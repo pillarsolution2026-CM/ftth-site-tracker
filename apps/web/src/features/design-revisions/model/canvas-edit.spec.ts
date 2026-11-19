@@ -107,3 +107,23 @@ describe('moves and turns in the edit mode (ADR-047)', () => {
     expect(entitiesInBand(scene, { x0: 69, y0: 19, x1: 73, y1: 23 }, all, moved)).toEqual([2]);
   });
 });
+
+describe('box picking of curves with new points (ADR-051)', () => {
+  it('a window takes a trimmed line by where it is now', () => {
+    const curveOf = new Map([
+      [
+        1,
+        {
+          points: [
+            [50, 25],
+            [60, 25],
+          ] as [number, number][],
+          closed: false,
+        },
+      ],
+    ]);
+    const band = { x0: 45, y0: 30, x1: 65, y1: 20 };
+    expect(entitiesInBand(scene, band, all, new Map(), new Set(), curveOf)).toContain(1);
+    expect(entitiesInBand(scene, band, all)).not.toContain(1);
+  });
+});

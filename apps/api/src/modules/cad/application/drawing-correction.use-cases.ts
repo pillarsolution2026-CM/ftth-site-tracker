@@ -20,19 +20,46 @@ const handleNotFound = (handles: string[]) =>
     422,
   );
 
-/** The handles a correction points at and the kinds of rows each may be (add_* point at none). */
+/**
+ * The handles a correction points at and the kinds of rows each may be (add_* point at none). A
+ * note (`add_note`) is screen-only and names no item nor a layer rule (ADR-051).
+ */
 function references(input: DrawingCorrectionInput): { handles: string[]; kinds: HandleKind[] } {
   switch (input.kind) {
     case 'move_layer':
     case 'move_item':
     case 'rotate_item':
+    case 'erase_item':
+    case 'copy_item':
+    case 'mirror_item':
+    case 'scale_item':
+    case 'set_style':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
+    case 'set_curve':
+      return { handles: [input.handle], kinds: ['curve'] };
     case 'set_text':
       return { handles: [input.handle], kinds: ['text'] };
     case 'merge_routes':
       return { handles: input.handles, kinds: ['curve'] };
     default:
       return { handles: [], kinds: [] };
+  }
+}
+
+/**
+ * Layers a correction moves an item to (or takes the meaning of): each needs a usable rule, so an
+ * item of the drawing never drops out of the checks with its error (owner 2026-11-09). A line drawn
+ * on the page may go on any layer (owner 2026-11-19, ADR-051): on a layer without a rule the build
+ * ignores it, and it hides no error.
+ */
+function targetLayersOf(input: DrawingCorrectionInput): string[] {
+  switch (input.kind) {
+    case 'move_layer':
+      return [input.toLayer];
+    case 'add_layer':
+      return input.like === null ? [] : [input.like];
+    default:
+      return [];
   }
 }
 
@@ -126,12 +153,19 @@ export class CreateDrawingCorrectionUseCase {
 
       // Owner 2026-11-09: a move only to a layer whose saved rule makes it a feature type or a
       // label; otherwise the item would drop out before the checks and its error would vanish.
-      const moves = requests.flatMap((request) =>
-        request.correction.kind === 'move_layer' ? [request.correction.toLayer] : [],
-      );
+      // The same holds for a drawn line and for the source of an added layer (ADR-050); layers
+      // added or renamed by corrections in force or in this save count with their source's rule.
+      const moves = requests.flatMap((request) => targetLayersOf(request.correction));
       if (moves.length > 0) {
         const mapping = await tx.mappings.find(projectId, cadFileId);
-        const targets = moveLayerTargets(mapping?.rules ?? []);
+        const inForce = (await tx.corrections.list(projectId, cadFileId))
+          .filter((item) => item.withdrawnAt === null)
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .map((item) => item.correction);
+        const targets = moveLayerTargets(mapping?.rules ?? [], [
+          ...inForce,
+          ...requests.map((request) => request.correction),
+        ]);
         const refused = moves.find((layer) => !targets.has(layer));
         if (refused !== undefined) {
           throw new AppError(

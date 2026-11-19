@@ -12,20 +12,33 @@ from cad_worker.application.build_revision import compose_design
 from cad_worker.domain.corrections import (
     DEFAULT_TEXT_HEIGHT,
     MAX_CORRECTION_COORD,
+    AddCurve,
     AddItem,
+    AddLayer,
+    AddNote,
     AddText,
+    CopyItem,
     CorrectionInvalidError,
+    DeleteLayer,
     DismissProblem,
+    EraseItem,
     FrozenCorrection,
     MergeRoutes,
+    MirrorItem,
     MoveItem,
     MoveLayer,
+    RenameLayer,
     RotateItem,
+    ScaleItem,
+    SetCurve,
+    SetStyle,
     SetText,
     apply_corrections,
     curve_handles,
     dismissed_places,
+    layer_aliases,
     parse_corrections,
+    with_layer_aliases,
 )
 from cad_worker.domain.design_build import (
     FIX_BLOCK,
@@ -635,3 +648,236 @@ def test_moving_a_missing_handle_fails_loudly(correction: Any) -> None:
 def test_moved_and_rotated_curves_are_read_even_without_a_rule() -> None:
     frozen = [fix(MoveItem("c1", 1, 1), ID1), fix(RotateItem("c2", 0, 0, 5), ID2)]
     assert curve_handles(frozen) == frozenset({"c1", "c2"})
+
+
+# ---------- CAD ribbon (ADR-050) ----------
+
+
+def test_ribbon_kinds_are_parsed_strictly() -> None:
+    raw = [
+        {"id": str(uuid.UUID(int=i + 1)), "correction": body}
+        for i, body in enumerate(
+            [
+                {"kind": "erase_item", "handle": "c1"},
+                {"kind": "copy_item", "handle": "c1", "dx": 1, "dy": 2},
+                {"kind": "mirror_item", "handle": "c1", "x1": 0, "y1": 0, "x2": 1, "y2": 0},
+                {"kind": "scale_item", "handle": "c1", "x": 0, "y": 0, "factor": 2},
+                {"kind": "add_curve", "layer": "R", "points": [[0, 0], [1, 1]], "closed": False},
+                {"kind": "add_layer", "layer": "N", "like": "R"},
+                {"kind": "rename_layer", "from": "R", "to": "R2"},
+                {"kind": "delete_layer", "layer": "R"},
+            ]
+        )
+    ]
+    kinds = [type(p.correction).__name__ for p in parse_corrections(raw)]
+    assert kinds == [
+        "EraseItem",
+        "CopyItem",
+        "MirrorItem",
+        "ScaleItem",
+        "AddCurve",
+        "AddLayer",
+        "RenameLayer",
+        "DeleteLayer",
+    ]
+    for body in (
+        {"kind": "mirror_item", "handle": "c1", "x1": 1, "y1": 1, "x2": 1, "y2": 1},
+        {"kind": "scale_item", "handle": "c1", "x": 0, "y": 0, "factor": 0},
+        {"kind": "add_curve", "layer": "R", "points": [[0, 0]], "closed": False},
+        {"kind": "add_curve", "layer": "R", "points": [[0, 0], [1]], "closed": False},
+        {"kind": "add_layer", "layer": "R", "like": "R"},
+        {"kind": "rename_layer", "from": "R", "to": "R"},
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])
+
+
+def test_erase_copy_mirror_and_scale() -> None:
+    drawing = empty(
+        curves=(line("c1", "road", (1, 0), (3, 0)),),
+        inserts=(insert("i1", "Sap", "Sap", (2, 2)),),
+        texts=(label("t1", "jont 36", "Joint 36", (4, 4)),),
+    )
+    out = apply(
+        drawing,
+        CopyItem("c1", 0, 5),
+        EraseItem("i1"),
+        MirrorItem("c1", 0, 0, 0, 1),
+        ScaleItem("t1", 0, 0, 2),
+    )
+    curves = {c.handle: c.points for c in out.curves}
+    assert curves["c1"] == ((-1, 0), (-3, 0))
+    copy = next(h for h in curves if h.startswith("FIX-"))
+    assert curves[copy] == ((1, 5), (3, 5))
+    assert out.inserts == ()
+    assert out.texts[0].position == (8, 8) and out.texts[0].height == 4.0
+
+
+def test_a_drawn_route_is_a_route_and_ids_are_unique() -> None:
+    out = apply(empty(), AddCurve("DUCT 4", ((0, 0), (10, 0), (10, 5)), False))
+    assert out.curves[0].handle.startswith("FIX-")
+    assert out.curves[0].layer == "DUCT 4" and len(out.curves[0].points) == 3
+
+
+def test_layer_rename_and_delete_move_or_remove_every_row() -> None:
+    drawing = empty(
+        curves=(line("c1", "road", (0, 0), (1, 0)), line("c2", "keep", (0, 0), (1, 0))),
+        inserts=(insert("i1", "road", "B", (0, 0)),),
+        texts=(label("t1", "old", "x", (0, 0)),),
+    )
+    out = apply(drawing, RenameLayer("old", "new"), DeleteLayer("road"))
+    assert [c.handle for c in out.curves] == ["c2"]
+    assert out.inserts == ()
+    assert out.texts[0].layer == "new"
+
+
+def test_added_and_renamed_layers_take_the_rule_of_their_source() -> None:
+    frozen = [
+        fix(AddLayer("N", "DUCT 4"), ID1),
+        fix(RenameLayer("N", "N2"), ID2),
+    ]
+    aliases = layer_aliases(frozen)
+    assert aliases == {"N": "DUCT 4", "N2": "DUCT 4"}
+    rules = [{"source": "layer", "layer": "DUCT 4", "target": "route"}]
+    extended = with_layer_aliases(rules, aliases)
+    assert extended == [
+        *rules,
+        {"source": "layer", "layer": "N", "target": "route"},
+        {"source": "layer", "layer": "N2", "target": "route"},
+    ]
+    # A move to an added layer is allowed when its source may be targeted.
+    out = apply_corrections(
+        empty(curves=(line("c1", "x", (0, 0), (1, 0)),)),
+        [*frozen, fix(MoveLayer("c1", "N2"), str(uuid.UUID(int=9)))],
+        metres_per_unit=1.0,
+        move_targets=frozenset({"DUCT 4"}),
+    )
+    assert out.curves[0].layer == "N2"
+
+
+@pytest.mark.parametrize(
+    "correction",
+    [EraseItem("missing"), CopyItem("missing", 1, 1), ScaleItem("missing", 0, 0, 2)],
+)
+def test_ribbon_on_a_missing_handle_fails_loudly(correction: Any) -> None:
+    with pytest.raises(CorrectionInvalidError, match="no item with handle missing"):
+        apply(empty(), correction)
+
+
+# ---------- AutoCAD-like screen (ADR-051) ----------
+
+
+def test_screen_kinds_are_parsed_strictly() -> None:
+    raw = [
+        {"id": str(uuid.UUID(int=i + 1)), "correction": body}
+        for i, body in enumerate(
+            [
+                {"kind": "set_curve", "handle": "c1", "points": [[0, 0], [2, 0]], "closed": False},
+                {
+                    "kind": "add_note",
+                    "note": "dimension",
+                    "layer": "DIM",
+                    "points": [[0, 0], [4, 0], [2, 1]],
+                    "text": None,
+                },
+                {
+                    "kind": "add_note",
+                    "note": "leader",
+                    "layer": "DIM",
+                    "points": [[1, 1]],
+                    "text": "ODB",
+                },
+                {
+                    "kind": "set_style",
+                    "handle": "c1",
+                    "color": "#FF00aa",
+                    "linetype": "dashed",
+                    "lineweight": 0.35,
+                },
+                {
+                    "kind": "set_style",
+                    "handle": "c1",
+                    "color": None,
+                    "linetype": None,
+                    "lineweight": None,
+                },
+            ]
+        )
+    ]
+    parsed = [p.correction for p in parse_corrections(raw)]
+    assert parsed[0] == SetCurve("c1", ((0, 0), (2, 0)), False)
+    assert parsed[1] == AddNote("dimension", "DIM", ((0, 0), (4, 0), (2, 1)), None)
+    assert parsed[2] == AddNote("leader", "DIM", ((1, 1),), "ODB")
+    assert parsed[3] == SetStyle("c1", "#FF00aa", "dashed", 0.35)
+    assert parsed[4] == SetStyle("c1", None, None, None)
+    note: dict[str, Any] = {"kind": "add_note", "note": "leader", "layer": "DIM", "text": None}
+    style: dict[str, Any] = {"kind": "set_style", "handle": "c1", "color": None, "linetype": None}
+    bad: tuple[dict[str, Any], ...] = (
+        {"kind": "set_curve", "handle": "c1", "points": [[0, 0]], "closed": False},
+        {"kind": "set_curve", "handle": "c1", "points": [[0, 0], [1, 1]], "layer": "R"},
+        {**note, "points": []},
+        {**note, "points": [[i, i] for i in range(51)]},
+        {**note, "note": "table", "points": [[0, 0]]},
+        {**note, "points": [[0, 0]], "text": "  "},
+        {**style, "color": "red", "lineweight": None},
+        {**style, "linetype": "zigzag", "lineweight": None},
+        {**style, "lineweight": 11},
+        {**style, "lineweight": True},
+    )
+    for body in bad:
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])
+
+
+def test_set_curve_replaces_the_points_and_keeps_handle_and_layer() -> None:
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0), (10, 5)),))
+    out = apply(drawing, SetCurve("c1", ((0, 0), (6, 0)), False))
+    assert out.curves == (SourceCurve("c1", "DUCT 4", ((0, 0), (6, 0)), False, "LWPOLYLINE"),)
+    assert "c1" in curve_handles([fix(SetCurve("c1", ((0, 0), (1, 0)), False))])
+    with pytest.raises(CorrectionInvalidError, match="no line with handle t1"):
+        apply(
+            empty(texts=(label("t1", "L", "x", (0, 0)),)),
+            SetCurve("t1", ((0, 0), (1, 0)), False),
+        )
+
+
+def test_notes_and_styles_change_no_row_and_no_problem() -> None:
+    drawing = empty(
+        curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),),
+        inserts=(insert("i1", "Sap", "Sap", (2, 2)),),
+        texts=(label("t1", "jont 36", "Joint 36", (4, 4)),),
+    )
+    out = apply(
+        drawing,
+        AddNote("dimension", "DIM", ((0, 0), (10, 0), (5, 2)), None),
+        AddNote("leader", "NO RULE", ((1, 1), (3, 3)), "ODB"),
+        SetStyle("c1", "#ff0000", "dashed", 0.5),
+        # The build never looks the handle up: a style of a gone item is harmless.
+        SetStyle("gone", None, None, None),
+    )
+    assert out == drawing
+    assert problems(out) == problems(drawing)
+
+
+def test_a_layer_for_drawing_only_and_a_layer_given_a_meaning() -> None:
+    """Owner 2026-11-19 (ADR-051): a line may be drawn on any layer; on one without a rule the
+    build ignores it, and a layer of the drawing without a rule can be given another's meaning."""
+    parsed = parse_corrections(
+        [{"id": ID1, "correction": {"kind": "add_layer", "layer": "HOUSES", "like": None}}]
+    )
+    assert parsed[0].correction == AddLayer("HOUSES", None)
+    assert layer_aliases(parsed) == {}
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    houses = apply(drawing, AddCurve("HOUSES", ((0, 5), (5, 5), (5, 9), (0, 9)), True))
+    built = build_features(houses, RULES, unit_placer(1.0))
+    assert built.features == build_features(drawing, RULES, unit_placer(1.0)).features
+    assert problems(houses) == problems(drawing)
+    # «buildings» has no rule: once it means what DUCT 4 means, a line drawn on it is a route.
+    frozen = [fix(AddLayer("buildings", "DUCT 4"), ID1)]
+    rules = with_layer_aliases(
+        [{"source": "layer", "layer": "DUCT 4", "target": "route"}], layer_aliases(frozen)
+    )
+    assert rules == [
+        {"source": "layer", "layer": "DUCT 4", "target": "route"},
+        {"source": "layer", "layer": "buildings", "target": "route"},
+    ]

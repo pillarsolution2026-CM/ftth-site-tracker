@@ -110,27 +110,24 @@ describe('warnings apart from errors (ADR-041)', () => {
       1,
     );
 
-  it('counts blocking places only in the heading and lists warnings under their own heading', async () => {
+  it('counts blocking places only in the heading; warnings have their own filter', async () => {
     api.listDrawingProblems.mockResolvedValue(data());
     render();
     expect(
       await screen.findByRole('heading', { level: 2, name: /Drawing errors: .*1/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Warnings: .*1/ })).toBeInTheDocument();
-    // The note says it does not block, once under the heading and once on the problem itself.
-    expect(screen.getAllByText('Warning — does not block publishing')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /^Warnings .*1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Errors .*1/ })).toBeInTheDocument();
   });
 
-  it('puts the warning problem after the warnings heading, not among the errors', async () => {
+  it('lists the errors first, then the warnings; a warning says it does not block', async () => {
     api.listDrawingProblems.mockResolvedValue(data());
     render();
-    const warnings = await screen.findByRole('heading', { level: 3, name: /Warnings/ });
-    const errorBlock = screen.getByRole('heading', { level: 3, name: /Box count differs/ });
-    const slack = screen.getByRole('heading', { level: 3, name: /Cable spare over 30 m/ });
-    expect(
-      errorBlock.compareDocumentPosition(warnings) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(warnings.compareDocumentPosition(slack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const error = await screen.findByRole('button', { name: /Box count differs/ });
+    const slack = screen.getByRole('button', { name: /Cable spare over 30 m/ });
+    expect(error.compareDocumentPosition(slack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.setup().click(slack);
+    expect(screen.getByText('Warning — does not block publishing')).toBeInTheDocument();
   });
 
   it('says there are no errors when only warnings are left', async () => {
@@ -139,16 +136,16 @@ describe('warnings apart from errors (ADR-041)', () => {
     );
     render();
     expect(await screen.findByText('No drawing errors found.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Warnings: .*1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Warnings .*1/ })).toBeInTheDocument();
   });
 
-  it('has no warnings heading when there are none', async () => {
+  it('has no warnings when there are none', async () => {
     api.listDrawingProblems.mockResolvedValue(
       list([view('BOX_NOT_REACHED', [{ handle: 'B1' }])], 1, 0),
     );
     render();
-    await screen.findByRole('table');
-    expect(screen.queryByRole('heading', { name: /Warnings/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Warnings .*0/ })).toBeInTheDocument();
+    expect(screen.queryByText('Warning — does not block publishing')).not.toBeInTheDocument();
   });
 });
 
@@ -205,7 +202,7 @@ describe('what is wrong at each place (params)', () => {
       list([view('LABEL_MISSING', [{ handle: 'M1' }])], 1, 0),
     );
     render();
-    await screen.findByRole('table');
+    await screen.findByRole('button', { expanded: true });
     expect(screen.queryByText(/Missing text/)).not.toBeInTheDocument();
   });
 
@@ -224,7 +221,7 @@ describe('fix tools of the reading problems', () => {
     api.listDrawingProblems.mockResolvedValue(list([view(code, [item])], 1, 0));
     render(true);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Fix this place' }));
+    await screen.findByRole('button', { name: 'Close' });
     return user;
   }
 
@@ -294,7 +291,7 @@ describe('fix tools of the reading problems', () => {
       api.listDrawingProblems.mockResolvedValue(list([view(code, [{ handle: 'B1' }])], 1, 0));
       render(true);
       expect(await screen.findByText(/fixed in AutoCAD/)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Fix this place' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
     },
   );
 });
@@ -304,7 +301,7 @@ describe('owner answers (2026-11-11): messages and tools', () => {
     api.listDrawingProblems.mockResolvedValue(list([view(code, [item])], 1, 0));
     render(true);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Fix this place' }));
+    await screen.findByRole('button', { name: 'Close' });
     return user;
   }
 

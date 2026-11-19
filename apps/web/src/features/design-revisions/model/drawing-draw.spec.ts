@@ -1,9 +1,16 @@
 import type { DrawingProblemView } from '@ftth/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { drawBase, drawOverlay, PathCache, TRENCH_COLOR, type DrawModel } from './drawing-draw';
+import {
+  CANVAS_BG,
+  drawBase,
+  drawOverlay,
+  PathCache,
+  TRENCH_COLOR,
+  type DrawModel,
+} from './drawing-draw';
 import { buildMarkers } from './drawing-hit';
 import { applyCorrections, EMPTY_PREVIEW } from './drawing-preview';
-import { buildScene } from './drawing-scene';
+import { buildScene, screenColor } from './drawing-scene';
 import { testView } from './drawing-test-view';
 import { createMockContext, FakePath2D } from './mock-canvas';
 
@@ -29,7 +36,7 @@ function model(overrides: Partial<DrawModel> = {}): DrawModel {
 }
 
 describe('drawBase', () => {
-  it('clears to white and strokes shown entities with a hairline of 1 px at any zoom', () => {
+  it('clears to black and strokes shown entities with a hairline of 1 px at any zoom', () => {
     for (const scale of [2, 8]) {
       const ctx = createMockContext();
       drawBase(asCtx(ctx), model(), new PathCache(scene), { cx: 50, cy: 25, scale }, vp);
@@ -344,5 +351,111 @@ describe('drawOverlay box type texts (ADR-043)', () => {
       vp,
     );
     expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+});
+
+describe('the AutoCAD-like screen (ADR-051)', () => {
+  const tf = { cx: 50, cy: 25, scale: 4 };
+  const at = (n: number) => ({ createdAt: `2026-11-19T10:00:0${n}+00:00` });
+  const saved = (
+    correction: Parameters<typeof applyCorrections>[1][number]['correction'],
+    n: number,
+  ) => ({
+    id: `44444444-4444-4444-8444-44444444444${n}`,
+    cadFileId: scene.view.cadFileId,
+    correction,
+    problem: null,
+    createdBy: null,
+    withdrawnBy: null,
+    withdrawnAt: null,
+    ...at(n),
+  });
+
+  it('clears to black, and draws a black stroke white like colour 7', () => {
+    const ctx = createMockContext();
+    const fills: string[] = [];
+    ctx.fillRect.mockImplementation(() => {
+      fills.push(ctx.fillStyle);
+    });
+    drawBase(asCtx(ctx), model(), new PathCache(scene), tf, vp);
+    expect(fills[0]).toBe(CANVAS_BG);
+    expect(screenColor('#000000')).toBe('#ffffff');
+    expect(screenColor('#0000ff')).toBe('#0000ff');
+  });
+
+  it('draws a styled line in its colour and dash, a curve by its new points, and a dimension', () => {
+    const preview = applyCorrections(
+      scene,
+      [
+        saved(
+          {
+            kind: 'set_style',
+            handle: 'B',
+            color: '#ff00ff',
+            linetype: 'dashed',
+            lineweight: null,
+          },
+          1,
+        ),
+        saved(
+          {
+            kind: 'set_curve',
+            handle: 'A',
+            points: [
+              [0, 0],
+              [30, 0],
+            ],
+            closed: false,
+          },
+          2,
+        ),
+        saved(
+          {
+            kind: 'add_note',
+            note: 'dimension',
+            layer: 'Route',
+            points: [
+              [0, 0],
+              [10, 0],
+              [5, 5],
+            ],
+            text: null,
+          },
+          3,
+        ),
+      ],
+      2.5,
+    );
+    const ctx = createMockContext();
+    const strokes: string[] = [];
+    ctx.stroke.mockImplementation(() => {
+      strokes.push(ctx.strokeStyle);
+    });
+    drawBase(asCtx(ctx), model({ preview }), new PathCache(scene), tf, vp);
+    expect(strokes).toContain('#ff00ff');
+    expect(ctx.setLineDash.mock.calls.some((call) => (call[0] as number[]).length === 2)).toBe(
+      true,
+    );
+    // A is drawn from its new points (relative to the scene origin 50, 25).
+    expect(ctx.lineTo).toHaveBeenCalledWith(-20, -25);
+    expect(ctx.fillText.mock.calls.map((call) => call[0])).toContain('10.00');
+  });
+
+  it('a layer colour chosen for the screen paints the lines that follow their layer', () => {
+    const ctx = createMockContext();
+    const strokes: string[] = [];
+    ctx.stroke.mockImplementation(() => {
+      strokes.push(ctx.strokeStyle);
+    });
+    drawBase(
+      asCtx(ctx),
+      model({ layerColor: new Map([[0, '#00ffff']]) }),
+      new PathCache(scene),
+      tf,
+      vp,
+    );
+    // A follows its layer: cyan now; B has its own colour.
+    expect(strokes).toContain('#00ffff');
+    expect(strokes).toContain('#123456');
   });
 });

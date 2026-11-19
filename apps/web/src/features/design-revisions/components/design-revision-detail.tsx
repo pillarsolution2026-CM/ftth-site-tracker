@@ -105,6 +105,27 @@ export function DesignRevisionDetailScreen({
             isSecondary={revision.drawingKind === 'secondary'}
             onShowOnDrawing={showOnDrawing}
             onUnsavedChange={setUnsaved}
+            sidePanel={
+              <ProblemsSection
+                projectId={projectId}
+                revisionId={revisionId}
+                cadFileId={revision.cadFileId}
+                enabled={state.canRead && state.built}
+                canFix={state.canReview}
+                onShowOnDrawing={showOnDrawing}
+              />
+            }
+            correctionsPanel={
+              <CorrectionsSection
+                projectId={projectId}
+                revisionId={revisionId}
+                cadFileId={revision.cadFileId}
+                builtAt={revision.builtAt}
+                listPath={listPath}
+                enabled={state.canRead && state.built}
+                canEdit={state.canReview}
+              />
+            }
             focus={focus}
           />
         </Card>
@@ -166,16 +187,6 @@ export function DesignRevisionDetailScreen({
       </Card>
       {state.built ? (
         <>
-          <Card>
-            <ProblemsSection
-              projectId={projectId}
-              revisionId={revisionId}
-              cadFileId={revision.cadFileId}
-              enabled={state.canRead && state.built}
-              canFix={state.canReview}
-              onShowOnDrawing={showOnDrawing}
-            />
-          </Card>
           {revision.drawingKind === 'secondary' ? (
             <Card>
               <BoxTypesSection
@@ -188,17 +199,6 @@ export function DesignRevisionDetailScreen({
               />
             </Card>
           ) : null}
-          <Card>
-            <CorrectionsSection
-              projectId={projectId}
-              revisionId={revisionId}
-              cadFileId={revision.cadFileId}
-              builtAt={revision.builtAt}
-              listPath={listPath}
-              enabled={state.canRead && state.built}
-              canEdit={state.canReview}
-            />
-          </Card>
           <Card>
             <TextReviewView state={review} canReview={state.canReview} />
           </Card>

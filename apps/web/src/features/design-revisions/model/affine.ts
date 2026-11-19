@@ -61,3 +61,28 @@ export function boxThrough(t: Affine, box: Bounds): Bounds {
     maxY: Math.max(...corners.map((p) => p.y)),
   };
 }
+
+/** Reflection across the line through (x1, y1) and (x2, y2) (ADR-050). */
+export function mirrorAcross(x1: number, y1: number, x2: number, y2: number): Affine {
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (len === 0) return IDENTITY;
+  const ux = (x2 - x1) / len;
+  const uy = (y2 - y1) / len;
+  const a = 2 * ux * ux - 1;
+  const b = 2 * ux * uy;
+  const d = 2 * uy * uy - 1;
+  return [a, b, b, d, x1 - (a * x1 + b * y1), y1 - (b * x1 + d * y1)];
+}
+
+/** Scale by `factor` about (x, y) (ADR-050). */
+export const scaleAbout = (x: number, y: number, factor: number): Affine => [
+  factor,
+  0,
+  0,
+  factor,
+  x - x * factor,
+  y - y * factor,
+];
+
+/** How much lengths grow under the transform (texts scale their height by it). */
+export const scaleOf = (t: Affine) => Math.sqrt(Math.abs(t[0] * t[3] - t[1] * t[2]));

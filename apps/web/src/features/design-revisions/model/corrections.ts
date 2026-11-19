@@ -78,11 +78,21 @@ export function placeKey(code: DrawingProblemCode, handle: string): string {
   return `${code}:${problemHandle(handle)}`;
 }
 
-/** Places answered by a correction still in force: fixed, but only gone after a rebuild. */
-export function pendingPlaces(items: readonly DrawingCorrection[]): ReadonlySet<string> {
+/**
+ * Places answered by a correction still in force: fixed, but only gone after a rebuild. Only
+ * corrections made after `since` (when the revision was created and froze its corrections) count:
+ * one the revision already applied did not fix its place, which is still reported (owner
+ * 2026-11-18: a false «تم التصحيح» hid the ✕ and the fix tools).
+ */
+export function pendingPlaces(
+  items: readonly DrawingCorrection[],
+  since: string | null = null,
+): ReadonlySet<string> {
   const keys = new Set<string>();
+  const after = since === null ? -Infinity : Date.parse(since);
   for (const item of items) {
     if (item.withdrawnAt !== null || item.problem === null) continue;
+    if (!(Date.parse(item.createdAt) > after)) continue;
     keys.add(placeKey(item.problem.code, item.problem.handle));
   }
   return keys;
@@ -172,6 +182,12 @@ export function pointLayersOf(view: CadMappingView | undefined): PointLayer[] {
  */
 export const layerNamesOf = (view: CadMappingView | undefined): string[] =>
   [...moveLayerTargets(view?.mapping?.rules ?? [])].sort((a, b) => a.localeCompare(b));
+
+/** Layers that have a layer rule of their own (whatever it makes them), ADR-051. */
+export const ruledLayersOf = (view: CadMappingView | undefined): Set<string> =>
+  new Set(
+    (view?.mapping?.rules ?? []).flatMap((rule) => (rule.source === 'layer' ? [rule.layer] : [])),
+  );
 
 export function metresPerUnitOf(view: CadMappingView | undefined): number | null {
   const value = Number(view?.mapping?.metresPerUnit);

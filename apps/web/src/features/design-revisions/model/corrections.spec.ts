@@ -76,6 +76,15 @@ describe('corrections model', () => {
     expect(pending.has(placeKey('WRONG_LAYER', 'ZZ'))).toBe(false);
   });
 
+  it('a correction the revision already applied does not mark its place fixed (owner 2026-11-18)', () => {
+    const created = Date.parse(base.createdAt);
+    const before = new Date(created - 60_000).toISOString();
+    const after = new Date(created + 60_000).toISOString();
+    expect(pendingPlaces([base], after).has(placeKey('WRONG_LAYER', 'A1'))).toBe(false);
+    expect(pendingPlaces([base], before).has(placeKey('WRONG_LAYER', 'A1'))).toBe(true);
+    expect(pendingPlaces([base], null).has(placeKey('WRONG_LAYER', 'A1'))).toBe(true);
+  });
+
   it('label offset is half a metre in drawing units', () => {
     expect(labelOffset(1)).toBe(0.5);
     expect(labelOffset(0.001)).toBe(500);
