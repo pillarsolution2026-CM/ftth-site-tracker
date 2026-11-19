@@ -755,7 +755,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const needDrawLayer = (): boolean => {
     if (drawLayer) return true;
-    say(msg('needLayer'));
+    // A current layer without a rule: the build would not read what is drawn on it.
+    say(current ? msg('layerNoRule', { layer: current }) : msg('needLayer'));
     return false;
   };
 
@@ -1604,6 +1605,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       }
       setCurrentLayer(value);
+      say(msg('currentNow', { layer: value }));
+      if (!layers.includes(value)) say(msg('layerNotesOnly', { layer: value }));
     },
     addLayer: (name, like) => {
       const value = name.trim();

@@ -1837,7 +1837,8 @@
           "DISTANCE": "Value must be positive and nonzero.",
           "PARALLEL": "Lines are parallel.",
           "CLOSED": "Cannot fillet a closed polyline."
-        }
+        },
+        "layerNotesOnly": "Layer \"{layer}\" has no rule: only dimensions and leaders can go on it. To draw lines, choose a layer with a rule (bright in the list)."
       },
       "tool": {
         "line": "Line",

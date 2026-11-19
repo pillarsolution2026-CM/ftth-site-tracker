@@ -825,7 +825,17 @@ describe(
       expect((poly?.points as number[][]).length).toBe(3);
     });
 
-    it('CIRCLE by centre and radius, RECTANG by two corners, ARC through three points', async () => {
+    it('a current layer without a rule takes notes only, and says so', async () => {
+    const { canvas, user } = await openWorkspace();
+    await chooseLayer(user, 'CABINET');
+    expect(history()).toMatch(/Layer "CABINET" has no rule: only dimensions and leaders/);
+    await type(user, 'l');
+    await click(user, canvas, 10, 10);
+    expect(history()).toMatch(/Layer "CABINET" has no rule for drawing items/);
+    expect(prompt()).toMatch(/LINE Specify first point:/);
+  });
+
+  it('CIRCLE by centre and radius, RECTANG by two corners, ARC through three points', async () => {
       const { user } = await openWorkspace();
       await chooseLayer(user, 'Route');
       await type(user, 'c');

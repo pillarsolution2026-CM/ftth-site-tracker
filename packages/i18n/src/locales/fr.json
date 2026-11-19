@@ -1837,7 +1837,8 @@
           "DISTANCE": "La valeur doit être positive et non nulle.",
           "PARALLEL": "Les lignes sont parallèles.",
           "CLOSED": "Impossible de raccorder une polyligne fermée."
-        }
+        },
+        "layerNotesOnly": "Le calque « {layer} » n'a pas de règle : seules des cotes et lignes de repère peuvent y aller. Pour dessiner des lignes, choisissez un calque avec une règle (clair dans la liste)."
       },
       "tool": {
         "line": "Ligne",
