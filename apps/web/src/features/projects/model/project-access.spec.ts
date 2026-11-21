@@ -75,6 +75,8 @@ describe('project access and navigation', () => {
 
   it('links to the first readable section', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'supervisor')] }), P1);
-    expect(firstSectionPath('ar', access)).toBe(`/ar/projects/${P1}/work-orders`);
+    // A supervisor only has asbuilt:* on the web (ADR-054): no work-order, CAD or design sections.
+    expect(visibleNavItems(access).map((item) => item.id)).toEqual(['asbuilt']);
+    expect(firstSectionPath('ar', access)).toBe(`/ar/projects/${P1}/asbuilt`);
   });
 });

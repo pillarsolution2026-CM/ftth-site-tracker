@@ -2223,13 +2223,15 @@
       "BASE_OUTDATED": "Base obsolète",
       "REVISION_OUTDATED": "Révision obsolète",
       "FEATURE_REMOVED": "Élément supprimé",
-      "CLOCK_AHEAD": "Horloge en avance"
+      "CLOCK_AHEAD": "Horloge en avance",
+      "OUTSIDE_DRAWING": "Hors du dessin"
     },
     "flagExplain": {
       "BASE_OUTDATED": "Une autre modification de cet élément a été approuvée après la version sur laquelle celle-ci a été dessinée. Elle ne peut pas être approuvée : rejetez-la pour que le superviseur la redessine sur l'état actuel.",
       "REVISION_OUTDATED": "Le superviseur a dessiné sur une révision de conception qui n'est plus la dernière publiée. Vérifiez le dessin avant d'approuver.",
       "FEATURE_REMOVED": "Cet élément n'est plus dans la dernière révision de conception publiée. Vérifiez que la modification a encore un sens.",
-      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable."
+      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable.",
+      "OUTSIDE_DRAWING": "La géométrie modifiée dépasse l’étendue des éléments de conception de ce dessin (les sites n’ont pas de limite). Vérifiez avant d’approuver."
     },
     "noFlags": "Aucune alerte",
     "detail": {

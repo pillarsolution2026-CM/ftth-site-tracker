@@ -99,6 +99,7 @@ export const FLAG_LABEL: Record<AsBuiltEditFlag, MessageKey> = {
   REVISION_OUTDATED: 'asbuiltReview.flag.REVISION_OUTDATED',
   FEATURE_REMOVED: 'asbuiltReview.flag.FEATURE_REMOVED',
   CLOCK_AHEAD: 'asbuiltReview.flag.CLOCK_AHEAD',
+  OUTSIDE_DRAWING: 'asbuiltReview.flag.OUTSIDE_DRAWING',
 };
 
 export const FLAG_EXPLANATION: Record<AsBuiltEditFlag, MessageKey> = {
@@ -106,6 +107,7 @@ export const FLAG_EXPLANATION: Record<AsBuiltEditFlag, MessageKey> = {
   REVISION_OUTDATED: 'asbuiltReview.flagExplain.REVISION_OUTDATED',
   FEATURE_REMOVED: 'asbuiltReview.flagExplain.FEATURE_REMOVED',
   CLOCK_AHEAD: 'asbuiltReview.flagExplain.CLOCK_AHEAD',
+  OUTSIDE_DRAWING: 'asbuiltReview.flagExplain.OUTSIDE_DRAWING',
 };
 
 export const KIND_LABEL: Record<AsBuiltEditKind, MessageKey> = {
