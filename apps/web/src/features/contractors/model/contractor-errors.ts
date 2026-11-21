@@ -16,6 +16,7 @@ const PARAM_KEYS = [
   'scope',
   'otherScopesPrice',
   'maxAllowedPrice',
+  'recordedQuantity',
 ] as const;
 
 /**
