@@ -256,11 +256,16 @@ export type OfflineDrawing = z.infer<typeof OfflineDrawingSchema>;
 export const OfflineBundleSchema = z.object({
   serverTime: z.iso.datetime({ offset: true }),
   project: z.object({ id: z.uuid(), name: z.string(), crsEpsg: z.number().int() }),
+  /** ADR-054: a supervisor's reach is his sites; project-wide roles see the whole project. */
   scope: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('project') }),
-    z.object({ kind: z.literal('zones'), zoneIds: z.array(z.uuid()) }),
+    z.object({ kind: z.literal('sites'), siteIds: z.array(z.uuid()) }),
   ]),
-  /** Every published drawing with its latest published revision (ADR-049 part B). */
+  /**
+   * Every published drawing with its latest published revision (ADR-049 part B). ADR-054: for a
+   * supervisor only the drawings of his sites (names of other sites are never sent); drawings
+   * without a site are never sent to him.
+   */
   drawings: z.array(OfflineDrawingSchema).default([]),
   /**
    * The picked drawing's latest published revision (`drawingId`), else the General published

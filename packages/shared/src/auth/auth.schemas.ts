@@ -24,8 +24,10 @@ export const ProjectMembershipSchema = z.object({
   projectId: z.uuid(),
   projectName: z.string(),
   role: RoleSchema,
-  /** Empty when the role is project-wide. */
+  /** Retired with zones (ADR-054): always empty. */
   zoneIds: z.array(z.uuid()),
+  /** A supervisor's sites (ADR-054); empty for project-wide roles. */
+  siteIds: z.array(z.uuid()).default([]),
 });
 export type ProjectMembership = z.infer<typeof ProjectMembershipSchema>;
 
