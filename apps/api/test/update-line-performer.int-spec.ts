@@ -30,6 +30,8 @@ interface Registered {
   lineIds: Record<string, string>;
 }
 
+// The tests share one work order: whole-line contractors on C-02 (work order 10) add up to 9 and
+// on C-01 (work order 100) to 95, within the per-scope cap of migration 0013.
 async function register(
   name: string,
   lines: { item: string; quantity: string; scope?: string }[],
@@ -173,7 +175,7 @@ describe('performer of a work line', () => {
   });
 
   it('rejects an unknown contractor line and one of another work-order line', async () => {
-    const reg = await register('Bravo', [{ item: fx.items.civilPieces, quantity: '5' }]);
+    const reg = await register('Bravo', [{ item: fx.items.civilPieces, quantity: '1' }]);
     const pieces = reg.lineIds[fx.items.civilPieces] ?? '';
     const unknown = await push(
       op([{ item: fx.items.civilMetres, quantity: '1', performer: viaLine(randomUUID()) }]),
@@ -325,7 +327,7 @@ describe('contractor admin conflicts', () => {
   it('refuses to remove a line or a registration with recorded work (409 LINE_HAS_WORK)', async () => {
     const reg = await register('India', [
       { item: fx.items.civilMetres, quantity: '20' },
-      { item: fx.items.civilPieces, quantity: '5' },
+      { item: fx.items.civilPieces, quantity: '1' },
     ]);
     const metres = reg.lineIds[fx.items.civilMetres] ?? '';
     expect(
