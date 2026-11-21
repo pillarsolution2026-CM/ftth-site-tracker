@@ -153,9 +153,10 @@ describe('revision requests', () => {
     expect(tileSignaturePayload('design_features', 'p', 'r', 10)).toBe('design_features|p|r|10');
   });
 
-  it('design permissions: pm writes, supervisor reads, contractor nothing', () => {
+  it('design permissions: pm writes, qc reads, supervisor only via sync (ADR-054), contractor nothing', () => {
     expect(hasPermission(['pm'], 'design:write')).toBe(true);
-    expect(hasPermission(['supervisor'], 'design:read')).toBe(true);
+    expect(hasPermission(['qc'], 'design:read')).toBe(true);
+    expect(hasPermission(['supervisor'], 'design:read')).toBe(false);
     expect(hasPermission(['supervisor'], 'design:write')).toBe(false);
     expect(hasPermission(['contractor'], 'design:read')).toBe(false);
   });
