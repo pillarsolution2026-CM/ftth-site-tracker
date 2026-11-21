@@ -34,7 +34,9 @@ function makeOp(photo: Uint8Array, photoId = randomUUID()): SyncOp {
       featureId: randomUUID(),
       designRevisionId: randomUUID(),
       workType: 'civil',
-      lines: [{ workOrderItemId: randomUUID(), quantity: '1', role: 'work' }],
+      lines: [
+        { workOrderItemId: randomUUID(), quantity: '1', role: 'work', performer: { kind: 'self' } },
+      ],
       label: null,
       note: null,
       gps: null,
