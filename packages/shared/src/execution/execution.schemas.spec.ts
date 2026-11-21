@@ -107,7 +107,12 @@ describe('RecordUpdateOpSchema', () => {
           { ...work, performer: contractor(9) },
         ]),
       ).toBe(false);
-      expect(parse([{ ...work, performer: SELF }, { ...work, performer: SELF }])).toBe(false);
+      expect(
+        parse([
+          { ...work, performer: SELF },
+          { ...work, performer: SELF },
+        ]),
+      ).toBe(false);
     });
 
     it('refuses a malformed performer', () => {
