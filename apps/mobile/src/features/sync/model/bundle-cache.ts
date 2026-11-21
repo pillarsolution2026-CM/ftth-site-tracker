@@ -6,6 +6,8 @@ import type { DrawingChoice } from './drawing-picker';
 export interface TextFiles {
   readText(name: string): Promise<string | null>;
   writeText(name: string, text: string): Promise<void>;
+  /** Deletes a file; without it a file is emptied (an empty file reads as no bundle). */
+  deleteText?(name: string): Promise<void>;
 }
 
 /**
@@ -114,15 +116,43 @@ export async function saveDrawingIndex(
   await files.writeText(indexName(userId, projectId), JSON.stringify(index));
 }
 
+/**
+ * ADR-054: after a successful download, the sealed bundles of drawings that are no longer listed
+ * (a site taken away from the supervisor, or an unpublished drawing) are deleted, so they cannot
+ * be read offline. The index forgets them too (see `withDownloadedBundle`).
+ */
+export async function pruneRemovedDrawings(
+  files: TextFiles,
+  userId: string,
+  projectId: string,
+  downloaded: Readonly<Record<string, number>>,
+  bundle: OfflineBundle,
+): Promise<void> {
+  const listed = new Set(bundle.drawings.map((d) => d.drawingId));
+  for (const drawingId of Object.keys(downloaded)) {
+    if (listed.has(drawingId)) continue;
+    const name = fileName(userId, projectId, drawingId);
+    try {
+      if (files.deleteText) await files.deleteText(name);
+      else await files.writeText(name, '');
+    } catch {
+      // Best effort: the next download tries again.
+    }
+  }
+}
+
 /** The index after a bundle was downloaded: the new list, and this drawing's revision noted. */
 export function withDownloadedBundle(index: DrawingIndex, bundle: OfflineBundle): DrawingIndex {
   const drawingId = bundle.revision?.drawingId;
+  const listed = new Set(bundle.drawings.map((d) => d.drawingId));
+  const kept = Object.fromEntries(
+    Object.entries(index.downloaded).filter(([id]) => listed.has(id)),
+  );
   return {
     ...index,
     drawings: bundle.drawings,
+    last: index.last && listed.has(index.last.drawingId) ? index.last : null,
     downloaded:
-      drawingId && bundle.revision
-        ? { ...index.downloaded, [drawingId]: bundle.revision.revNo }
-        : index.downloaded,
+      drawingId && bundle.revision ? { ...kept, [drawingId]: bundle.revision.revNo } : kept,
   };
 }

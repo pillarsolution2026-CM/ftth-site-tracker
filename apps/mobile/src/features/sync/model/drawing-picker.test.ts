@@ -5,6 +5,7 @@ import {
   EMPTY_INDEX,
   loadCachedBundle,
   loadDrawingIndex,
+  pruneRemovedDrawings,
   saveBundle,
   saveDrawingIndex,
   withDownloadedBundle,
@@ -150,6 +151,45 @@ describe('per-drawing cache', () => {
     expect(await loadDrawingIndex(files, USER, PROJECT)).toEqual(EMPTY_INDEX);
     files.map.set(`drawings-${USER}-${PROJECT}.json`, '{oops');
     expect(await loadDrawingIndex(files, USER, PROJECT)).toEqual(EMPTY_INDEX);
+  });
+});
+
+describe('drawings taken away (ADR-054)', () => {
+  it('deletes the sealed bundle and forgets the drawing when it is no longer listed', async () => {
+    const files = new MemoryFiles();
+    const vault = createVault(async () => new Uint8Array(32).fill(7), testRandom);
+    await saveBundle(files, vault, USER, bundleOf(A_GEN, [A_GEN, B_GEN]), A_GEN.drawingId);
+    await saveBundle(files, vault, USER, bundleOf(B_GEN, [A_GEN, B_GEN]), B_GEN.drawingId);
+    const held = { [A_GEN.drawingId]: 1, [B_GEN.drawingId]: 1 };
+    // The site of B_GEN was taken away: the next bootstrap lists A_GEN only.
+    const fresh = bundleOf(A_GEN, [A_GEN]);
+    await pruneRemovedDrawings(files, USER, PROJECT, held, fresh);
+    expect(await loadCachedBundle(files, vault, USER, PROJECT, B_GEN.drawingId)).toBeNull();
+    expect(await loadCachedBundle(files, vault, USER, PROJECT, A_GEN.drawingId)).not.toBeNull();
+    const index = withDownloadedBundle(
+      { ...EMPTY_INDEX, downloaded: held, last: { siteId: SITE_B, drawingId: B_GEN.drawingId } },
+      fresh,
+    );
+    expect(Object.keys(index.downloaded)).toEqual([A_GEN.drawingId]);
+    expect(index.last).toBeNull();
+  });
+
+  it('uses deleteText when the device offers it', async () => {
+    const files = new MemoryFiles();
+    const deleted: string[] = [];
+    const withDelete: TextFiles = {
+      readText: (n) => files.readText(n),
+      writeText: (n, t) => files.writeText(n, t),
+      deleteText: async (n) => void deleted.push(n),
+    };
+    await pruneRemovedDrawings(
+      withDelete,
+      USER,
+      PROJECT,
+      { [B_GEN.drawingId]: 1 },
+      bundleOf(A_GEN, [A_GEN]),
+    );
+    expect(deleted).toEqual([`bundle-${USER}-${PROJECT}-${B_GEN.drawingId}.json`]);
   });
 });
 
