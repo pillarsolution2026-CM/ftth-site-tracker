@@ -7,6 +7,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { errorCodeOf } from '@/shared/api/bff-client';
 import { useProject } from '@/features/projects/hooks/project-access-context';
 import { useProjectContractors } from '../api/queries';
+import { ContractorAccounts } from '@/features/contractor-accounts/components/contractor-accounts';
 import { RegistrationCard } from './registration-card';
 
 /** Read-only subcontractors of a project, for the PM (`contractors:read`). */
@@ -14,6 +15,7 @@ export function ProjectContractors({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const { can } = useProject();
   const allowed = can('contractors:read');
+  const canManageAccounts = can('contractor_accounts:manage');
   const query = useProjectContractors(projectId, allowed);
 
   if (!allowed) return <ErrorNotice code="FORBIDDEN" />;
@@ -32,12 +34,20 @@ export function ProjectContractors({ projectId }: { projectId: string }) {
         <p>{t('contractors.section.none')}</p>
       ) : (
         data.registrations.map((registration) => (
-          <RegistrationCard
-            key={registration.id}
-            registration={registration}
-            currency={data.currency}
-            availability={data.availability}
-          />
+          <div key={registration.id} className="flex flex-col gap-3">
+            <RegistrationCard
+              registration={registration}
+              currency={data.currency}
+              availability={data.availability}
+            />
+            {canManageAccounts ? (
+              <ContractorAccounts
+                projectId={projectId}
+                registrationId={registration.id}
+                contractorName={registration.contractor.name}
+              />
+            ) : null}
+          </div>
         ))
       )}
     </div>

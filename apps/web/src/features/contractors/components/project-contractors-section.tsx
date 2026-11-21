@@ -8,6 +8,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { useAdminProjectContractors } from '../api/queries';
 import { useLineActions } from '../hooks/use-line-actions';
 import { translateMsg } from '../model/contractor-errors';
+import { ContractorAccounts } from '@/features/contractor-accounts/components/contractor-accounts';
 import { RegistrationCard } from './registration-card';
 
 const LINK =
@@ -60,13 +61,20 @@ export function ProjectContractorsSection({ projectId }: { projectId: string }) 
             <p>{t('contractors.section.none')}</p>
           ) : (
             data.registrations.map((registration) => (
-              <RegistrationCard
-                key={registration.id}
-                registration={registration}
-                currency={data.currency}
-                actions={actions}
-                availability={availability}
-              />
+              <div key={registration.id} className="flex flex-col gap-3">
+                <RegistrationCard
+                  registration={registration}
+                  currency={data.currency}
+                  actions={actions}
+                  availability={availability}
+                />
+                {/* The admin always holds contractor_accounts:manage. */}
+                <ContractorAccounts
+                  projectId={projectId}
+                  registrationId={registration.id}
+                  contractorName={registration.contractor.name}
+                />
+              </div>
             ))
           )}
         </>

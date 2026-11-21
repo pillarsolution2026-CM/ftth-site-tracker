@@ -22,6 +22,7 @@ const me = (overrides: Partial<MeResponse>): MeResponse => ({
   locale: 'en',
   isAdmin: false,
   memberships: [],
+  contractor: null,
   ...overrides,
 });
 const base = { loading: false, failureCode: null, loggingOut: false, onLogout: () => {} };
