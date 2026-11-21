@@ -29,6 +29,7 @@ function user(overrides: Partial<MeResponse>): MeResponse {
     locale: 'en',
     isAdmin: false,
     memberships: [],
+    contractor: null,
     ...overrides,
   };
 }

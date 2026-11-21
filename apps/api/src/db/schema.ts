@@ -1142,6 +1142,22 @@ export const contractorImportFiles = pgTable(
   ],
 );
 
+export const contractorAccounts = pgTable(
+  'contractor_accounts',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    contractorId: uuid('contractor_id')
+      .notNull()
+      .references(() => contractors.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Migration 0028 (ADR-053): triggers keep an account out of admin and out of assignments.
+  (table) => [index('contractor_accounts_contractor_idx').on(table.contractorId)],
+);
+
 export const schema = {
   users,
   refreshTokens,
@@ -1161,6 +1177,7 @@ export const schema = {
   contractorLines,
   contractorLinePrices,
   contractorImportFiles,
+  contractorAccounts,
   cadFiles,
   cadLayers,
   cadInserts,

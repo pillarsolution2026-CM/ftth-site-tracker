@@ -23,12 +23,13 @@ import { ResolveProjectAccessUseCase } from './application/resolve-project-acces
 import { SessionIssuer } from './application/session-issuer.js';
 import type { MembershipRepository } from './domain/membership.js';
 import type { RefreshTokenRepository } from './domain/refresh-token.js';
-import type { UserRepository } from './domain/user.js';
+import type { ContractorAccountLookup, UserRepository } from './domain/user.js';
 import type { IdentityAdminUnitOfWork } from './domain/user-admin.js';
 import {
   ACCESS_TOKENS,
   AUTH_RATE_LIMITER,
   AUTH_RATE_LIMITS,
+  CONTRACTOR_ACCOUNT_LOOKUP,
   GET_ME_USE_CASE,
   IDENTITY_ADMIN_UNIT_OF_WORK,
   LOGIN_USE_CASE,
@@ -46,6 +47,7 @@ import {
   DrizzleIdentityAdminUnitOfWork,
   DrizzleUserAdminRepository,
 } from './infrastructure/drizzle-identity-admin.repository.js';
+import { DrizzleContractorAccountLookup } from './infrastructure/drizzle-contractor-account-lookup.js';
 import { DrizzleMembershipRepository } from './infrastructure/drizzle-membership.repository.js';
 import { DrizzleRefreshTokenRepository } from './infrastructure/drizzle-refresh-token.repository.js';
 import { DrizzleUserRepository } from './infrastructure/drizzle-user.repository.js';
@@ -192,10 +194,18 @@ const adminProviders: Provider[] = [
         new LogoutUseCase(tokens, refreshFactory, systemClock),
     },
     {
+      provide: CONTRACTOR_ACCOUNT_LOOKUP,
+      inject: [DB],
+      useFactory: (db: Database) => new DrizzleContractorAccountLookup(db),
+    },
+    {
       provide: GET_ME_USE_CASE,
-      inject: [USER_REPOSITORY, MEMBERSHIP_REPOSITORY],
-      useFactory: (users: UserRepository, memberships: MembershipRepository) =>
-        new GetMeUseCase(users, memberships),
+      inject: [USER_REPOSITORY, MEMBERSHIP_REPOSITORY, CONTRACTOR_ACCOUNT_LOOKUP],
+      useFactory: (
+        users: UserRepository,
+        memberships: MembershipRepository,
+        contractorAccounts: ContractorAccountLookup,
+      ) => new GetMeUseCase(users, memberships, contractorAccounts),
     },
     {
       provide: RESOLVE_PROJECT_ACCESS_USE_CASE,

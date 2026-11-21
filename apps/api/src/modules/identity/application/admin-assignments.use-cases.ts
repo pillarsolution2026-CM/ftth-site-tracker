@@ -34,6 +34,12 @@ export class CreateAssignmentUseCase {
           reason: 'USER_IS_ADMIN',
         });
       }
+      // ADR-053: a contractor's login account is read-only and never holds a project role.
+      if (await tx.users.isContractorAccount(input.userId)) {
+        throw new AppError('CONFLICT', 'A contractor account cannot be assigned to a project', {
+          reason: 'CONTRACTOR_ACCOUNT',
+        });
+      }
       if (!user.isActive) {
         throw new AppError('VALIDATION_FAILED', 'The user is deactivated', {
           reason: 'USER_INACTIVE',

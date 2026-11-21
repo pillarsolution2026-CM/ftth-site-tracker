@@ -671,6 +671,9 @@ export async function handleProjectContractors(
     return sendError(res, 404, 'NOT_FOUND');
   }
 
+  if (linesWord === 'accounts') {
+    return handleContractorAccounts(req, res, projectId, tail, helpers);
+  }
   const index = registrations.findIndex(
     (entry) => entry.id === registrationId && entry.projectId === projectId,
   );
@@ -740,6 +743,63 @@ export async function handleProjectContractors(
       unitPrice: body.data.unitPrice,
     });
     return send(res, 201, projectView(projectId));
+  }
+  return sendError(res, 404, 'NOT_FOUND');
+}
+
+// ---------- login accounts of a contractor (ADR-053), in memory, per contractor ----------
+
+const accountsByContractor = new Map<string, Record<string, unknown>[]>();
+
+/**
+ * `/admin/projects/:projectId/contractors/:registrationId/accounts[/:userId]`. Simplification: the real
+ * API also enforces the PM's project scope and revokes sessions when an account is stopped.
+ */
+async function handleContractorAccounts(
+  req: IncomingMessage,
+  res: ServerResponse,
+  projectId: string,
+  tail: string[],
+  helpers: Helpers,
+): Promise<void> {
+  const { send, sendError, readJson } = helpers;
+  const method = req.method ?? 'GET';
+  const [registrationId, , userId] = tail;
+  const record = registrations.find(
+    (entry) => entry.id === registrationId && entry.projectId === projectId,
+  );
+  if (!record) return sendError(res, 404, 'NOT_FOUND');
+  const contractorId = record.contractorId;
+  const items = accountsByContractor.get(contractorId) ?? [];
+  accountsByContractor.set(contractorId, items);
+
+  if (userId === undefined && method === 'GET') return send(res, 200, { contractorId, items });
+  if (userId === undefined && method === 'POST') {
+    const body = await readJson(req);
+    const email = String(body.email ?? '').toLowerCase();
+    if (typeof body.password !== 'string' || body.password.length < 12 || !email) {
+      return sendError(res, 400, 'VALIDATION_FAILED');
+    }
+    const taken = [...accountsByContractor.values()].flat().some((entry) => entry.email === email);
+    if (taken) return sendError(res, 409, 'CONFLICT', { reason: 'EMAIL_TAKEN' });
+    const account = {
+      userId: randomUUID(),
+      email,
+      displayName: String(body.displayName ?? ''),
+      locale: body.locale === 'en' || body.locale === 'fr' ? body.locale : 'ar',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+    items.push(account);
+    return send(res, 201, account);
+  }
+  if (userId !== undefined && method === 'PATCH') {
+    const account = items.find((entry) => entry.userId === userId);
+    if (!account) return sendError(res, 404, 'NOT_FOUND');
+    const body = await readJson(req);
+    if (typeof body.isActive !== 'boolean') return sendError(res, 400, 'VALIDATION_FAILED');
+    account.isActive = body.isActive;
+    return send(res, 200, account);
   }
   return sendError(res, 404, 'NOT_FOUND');
 }

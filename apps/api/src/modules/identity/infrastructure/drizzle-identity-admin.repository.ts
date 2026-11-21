@@ -3,8 +3,19 @@ import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
-import { foreignKeyViolation, redactedDbError, uniqueViolation } from '../../../db/pg-errors.js';
-import { assignments, refreshTokens, users, zones } from '../../../db/schema.js';
+import {
+  foreignKeyViolation,
+  redactedDbError,
+  triggerViolationMessage,
+  uniqueViolation,
+} from '../../../db/pg-errors.js';
+import {
+  assignments,
+  contractorAccounts,
+  refreshTokens,
+  users,
+  zones,
+} from '../../../db/schema.js';
 import type {
   AssignmentAdminRepository,
   AssignmentView,
@@ -88,6 +99,15 @@ export class DrizzleUserAdminRepository implements UserAdminRepository {
     return row ? toSummary(row) : null;
   }
 
+  async isContractorAccount(userId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ userId: contractorAccounts.userId })
+      .from(contractorAccounts)
+      .where(eq(contractorAccounts.userId, userId))
+      .limit(1);
+    return row !== undefined;
+  }
+
   async revokeSessions(userId: string, at: Date): Promise<void> {
     await this.db
       .update(refreshTokens)
@@ -126,6 +146,12 @@ export class DrizzleAssignmentAdminRepository implements AssignmentAdminReposito
       if (uniqueViolation(error) !== null) {
         throw new AppError('CONFLICT', 'The user already has this role here', {
           reason: 'ALREADY_ASSIGNED',
+        });
+      }
+      // Backstop of migration 0028 when the API check raced a new contractor account.
+      if (triggerViolationMessage(error)?.includes('contractor account')) {
+        throw new AppError('CONFLICT', 'A contractor account cannot be assigned to a project', {
+          reason: 'CONTRACTOR_ACCOUNT',
         });
       }
       throw error;

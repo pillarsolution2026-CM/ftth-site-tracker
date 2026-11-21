@@ -28,6 +28,8 @@ export interface UserAdminRepository {
   insert(user: NewUser): Promise<UserSummary>;
   /** Only touches non-admins; null when no such non-admin exists. */
   setActive(userId: string, active: boolean): Promise<UserSummary | null>;
+  /** True when the user is a login account of a contractor (ADR-053). */
+  isContractorAccount(userId: string): Promise<boolean>;
   /** Ends every refresh-token family of the user. */
   revokeSessions(userId: string, at: Date): Promise<void>;
 }

@@ -95,6 +95,17 @@ describe('CreateAssignmentUseCase', () => {
     await expect(run(uow, PROJECT)).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(uow.assignments.rows).toEqual([]);
   });
+
+  it('refuses a contractor account with 409 CONTRACTOR_ACCOUNT (ADR-053)', async () => {
+    const account = makeSummary();
+    const uow = new InMemoryIdentityAdminUow([account]);
+    uow.users.contractorAccountIds.add(account.id);
+    await expect(run(uow, account.id)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'CONTRACTOR_ACCOUNT' },
+    });
+    expect(uow.assignments.rows).toEqual([]);
+  });
 });
 
 describe('RemoveAssignmentUseCase', () => {
