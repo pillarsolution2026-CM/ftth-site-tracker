@@ -16,8 +16,8 @@ import type {
 import type { DomainEventInput } from '../../../common/event-log.port.js';
 import type { ApprovedVersions } from '../../asbuilt/domain/review.js';
 
-/** Where the caller may act: the whole project, or the features inside some zones. */
-export type ExecutionScope = { kind: 'project' } | { kind: 'zones'; zoneIds: readonly string[] };
+/** Where the caller may act: the whole project, or the features of some sites (ADR-054). */
+export type ExecutionScope = { kind: 'project' } | { kind: 'sites'; siteIds: readonly string[] };
 
 export interface StoredOperation {
   projectId: string;
@@ -173,18 +173,27 @@ export interface ExecutionTx {
     srid: number,
     geometry: AsBuiltGeometry,
   ): Promise<{ valid: boolean; lengthM: number }>;
-  /** True when the proposed geometry intersects one of the scope's zones. */
-  geometryInScope(
-    projectId: string,
-    srid: number,
-    geometry: AsBuiltGeometry,
-    scope: ExecutionScope,
-  ): Promise<boolean>;
-  /** True when the approved As-Built geometry of an added feature is inside the scope. */
+  /** True when the drawing of the revision belongs to one of the scope's sites (ADR-054). */
+  revisionInScope(projectId: string, revisionId: string, scope: ExecutionScope): Promise<boolean>;
+  /**
+   * True when an approved added feature was added on a drawing of one of the scope's sites
+   * (through the revision its add edit was recorded on); false when nothing links it (fail closed).
+   */
   addedFeatureInScope(
     projectId: string,
     featureId: string,
     scope: ExecutionScope,
+  ): Promise<boolean>;
+  /**
+   * True when the geometry is not covered by the extent of the design features of the revision,
+   * expanded by `toleranceM` (also true when the revision has no features).
+   */
+  geometryOutsideDrawing(
+    projectId: string,
+    revisionId: string,
+    srid: number,
+    geometry: AsBuiltGeometry,
+    toleranceM: number,
   ): Promise<boolean>;
   approvedVersions(projectId: string, featureId: string): Promise<ApprovedVersions>;
   insertAsBuiltEdit(edit: NewAsBuiltEdit): Promise<{ lengthM: string | null }>;
@@ -262,14 +271,18 @@ export interface ExecutionReadQueries {
   projectInfo(projectId: string): Promise<{ id: string; name: string; crsEpsg: number } | null>;
   /** The latest published revision of `drawingId`, else of the General published last. */
   latestPublishedRevision(projectId: string, drawingId?: string): Promise<LatestRevision | null>;
-  /** Every published drawing (General and Secondary, linked or not) with its latest revision. */
-  publishedDrawings(projectId: string): Promise<PublishedDrawing[]>;
+  /**
+   * Every published drawing (General and Secondary, linked or not) with its latest revision; for a
+   * site scope only the drawings of those sites (ADR-054).
+   */
+  publishedDrawings(projectId: string, scope: ExecutionScope): Promise<PublishedDrawing[]>;
   featuresInScope(
     projectId: string,
     revisionId: string,
     scope: ExecutionScope,
   ): Promise<OfflineFeature[]>;
-  catalog(projectId: string): Promise<CatalogItem[]>;
+  /** Work-order lines; for a site scope only the lines of work orders that have one of his sites. */
+  catalog(projectId: string, scope: ExecutionScope): Promise<CatalogItem[]>;
   changes(
     projectId: string,
     scope: ExecutionScope,

@@ -34,7 +34,9 @@ const SUPERVISOR_ME: MeResponse = {
   ...CONTRACTOR_ME,
   displayName: 'Mona',
   contractor: null,
-  memberships: [{ projectId: ID(9), projectName: 'North ring', role: 'supervisor', zoneIds: [] }],
+  memberships: [
+    { projectId: ID(9), projectName: 'North ring', role: 'supervisor', zoneIds: [], siteIds: [] },
+  ],
 };
 
 const PORTAL: ContractorPortalResponse = {

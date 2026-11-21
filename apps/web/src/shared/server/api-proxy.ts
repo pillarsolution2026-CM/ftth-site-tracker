@@ -63,10 +63,40 @@ function errorResponse(status: number, code: string, message: string): Response 
   return Response.json({ code, message }, { status, headers: { 'cache-control': 'no-store' } });
 }
 
+/**
+ * ADR-054: only `[p, 'supervisor-sites']` (GET) and `[p, 'supervisors', <uuid>, 'sites']` (PUT)
+ * are exposed; the method is checked by `supervisorSitesMethodOk`.
+ */
+function supervisorSitesPath(segments: readonly string[]): string | null {
+  const [projectId, resource, userId, tail, extra] = segments;
+  if (resource === 'supervisor-sites' && segments.length === 2) {
+    return `/projects/${projectId}/supervisor-sites`;
+  }
+  if (
+    resource === 'supervisors' &&
+    tail === 'sites' &&
+    extra === undefined &&
+    userId !== undefined &&
+    UUID.test(userId)
+  ) {
+    return `/projects/${projectId}/supervisors/${userId}/sites`;
+  }
+  return null;
+}
+
+function supervisorSitesMethodOk(segments: readonly string[], method: string): boolean {
+  if (segments[1] === 'supervisor-sites') return method === 'GET';
+  if (segments[1] === 'supervisors') return method === 'PUT';
+  return true;
+}
+
 /** `[projectId, resource, ...rest]` → upstream path, or null when it is not allowed. */
 export function upstreamPath(segments: readonly string[]): string | null {
   const [projectId, resource, ...rest] = segments;
   if (!projectId || !UUID.test(projectId)) return null;
+  if (resource === 'supervisor-sites' || resource === 'supervisors') {
+    return supervisorSitesPath(segments);
+  }
   if (!resource || !ALLOWED_RESOURCES.has(resource)) return null;
   const all = [projectId, resource, ...rest];
   // "." and ".." match the safe pattern but would climb out of the prefix.
@@ -178,6 +208,9 @@ export function createApiProxy(deps: ProxyDeps) {
     }
     const path = (deps.resolvePath ?? upstreamPath)(segments);
     if (!path) return errorResponse(404, 'NOT_FOUND', 'Not found');
+    if (!deps.resolvePath && !supervisorSitesMethodOk(segments, request.method)) {
+      return errorResponse(405, 'FORBIDDEN', 'Method not allowed');
+    }
     if (request.method !== 'GET' && !isTrustedProxyMutation(request)) {
       return errorResponse(403, 'FORBIDDEN', 'Forbidden');
     }

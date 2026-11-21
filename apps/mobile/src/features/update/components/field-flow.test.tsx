@@ -41,7 +41,7 @@ const N = 3_340_000;
 const bundle: OfflineBundle = {
   serverTime: '2026-10-30T08:00:00.000Z',
   project: { id: PROJECT, name: 'قليوب', crsEpsg: 32636 },
-  scope: { kind: 'zones', zoneIds: ['00000000-0000-4000-8000-0000000000a5'] },
+  scope: { kind: 'sites', siteIds: ['00000000-0000-4000-8000-0000000000a5'] },
   drawings: [],
   // (the drawings tests below build their own bundles with `withDrawings`)
   revision: {
@@ -122,8 +122,11 @@ class FakeApi {
   rejectWith: OpRejectionCode | null = null;
   /** Drawings the server lists; empty keeps the single-drawing bundle of the older tests. */
   drawings: OfflineBundle['drawings'] = [];
+  /** Scope the server reports (ADR-054); null keeps the bundle's own. */
+  scope: OfflineBundle['scope'] | null = null;
 
   bundleFor(asked: string | null): OfflineBundle {
+    if (this.scope) return { ...bundle, scope: this.scope, drawings: this.drawings };
     if (this.drawings.length === 0) return bundle;
     const held = asked ?? DRAWING_1;
     const entry = this.drawings.find((d) => d.drawingId === held);
@@ -590,6 +593,37 @@ describe('supervisor field flow', () => {
       );
       // The drawing screen is still there (not replaced by the download screen).
       expect(screen.getByTestId('drawing-picker-toggle')).toBeTruthy();
+    });
+  });
+
+  describe('supervisor sites (ADR-054)', () => {
+    const renderScreen = (deps: FieldDeps) =>
+      render(
+        <I18nProvider storage={new InMemoryLocaleStorage()}>
+          <FieldProvider projectId={PROJECT} userId={USER} deps={deps}>
+            <CadScreen onUpdate={() => undefined} onOpenPending={() => undefined} />
+          </FieldProvider>
+        </I18nProvider>,
+      );
+
+    it('says the supervisor has no sites instead of showing an empty map', async () => {
+      const { api, deps } = setup();
+      api.scope = { kind: 'sites', siteIds: [] };
+      await renderScreen(deps);
+      await fireEvent.press(await screen.findByTestId('download-bundle'));
+      expect(await screen.findByTestId('no-sites-message')).toBeTruthy();
+      expect(t('mobileSites.noSites')).toBe('مالكش مواقع على المشروع ده. كلّم مدير المشروع.');
+      expect(screen.queryByTestId('cad-area')).toBeNull();
+    });
+
+    it('treats a bundle cached with the retired zones scope as stale and downloads again', async () => {
+      const { api, deps, files } = setup();
+      const old = { ...bundle, scope: { kind: 'zones', zoneIds: [BOX] } };
+      files.set(`bundle-${USER}-${PROJECT}.json`, await vault.sealText(JSON.stringify(old)));
+      await renderScreen(deps);
+      await fireEvent.press(await screen.findByTestId('download-bundle'));
+      expect(await screen.findByTestId('cad-area')).toBeTruthy();
+      expect(api.bootstraps.length).toBeGreaterThan(0);
     });
   });
 });

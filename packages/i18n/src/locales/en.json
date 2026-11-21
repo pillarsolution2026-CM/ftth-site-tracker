@@ -123,14 +123,6 @@
       "openContract": "Open contract",
       "contractNumber": "Contract number"
     },
-    "zones": {
-      "title": "Zones",
-      "name": "Zone name",
-      "add": "Add zone",
-      "none": "No zones yet",
-      "noBoundary": "No boundary yet (drawn later on the zones screen)",
-      "nameTaken": "A zone with this name already exists"
-    },
     "assignments": {
       "title": "Team",
       "user": "User",
@@ -140,14 +132,10 @@
       "remove": "Remove",
       "none": "Nobody is assigned yet",
       "chooseUser": "Choose a user",
-      "chooseZone": "Choose a zone",
-      "zoneRequired": "Supervisors and subcontractors need a zone",
-      "needZoneFirst": "Add a zone first to assign a supervisor or subcontractor",
       "projectWide": "Whole project",
       "alreadyAssigned": "This user already has this role here",
       "userInactive": "This user is deactivated",
       "userIsAdmin": "Admins already see every project",
-      "zoneNotInProject": "The zone does not belong to this project",
       "confirmRemove": "Remove {name} ({role}) from this project?"
     },
     "validation": {
@@ -269,7 +257,22 @@
     "cadFiles": "CAD files",
     "designRevisions": "Design revisions",
     "contract": "Contract",
-    "contractors": "Subcontractors"
+    "contractors": "Subcontractors",
+    "supervisorSites": "Supervisor sites"
+  },
+  "supervisorSites": {
+    "title": "Sites of the supervisors",
+    "workOrder": "Work order",
+    "count": "Sites selected: {count}",
+    "save": "Save",
+    "saved": "The supervisor’s sites are saved",
+    "noSupervisors": "No supervisors are assigned to this project yet. The admin assigns them from the admin screen.",
+    "noSites": "The work orders of this project have no sites yet.",
+    "note": "A supervisor sees and records only on his own sites; a supervisor with no site sees nothing.",
+    "errors": {
+      "notSupervisor": "This user is not a supervisor of this project",
+      "foreignSite": "One of the sites is not a site of this project. Refresh the page and try again."
+    }
   },
   "project": {
     "switcher": "Project",
@@ -2220,13 +2223,15 @@
       "BASE_OUTDATED": "Outdated base",
       "REVISION_OUTDATED": "Outdated revision",
       "FEATURE_REMOVED": "Feature removed",
-      "CLOCK_AHEAD": "Clock ahead"
+      "CLOCK_AHEAD": "Clock ahead",
+      "OUTSIDE_DRAWING": "Outside the drawing"
     },
     "flagExplain": {
       "BASE_OUTDATED": "Another edit of this feature was approved after the version this edit was drawn on. It cannot be approved: reject it so the supervisor redraws it on the current state.",
       "REVISION_OUTDATED": "The supervisor drew this on a design revision that is no longer the latest published one. Check the drawing before approving.",
       "FEATURE_REMOVED": "This feature is not in the latest published design revision any more. Check that the edit still makes sense.",
-      "CLOCK_AHEAD": "The phone clock was ahead of the server when the edit was saved, so the capture time is not reliable."
+      "CLOCK_AHEAD": "The phone clock was ahead of the server when the edit was saved, so the capture time is not reliable.",
+      "OUTSIDE_DRAWING": "The edited geometry reaches outside the extent of this drawing’s design features (sites have no boundary). Check it before approving."
     },
     "noFlags": "No flags",
     "detail": {
@@ -2616,6 +2621,7 @@
     "onPhoneOld": "On the phone (revision {revNo}) - newer revision {latest} available",
     "notOnPhone": "Not downloaded - downloads when chosen",
     "empty": "No drawings are published for this project yet.",
+    "noSites": "You have no sites on this project. Talk to the project manager.",
     "notOnPhoneOffline": "This drawing is not on the phone. Connect to the internet to download it.",
     "autoDownloading": "Downloading {done} of {total}"
   },

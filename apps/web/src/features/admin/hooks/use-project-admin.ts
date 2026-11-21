@@ -7,9 +7,7 @@ import {
   useAdminAssignments,
   useAdminProjects,
   useAdminUsers,
-  useAdminZones,
   useCreateAssignment,
-  useCreateZone,
   useRemoveAssignment,
   useUpdateProject,
 } from '../api/queries';
@@ -67,36 +65,6 @@ function useEditProject(projectId: string, project: Project | undefined) {
     saved: update.isSuccess,
     error: update.error ? adminErrorKey(update.error) : null,
     onChange,
-    onSubmit,
-  };
-}
-
-function useZonesPanel(projectId: string) {
-  const zones = useAdminZones(projectId);
-  const create = useCreateZone(projectId);
-  const [name, setName] = useState('');
-  const [error, setError] = useState<MessageKey | null>(null);
-
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!name.trim()) {
-      setError('validation.required');
-      return;
-    }
-    create.mutate({ name: name.trim() }, { onSuccess: () => setName('') });
-  };
-
-  return {
-    loading: zones.isPending,
-    items: zones.data?.items ?? [],
-    name,
-    error: error ?? (create.error ? adminErrorKey(create.error) : null),
-    pending: create.isPending,
-    onNameChange: (value: string) => {
-      setName(value);
-      setError(null);
-      create.reset();
-    },
     onSubmit,
   };
 }
@@ -168,7 +136,6 @@ export function useProjectAdmin(projectId: string) {
     loadError: projects.error ? adminErrorKey(projects.error) : null,
     project,
     edit: useEditProject(projectId, project),
-    zones: useZonesPanel(projectId),
     assignments: useAssignmentsPanel(projectId),
   };
 }

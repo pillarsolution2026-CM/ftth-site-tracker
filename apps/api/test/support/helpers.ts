@@ -24,10 +24,21 @@ export async function projectIds(pool: pg.Pool): Promise<{ a: string; b: string;
   return { a, b, zone: zone ?? '' };
 }
 
-/** Creates (or reuses) a user with one role in a project; project-wide roles need no zone. */
+/**
+ * Creates (or reuses) a user with one role in a project. `zoneId` is only for old zone-bearing
+ * trial rows (ADR-054: zones are retired, such a row behaves like a plain assignment); a
+ * supervisor's `siteIds` are his sites (supervisor_sites), added to what he already holds.
+ */
 export async function ensureMember(
   pool: pg.Pool,
-  input: { email: string; password: string; role: Role; projectId: string; zoneId?: string },
+  input: {
+    email: string;
+    password: string;
+    role: Role;
+    projectId: string;
+    zoneId?: string;
+    siteIds?: string[];
+  },
 ): Promise<void> {
   const existing = await pool.query<{ id: string }>('SELECT id FROM users WHERE email = $1', [
     input.email,
@@ -47,6 +58,13 @@ export async function ensureMember(
      WHERE NOT EXISTS (SELECT 1 FROM assignments WHERE user_id = $1 AND project_id = $2 AND role = $3)`,
     [userId, input.projectId, input.role, input.zoneId ?? null],
   );
+  for (const siteId of input.siteIds ?? []) {
+    await pool.query(
+      `INSERT INTO supervisor_sites (project_id, user_id, site_id) VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [input.projectId, userId, siteId],
+    );
+  }
 }
 
 export async function eventTypes(pool: pg.Pool, entityId: string): Promise<string[]> {

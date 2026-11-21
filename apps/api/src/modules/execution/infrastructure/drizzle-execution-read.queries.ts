@@ -15,7 +15,12 @@ import type {
   LatestRevision,
   PublishedDrawing,
 } from '../application/ports.js';
-import { latestPublished, rowsOf, zoneCondition } from './drizzle-execution.repository.js';
+import {
+  latestPublished,
+  rowsOf,
+  siteCondition,
+  uuidArray,
+} from './drizzle-execution.repository.js';
 
 const iso = (value: Date | string): string => new Date(value).toISOString();
 
@@ -37,7 +42,11 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
     return latestPublished(this.db, projectId, { drawingId });
   }
 
-  async publishedDrawings(projectId: string): Promise<PublishedDrawing[]> {
+  async publishedDrawings(projectId: string, scope: ExecutionScope): Promise<PublishedDrawing[]> {
+    // ADR-054: a site scope sees only the drawings of its sites (NULL site never matches ANY).
+    if (scope.kind === 'sites' && scope.siteIds.length === 0) return [];
+    const inScope =
+      scope.kind === 'project' ? sql`true` : sql`d.site_id = ANY(${uuidArray(scope.siteIds)})`;
     // Sites are read through the drawing; the site name is on the work-order side (read-only join).
     const rows = await rowsOf<{
       drawing_id: string;
@@ -57,7 +66,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
           FROM site_drawings d
           JOIN design_revisions r ON r.project_id = d.project_id AND r.drawing_id = d.id
           LEFT JOIN work_order_sites s ON s.project_id = d.project_id AND s.id = d.site_id
-          WHERE d.project_id = ${projectId} AND r.status = 'published'
+          WHERE d.project_id = ${projectId} AND r.status = 'published' AND ${inScope}
           ORDER BY d.id, r.rev_no DESC`,
     );
     return rows
@@ -101,7 +110,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                  ST_AsGeoJSON(df.geom, 3) AS geojson, df.length_m::text AS length_m
           FROM design_features df
           WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
-            AND ${zoneCondition(projectId, sql`df.revision_id`, sql`df.feature_id`, scope)}
+            AND ${siteCondition(projectId, sql`df.revision_id`, sql`df.feature_id`, scope)}
           ORDER BY df.feature_type, df.code NULLS LAST, df.feature_id`,
     );
     return rows.map((row) => {
@@ -121,7 +130,15 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
     });
   }
 
-  async catalog(projectId: string): Promise<CatalogItem[]> {
+  async catalog(projectId: string, scope: ExecutionScope): Promise<CatalogItem[]> {
+    // ADR-054 (security review M1): a supervisor sees only the lines of the work orders his sites
+    // belong to; contractor lines follow their items.
+    if (scope.kind === 'sites' && scope.siteIds.length === 0) return [];
+    const inScope =
+      scope.kind === 'project'
+        ? sql`true`
+        : sql`i.work_order_id IN (SELECT s.work_order_id FROM work_order_sites s
+                                WHERE s.project_id = ${projectId} AND s.id = ANY(${uuidArray(scope.siteIds)}))`;
     const rows = await rowsOf<{
       id: string;
       work_order_id: string;
@@ -144,7 +161,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                      AND u.status <> 'rejected'), 0)::text AS recorded
           FROM work_order_items i
           JOIN work_orders o ON o.project_id = i.project_id AND o.id = i.work_order_id
-          WHERE i.project_id = ${projectId}
+          WHERE i.project_id = ${projectId} AND ${inScope}
           ORDER BY o.number, i.line_no`,
     );
     // Contractor lines (ADR-052): quantities only, never prices.
@@ -253,7 +270,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                   FROM execution_photos p WHERE p.update_id = u.id) AS photos
           FROM execution_updates u
           WHERE u.project_id = ${projectId} AND u.sync_seq > ${cursor}::bigint
-            AND ${zoneCondition(projectId, sql`u.design_revision_id`, sql`u.feature_id`, scope)}
+            AND ${siteCondition(projectId, sql`u.design_revision_id`, sql`u.feature_id`, scope)}
           ORDER BY u.sync_seq
           LIMIT ${limit}`,
     );

@@ -42,12 +42,16 @@ const DEVICE = randomUUID();
 
 // ---------- data helpers (the CAD worker's side is simulated with SQL) ----------
 
-async function insertCadFile(status: 'processed' | 'uploaded' = 'processed'): Promise<string> {
+async function insertCadFile(
+  status: 'processed' | 'uploaded' = 'processed',
+  siteId: string | null = null,
+): Promise<string> {
   const id = randomUUID();
   const drawingId = await insertDrawing(
     (text, values) => ctx.pool.query(text, values),
     fx.projectId,
     'general',
+    { siteId },
   );
   await ctx.pool.query(
     `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
@@ -287,8 +291,28 @@ interface Published {
   ring: string;
 }
 
+/**
+ * A new site of the fixture's work order held by supervisors A and A2 (not B): ADR-054, GPS points
+ * are only for features of the supervisor's sites.
+ */
+async function siteOfSupervisorsA(): Promise<string> {
+  const siteId = randomUUID();
+  await ctx.pool.query(
+    `INSERT INTO work_order_sites (id, project_id, work_order_id, name, name_key, position)
+     VALUES ($1, $2, $3, $4, $4, 1 + (SELECT count(*) FROM work_order_sites WHERE work_order_id = $3))`,
+    [siteId, fx.projectId, fx.workOrderId, `GPS site ${siteId.slice(0, 8)}`],
+  );
+  for (const userId of [fx.userIds.supervisorA, fx.userIds.supervisorA2]) {
+    await ctx.pool.query(
+      'INSERT INTO supervisor_sites (project_id, user_id, site_id) VALUES ($1, $2, $3)',
+      [fx.projectId, userId, siteId],
+    );
+  }
+  return siteId;
+}
+
 async function publishDrawing(): Promise<Published> {
-  const fileId = await insertCadFile();
+  const fileId = await insertCadFile('processed', await siteOfSupervisorsA());
   await insertMapping(fileId, [{ source: 'layer', layer: 'sub', target: 'box' }]);
   await insertInsert(fileId, 'B1', 'sub', 'sub', [500, 600], [100, 200]);
   await insertCurve(fileId, 'S1', 'CAB', square(0, 0, 2, 2), true);
@@ -472,13 +496,23 @@ describe('sync op placement_point.propose', () => {
     expect(count.rows[0].n).toBe(1);
   });
 
-  it('accepts any supervisor of the project for an item in any zone (no zone check)', async () => {
-    // Supervisor B is assigned to zone B only; the box is inside zone A.
-    const result = await pushOne(
+  it('accepts a supervisor of the site and refuses one of another site (ADR-054)', async () => {
+    // Supervisor B holds site B only; the box is drawn in a site held by supervisors A and A2.
+    const refused = await pushOne(
       fx.tokens.supervisorB,
       propose({ revisionId: pub.revisionId, featureId: pub.box }),
     );
-    expect(result.outcome).toBe('applied');
+    expect(refused).toMatchObject({ outcome: 'rejected', code: 'FEATURE_OUT_OF_SCOPE' });
+    const stored = await ctx.pool.query(
+      'SELECT 1 FROM gps_point_proposals WHERE client_op_id = $1',
+      [refused.clientOpId],
+    );
+    expect(stored.rowCount).toBe(0);
+    const accepted = await pushOne(
+      fx.tokens.supervisorA2,
+      propose({ revisionId: pub.revisionId, featureId: pub.box }),
+    );
+    expect(accepted.outcome).toBe('applied');
   });
 
   it('refuses a reused op id with another payload, and does not store it', async () => {
@@ -673,7 +707,7 @@ describe('GPS proposals for the PM', () => {
     );
     expect(GpsProposalListResponseSchema.parse(none.body).items).toEqual([]);
     expect((await as(fx.tokens.pm)(http().get(`${base()}?status=nope`))).status).toBe(400);
-    // Other supervisors' fixes, notes and photos from every zone: not for supervisors or QC.
+    // Other supervisors' fixes, notes and photos from every site: not for supervisors or QC.
     for (const token of [fx.tokens.supervisorA, fx.tokens.qc, fx.tokens.contractor]) {
       expect((await as(token)(http().get(base()))).status).toBe(403);
       expect((await as(token)(http().get(`${base()}/${first}/photo`))).status).toBe(403);

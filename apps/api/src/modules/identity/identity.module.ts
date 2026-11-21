@@ -2,6 +2,7 @@ import { Module, type Provider } from '@nestjs/common';
 import type { ApiEnv } from '@ftth/shared';
 import { EVENT_LOG, type EventLog } from '../../common/event-log.port.js';
 import { APP_ENV } from '../../config/config.module.js';
+import { PermissionGuard } from '../../common/permission.guard.js';
 import { DB, type Database } from '../../db/db.module.js';
 import {
   CreateAssignmentUseCase,
@@ -13,6 +14,10 @@ import {
   ListUsersUseCase,
   SetUserActiveUseCase,
 } from './application/admin-users.use-cases.js';
+import {
+  ListSupervisorSitesUseCase,
+  ReplaceSupervisorSitesUseCase,
+} from './application/supervisor-sites.use-cases.js';
 import { FixedWindowRateLimiter } from './application/fixed-window-rate-limiter.js';
 import { GetMeUseCase } from './application/get-me.use-case.js';
 import { LoginUseCase } from './application/login.use-case.js';
@@ -22,6 +27,7 @@ import { RefreshUseCase } from './application/refresh.use-case.js';
 import { ResolveProjectAccessUseCase } from './application/resolve-project-access.use-case.js';
 import { SessionIssuer } from './application/session-issuer.js';
 import type { MembershipRepository } from './domain/membership.js';
+import type { SupervisorSitesUnitOfWork } from './domain/supervisor-sites.js';
 import type { RefreshTokenRepository } from './domain/refresh-token.js';
 import type { ContractorAccountLookup, UserRepository } from './domain/user.js';
 import type { IdentityAdminUnitOfWork } from './domain/user-admin.js';
@@ -38,6 +44,7 @@ import {
   REFRESH_TOKEN_REPOSITORY,
   REFRESH_USE_CASE,
   RESOLVE_PROJECT_ACCESS_USE_CASE,
+  SUPERVISOR_SITES_UNIT_OF_WORK,
   USER_REPOSITORY,
 } from './identity.tokens.js';
 import { Argon2PasswordHasher } from './infrastructure/argon2-password-hasher.js';
@@ -48,12 +55,17 @@ import {
   DrizzleUserAdminRepository,
 } from './infrastructure/drizzle-identity-admin.repository.js';
 import { DrizzleContractorAccountLookup } from './infrastructure/drizzle-contractor-account-lookup.js';
+import {
+  DrizzleSupervisorSitesRepository,
+  DrizzleSupervisorSitesUnitOfWork,
+} from './infrastructure/drizzle-supervisor-sites.repository.js';
 import { DrizzleMembershipRepository } from './infrastructure/drizzle-membership.repository.js';
 import { DrizzleRefreshTokenRepository } from './infrastructure/drizzle-refresh-token.repository.js';
 import { DrizzleUserRepository } from './infrastructure/drizzle-user.repository.js';
 import { JwtAccessTokenService } from './infrastructure/jwt-access-token.service.js';
 import { AuthRateLimitGuard, type AuthRateLimits } from './interface/auth-rate-limit.guard.js';
 import { AuthController } from './interface/auth.controller.js';
+import { SupervisorSitesController } from './interface/supervisor-sites.controller.js';
 import { JwtAuthGuard } from './interface/jwt-auth.guard.js';
 import { PlatformAdminGuard } from './interface/platform-admin.guard.js';
 import { ProjectScopeGuard } from './interface/project-scope.guard.js';
@@ -105,9 +117,26 @@ const adminProviders: Provider[] = [
 ];
 
 @Module({
-  controllers: [AuthController],
+  controllers: [AuthController, SupervisorSitesController],
   providers: [
     ...adminProviders,
+    PermissionGuard,
+    {
+      provide: SUPERVISOR_SITES_UNIT_OF_WORK,
+      inject: [DB],
+      useFactory: (db: Database) => new DrizzleSupervisorSitesUnitOfWork(db),
+    },
+    {
+      provide: ListSupervisorSitesUseCase,
+      inject: [DB],
+      useFactory: (db: Database) =>
+        new ListSupervisorSitesUseCase(new DrizzleSupervisorSitesRepository(db)),
+    },
+    {
+      provide: ReplaceSupervisorSitesUseCase,
+      inject: [SUPERVISOR_SITES_UNIT_OF_WORK],
+      useFactory: (uow: SupervisorSitesUnitOfWork) => new ReplaceSupervisorSitesUseCase(uow),
+    },
     JwtAuthGuard,
     ProjectScopeGuard,
     RolesGuard,

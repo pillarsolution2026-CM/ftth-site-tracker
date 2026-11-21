@@ -14,13 +14,18 @@ describe('permissions', () => {
     }
   });
 
-  it('gives qc and supervisor read-only access', () => {
-    for (const role of ['qc', 'supervisor'] as const) {
-      expect(hasPermission([role], 'work_orders:read')).toBe(true);
-      expect(hasPermission([role], 'cad_files:read')).toBe(true);
-      expect(hasPermission([role], 'work_orders:write')).toBe(false);
-      expect(hasPermission([role], 'cad_files:write')).toBe(false);
+  it('gives qc read-only access', () => {
+    expect(hasPermission(['qc'], 'work_orders:read')).toBe(true);
+    expect(hasPermission(['qc'], 'cad_files:read')).toBe(true);
+    expect(hasPermission(['qc'], 'work_orders:write')).toBe(false);
+    expect(hasPermission(['qc'], 'cad_files:write')).toBe(false);
+  });
+
+  it('keeps a supervisor to the phone: no project-wide reads (ADR-054, security review H1)', () => {
+    for (const permission of ['work_orders:read', 'cad_files:read', 'design:read'] as const) {
+      expect(hasPermission(['supervisor'], permission)).toBe(false);
     }
+    expect(hasPermission(['supervisor'], 'asbuilt:read')).toBe(true);
   });
 
   it('lets supervisors record execution updates but not qc (Phase 3 assumption)', () => {

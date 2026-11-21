@@ -1,7 +1,7 @@
 import { RoleSchema } from '@ftth/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../../../db/db.module.js';
-import { assignments, projects, users } from '../../../db/schema.js';
+import { assignments, projects, supervisorSites, users } from '../../../db/schema.js';
 import type { AssignmentRow, MembershipRepository } from '../domain/membership.js';
 
 export class DrizzleMembershipRepository implements MembershipRepository {
@@ -22,7 +22,13 @@ export class DrizzleMembershipRepository implements MembershipRepository {
         projectId: assignments.projectId,
         projectName: projects.name,
         role: assignments.role,
-        zoneId: assignments.zoneId,
+        // ADR-054: a supervisor's sites in this project, in a stable order (empty for others).
+        siteIds: sql<string[] | null>`CASE WHEN ${assignments.role} = 'supervisor' THEN (
+          SELECT array_agg(${supervisorSites.siteId} ORDER BY ${supervisorSites.siteId})
+          FROM ${supervisorSites}
+          WHERE ${supervisorSites.userId} = ${assignments.userId}
+            AND ${supervisorSites.projectId} = ${assignments.projectId}
+        ) END`,
       })
       .from(assignments)
       .innerJoin(projects, eq(projects.id, assignments.projectId))
@@ -30,6 +36,10 @@ export class DrizzleMembershipRepository implements MembershipRepository {
       .innerJoin(users, and(eq(users.id, assignments.userId), eq(users.isActive, true)))
       .where(where)
       .orderBy(projects.name, assignments.role);
-    return rows.map((row) => ({ ...row, role: RoleSchema.parse(row.role) }));
+    return rows.map((row) => ({
+      ...row,
+      role: RoleSchema.parse(row.role),
+      siteIds: row.siteIds ?? [],
+    }));
   }
 }

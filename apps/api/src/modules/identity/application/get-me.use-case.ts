@@ -3,7 +3,7 @@ import { AppError } from '../../../common/app-error.js';
 import type { AssignmentRow, MembershipRepository } from '../domain/membership.js';
 import type { ContractorAccountLookup, UserRepository } from '../domain/user.js';
 
-/** One membership per (project, role); zone ids aggregated, empty for project-wide roles. */
+/** One membership per (project, role); site ids aggregated, empty for project-wide roles. */
 export function aggregateMemberships(rows: AssignmentRow[]): ProjectMembership[] {
   const byKey = new Map<string, ProjectMembership>();
   for (const row of rows) {
@@ -15,12 +15,15 @@ export function aggregateMemberships(rows: AssignmentRow[]): ProjectMembership[]
         projectName: row.projectName,
         role: row.role,
         zoneIds: [],
+        siteIds: [],
       };
       byKey.set(key, membership);
     }
     const projectWide = PROJECT_WIDE_ROLES.includes(row.role);
-    if (!projectWide && row.zoneId && !membership.zoneIds.includes(row.zoneId)) {
-      membership.zoneIds.push(row.zoneId);
+    if (!projectWide) {
+      for (const siteId of row.siteIds) {
+        if (!membership.siteIds.includes(siteId)) membership.siteIds.push(siteId);
+      }
     }
   }
   return [...byKey.values()];

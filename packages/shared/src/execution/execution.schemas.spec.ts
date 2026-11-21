@@ -165,7 +165,7 @@ describe('OfflineBundleSchema', () => {
     const bundle = OfflineBundleSchema.parse({
       serverTime: '2026-10-30T08:00:00Z',
       project: { id: uuid(1), name: 'Q', crsEpsg: 32636 },
-      scope: { kind: 'zones', zoneIds: [uuid(2)] },
+      scope: { kind: 'sites', siteIds: [uuid(2)] },
       revision: null,
       features: [
         {

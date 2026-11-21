@@ -8,6 +8,7 @@ export * from './common/decimal.js';
 export * from './common/pagination.js';
 export * from './events/domain-events.js';
 export * from './work-orders/work-order.schemas.js';
+export * from './work-orders/supervisor-sites.schemas.js';
 export * from './work-orders/work-order-import.schemas.js';
 export * from './work-orders/work-order-sites.schemas.js';
 export * from './contracts/contract.schemas.js';

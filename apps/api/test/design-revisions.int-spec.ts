@@ -575,7 +575,7 @@ describe('CAD mapping', () => {
     mappingVersion = 2;
 
     const view = CadMappingViewSchema.parse(
-      (await as(supervisor)(http().get(`${filesUrl(projectA)}/${fileId}/mapping`))).body,
+      (await as(pm)(http().get(`${filesUrl(projectA)}/${fileId}/mapping`))).body,
     );
     expect(view.mapping).toMatchObject({ version: 2, drawingUnit: 'ft' });
     expect(await eventTypes(ctx.pool, fileId)).toEqual(['cad_mapping.saved', 'cad_mapping.saved']);
@@ -624,9 +624,9 @@ describe('CAD mapping', () => {
     ).toBe(400);
   });
 
-  it('enforces roles: supervisor may read but not write; contractor nothing', async () => {
+  it('enforces roles: supervisor has neither read nor write (ADR-054: he reads through sync); contractor nothing', async () => {
     const url = `${filesUrl(projectA)}/${fileId}/mapping`;
-    expect((await as(supervisor)(http().get(url))).status).toBe(200);
+    expect((await as(supervisor)(http().get(url))).status).toBe(403);
     expect((await as(supervisor)(http().put(url)).send({})).status).toBe(403);
     expect((await as(contractor)(http().get(url))).status).toBe(403);
     expect((await as(contractor)(http().put(url)).send({})).status).toBe(403);
@@ -641,7 +641,7 @@ describe('CAD mapping', () => {
       [projectA, bare],
     );
     const url = `${filesUrl(projectA)}/${bare}/mapping/placement-drawing`;
-    const res = await as(supervisor)(http().get(url));
+    const res = await as(pm)(http().get(url));
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(PlacementDrawingSchema.parse(res.body)).toEqual({
       mappingVersion: null,
@@ -789,11 +789,11 @@ describe('creating a design revision', () => {
 
   it('lists and shows revisions (design:read), newest first, per project', async () => {
     const list = DesignRevisionListResponseSchema.parse(
-      (await as(supervisor)(http().get(revisionsUrl(projectA)))).body,
+      (await as(pm)(http().get(revisionsUrl(projectA)))).body,
     );
     expect(list.items.map((item) => item.id)).toEqual([revisionId]);
 
-    const detail = await as(supervisor)(http().get(`${revisionsUrl(projectA)}/${revisionId}`));
+    const detail = await as(pm)(http().get(`${revisionsUrl(projectA)}/${revisionId}`));
     expect(detail.status).toBe(200);
     expect(DesignRevisionDetailSchema.parse(detail.body)).toMatchObject({
       id: revisionId,
@@ -839,7 +839,7 @@ describe('a built draft revision', () => {
     });
     const problem = { code: 'LABEL_MISSING', severity: 'warning', count: 3, items: [place('B2')] };
     await setWarnings(revisionId, [{ code: 'ROUTE_ZERO_LENGTH_SKIPPED', count: 1 }, problem]);
-    const listed = await as(supervisor)(http().get(url('/problems')));
+    const listed = await as(pm)(http().get(url('/problems')));
     expect(listed.status, JSON.stringify(listed.body)).toBe(200);
     const list = DrawingProblemListSchema.parse(listed.body);
     expect(list.items.map((p) => [p.code, p.count])).toEqual([['LABEL_MISSING', 3]]);
@@ -904,7 +904,7 @@ describe('a built draft revision', () => {
     ]);
     try {
       const url = `${filesUrl(projectA)}/${fileId}/mapping/placement-drawing`;
-      const res = await as(supervisor)(http().get(url));
+      const res = await as(pm)(http().get(url));
       expect(res.status, JSON.stringify(res.body)).toBe(200);
       const drawing = PlacementDrawingSchema.parse(res.body);
       expect(drawing.mappingVersion).toBe(mappingVersion);
@@ -944,7 +944,7 @@ describe('a built draft revision', () => {
   });
 
   it('lists features by type, code and handle with metric anchors and exact lengths', async () => {
-    const res = await as(supervisor)(http().get(url('/features')));
+    const res = await as(pm)(http().get(url('/features')));
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const page = DesignFeaturePageSchema.parse(res.body);
     expect(page.total).toBe(4);
@@ -1166,7 +1166,7 @@ describe('a built draft revision', () => {
       key,
     ]);
 
-    const get = (range?: string, token = supervisor) => {
+    const get = (range?: string, token = pm) => {
       const req = as(token)(http().get(url('/tiles.pmtiles')))
         .buffer(true)
         .parse(binary as never);
@@ -1207,7 +1207,7 @@ describe('a built draft revision', () => {
   });
 
   it('signs tile URLs that /tiles/verify accepts, and only those', async () => {
-    const res = await as(supervisor)(http().post(url('/tile-url')));
+    const res = await as(pm)(http().post(url('/tile-url')));
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const { urlTemplate, expiresAt } = TileUrlResponseSchema.parse(res.body);
     expect(
@@ -1240,7 +1240,7 @@ describe('a built draft revision', () => {
     expect((await verify(forwarded, noTilesCtx)).status).toBe(401);
 
     // Not configured → 404 for the signing endpoint.
-    expect((await as(supervisor)(http(noTilesCtx).post(url('/tile-url')))).status).toBe(404);
+    expect((await as(pm)(http(noTilesCtx).post(url('/tile-url')))).status).toBe(404);
     expect((await as(contractor)(http().post(url('/tile-url')))).status).toBe(403);
     expect(
       (await as(admin)(http().post(`${revisionsUrl(projectB)}/${revisionId}/tile-url`))).status,
@@ -1305,9 +1305,7 @@ describe('a built draft revision', () => {
       expect(res.body).toMatchObject({ code: 'CONFLICT', details });
     };
     const readiness = async () =>
-      PublishReadinessSchema.parse(
-        (await as(supervisor)(http().get(url('/publish-readiness')))).body,
-      );
+      PublishReadinessSchema.parse((await as(pm)(http().get(url('/publish-readiness')))).body);
     const place = (excluded: boolean) =>
       JSON.stringify({
         sourceCrs: 'project',

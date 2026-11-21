@@ -28,6 +28,7 @@ import {
 } from '../model/viewport';
 import { CadCanvas } from './CadCanvas';
 import { DrawingPicker } from '../../sync/components/DrawingPicker';
+import { bundleHasNoSites } from '../../sync/model/drawing-picker';
 
 interface CadScreenProps {
   onUpdate: (featureId: string) => void;
@@ -107,6 +108,22 @@ export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: 
             onPress={() => void download()}
             testID="download-bundle"
           />
+        </View>
+      </View>
+    );
+  }
+
+  if (bundleHasNoSites(bundle)) {
+    return (
+      <View style={[styles.empty, { backgroundColor: theme.background }]}>
+        <SyncStatusBar onOpenPending={onOpenPending} />
+        <View style={styles.emptyBody}>
+          <Text
+            style={{ color: theme.text, fontSize: typography.size.lg }}
+            testID="no-sites-message"
+          >
+            {t('mobileSites.noSites')}
+          </Text>
         </View>
       </View>
     );

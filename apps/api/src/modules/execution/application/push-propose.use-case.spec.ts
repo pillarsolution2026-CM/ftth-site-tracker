@@ -19,7 +19,7 @@ const propose = (accuracyM = 3): ProposePlacementPointOp => ({
   },
 });
 
-function setup(featureType: string) {
+function setup(featureType: string, inScope = true) {
   const calls = { inserted: [] as NewGpsProposal[], scopeChecks: 0 };
   const tx = {
     lockProject: async () => undefined,
@@ -29,7 +29,7 @@ function setup(featureType: string) {
     proposalTarget: async () => ({ featureType, code: 'MH-1', handle: 'H7', cadFileId: id(30) }),
     featureInScope: async () => {
       calls.scopeChecks += 1;
-      return false;
+      return inScope;
     },
     anyPhotoExists: async () => false,
     insertGpsProposal: async (proposal: NewGpsProposal) => {
@@ -45,18 +45,18 @@ function setup(featureType: string) {
   );
   const run = (
     op: ProposePlacementPointOp,
-    scope: PushInput['scope'] = { kind: 'zones', zoneIds: [id(50)] },
+    scope: PushInput['scope'] = { kind: 'sites', siteIds: [id(50)] },
   ) => useCase.execute({ projectId: id(10), userId: id(11), deviceId: id(12), scope, ops: [op] });
   return { calls, run };
 }
 
 describe('PushSyncUseCase placement_point.propose', () => {
-  it('applies for any zone: copies the handle and file of the item, no zone check', async () => {
+  it('applies for a feature of his sites: copies the handle and file of the item', async () => {
     const { calls, run } = setup('mh');
     expect(await run(propose())).toEqual([
       { clientOpId: id(21), outcome: 'applied', updateId: id(9) },
     ]);
-    expect(calls.scopeChecks).toBe(0);
+    expect(calls.scopeChecks).toBe(1);
     expect(calls.inserted).toHaveLength(1);
     expect(calls.inserted[0]).toMatchObject({
       id: id(9),
@@ -66,6 +66,14 @@ describe('PushSyncUseCase placement_point.propose', () => {
       featureType: 'mh',
       proposedBy: id(11),
     });
+  });
+
+  it('refuses a feature outside his sites (ADR-054) and stores nothing', async () => {
+    const { calls, run } = setup('mh', false);
+    expect(await run(propose())).toEqual([
+      { clientOpId: id(21), outcome: 'rejected', code: 'FEATURE_OUT_OF_SCOPE' },
+    ]);
+    expect(calls.inserted).toEqual([]);
   });
 
   it.each(['route', 'ring'])('refuses a %s item', async (type) => {

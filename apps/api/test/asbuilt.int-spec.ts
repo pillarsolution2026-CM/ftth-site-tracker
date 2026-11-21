@@ -62,7 +62,10 @@ type Pt = [number, number];
 const line = (...coordinates: Pt[]) => ({ type: 'LineString', coordinates });
 const point = (e: number, n: number) => ({ type: 'Point', coordinates: [e, n] });
 
-/** Builds one `asbuilt_edit.record` op on `revisionId` (default: the fixture's first revision). */
+/**
+ * Builds one `asbuilt_edit.record` op on `revisionId` (default: site A's revision, or site B's for
+ * box B, which is drawn there).
+ */
 function edit(
   f: ExecutionFixture,
   fields: Record<string, unknown>,
@@ -73,7 +76,7 @@ function edit(
     clientOpId: o.clientOpId ?? randomUUID(),
     capturedAt: o.capturedAt ?? new Date().toISOString(),
     payload: {
-      designRevisionId: o.revisionId ?? f.revisionId,
+      designRevisionId: o.revisionId ?? (fields.featureId === f.boxB ? f.revisionB : f.revisionId),
       note: null,
       gps: null,
       ...fields,
@@ -383,50 +386,56 @@ describe('recording As-Built edits through sync push', () => {
     expect(res.status).toBe(400);
   });
 
-  it('keeps a supervisor inside the zones: other zone, moving out, adding out', async () => {
+  it('keeps a supervisor inside his sites: other site, adding on another site drawing', async () => {
     const before = await countEdits(f);
     const code = async (operation: unknown, token: string) =>
       rejectedWith(await pushOne(f, token, operation));
-    // Supervisor B cannot touch zone A features.
+    // Supervisor B cannot touch site A features.
     expect(await code(reshape(f, line([E0, N0], [E0 + 90, N0 + 5])), f.tokens.supervisorB)).toBe(
       'FEATURE_OUT_OF_SCOPE',
     );
     expect(await code(label(f, f.boxA, 'x'), f.tokens.supervisorB)).toBe('FEATURE_OUT_OF_SCOPE');
-    // Supervisor A cannot touch zone B or move a feature from A into B.
+    // Supervisor A cannot touch site B's features, nor add anything on site B's drawing (an added
+    // feature is linked to a site through the drawing it is added on).
     expect(await code(move(f, f.boxB, E0 + 1001, N0 + 1000), f.tokens.supervisorA)).toBe(
       'FEATURE_OUT_OF_SCOPE',
     );
-    expect(await code(move(f, f.boxA, E0 + 1000, N0 + 1000), f.tokens.supervisorA)).toBe(
-      'FEATURE_OUT_OF_SCOPE',
-    );
     expect(
       await code(
-        reshape(f, line([E0 + 900, N0 + 950], [E0 + 1000, N0 + 950])),
+        addSymbol(f, E0 + 1000, N0 + 1000, null, { revisionId: f.revisionB }),
         f.tokens.supervisorA,
       ),
     ).toBe('FEATURE_OUT_OF_SCOPE');
-    expect(await code(addSymbol(f, E0 + 1000, N0 + 1000), f.tokens.supervisorA)).toBe(
-      'FEATURE_OUT_OF_SCOPE',
-    );
-    // Security review M1: a route that starts in zone A but runs on into zone B is refused too.
-    expect(
-      await code(reshape(f, line([E0, N0], [E0 + 1000, N0 + 950])), f.tokens.supervisorA),
-    ).toBe('FEATURE_OUT_OF_SCOPE');
     expect(
       await code(
-        addRoute(f, line([E0 + 10, N0 + 10], [E0 + 1000, N0 + 1000])),
+        addRoute(f, line([E0 + 1000, N0 + 1000], [E0 + 1010, N0 + 1000]), randomUUID(), {
+          revisionId: f.revisionB,
+        }),
         f.tokens.supervisorA,
       ),
     ).toBe('FEATURE_OUT_OF_SCOPE');
+    // Supervisor B cannot add on site A's drawing either.
+    expect(await code(addSymbol(f, E0 + 1, N0 + 1), f.tokens.supervisorB)).toBe(
+      'FEATURE_OUT_OF_SCOPE',
+    );
     expect(await countEdits(f)).toBe(before);
-    // Inside its own zone supervisor B can still work.
+    // On his own site supervisor B can still work, adding included.
     expect(
       (await pushOne(f, f.tokens.supervisorB, move(f, f.boxB, E0 + 1002, N0 + 1000))).outcome,
+    ).toBe('applied');
+    expect(
+      (
+        await pushOne(
+          f,
+          f.tokens.supervisorB,
+          addSymbol(f, E0 + 1003, N0 + 1000, null, { revisionId: f.revisionB }),
+        )
+      ).outcome,
     ).toBe('applied');
   });
 
   it('takes the write scope only from assignments that grant asbuilt:write (H1 rule)', async () => {
-    // A QC member of the project who is also a supervisor of zone B: QC is project-wide but cannot write.
+    // A QC member of the project who is also a supervisor of site B: QC is project-wide but cannot write.
     const email = `qc-sup-${randomUUID().slice(0, 8)}@ftth.local`;
     await ensureMember(ctx.pool, {
       email,
@@ -439,7 +448,7 @@ describe('recording As-Built edits through sync push', () => {
       password: 'Qc#Sup12345',
       role: 'supervisor',
       projectId: f.projectId,
-      zoneId: f.zoneB,
+      siteIds: [f.siteB],
     });
     const token = await loginAs(ctx, email, 'Qc#Sup12345');
     expect(
@@ -475,7 +484,7 @@ describe('flags', () => {
   let rev2: string;
   beforeAll(async () => {
     f = await createExecutionFixture(ctx);
-    // Rev 2 keeps the route and box B and drops box A.
+    // Rev 2 of site A's General keeps the route and drops box A.
     rev2 = await publishRevision(
       ctx.pool,
       f.projectId,
@@ -486,9 +495,10 @@ describe('flags', () => {
           wkt: `LINESTRING(${E0} ${N0}, ${E0 + 100} ${N0})`,
           isNew: false,
         },
-        { id: f.boxB, type: 'box', wkt: `POINT(${E0 + 1000} ${N0 + 1000})`, isNew: false },
       ],
       2,
+      'general',
+      { siteId: f.siteA },
     );
   }, 180_000);
 
@@ -725,9 +735,9 @@ describe('review (web)', () => {
     expect(after[0]).toEqual({ label: 'HHI-9b', geometry_version: 2, label_version: 2 });
   });
 
-  it('is zone and project scoped: reading, detail and reviewing are 404 outside the caller scope', async () => {
-    const inA = await record(f, f.tokens.supervisorA, label(f, f.boxA, 'zone A edit'));
-    const inB = await record(f, f.tokens.supervisorB, label(f, f.boxB, 'zone B edit'));
+  it('is site and project scoped: reading, detail and reviewing are 404 outside the caller scope', async () => {
+    const inA = await record(f, f.tokens.supervisorA, label(f, f.boxA, 'site A edit'));
+    const inB = await record(f, f.tokens.supervisorB, label(f, f.boxB, 'site B edit'));
 
     const seenByA = (await listEdits(f, f.tokens.supervisorA)).items.map((e) => e.id);
     expect(seenByA).toContain(inA);
@@ -749,7 +759,7 @@ describe('review (web)', () => {
           .set(auth(f.tokens.supervisorA))
       ).status,
     ).toBe(200);
-    // Approval of zone B by supervisor A is a 403 (no review right) and nothing changed.
+    // Approval of site B by supervisor A is a 403 (no review right) and nothing changed.
     expect((await approve(f, f.tokens.supervisorA, inB)).status).toBe(403);
 
     // Another project: its qc cannot see or review this project's edits (no access at all) and
@@ -822,7 +832,7 @@ describe('pull and bootstrap', () => {
     const mine = first.asBuiltEdits.find((e) => e.id === id);
     expect(mine).toMatchObject({ status: 'pending', label: 'device edit' });
     expect(first.updates).toEqual([]);
-    // Zone B's supervisor does not see it.
+    // Site B's supervisor does not see it.
     expect((await getChanges(f, f.tokens.supervisorB)).asBuiltEdits.map((e) => e.id)).not.toContain(
       id,
     );
@@ -917,7 +927,7 @@ describe('pull and bootstrap', () => {
     const reshapeId = await record(f2, f2.tokens.supervisorA, reshape(f2, line(...routePts)));
     const symbol = addSymbol(f2, E0 + 70, N0 + 70, 'S');
     const symbolEdit = await record(f2, f2.tokens.supervisorA, symbol);
-    const inB = await record(f2, f2.tokens.supervisorB, label(f2, f2.boxB, 'zone B label'));
+    const inB = await record(f2, f2.tokens.supervisorB, label(f2, f2.boxB, 'site B label'));
     for (const id of [labelId, reshapeId, symbolEdit, inB]) {
       expect((await approve(f2, f2.tokens.qc, id)).status).toBe(200);
     }
@@ -991,6 +1001,8 @@ describe('acceptance: a reshape reaches the web and, once approved, the approved
         { id: f.boxA, type: 'box', wkt: `POINT(${E0 + 50} ${N0 + 5})`, isNew: false },
       ],
       2,
+      'general',
+      { siteId: f.siteA },
     );
   }, 180_000);
 
@@ -1087,7 +1099,7 @@ describe('acceptance: a reshape reaches the web and, once approved, the approved
     ]);
   });
 
-  it('reads lengths in the caller scope (supervisor of zone B sees no zone A route) and needs asbuilt:read', async () => {
+  it('reads lengths in the caller scope (supervisor of site B sees no site A route) and needs asbuilt:read', async () => {
     const forB = await getLengths(f, f.tokens.supervisorB);
     expect(forB.routes).toEqual([]);
     const forA = await getLengths(f, f.tokens.supervisorA);

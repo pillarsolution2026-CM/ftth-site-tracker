@@ -121,36 +121,33 @@ export type CreateUserInput = z.input<typeof CreateUserRequestSchema>;
 // Assignments
 // ---------------------------------------------------------------------------------------------
 
-/** Roles an admin may assign. `admin` is excluded: platform admins are created by the CLI only. */
-export const ASSIGNABLE_ROLES = ['pm', 'supervisor', 'qc', 'contractor'] as const satisfies Role[];
+/**
+ * Roles an admin may assign. `admin` is excluded: platform admins are created by the CLI only.
+ * `contractor` is no longer assigned to projects: contractor logins are accounts linked to a
+ * contractor (ADR-053). ADR-054: zones are retired; a supervisor's reach is his SITES
+ * (`supervisor_sites`), set by the admin or the PM, not a zone on the assignment.
+ */
+export const ASSIGNABLE_ROLES = ['pm', 'supervisor', 'qc'] as const satisfies Role[];
 export const AssignableRoleSchema = z.enum(ASSIGNABLE_ROLES);
 export type AssignableRole = z.infer<typeof AssignableRoleSchema>;
 
-/** Supervisor and contractor reach only their zones; without a zone they get nothing (fail closed). */
+/**
+ * Roles whose reach inside a project is limited (supervisor: his sites, ADR-054). Without a site
+ * they see and record nothing (fail closed).
+ */
 export function isZoneScopedRole(role: Role): boolean {
   return !PROJECT_WIDE_ROLES.includes(role);
 }
 
-/** POST /admin/projects/:projectId/assignments. Zone required for zone-scoped roles, forbidden otherwise. */
-export const CreateAssignmentRequestSchema = z
-  .strictObject({
-    userId: z.uuid(),
-    role: AssignableRoleSchema,
-    zoneId: z.uuid().nullable().default(null),
-  })
-  .superRefine((body, ctx) => {
-    const scoped = isZoneScopedRole(body.role);
-    if (scoped && body.zoneId === null) {
-      ctx.addIssue({ code: 'custom', path: ['zoneId'], message: 'This role needs a zone' });
-    }
-    if (!scoped && body.zoneId !== null) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['zoneId'],
-        message: 'This role covers the whole project',
-      });
-    }
-  });
+/**
+ * POST /admin/projects/:projectId/assignments. ADR-054: no zone any more (`zoneId` must be null
+ * or absent); a supervisor's sites are set apart (`PUT …/supervisors/:userId/sites`).
+ */
+export const CreateAssignmentRequestSchema = z.strictObject({
+  userId: z.uuid(),
+  role: AssignableRoleSchema,
+  zoneId: z.null().default(null),
+});
 export type CreateAssignmentRequest = z.infer<typeof CreateAssignmentRequestSchema>;
 export type CreateAssignmentInput = z.input<typeof CreateAssignmentRequestSchema>;
 

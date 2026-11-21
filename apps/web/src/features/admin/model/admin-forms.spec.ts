@@ -8,7 +8,6 @@ import {
 } from './admin-forms';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
-const ZONE_ID = '22222222-2222-4222-8222-222222222222';
 const CONTRACT_ID = '33333333-3333-4333-8333-333333333333';
 const project = (overrides: Partial<Project>): Project => ({
   id: USER_ID,
@@ -77,17 +76,17 @@ describe('validateUserForm', () => {
 });
 
 describe('validateAssignmentForm', () => {
-  it('requires a zone for a supervisor', () => {
-    expect(validateAssignmentForm({ userId: USER_ID, role: 'supervisor', zoneId: '' })).toEqual({
-      ok: false,
-      errors: { zoneId: 'admin.assignments.zoneRequired' },
+  it('sends no zone for a supervisor (ADR-054)', () => {
+    expect(validateAssignmentForm({ userId: USER_ID, role: 'supervisor' })).toEqual({
+      ok: true,
+      payload: { userId: USER_ID, role: 'supervisor', zoneId: null },
     });
   });
 
-  it('drops a stale zone for a project-wide role', () => {
-    expect(validateAssignmentForm({ userId: USER_ID, role: 'qc', zoneId: ZONE_ID })).toEqual({
-      ok: true,
-      payload: { userId: USER_ID, role: 'qc', zoneId: null },
+  it('requires a user', () => {
+    expect(validateAssignmentForm({ userId: '', role: 'qc' })).toEqual({
+      ok: false,
+      errors: { userId: 'validation.required' },
     });
   });
 });

@@ -5,6 +5,7 @@ import { useI18n } from '../../../shared/i18n/I18nProvider';
 import { Button } from '../../../shared/ui/Button';
 import { LanguageSwitcher } from '../../../shared/ui/LanguageSwitcher';
 import { useTheme } from '../../../shared/ui/theme';
+import { membershipHasNoSites } from '../../sync/model/drawing-picker';
 
 /** Home: the projects the supervisor is assigned to; opening one goes to its CAD screen. */
 export function ProjectsScreen({ onOpen }: { onOpen: (projectId: string) => void }) {
@@ -33,6 +34,11 @@ export function ProjectsScreen({ onOpen }: { onOpen: (projectId: string) => void
               {membership.projectName}
             </Text>
             <Text style={{ color: theme.text }}>{t(`roles.${membership.role}`)}</Text>
+            {membershipHasNoSites(membership) ? (
+              <Text style={{ color: theme.text }} testID={`no-sites-${membership.projectId}`}>
+                {t('mobileSites.noSites')}
+              </Text>
+            ) : null}
           </Pressable>
         ))
       ) : (

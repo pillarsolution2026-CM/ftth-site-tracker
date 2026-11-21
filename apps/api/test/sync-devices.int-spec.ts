@@ -225,7 +225,7 @@ describe('Phase 3 acceptance (simulated): 20 updates in airplane mode', () => {
   });
 });
 
-describe('three devices on the same zone with a flaky network', () => {
+describe('three devices on the same site with a flaky network', () => {
   it('ends with every update once, quantities added up and everyone seeing everything', async () => {
     const random = rng(20261030);
     const devices = [

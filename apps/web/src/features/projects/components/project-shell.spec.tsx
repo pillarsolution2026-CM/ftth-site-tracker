@@ -39,6 +39,7 @@ const member = (projectId: string, projectName: string, role: 'pm' | 'qc' | 'con
   projectName,
   role,
   zoneIds: [],
+  siteIds: [],
 });
 
 function renderShell(projectId = P1) {

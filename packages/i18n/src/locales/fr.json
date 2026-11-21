@@ -123,14 +123,6 @@
       "openContract": "Ouvrir le contrat",
       "contractNumber": "Numéro du contrat"
     },
-    "zones": {
-      "title": "Zones",
-      "name": "Nom de la zone",
-      "add": "Ajouter une zone",
-      "none": "Aucune zone",
-      "noBoundary": "Pas encore de limite (tracée plus tard sur l’écran des zones)",
-      "nameTaken": "Une zone porte déjà ce nom"
-    },
     "assignments": {
       "title": "Équipe",
       "user": "Utilisateur",
@@ -140,14 +132,10 @@
       "remove": "Retirer",
       "none": "Personne n’est encore affecté",
       "chooseUser": "Choisir un utilisateur",
-      "chooseZone": "Choisir une zone",
-      "zoneRequired": "Les superviseurs et les sous-traitants ont besoin d’une zone",
-      "needZoneFirst": "Ajoutez d’abord une zone pour affecter un superviseur ou un sous-traitant",
       "projectWide": "Tout le projet",
       "alreadyAssigned": "Cet utilisateur a déjà ce rôle ici",
       "userInactive": "Cet utilisateur est désactivé",
       "userIsAdmin": "Les administrateurs voient déjà tous les projets",
-      "zoneNotInProject": "La zone n’appartient pas à ce projet",
       "confirmRemove": "Retirer {name} ({role}) de ce projet ?"
     },
     "validation": {
@@ -269,7 +257,22 @@
     "cadFiles": "Fichiers CAO",
     "designRevisions": "Révisions de conception",
     "contract": "Contrat",
-    "contractors": "Sous-traitants"
+    "contractors": "Sous-traitants",
+    "supervisorSites": "Sites des superviseurs"
+  },
+  "supervisorSites": {
+    "title": "Sites des superviseurs",
+    "workOrder": "Ordre de travail",
+    "count": "Sites choisis : {count}",
+    "save": "Enregistrer",
+    "saved": "Les sites du superviseur sont enregistrés",
+    "noSupervisors": "Aucun superviseur n’est encore affecté à ce projet. L’administrateur les affecte depuis l’écran d’administration.",
+    "noSites": "Les ordres de travail de ce projet n’ont pas encore de sites.",
+    "note": "Un superviseur voit et saisit uniquement sur ses sites ; un superviseur sans site ne voit rien.",
+    "errors": {
+      "notSupervisor": "Cet utilisateur n’est pas superviseur de ce projet",
+      "foreignSite": "Un des sites n’appartient pas à ce projet. Actualisez la page et réessayez."
+    }
   },
   "project": {
     "switcher": "Projet",
@@ -2220,13 +2223,15 @@
       "BASE_OUTDATED": "Base obsolète",
       "REVISION_OUTDATED": "Révision obsolète",
       "FEATURE_REMOVED": "Élément supprimé",
-      "CLOCK_AHEAD": "Horloge en avance"
+      "CLOCK_AHEAD": "Horloge en avance",
+      "OUTSIDE_DRAWING": "Hors du dessin"
     },
     "flagExplain": {
       "BASE_OUTDATED": "Une autre modification de cet élément a été approuvée après la version sur laquelle celle-ci a été dessinée. Elle ne peut pas être approuvée : rejetez-la pour que le superviseur la redessine sur l'état actuel.",
       "REVISION_OUTDATED": "Le superviseur a dessiné sur une révision de conception qui n'est plus la dernière publiée. Vérifiez le dessin avant d'approuver.",
       "FEATURE_REMOVED": "Cet élément n'est plus dans la dernière révision de conception publiée. Vérifiez que la modification a encore un sens.",
-      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable."
+      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable.",
+      "OUTSIDE_DRAWING": "La géométrie modifiée dépasse l’étendue des éléments de conception de ce dessin (les sites n’ont pas de limite). Vérifiez avant d’approuver."
     },
     "noFlags": "Aucune alerte",
     "detail": {
@@ -2616,6 +2621,7 @@
     "onPhoneOld": "Sur le téléphone (révision {revNo}) - révision plus récente {latest} disponible",
     "notOnPhone": "Non téléchargé - téléchargé au choix",
     "empty": "Aucun plan n'est encore publié pour ce projet.",
+    "noSites": "Vous n'avez aucun site sur ce projet. Contactez le chef de projet.",
     "notOnPhoneOffline": "Ce plan n'est pas sur le téléphone. Connectez-vous à Internet pour le télécharger.",
     "autoDownloading": "Téléchargement {done} sur {total}"
   },

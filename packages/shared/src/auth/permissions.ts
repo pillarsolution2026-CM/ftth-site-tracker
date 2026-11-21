@@ -19,6 +19,8 @@ export const PERMISSIONS = [
   'contract:read',
   /** Read the project's subcontractors, their lines and prices (ADR-036): admin and pm (owner). */
   'contractors:read',
+  /** Give supervisors their sites of the work order (ADR-054): admin and pm (owner 2026-11-21). */
+  'supervisor_sites:manage',
   /** See As-Built edits and state (Phase 4, ADR-030). Zone-scoped for supervisors. */
   'asbuilt:read',
   /** Record As-Built edits from the mobile app. ASSUMPTION: supervisor, pm, admin. */
@@ -43,7 +45,12 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   admin: PERMISSIONS,
   pm: PERMISSIONS,
   qc: [...READ, 'asbuilt:review'],
-  supervisor: [...READ, 'execution:write', 'asbuilt:write'],
+  /**
+   * ADR-054 (security review H1): a supervisor works only through the phone (sync and As-Built,
+   * both filtered by his sites). He no longer reads project-wide routes (work orders, CAD files,
+   * revisions, tiles), which would show other sites' drawings and names.
+   */
+  supervisor: ['execution:read', 'execution:write', 'asbuilt:read', 'asbuilt:write'],
   contractor: [],
 };
 

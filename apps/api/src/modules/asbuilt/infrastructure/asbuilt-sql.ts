@@ -43,45 +43,46 @@ export const latestRevisionIdsSql = (projectId: string): SQL =>
         ORDER BY r.drawing_id, r.rev_no DESC`;
 
 /**
- * Read scope of an edit, alias `e` (asbuilt_edits). Phase 4 contract: the feature's design
- * geometry or the edit's proposed geometry intersects one of the caller's zones. Two additions
- * that only widen to what the same zone already owns: the design geometry in the edit's own
- * revision (a feature removed from the latest revision stays reviewable) and the approved As-Built
- * geometry (a label edit of an added feature has neither of the first two).
+ * True when the feature of row `alias` (asbuilt_edits `e` or asbuilt_features `a`) belongs to one
+ * of the caller's sites (ADR-054): a design feature through the drawing of a revision it is drawn
+ * in; an added feature through the drawing of the revision its add edit was recorded on. Nothing
+ * else links a feature to a site, so anything unlinked is out of scope (fail closed).
  */
-export function editReadScope(projectId: string, scope: AsBuiltScope): SQL {
-  if (scope.kind === 'project') return sql`true`;
-  if (scope.zoneIds.length === 0) return sql`false`;
-  return sql`EXISTS (
-    SELECT 1 FROM zones z
-    WHERE z.project_id = e.project_id AND z.id = ANY(${uuidArray(scope.zoneIds)})
-      AND z.geom IS NOT NULL
-      AND (
-        (e.geom IS NOT NULL AND ST_Intersects(z.geom, e.geom))
-        OR EXISTS (
-          SELECT 1 FROM design_features df
-          WHERE df.project_id = e.project_id AND df.feature_id = e.feature_id
-            AND (df.revision_id = e.design_revision_id
-                 OR df.revision_id IN (${latestRevisionIdsSql(projectId)}))
-            AND ST_Intersects(z.geom, df.geom))
-        OR EXISTS (
-          SELECT 1 FROM asbuilt_features af
-          WHERE af.project_id = e.project_id AND af.feature_id = e.feature_id
-            AND af.geom IS NOT NULL AND ST_Intersects(z.geom, af.geom))))`;
+function featureInSites(alias: SQL, scope: { siteIds: readonly string[] }): SQL {
+  return sql`(
+    EXISTS (
+      SELECT 1 FROM design_features sf
+      JOIN design_revisions sr ON sr.project_id = sf.project_id AND sr.id = sf.revision_id
+      JOIN site_drawings sd ON sd.project_id = sr.project_id AND sd.id = sr.drawing_id
+      WHERE sf.project_id = ${alias}.project_id AND sf.feature_id = ${alias}.feature_id
+        AND sd.site_id = ANY(${uuidArray(scope.siteIds)}))
+    OR EXISTS (
+      SELECT 1 FROM asbuilt_edits sa
+      JOIN design_revisions sr ON sr.project_id = sa.project_id AND sr.id = sa.design_revision_id
+      JOIN site_drawings sd ON sd.project_id = sr.project_id AND sd.id = sr.drawing_id
+      WHERE sa.project_id = ${alias}.project_id AND sa.feature_id = ${alias}.feature_id
+        AND sa.kind IN ('add_route', 'add_symbol')
+        AND sd.site_id = ANY(${uuidArray(scope.siteIds)})))`;
 }
 
 /**
- * Scope of an approved-state row: aliases `a` (asbuilt_features) and `df` (the design feature in
- * the latest revision, possibly NULL). Visible when the approved or the design geometry is in a zone.
+ * Read scope of an edit, alias `e` (asbuilt_edits). ADR-054: the edit's feature belongs to one of
+ * the caller's sites (see `featureInSites`); a supervisor without sites sees nothing.
  */
-export function stateScope(scope: AsBuiltScope): SQL {
+export function editReadScope(_projectId: string, scope: AsBuiltScope): SQL {
   if (scope.kind === 'project') return sql`true`;
-  if (scope.zoneIds.length === 0) return sql`false`;
-  return sql`EXISTS (
-    SELECT 1 FROM zones z
-    WHERE z.project_id = a.project_id AND z.id = ANY(${uuidArray(scope.zoneIds)})
-      AND z.geom IS NOT NULL
-      AND (ST_Intersects(z.geom, a.geom) OR ST_Intersects(z.geom, df.geom)))`;
+  if (scope.siteIds.length === 0) return sql`false`;
+  return featureInSites(sql.raw('e'), scope);
+}
+
+/**
+ * Scope of an approved-state row: alias `a` (asbuilt_features), or `df` for a design feature that
+ * may have no As-Built row yet; same rule as the edits.
+ */
+export function stateScope(scope: AsBuiltScope, alias: 'a' | 'df' = 'a'): SQL {
+  if (scope.kind === 'project') return sql`true`;
+  if (scope.siteIds.length === 0) return sql`false`;
+  return featureInSites(sql.raw(alias), scope);
 }
 
 /** Columns of an edit as the contract returns it; alias `e`, joined users `u`. */
