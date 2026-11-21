@@ -63,7 +63,7 @@ function scopeOf(request: AuthenticatedRequest, permission: Permission): Executi
   if (!access) throw new AppError('FORBIDDEN', 'No access to this project');
   const scope = scopeForPermission(access, permission, request.auth?.isAdmin === true);
   if (!scope) throw new AppError('FORBIDDEN', 'Your role does not allow this action');
-  return scope.kind === 'project' ? { kind: 'project' } : { kind: 'zones', zoneIds: scope.zoneIds };
+  return scope.kind === 'project' ? { kind: 'project' } : { kind: 'sites', siteIds: scope.siteIds };
 }
 
 /** Like `scopeOf`, but null (instead of 403) when no assignment grants `permission`. */

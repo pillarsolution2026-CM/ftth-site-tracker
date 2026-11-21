@@ -61,7 +61,8 @@ interface World {
   featureInRevision: boolean;
   valid: boolean;
   lengthM: number;
-  geometryInScope: boolean;
+  revisionInScope: boolean;
+  addedInScope: boolean;
   featureInScope: boolean;
   versions: { geometryVersion: number; labelVersion: number };
   latestId: string;
@@ -75,7 +76,8 @@ function setup(partial: Partial<World> = {}) {
     featureInRevision: true,
     valid: true,
     lengthM: 10,
-    geometryInScope: true,
+    revisionInScope: true,
+    addedInScope: true,
     featureInScope: true,
     versions: { geometryVersion: 0, labelVersion: 0 },
     latestId: REVISION,
@@ -112,8 +114,8 @@ function setup(partial: Partial<World> = {}) {
       hasTiles: false,
     }),
     featureInScope: note('featureInScope', world.featureInScope),
-    addedFeatureInScope: note('addedFeatureInScope', true),
-    geometryInScope: note('geometryInScope', world.geometryInScope),
+    addedFeatureInScope: note('addedFeatureInScope', world.addedInScope),
+    revisionInScope: note('revisionInScope', world.revisionInScope),
     approvedVersions: note('approvedVersions', world.versions),
     insertAsBuiltEdit: async (edit: NewAsBuiltEdit) => {
       calls.push('insertAsBuiltEdit');
@@ -144,7 +146,7 @@ function setup(partial: Partial<World> = {}) {
   return { push, calls, inserted, events };
 }
 
-const zones: ExecutionScope = { kind: 'zones', zoneIds: [id(50)] };
+const sites: ExecutionScope = { kind: 'sites', siteIds: [id(50)] };
 
 function rejected(result: unknown): OpRejectionCode | null {
   const r = result as { outcome: string; code?: OpRejectionCode };
@@ -211,30 +213,44 @@ describe('As-Built edit check order', () => {
     expect(rejected(await onPoint.push(reshape))).toBe('GEOMETRY_KIND_MISMATCH');
   });
 
-  it('GEOMETRY_INVALID for an invalid shape or a zero-length route, before the zone check', async () => {
-    const invalid = setup({ valid: false, geometryInScope: false, featureInScope: false });
-    expect(rejected(await invalid.push(reshape, { asBuiltScope: zones }))).toBe('GEOMETRY_INVALID');
+  it('GEOMETRY_INVALID for an invalid shape or a zero-length route, before the site check', async () => {
+    const invalid = setup({ valid: false, revisionInScope: false, featureInScope: false });
+    expect(rejected(await invalid.push(reshape, { asBuiltScope: sites }))).toBe('GEOMETRY_INVALID');
     expect(invalid.calls).not.toContain('featureInScope');
     const zero = setup({ lengthM: 0 });
     expect(rejected(await zero.push(reshape))).toBe('GEOMETRY_INVALID');
   });
 
-  it('FEATURE_OUT_OF_SCOPE when the design feature or the proposed shape is outside the zones', async () => {
+  it('FEATURE_OUT_OF_SCOPE when the design feature is outside the sites', async () => {
     const featureOut = setup({ featureInScope: false });
-    expect(rejected(await featureOut.push(reshape, { asBuiltScope: zones }))).toBe(
+    expect(rejected(await featureOut.push(reshape, { asBuiltScope: sites }))).toBe(
       'FEATURE_OUT_OF_SCOPE',
     );
-    const shapeOut = setup({ geometryInScope: false });
-    expect(rejected(await shapeOut.push(reshape, { asBuiltScope: zones }))).toBe(
-      'FEATURE_OUT_OF_SCOPE',
-    );
-    expect(shapeOut.inserted).toHaveLength(0);
+    expect(featureOut.inserted).toHaveLength(0);
   });
 
-  it('a project-wide scope never asks for zones', async () => {
-    const { push, calls } = setup({ geometryInScope: false, featureInScope: false });
+  it('FEATURE_OUT_OF_SCOPE when an added feature was added outside the sites (fail closed)', async () => {
+    const added = setup({ target: { featureType: 'route', origin: 'added' }, addedInScope: false });
+    expect(rejected(await added.push(reshape, { asBuiltScope: sites }))).toBe(
+      'FEATURE_OUT_OF_SCOPE',
+    );
+    expect(added.inserted).toHaveLength(0);
+  });
+
+  it('a new feature must be added on a drawing of his sites', async () => {
+    const out = setup({ revisionInScope: false });
+    expect(rejected(await out.push(addRoute, { asBuiltScope: sites }))).toBe(
+      'FEATURE_OUT_OF_SCOPE',
+    );
+    const inside = setup();
+    expect((await inside.push(addRoute, { asBuiltScope: sites }))?.outcome).toBe('applied');
+    expect(inside.calls).toContain('revisionInScope');
+  });
+
+  it('a project-wide scope never asks for sites', async () => {
+    const { push, calls } = setup({ revisionInScope: false, featureInScope: false });
     expect((await push(reshape))?.outcome).toBe('applied');
-    expect(calls).not.toContain('geometryInScope');
+    expect(calls).not.toContain('revisionInScope');
     expect(calls).not.toContain('featureInScope');
   });
 });

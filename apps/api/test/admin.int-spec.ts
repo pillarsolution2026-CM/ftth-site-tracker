@@ -485,36 +485,32 @@ describe('assignments', () => {
     expect(after.status).toBe(403);
   });
 
-  it('a supervisor needs a zone of the same project, and the zone opens the project', async () => {
+  it('a supervisor needs no zone (ADR-054): the assignment opens the project, sites come apart', async () => {
     const projectId = await createProject();
     const user = await createUser();
-    expect((await assign(projectId, { userId: user.id, role: 'supervisor' })).status).toBe(400);
+    // Zones are retired: any zone id is refused, for every role.
+    expect(
+      (await assign(projectId, { userId: user.id, role: 'supervisor', zoneId: seeded.zone }))
+        .status,
+    ).toBe(400);
     expect(
       (await assign(projectId, { userId: user.id, role: 'pm', zoneId: seeded.zone })).status,
     ).toBe(400);
+    // The project contractor role is no longer assignable (ADR-053 accounts).
+    expect((await assign(projectId, { userId: user.id, role: 'contractor' })).status).toBe(400);
 
-    const foreign = await assign(projectId, {
-      userId: user.id,
-      role: 'supervisor',
-      zoneId: seeded.zone,
-    });
-    expect(foreign.status).toBe(400);
-    expect(foreign.body.details).toEqual({ reason: 'ZONE_NOT_IN_PROJECT' });
-
-    const zone = await http()
-      .post(`/admin/projects/${projectId}/zones`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Zone A' });
-    const ok = await assign(projectId, {
-      userId: user.id,
-      role: 'supervisor',
-      zoneId: zone.body.id,
-    });
+    const ok = await assign(projectId, { userId: user.id, role: 'supervisor' });
     expect(ok.status).toBe(201);
-    expect(ok.body).toMatchObject({ zoneId: zone.body.id, zoneName: 'Zone A' });
+    expect(ok.body).toMatchObject({ role: 'supervisor', zoneId: null, zoneName: null });
 
     const token = TokenPairSchema.parse((await login(user.email)).body).accessToken;
     await http().get(`/projects/${projectId}`).set('Authorization', `Bearer ${token}`).expect(200);
+    const me = MeResponseSchema.parse(
+      (await http().get('/auth/me').set('Authorization', `Bearer ${token}`)).body,
+    );
+    expect(me.memberships).toEqual([
+      expect.objectContaining({ projectId, role: 'supervisor', zoneIds: [], siteIds: [] }),
+    ]);
   });
 
   it('refuses the admin role, admins, deactivated users and unknown ids', async () => {

@@ -16,7 +16,7 @@ export class ResolveProjectAccessUseCase {
     projectId: string;
   }): Promise<ProjectAccess> {
     const all = await this.memberships.listForUserInProject(input.userId, input.projectId);
-    // Fail closed: a zone-scoped role (supervisor, contractor) without a zone grants nothing.
+    // A supervisor row grants access (his sites may be none); the retired contractor role grants nothing.
     const rows = all.filter((row) => grantsAccess(row, PROJECT_WIDE_ROLES));
     if (rows.length === 0) {
       if (input.isAdmin) {
@@ -31,12 +31,12 @@ export class ResolveProjectAccessUseCase {
     }
 
     const roles = [...new Set(rows.map((row) => row.role))];
-    const grants = rows.map((row) => ({ role: row.role, zoneId: row.zoneId }));
-    // Any project-wide role (admin/pm/qc) lifts the zone restriction.
+    const grants = rows.map((row) => ({ role: row.role, siteIds: row.siteIds }));
+    // Any project-wide role (admin/pm/qc) lifts the site restriction.
     if (roles.some((role) => PROJECT_WIDE_ROLES.includes(role))) {
       return { projectId: input.projectId, roles, scope: { kind: 'project' }, grants };
     }
-    const zoneIds = [...new Set(rows.flatMap((row) => (row.zoneId ? [row.zoneId] : [])))];
-    return { projectId: input.projectId, roles, scope: { kind: 'zones', zoneIds }, grants };
+    const siteIds = [...new Set(rows.flatMap((row) => row.siteIds))];
+    return { projectId: input.projectId, roles, scope: { kind: 'sites', siteIds }, grants };
   }
 }

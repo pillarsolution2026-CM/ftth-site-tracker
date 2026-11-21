@@ -171,7 +171,7 @@ describe('GET /auth/me', () => {
     expect(res.body.code).toBe('TOKEN_INVALID');
   });
 
-  it('returns the supervisor with a zone-scoped membership', async () => {
+  it('returns the supervisor with a site-scoped membership (zones are retired, ADR-054)', async () => {
     const pair = await login('supervisor@ftth.local', 'Super#12345');
 
     const res = await request(ctx.app.getHttpServer())
@@ -187,10 +187,12 @@ describe('GET /auth/me', () => {
       projectName: 'القطاع الأول – قليوب',
       role: 'supervisor',
     });
-    expect(me.memberships[0]?.zoneIds).toHaveLength(1);
+    // The seeded supervisor holds no site yet; his old zone row no longer shows.
+    expect(me.memberships[0]?.zoneIds).toEqual([]);
+    expect(me.memberships[0]?.siteIds).toEqual([]);
   });
 
-  it('returns the pm with a project-wide membership (no zones) and admin with none', async () => {
+  it('returns the pm with a project-wide membership (no zones, no sites) and admin with none', async () => {
     const pmPair = await login('pm@ftth.local', 'Pm#123456');
     const pm = MeResponseSchema.parse(
       (
@@ -199,7 +201,9 @@ describe('GET /auth/me', () => {
           .set('Authorization', `Bearer ${pmPair.accessToken}`)
       ).body,
     );
-    expect(pm.memberships).toEqual([expect.objectContaining({ role: 'pm', zoneIds: [] })]);
+    expect(pm.memberships).toEqual([
+      expect.objectContaining({ role: 'pm', zoneIds: [], siteIds: [] }),
+    ]);
 
     const adminPair = await login('admin@ftth.local', 'Admin#12345');
     const admin = MeResponseSchema.parse(

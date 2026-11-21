@@ -738,6 +738,12 @@ describe('publishing a site', () => {
 describe('a published revision of a drawing without a site keeps syncing', () => {
   it('serves the bundle, lists the drawing and takes a pick by drawing id', async () => {
     const project = fx.projectId;
+    // The fixture's drawings belong to sites; this one has none («بدون موقع»), published long ago.
+    const unassigned = await publishRevision(ctx.pool, project, [], 3, 'general', { siteId: null });
+    await ctx.pool.query(
+      `UPDATE design_revisions SET published_at = now() - interval '2 hours' WHERE id = $1`,
+      [unassigned],
+    );
     const bundle = OfflineBundleSchema.parse(
       (
         await http()
@@ -747,9 +753,12 @@ describe('a published revision of a drawing without a site keeps syncing', () =>
       ).body,
     );
     expect(bundle.revision?.id).toBe(fx.revisionId);
-    const drawing = bundle.drawings.find((d) => d.revision.id === fx.revisionId);
+    const drawing = bundle.drawings.find((d) => d.revision.id === unassigned);
     expect(drawing).toMatchObject({ siteId: null, siteName: null, kind: 'general', ordinal: 1 });
-    expect(bundle.revision?.drawingId).toBe(drawing?.drawingId);
+    expect(bundle.drawings.find((d) => d.revision.id === fx.revisionId)).toMatchObject({
+      siteId: fx.siteA,
+      kind: 'general',
+    });
 
     const picked = OfflineBundleSchema.parse(
       (
@@ -759,8 +768,8 @@ describe('a published revision of a drawing without a site keeps syncing', () =>
           .expect(200)
       ).body,
     );
-    expect(picked.revision?.id).toBe(fx.revisionId);
-    expect(picked.features.length).toBe(bundle.features.length);
+    expect(picked.revision?.id).toBe(unassigned);
+    expect(picked.revision?.drawingId).toBe(drawing?.drawingId);
 
     // An unknown drawing is refused.
     const unknown = await http()
@@ -776,8 +785,13 @@ describe('a published revision of a drawing without a site keeps syncing', () =>
           .expect(200)
       ).body,
     );
-    expect(withSecondary.drawings.map((d) => d.kind).sort()).toEqual(['general', 'secondary']);
-    // The default pick is still the General.
+    expect(withSecondary.drawings.map((d) => d.kind).sort()).toEqual([
+      'general',
+      'general',
+      'general',
+      'secondary',
+    ]);
+    // The default pick is still the General published last.
     expect(withSecondary.revision?.id).toBe(fx.revisionId);
     expect(second).toBeDefined();
   });

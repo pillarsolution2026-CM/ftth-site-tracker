@@ -270,6 +270,29 @@ export const workOrderSites = pgTable(
   ],
 );
 
+/** Sites a supervisor works on (migration 0029, ADR-054); a site may have several supervisors. */
+export const supervisorSites = pgTable(
+  'supervisor_sites',
+  {
+    projectId: uuid('project_id').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    siteId: uuid('site_id').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.siteId] }),
+    foreignKey({
+      name: 'supervisor_sites_site_fkey',
+      columns: [table.projectId, table.siteId],
+      foreignColumns: [workOrderSites.projectId, workOrderSites.id],
+    }).onDelete('cascade'),
+    index('supervisor_sites_project_site_idx').on(table.projectId, table.siteId),
+  ],
+);
+
 export const workOrderAttachments = pgTable(
   'work_order_attachments',
   {

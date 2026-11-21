@@ -25,27 +25,26 @@ import type {
 export { rowsOf, uuidArray };
 
 /**
- * True for features whose design geometry in the given revision intersects one of the caller's
- * zones. Until Phase 2 assigns features to zones the zone polygon is the only source (ADR-024);
- * a zone without geometry contains nothing.
+ * True for features drawn in a revision whose drawing belongs to one of the caller's sites
+ * (ADR-054): revision -> `drawing_id` -> `site_drawings.site_id`. A drawing without a site (NULL)
+ * is never in a site scope.
  */
-export function zoneCondition(
+export function siteCondition(
   projectId: string,
   revisionColumn: SQL,
   featureColumn: SQL,
   scope: ExecutionScope,
 ): SQL {
   if (scope.kind === 'project') return sql`true`;
-  if (scope.zoneIds.length === 0) return sql`false`;
+  if (scope.siteIds.length === 0) return sql`false`;
   return sql`EXISTS (
-    SELECT 1 FROM design_features zdf
-    JOIN zones z ON z.project_id = zdf.project_id
-    WHERE zdf.project_id = ${projectId}
-      AND zdf.revision_id = ${revisionColumn}
-      AND zdf.feature_id = ${featureColumn}
-      AND z.id = ANY(${uuidArray(scope.zoneIds)})
-      AND z.geom IS NOT NULL
-      AND ST_Intersects(z.geom, zdf.geom))`;
+    SELECT 1 FROM design_features sdf
+    JOIN design_revisions sr ON sr.project_id = sdf.project_id AND sr.id = sdf.revision_id
+    JOIN site_drawings sd ON sd.project_id = sr.project_id AND sd.id = sr.drawing_id
+    WHERE sdf.project_id = ${projectId}
+      AND sdf.revision_id = ${revisionColumn}
+      AND sdf.feature_id = ${featureColumn}
+      AND sd.site_id = ANY(${uuidArray(scope.siteIds)}))`;
 }
 
 /** text[] of enum constants (no commas by construction); empty list → '{}'. */
@@ -146,7 +145,7 @@ export class DrizzleExecutionTx implements ExecutionTx {
   ): Promise<boolean> {
     const [row] = await rowsOf<{ ok: boolean }>(
       this.db,
-      sql`SELECT ${zoneCondition(projectId, sql`${revisionId}::uuid`, sql`${featureId}::uuid`, scope)} AS ok`,
+      sql`SELECT ${siteCondition(projectId, sql`${revisionId}::uuid`, sql`${featureId}::uuid`, scope)} AS ok`,
     );
     return row?.ok === true;
   }
@@ -373,22 +372,20 @@ export class DrizzleExecutionTx implements ExecutionTx {
     return { valid: row?.valid === true, lengthM: Number(row?.length_m ?? 0) };
   }
 
-  async geometryInScope(
+  async revisionInScope(
     projectId: string,
-    srid: number,
-    geometry: AsBuiltGeometry,
+    revisionId: string,
     scope: ExecutionScope,
   ): Promise<boolean> {
     if (scope.kind === 'project') return true;
-    if (scope.zoneIds.length === 0) return false;
+    if (scope.siteIds.length === 0) return false;
     const [row] = await rowsOf<{ ok: boolean }>(
       this.db,
-      // The whole proposed geometry must lie inside the caller's zones (security review M1:
-      // touching one zone is not enough, a route could otherwise run on into other zones).
-      sql`SELECT coalesce(ST_CoveredBy(${projectGeometry(geometry, srid)}, ST_Union(z.geom)), false) AS ok
-          FROM zones z
-          WHERE z.project_id = ${projectId} AND z.id = ANY(${uuidArray(scope.zoneIds)})
-            AND z.geom IS NOT NULL`,
+      sql`SELECT EXISTS (
+            SELECT 1 FROM design_revisions r
+            JOIN site_drawings d ON d.project_id = r.project_id AND d.id = r.drawing_id
+            WHERE r.project_id = ${projectId} AND r.id = ${revisionId}
+              AND d.site_id = ANY(${uuidArray(scope.siteIds)})) AS ok`,
     );
     return row?.ok === true;
   }
@@ -399,15 +396,19 @@ export class DrizzleExecutionTx implements ExecutionTx {
     scope: ExecutionScope,
   ): Promise<boolean> {
     if (scope.kind === 'project') return true;
-    if (scope.zoneIds.length === 0) return false;
+    if (scope.siteIds.length === 0) return false;
     const [row] = await rowsOf<{ ok: boolean }>(
       this.db,
+      // The site comes through the drawing of the revision the add edit was recorded on
+      // (asbuilt_edits.design_revision_id); nothing else links an added feature to a site.
       sql`SELECT EXISTS (
             SELECT 1 FROM asbuilt_features a
-            JOIN zones z ON z.project_id = a.project_id
+            JOIN asbuilt_edits e ON e.project_id = a.project_id AND e.feature_id = a.feature_id
+              AND e.kind IN ('add_route', 'add_symbol')
+            JOIN design_revisions r ON r.project_id = e.project_id AND r.id = e.design_revision_id
+            JOIN site_drawings d ON d.project_id = r.project_id AND d.id = r.drawing_id
             WHERE a.project_id = ${projectId} AND a.feature_id = ${featureId} AND a.added
-              AND z.id = ANY(${uuidArray(scope.zoneIds)}) AND z.geom IS NOT NULL
-              AND ST_Intersects(z.geom, a.geom)) AS ok`,
+              AND d.site_id = ANY(${uuidArray(scope.siteIds)})) AS ok`,
     );
     return row?.ok === true;
   }

@@ -10,9 +10,10 @@ import { ensureMember, loginAs, SEED_LOGINS } from './helpers.js';
 import type { TestContext } from './test-app.js';
 
 /**
- * TEST DATA ONLY. A fresh project with what Phase 3 needs and Phase 2 has not built yet: zones
- * with polygons, a published revision (the CAD worker's side simulated with SQL, as in the
- * design-revision tests) and a work order. Never used outside the integration tests.
+ * TEST DATA ONLY. A fresh project with what Phase 3 needs and Phase 2 has not built yet: two
+ * sites of the work order (ADR-054: supervisors work by site), each with a published General
+ * drawing (the CAD worker's side simulated with SQL, as in the design-revision tests), and a work
+ * order. Never used outside the integration tests.
  */
 
 /** Somewhere in Qalyub, UTM 36N (EPSG:32636), metres. */
@@ -22,14 +23,22 @@ export const N0 = 3_340_000;
 export interface ExecutionFixture {
   projectId: string;
   otherProjectId: string;
-  zoneA: string;
-  zoneB: string;
+  workOrderId: string;
+  /** Sites of the work order: A and B (supervisors A and A2 hold A, supervisor B holds B). */
+  siteA: string;
+  siteB: string;
+  /** The General drawings of the sites. */
+  drawingA: string;
+  drawingB: string;
+  /** Published revision of site A's General (the project's default General, published last). */
   revisionId: string;
-  /** Route from (E0, N0) to (E0 + 100, N0), inside zone A. */
+  /** Published revision of site B's General. */
+  revisionB: string;
+  /** Route from (E0, N0) to (E0 + 100, N0), drawn in site A's revision. */
   routeA: string;
-  /** Box at (E0 + 50, N0 + 5), inside zone A. */
+  /** Box at (E0 + 50, N0 + 5), drawn in site A's revision. */
   boxA: string;
-  /** Box at (E0 + 1000, N0 + 1000), inside zone B only. */
+  /** Box at (E0 + 1000, N0 + 1000), drawn in site B's revision only. */
   boxB: string;
   /** Work-order items: civil 100 m, civil 10 pcs, installation 5 pcs. */
   items: { civilMetres: string; civilPieces: string; installation: string };
@@ -47,9 +56,6 @@ export interface ExecutionFixture {
   userIds: { supervisorA: string; supervisorA2: string; supervisorB: string };
 }
 
-const square = (e: number, n: number, size: number) =>
-  `ST_Multi(ST_MakeEnvelope(${e}, ${n}, ${e + size}, ${n + size}, 32636))`;
-
 /** A revision built and published, with the given features (WKT in EPSG:32636). */
 export async function publishRevision(
   pool: pg.Pool,
@@ -58,13 +64,21 @@ export async function publishRevision(
   revNo: number,
   /** ADR-040: the General is what the mobile bundle and As-Built read; default as before. */
   drawingKind: 'general' | 'secondary' = 'general',
+  /**
+   * The site of the drawing: a string reuses that site's file of the kind (or makes its drawing);
+   * null makes an unassigned drawing; omitted keeps the old behaviour (the project's first file).
+   */
+  options: { siteId?: string | null } = {},
 ): Promise<string> {
   // A later revision of the same kind is a newer revision of the same drawing (ADR-049 part B):
   // feature identity, REVISION_OUTDATED and FEATURE_REMOVED are per drawing.
   const existing = await pool.query<{ id: string }>(
-    `SELECT id FROM cad_files WHERE project_id = $1 AND drawing_kind = $2 AND superseded_at IS NULL
-     ORDER BY created_at LIMIT 1`,
-    [projectId, drawingKind],
+    `SELECT f.id FROM cad_files f
+     JOIN site_drawings d ON d.id = f.drawing_id
+     WHERE f.project_id = $1 AND f.drawing_kind = $2 AND f.superseded_at IS NULL
+       AND ($3::boolean = false OR d.site_id IS NOT DISTINCT FROM $4::uuid)
+     ORDER BY f.created_at LIMIT 1`,
+    [projectId, drawingKind, options.siteId !== undefined, options.siteId ?? null],
   );
   let fileId = existing.rows[0]?.id;
   if (!fileId) {
@@ -73,6 +87,7 @@ export async function publishRevision(
       (text, values) => pool.query(text, values),
       projectId,
       drawingKind,
+      { siteId: options.siteId ?? null },
     );
     await pool.query(
       `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,
@@ -153,19 +168,34 @@ export async function createExecutionFixture(ctx: TestContext): Promise<Executio
   const projectId = await createProjectIn(pool, contract.contractId, `Execution ${tag}`);
   const otherProjectId = await createProjectIn(pool, contract.contractId, `Execution other ${tag}`);
 
-  const zone = async (name: string, geom: string) =>
-    (
-      await pool.query<{ id: string }>(
-        `INSERT INTO zones (project_id, name, geom) VALUES ($1, $2, ${geom}) RETURNING id`,
-        [projectId, name],
-      )
-    ).rows[0]?.id ?? '';
-  const zoneA = await zone('Zone A', square(E0 - 10, N0 - 10, 200));
-  const zoneB = await zone('Zone B', square(E0 + 900, N0 + 900, 200));
+  // The work order, its two sites and one General drawing per site (ADR-049, ADR-054).
+  const own = await createWorkOrderFrom(pool, projectId, contract, {
+    'C-01': '100',
+    'C-02': '10',
+    'I-01': '5',
+  });
+  const items = {
+    civilMetres: own.itemIdsByCode['C-01'] ?? '',
+    civilPieces: own.itemIdsByCode['C-02'] ?? '',
+    installation: own.itemIdsByCode['I-01'] ?? '',
+  };
+  const site = async (name: string, position: number) => {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO work_order_sites (id, project_id, work_order_id, name, name_key, position)
+       VALUES ($1, $2, $3, $4, $4, $5)`,
+      [id, projectId, own.workOrderId, name, position],
+    );
+    return id;
+  };
+  const siteA = await site(`Site A ${tag}`, 1);
+  const siteB = await site(`Site B ${tag}`, 2);
 
   const routeA = randomUUID();
   const boxA = randomUUID();
   const boxB = randomUUID();
+  // Site A's General first (the project's default drawing for the old lookups), then site B's,
+  // which is then dated older so that A stays "the General published last".
   const revisionId = await publishRevision(
     pool,
     projectId,
@@ -177,28 +207,40 @@ export async function createExecutionFixture(ctx: TestContext): Promise<Executio
         isNew: true,
       },
       { id: boxA, type: 'box', wkt: `POINT(${E0 + 50} ${N0 + 5})`, code: '1-1', isNew: true },
-      { id: boxB, type: 'box', wkt: `POINT(${E0 + 1000} ${N0 + 1000})`, code: '2-1', isNew: true },
     ],
     1,
+    'general',
+    { siteId: siteA },
   );
+  const revisionB = await publishRevision(
+    pool,
+    projectId,
+    [{ id: boxB, type: 'box', wkt: `POINT(${E0 + 1000} ${N0 + 1000})`, code: '2-1', isNew: true }],
+    1,
+    'general',
+    { siteId: siteB },
+  );
+  await pool.query(
+    `UPDATE design_revisions SET published_at = now() - interval '1 hour' WHERE id = $1`,
+    [revisionB],
+  );
+  const drawingOf = async (revision: string) =>
+    (
+      await pool.query<{ drawing_id: string }>(
+        'SELECT drawing_id FROM design_revisions WHERE id = $1',
+        [revision],
+      )
+    ).rows[0]?.drawing_id ?? '';
+  const drawingA = await drawingOf(revisionId);
+  const drawingB = await drawingOf(revisionB);
 
-  const own = await createWorkOrderFrom(pool, projectId, contract, {
-    'C-01': '100',
-    'C-02': '10',
-    'I-01': '5',
-  });
-  const items = {
-    civilMetres: own.itemIdsByCode['C-01'] ?? '',
-    civilPieces: own.itemIdsByCode['C-02'] ?? '',
-    installation: own.itemIdsByCode['I-01'] ?? '',
-  };
   const other = await createWorkOrderFrom(pool, otherProjectId, contract, { X: '1' });
   const foreignItem = other.itemIdsByCode.X ?? '';
 
   const member = async (
     key: string,
     role: 'pm' | 'qc' | 'supervisor' | 'contractor',
-    zoneId?: string,
+    siteIds: string[] = [],
   ) => {
     const email = `exec-${key}-${tag}@ftth.local`;
     const password = `Exec#${key}123`;
@@ -207,23 +249,27 @@ export async function createExecutionFixture(ctx: TestContext): Promise<Executio
       password,
       role,
       projectId,
-      ...(zoneId ? { zoneId } : {}),
+      siteIds,
     });
     return { email, token: await loginAs(ctx, email, password) };
   };
   const pm = await member('pm', 'pm');
   const qc = await member('qc', 'qc');
-  const supA = await member('supa', 'supervisor', zoneA);
-  const supA2 = await member('supa2', 'supervisor', zoneA);
-  const supB = await member('supb', 'supervisor', zoneB);
-  const contractor = await member('con', 'contractor', zoneA);
+  const supA = await member('supa', 'supervisor', [siteA]);
+  const supA2 = await member('supa2', 'supervisor', [siteA]);
+  const supB = await member('supb', 'supervisor', [siteB]);
+  const contractor = await member('con', 'contractor');
 
   return {
     projectId,
     otherProjectId,
-    zoneA,
-    zoneB,
+    workOrderId: own.workOrderId,
+    siteA,
+    siteB,
+    drawingA,
+    drawingB,
     revisionId,
+    revisionB,
     routeA,
     boxA,
     boxB,
