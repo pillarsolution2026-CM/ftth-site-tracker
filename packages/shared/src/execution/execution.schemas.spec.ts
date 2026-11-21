@@ -6,6 +6,7 @@ import {
   SyncPushRequestSchema,
 } from '../index.js';
 
+const SELF = { kind: 'self' } as const;
 const uuid = (n: number): string => `00000000-0000-4000-8000-${n.toString().padStart(12, '0')}`;
 
 function op(overrides: Record<string, unknown> = {}, payload: Record<string, unknown> = {}) {
@@ -17,7 +18,9 @@ function op(overrides: Record<string, unknown> = {}, payload: Record<string, unk
       featureId: uuid(2),
       designRevisionId: uuid(3),
       workType: 'civil',
-      lines: [{ workOrderItemId: uuid(4), quantity: '12.5', role: 'work' }],
+      lines: [
+        { workOrderItemId: uuid(4), quantity: '12.5', role: 'work', performer: { kind: 'self' } },
+      ],
       label: null,
       note: null,
       gps: { lon: 31.2, lat: 30.2, accuracyM: 4, at: '2026-10-30T08:00:00Z' },
@@ -47,7 +50,7 @@ describe('RecordUpdateOpSchema', () => {
   it('rejects float quantities, zero quantities and numbers', () => {
     for (const quantity of ['0', '0.0000', '1.23456', '-1', 12]) {
       const parsed = RecordUpdateOpSchema.safeParse(
-        op({}, { lines: [{ workOrderItemId: uuid(4), quantity, role: 'work' }] }),
+        op({}, { lines: [{ workOrderItemId: uuid(4), quantity, role: 'work', performer: SELF }] }),
       );
       expect(parsed.success, String(quantity)).toBe(false);
     }
@@ -61,12 +64,56 @@ describe('RecordUpdateOpSchema', () => {
   it('rejects duplicate photo ids and the same item twice in one step', () => {
     const photo = op().payload.photos[0];
     expect(RecordUpdateOpSchema.safeParse(op({}, { photos: [photo, photo] })).success).toBe(false);
-    const line = { workOrderItemId: uuid(4), quantity: '1', role: 'work' };
+    const line = { workOrderItemId: uuid(4), quantity: '1', role: 'work', performer: SELF };
     expect(RecordUpdateOpSchema.safeParse(op({}, { lines: [line, line] })).success).toBe(false);
     expect(
-      RecordUpdateOpSchema.safeParse(op({}, { lines: [line, { ...line, role: 'material' }] }))
-        .success,
+      RecordUpdateOpSchema.safeParse(
+        op({}, { lines: [line, { ...line, role: 'material', performer: null }] }),
+      ).success,
     ).toBe(true);
+  });
+
+  describe('performer of a line (ADR-052)', () => {
+    const work = { workOrderItemId: uuid(4), quantity: '1', role: 'work' };
+    const contractor = (n: number) => ({ kind: 'contractor', contractorLineId: uuid(n) });
+    const parse = (lines: unknown[]) => RecordUpdateOpSchema.safeParse(op({}, { lines })).success;
+
+    it('requires a performer on a work line', () => {
+      expect(parse([work])).toBe(false);
+      expect(parse([{ ...work, performer: null }])).toBe(false);
+      expect(parse([{ ...work, performer: SELF }])).toBe(true);
+      expect(parse([{ ...work, performer: contractor(9) }])).toBe(true);
+    });
+
+    it('refuses a performer on a material line, and defaults it to null', () => {
+      const material = { ...work, role: 'material' };
+      expect(parse([{ ...material, performer: SELF }])).toBe(false);
+      expect(parse([{ ...material, performer: contractor(9) }])).toBe(false);
+      const parsed = RecordUpdateOpSchema.parse(op({}, { lines: [material] }));
+      expect(parsed.payload.lines[0]?.performer).toBeNull();
+    });
+
+    it('splits one line between contractors and «self», never the same performer twice', () => {
+      expect(
+        parse([
+          { ...work, performer: contractor(9) },
+          { ...work, performer: contractor(10) },
+          { ...work, performer: SELF },
+        ]),
+      ).toBe(true);
+      expect(
+        parse([
+          { ...work, performer: contractor(9) },
+          { ...work, performer: contractor(9) },
+        ]),
+      ).toBe(false);
+      expect(parse([{ ...work, performer: SELF }, { ...work, performer: SELF }])).toBe(false);
+    });
+
+    it('refuses a malformed performer', () => {
+      expect(parse([{ ...work, performer: { kind: 'contractor' } }])).toBe(false);
+      expect(parse([{ ...work, performer: { kind: 'company' } }])).toBe(false);
+    });
   });
 
   it('rejects upper-case or short digests and non-JPEG photos', () => {

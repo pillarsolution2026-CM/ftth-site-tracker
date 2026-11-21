@@ -88,6 +88,14 @@ export const OP_REJECTION_CODES = [
   'FEATURE_TYPE_NOT_ALLOWED',
   /** The fix is reported worse than GPS_PROPOSAL_MAX_ACCURACY_M (the phone should never send it). */
   'GPS_ACCURACY_TOO_LOW',
+  // ---- Contractor per work line (ADR-052) ----
+  /** The contractor line is not a contractor of that work-order line in this project. */
+  'CONTRACTOR_LINE_NOT_FOUND',
+  /**
+   * The quantity is above what is left of the contractor's quantity (its quantity minus pending
+   * and approved work on it; rejected work does not count). The admin raises the quantity first.
+   */
+  'CONTRACTOR_QUANTITY_EXCEEDED',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;
@@ -171,6 +179,23 @@ export const OfflineFeatureSchema = z.object({
 });
 export type OfflineFeature = z.infer<typeof OfflineFeatureSchema>;
 
+/**
+ * A contractor the supervisor may pick on a work line (ADR-052): one contractor line of the
+ * work-order line. Never a price (the phone shows no prices).
+ */
+export const CatalogContractorSchema = z.object({
+  contractorLineId: z.uuid(),
+  contractorId: z.uuid(),
+  contractorName: z.string(),
+  /** Scope of work («نطاق الشغل»); null = the whole line. */
+  scope: z.string().nullable(),
+  /** The contractor's quantity on this line and scope. */
+  quantity: DecimalStringSchema,
+  /** Pending + approved work on this contractor line (any user) when the bundle was built. */
+  recordedQuantity: DecimalStringSchema,
+});
+export type CatalogContractor = z.infer<typeof CatalogContractorSchema>;
+
 /** A work-order item the supervisor may record against (no prices: ADR-011 visibility pending). */
 export const CatalogItemSchema = z.object({
   id: z.uuid(),
@@ -185,6 +210,8 @@ export const CatalogItemSchema = z.object({
   workType: WorkTypeSchema.nullable(),
   /** Sum of all non-rejected update lines (any user) when the bundle was built. */
   recordedQuantity: DecimalStringSchema,
+  /** Contractors on this line (ADR-052); «self» is always offered besides them. */
+  contractors: z.array(CatalogContractorSchema).default([]),
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 
