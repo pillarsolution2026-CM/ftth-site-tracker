@@ -69,7 +69,7 @@ export const OP_REJECTION_CODES = [
   /** A photoId of this op belongs to another update. */
   'PHOTO_ID_REUSED',
   'FEATURE_NOT_FOUND',
-  /** The feature is outside the caller's zones. */
+  /** The feature is outside the caller's sites (ADR-054). */
   'FEATURE_OUT_OF_SCOPE',
   /** designRevisionId is not a published revision of this project containing the feature. */
   'REVISION_NOT_PUBLISHED',
