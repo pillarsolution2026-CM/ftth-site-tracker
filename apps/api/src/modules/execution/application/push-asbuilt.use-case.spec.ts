@@ -168,7 +168,9 @@ describe('As-Built edit check order', () => {
         featureId: FEATURE,
         designRevisionId: REVISION,
         workType: 'civil',
-        lines: [{ workOrderItemId: id(4), quantity: '1', role: 'work' }],
+        lines: [
+          { workOrderItemId: id(4), quantity: '1', role: 'work', performer: { kind: 'self' } },
+        ],
         label: null,
         note: null,
         gps: null,

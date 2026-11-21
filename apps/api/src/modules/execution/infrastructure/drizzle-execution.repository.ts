@@ -8,6 +8,7 @@ import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
 import { rowsOf, uuidArray } from '../../../db/sql.js';
 import type { DomainEventInput } from '../../../common/event-log.port.js';
 import type {
+  ContractorLineFacts,
   ExecutionScope,
   ExecutionTx,
   ExecutionUnitOfWork,
@@ -179,6 +180,36 @@ export class DrizzleExecutionTx implements ExecutionTx {
     return rows.map((row) => ({ id: row.id, workType: row.work_type }));
   }
 
+  async lockContractorLines(
+    projectId: string,
+    ids: readonly string[],
+  ): Promise<ContractorLineFacts[]> {
+    // Lock in id order so two pushes taking several lines cannot deadlock.
+    const locked = await rowsOf<{ id: string; work_order_item_id: string; quantity: string }>(
+      this.db,
+      sql`SELECT id, work_order_item_id, quantity::text AS quantity FROM contractor_lines
+          WHERE project_id = ${projectId} AND id = ANY(${uuidArray(ids)})
+          ORDER BY id FOR UPDATE`,
+    );
+    if (locked.length === 0) return [];
+    const recorded = await rowsOf<{ contractor_line_id: string; recorded: string }>(
+      this.db,
+      sql`SELECT l.contractor_line_id, sum(l.quantity)::text AS recorded
+          FROM execution_update_lines l
+          JOIN execution_updates u ON u.project_id = l.project_id AND u.id = l.update_id
+          WHERE l.project_id = ${projectId} AND l.contractor_line_id = ANY(${uuidArray(ids)})
+            AND u.status <> 'rejected'
+          GROUP BY l.contractor_line_id`,
+    );
+    const recordedOf = new Map(recorded.map((row) => [row.contractor_line_id, row.recorded]));
+    return locked.map((row) => ({
+      id: row.id,
+      workOrderItemId: row.work_order_item_id,
+      quantity: row.quantity,
+      recordedQuantity: recordedOf.get(row.id) ?? '0',
+    }));
+  }
+
   async wouldOverrun(
     projectId: string,
     lines: readonly { workOrderItemId: string; quantity: string }[],
@@ -260,9 +291,12 @@ export class DrizzleExecutionTx implements ExecutionTx {
     for (const [index, line] of update.lines.entries()) {
       await this.db.execute(sql`
         INSERT INTO execution_update_lines
-          (update_id, project_id, line_no, role, work_order_item_id, quantity)
+          (update_id, project_id, line_no, role, work_order_item_id, quantity,
+           performer, contractor_line_id)
         VALUES (${update.id}, ${update.projectId}, ${index + 1}, ${line.role},
-                ${line.workOrderItemId}, ${line.quantity}::numeric)`);
+                ${line.workOrderItemId}, ${line.quantity}::numeric,
+                ${line.performer?.kind ?? null},
+                ${line.performer?.kind === 'contractor' ? line.performer.contractorLineId : null})`);
     }
     for (const photo of update.photos) {
       await this.db.execute(sql`

@@ -1,6 +1,6 @@
 import type { RecordUpdateOp } from '@ftth/shared';
 import { describe, expect, it } from 'vitest';
-import type { ExecutionTx, ExecutionUnitOfWork } from './ports.js';
+import type { ContractorLineFacts, ExecutionTx, ExecutionUnitOfWork, NewUpdate } from './ports.js';
 import { Phase2UnavailableCapabilities } from './phase2-capabilities.js';
 import { PushSyncUseCase } from './push-sync.use-case.js';
 
@@ -40,7 +40,7 @@ const op: RecordUpdateOp = {
     featureId: id(2),
     designRevisionId: id(3),
     workType: 'civil',
-    lines: [{ workOrderItemId: id(4), quantity: '1', role: 'work' }],
+    lines: [{ workOrderItemId: id(4), quantity: '1', role: 'work', performer: { kind: 'self' } }],
     label: null,
     note: null,
     gps: null,
@@ -80,6 +80,7 @@ function uowFailingOn(constraint: string): ExecutionUnitOfWork {
     }),
     featureInRevision: async () => true,
     findItems: async () => [{ id: id(4), workType: 'civil' }],
+    lockContractorLines: async () => [],
     wouldOverrun: async () => false,
     gpsDistanceM: async () => 0,
     anyPhotoExists: async () => false,
@@ -128,5 +129,152 @@ describe('PushSyncUseCase races', () => {
         ops: [op],
       }),
     ).rejects.toThrow('Failed query');
+  });
+});
+
+describe('PushSyncUseCase contractor lines (ADR-052)', () => {
+  const ITEM = id(4);
+  const OTHER_ITEM = id(40);
+  const CL_A = id(51);
+  const CL_B = id(52);
+  const CL_OTHER_ITEM = id(53);
+
+  const contractorLines = (): ContractorLineFacts[] => [
+    { id: CL_A, workOrderItemId: ITEM, quantity: '50', recordedQuantity: '10' },
+    { id: CL_B, workOrderItemId: ITEM, quantity: '100', recordedQuantity: '0' },
+    { id: CL_OTHER_ITEM, workOrderItemId: OTHER_ITEM, quantity: '100', recordedQuantity: '0' },
+  ];
+
+  function setup(lines = contractorLines()) {
+    const inserted: NewUpdate[] = [];
+    const events: unknown[] = [];
+    const tx = {
+      lockProject: async () => undefined,
+      findOperation: async () => null,
+      insertOperation: async () => undefined,
+      featureExists: async () => true,
+      featureInPublishedRevision: async () => ({
+        featureType: 'box' as const,
+        revisionPublishedAt: new Date(0),
+      }),
+      featureInScope: async () => true,
+      latestPublishedRevision: async () => ({
+        id: id(3),
+        revNo: 1,
+        publishedAt: new Date(0),
+        hasTiles: false,
+      }),
+      featureInRevision: async () => true,
+      findItems: async () => [{ id: ITEM, workType: 'civil' as const }],
+      // Only the known contractor lines of this project are found, like the real query.
+      lockContractorLines: async (_project: string, ids: readonly string[]) =>
+        lines.filter((line) => ids.includes(line.id)),
+      wouldOverrun: async () => false,
+      gpsDistanceM: async () => 0,
+      anyPhotoExists: async () => false,
+      insertUpdate: async (update: NewUpdate) => {
+        inserted.push(update);
+      },
+      appendEvent: async (event: unknown) => {
+        events.push(event);
+      },
+      ...asBuiltStubs,
+    } as ExecutionTx;
+    const useCase = new PushSyncUseCase(
+      { run: (work) => work(tx) },
+      new Phase2UnavailableCapabilities(),
+      { now: () => new Date() },
+      { next: () => id(9) },
+    );
+    const push = (workLines: RecordUpdateOp['payload']['lines']) =>
+      useCase.execute({
+        projectId: id(10),
+        userId: id(11),
+        deviceId: id(12),
+        scope: { kind: 'project' },
+        ops: [{ ...op, payload: { ...op.payload, lines: workLines } }],
+      });
+    return { push, inserted, events };
+  }
+
+  const work = (
+    quantity: string,
+    performer: RecordUpdateOp['payload']['lines'][number]['performer'],
+    workOrderItemId = ITEM,
+  ) => ({ workOrderItemId, quantity, role: 'work' as const, performer });
+
+  it('accepts a work line of the own crew, with no cap', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push([work('100000', { kind: 'self' })]);
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.lines[0]?.performer).toEqual({ kind: 'self' });
+  });
+
+  it('accepts a contractor line up to what is left of its quantity', async () => {
+    const { push, inserted, events } = setup();
+    const [result] = await push([work('40', { kind: 'contractor', contractorLineId: CL_A })]);
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.lines[0]?.performer).toEqual({
+      kind: 'contractor',
+      contractorLineId: CL_A,
+    });
+    // The performer travels in the event payload with the lines.
+    expect(JSON.stringify(events)).toContain(CL_A);
+  });
+
+  it('rejects an unknown contractor line', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push([work('1', { kind: 'contractor', contractorLineId: id(99) })]);
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'CONTRACTOR_LINE_NOT_FOUND' });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('rejects a contractor line of another work-order line', async () => {
+    const { push } = setup();
+    const [result] = await push([
+      work('1', { kind: 'contractor', contractorLineId: CL_OTHER_ITEM }),
+    ]);
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'CONTRACTOR_LINE_NOT_FOUND' });
+  });
+
+  it('rejects work above the quantity left on the contractor line', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push([work('40.0001', { kind: 'contractor', contractorLineId: CL_A })]);
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'CONTRACTOR_QUANTITY_EXCEEDED' });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('lets rejected work free its quantity (the server counts pending and approved only)', async () => {
+    // recordedQuantity is what the repository computes without rejected updates: 0 after a rejection.
+    const { push } = setup([
+      { id: CL_A, workOrderItemId: ITEM, quantity: '50', recordedQuantity: '0' },
+    ]);
+    const [result] = await push([work('50', { kind: 'contractor', contractorLineId: CL_A })]);
+    expect(result?.outcome).toBe('applied');
+  });
+
+  it('splits one work-order line between two contractors and the own crew', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push([
+      work('20', { kind: 'contractor', contractorLineId: CL_A }),
+      work('30', { kind: 'contractor', contractorLineId: CL_B }),
+      work('50', { kind: 'self' }),
+    ]);
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.lines.map((line) => line.performer?.kind)).toEqual([
+      'contractor',
+      'contractor',
+      'self',
+    ]);
+  });
+
+  it('sums the parts of one contractor line inside the op', async () => {
+    const { push } = setup();
+    const lines = [
+      work('25', { kind: 'contractor', contractorLineId: CL_A }),
+      { ...work('25', { kind: 'contractor', contractorLineId: CL_A }), role: 'work' as const },
+    ];
+    const [result] = await push(lines);
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'CONTRACTOR_QUANTITY_EXCEEDED' });
   });
 });

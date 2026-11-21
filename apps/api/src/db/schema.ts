@@ -1092,6 +1092,7 @@ export const contractorLines = pgTable(
       columns: [table.projectId, table.workOrderItemId],
       foreignColumns: [workOrderItems.projectId, workOrderItems.id],
     }).onDelete('restrict'),
+    unique('contractor_lines_project_id_id_key').on(table.projectId, table.id),
     // contractor_lines_registration_item_scope_key: unique (registration, line, COALESCE(scope_key, '')).
     index('contractor_lines_item_idx').on(table.workOrderItemId),
   ],

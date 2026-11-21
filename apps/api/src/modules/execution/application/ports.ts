@@ -5,6 +5,7 @@ import type {
   CatalogItem,
   ExecutionUpdate,
   GpsProposalFeatureType,
+  LinePerformer,
   OfflineFeature,
   OpResult,
   PhotoRequirement,
@@ -50,6 +51,15 @@ export interface LatestRevision {
   hasTiles: boolean;
 }
 
+/** A contractor line as locked for a push (ADR-052). */
+export interface ContractorLineFacts {
+  id: string;
+  workOrderItemId: string;
+  quantity: string;
+  /** Pending + approved work already recorded on it (rejected work does not count). */
+  recordedQuantity: string;
+}
+
 export interface ItemFacts {
   id: string;
   workType: WorkType | null;
@@ -72,7 +82,12 @@ export interface NewUpdate {
   gps: { lon: number; lat: number; accuracyM: number | null; at: Date } | null;
   flags: readonly UpdateFlag[];
   acknowledgedWarnings: readonly string[];
-  lines: readonly { workOrderItemId: string; quantity: string; role: UpdateLineRole }[];
+  lines: readonly {
+    workOrderItemId: string;
+    quantity: string;
+    role: UpdateLineRole;
+    performer: LinePerformer | null;
+  }[];
   photos: readonly {
     photoId: string;
     requirementKey: string;
@@ -118,6 +133,12 @@ export interface ExecutionTx {
   latestPublishedRevision(projectId: string, ofRevisionId?: string): Promise<LatestRevision | null>;
   featureInRevision(projectId: string, revisionId: string, featureId: string): Promise<boolean>;
   findItems(projectId: string, itemIds: readonly string[]): Promise<ItemFacts[]>;
+  /**
+   * The contractor lines of the project among `ids`, row-locked (`FOR UPDATE`) until the end of
+   * the transaction so the cap check and the insert cannot race an admin quantity edit.
+   * Unknown ids and ids of another project are simply absent.
+   */
+  lockContractorLines(projectId: string, ids: readonly string[]): Promise<ContractorLineFacts[]>;
   /** True when, adding `lines`, some item's non-rejected recorded quantity exceeds its quantity. */
   wouldOverrun(
     projectId: string,
