@@ -12,6 +12,7 @@ const asBuiltStubs: Pick<
   | 'asBuiltTarget'
   | 'geometryFacts'
   | 'revisionInScope'
+  | 'geometryOutsideDrawing'
   | 'addedFeatureInScope'
   | 'approvedVersions'
   | 'insertAsBuiltEdit'
@@ -25,6 +26,7 @@ const asBuiltStubs: Pick<
   asBuiltTarget: async () => null,
   geometryFacts: async () => ({ valid: true, lengthM: 1 }),
   revisionInScope: async () => true,
+  geometryOutsideDrawing: async () => false,
   addedFeatureInScope: async () => true,
   approvedVersions: async () => ({ geometryVersion: 0, labelVersion: 0 }),
   insertAsBuiltEdit: async () => ({ lengthM: null }),

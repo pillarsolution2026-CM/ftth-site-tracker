@@ -193,14 +193,14 @@ describe('CAD upload', () => {
 });
 
 describe('CAD access control', () => {
-  it('lets a supervisor read but not upload or reprocess; contractors get nothing', async () => {
+  it('gives a supervisor no CAD route at all (ADR-054: he reads through sync); contractors get nothing', async () => {
     const created = await upload(DXF, 'acl.dxf');
     const id = created.body.id as string;
     const sup = as(supervisor);
-    expect((await sup(http().get(base(projectA)))).status).toBe(200);
-    expect((await sup(http().get(`${base(projectA)}/${id}`))).status).toBe(200);
-    expect((await sup(http().get(`${base(projectA)}/${id}/content`))).status).toBe(200);
-    expect((await sup(http().get(`${base(projectA)}/${id}/layers`))).status).toBe(200);
+    expect((await sup(http().get(base(projectA)))).status).toBe(403);
+    expect((await sup(http().get(`${base(projectA)}/${id}`))).status).toBe(403);
+    expect((await sup(http().get(`${base(projectA)}/${id}/content`))).status).toBe(403);
+    expect((await sup(http().get(`${base(projectA)}/${id}/layers`))).status).toBe(403);
     expect((await upload(DXF, 'x.dxf', supervisor)).status).toBe(403);
     expect((await sup(http().post(`${base(projectA)}/${id}/reprocess`))).status).toBe(403);
 

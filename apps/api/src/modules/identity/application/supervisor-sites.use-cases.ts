@@ -31,6 +31,7 @@ export class ReplaceSupervisorSitesUseCase {
     actorId: string,
   ): Promise<SupervisorWithSites> {
     return this.uow.run(async (tx) => {
+      await tx.sites.lockSupervisorAssignments(input.projectId, input.userId);
       const before = await tx.sites.findSupervisor(input.projectId, input.userId);
       if (!before) throw new AppError('NOT_FOUND', 'Supervisor not found in this project');
       const known = new Set(await tx.sites.existingSiteIds(input.projectId, input.siteIds));

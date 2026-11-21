@@ -73,7 +73,7 @@ export class GetOfflineBundleUseCase {
           }
         : null,
       features,
-      catalog: await this.queries.catalog(input.projectId),
+      catalog: await this.queries.catalog(input.projectId, input.scope),
       asBuilt: input.asBuiltScope
         ? await this.asBuilt.stateInScope(input.projectId, input.asBuiltScope)
         : [],

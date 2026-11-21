@@ -268,7 +268,7 @@ describe('corrections routes', () => {
     expect(second.status).toBe(201);
 
     const list = DrawingCorrectionListSchema.parse(
-      (await as(supervisor)(http().get(correctionsUrl(fileId)))).body,
+      (await as(pm)(http().get(correctionsUrl(fileId)))).body,
     );
     expect(list.items.map((item) => item.id)).toEqual([second.body.id, created.id]);
     expect(list.activeCount).toBe(2);
@@ -456,9 +456,9 @@ describe('corrections routes', () => {
     expect((await as(pm)(http().get(correctionsUrl(randomUUID())))).status).toBe(404);
   });
 
-  it('lets a supervisor read but not write', async () => {
+  it('gives a supervisor neither read nor write (ADR-054)', async () => {
     const fileId = await insertDrawing();
-    expect((await as(supervisor)(http().get(correctionsUrl(fileId)))).status).toBe(200);
+    expect((await as(supervisor)(http().get(correctionsUrl(fileId)))).status).toBe(403);
     expect(
       (
         await setText(fileId, 'x').then(() =>

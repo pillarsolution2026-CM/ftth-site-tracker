@@ -130,7 +130,15 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
     });
   }
 
-  async catalog(projectId: string): Promise<CatalogItem[]> {
+  async catalog(projectId: string, scope: ExecutionScope): Promise<CatalogItem[]> {
+    // ADR-054 (security review M1): a supervisor sees only the lines of the work orders his sites
+    // belong to; contractor lines follow their items.
+    if (scope.kind === 'sites' && scope.siteIds.length === 0) return [];
+    const inScope =
+      scope.kind === 'project'
+        ? sql`true`
+        : sql`i.work_order_id IN (SELECT s.work_order_id FROM work_order_sites s
+                                WHERE s.project_id = ${projectId} AND s.id = ANY(${uuidArray(scope.siteIds)}))`;
     const rows = await rowsOf<{
       id: string;
       work_order_id: string;
@@ -153,7 +161,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                      AND u.status <> 'rejected'), 0)::text AS recorded
           FROM work_order_items i
           JOIN work_orders o ON o.project_id = i.project_id AND o.id = i.work_order_id
-          WHERE i.project_id = ${projectId}
+          WHERE i.project_id = ${projectId} AND ${inScope}
           ORDER BY o.number, i.line_no`,
     );
     // Contractor lines (ADR-052): quantities only, never prices.

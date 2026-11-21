@@ -48,6 +48,20 @@ export class DrizzleSupervisorSitesRepository implements SupervisorSitesReposito
     return found ?? null;
   }
 
+  async lockSupervisorAssignments(projectId: string, userId: string): Promise<void> {
+    await this.db
+      .select({ id: assignments.id })
+      .from(assignments)
+      .where(
+        and(
+          eq(assignments.projectId, projectId),
+          eq(assignments.userId, userId),
+          eq(assignments.role, 'supervisor'),
+        ),
+      )
+      .for('update');
+  }
+
   async existingSiteIds(projectId: string, siteIds: readonly string[]): Promise<string[]> {
     if (siteIds.length === 0) return [];
     const rows = await this.db
@@ -71,7 +85,8 @@ export class DrizzleSupervisorSitesRepository implements SupervisorSitesReposito
     if (siteIds.length === 0) return;
     await this.db
       .insert(supervisorSites)
-      .values(siteIds.map((siteId) => ({ projectId, userId, siteId, createdBy: actorId })));
+      .values(siteIds.map((siteId) => ({ projectId, userId, siteId, createdBy: actorId })))
+      .onConflictDoNothing();
   }
 
   private async supervisors(

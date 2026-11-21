@@ -23,6 +23,7 @@ function fake(held: string[], isSupervisor = true) {
       { siteId: SITE_B, name: 'B', workOrderId: PROJECT, workOrderNumber: 'WO-1' },
     ],
     listSupervisors: async () => [supervisor(state.held)],
+    lockSupervisorAssignments: async () => undefined,
     findSupervisor: async () => (isSupervisor ? supervisor(state.held) : null),
     existingSiteIds: async (_project, ids) => ids.filter((id) => id !== FOREIGN),
     replace: async (_project, _user, ids) => {

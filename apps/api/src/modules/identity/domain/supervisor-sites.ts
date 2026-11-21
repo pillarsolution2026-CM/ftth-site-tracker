@@ -10,6 +10,11 @@ export interface SupervisorSitesRepository {
   listSites(projectId: string): Promise<SupervisorSitesSite[]>;
   /** Every user holding a supervisor assignment in the project, with his sites in `listSites` order. */
   listSupervisors(projectId: string): Promise<SupervisorWithSites[]>;
+  /**
+   * Locks the user's supervisor assignment rows in the project (SELECT ... FOR UPDATE) so a
+   * concurrent removal of the assignment cannot interleave with replacing his sites.
+   */
+  lockSupervisorAssignments(projectId: string, userId: string): Promise<void>;
   /** The supervisor, or null when he has no supervisor assignment in the project. */
   findSupervisor(projectId: string, userId: string): Promise<SupervisorWithSites | null>;
   /** Which of `siteIds` are sites of the project (unknown or foreign ids are left out). */

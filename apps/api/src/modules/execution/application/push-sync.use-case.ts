@@ -19,7 +19,7 @@ import {
   uniqueViolation,
 } from '../../../db/pg-errors.js';
 import { operationHash } from '../domain/op-hash.js';
-import { computeAsBuiltFlags } from '../domain/asbuilt-flags.js';
+import { computeAsBuiltFlags, OUTSIDE_DRAWING_TOLERANCE_M } from '../domain/asbuilt-flags.js';
 import { computeUpdateFlags } from '../domain/update-flags.js';
 import type {
   ExecutionCapabilities,
@@ -536,7 +536,19 @@ export class PushSyncUseCase {
     const receivedAt = this.clock.now();
     const capturedAt = new Date(op.capturedAt);
     const baseVersion = 'baseVersion' in payload ? payload.baseVersion : null;
+    // Sites have no boundary: a supervisor's geometry is kept to its drawing by review (flag only).
+    const outsideDrawing =
+      scope.kind === 'sites' &&
+      geometry !== null &&
+      (await tx.geometryOutsideDrawing(
+        projectId,
+        payload.designRevisionId,
+        revision.crsEpsg,
+        geometry,
+        OUTSIDE_DRAWING_TOLERANCE_M,
+      ));
     const flags = computeAsBuiltFlags({
+      outsideDrawing,
       kind: payload.kind,
       baseVersion,
       current: isAdd

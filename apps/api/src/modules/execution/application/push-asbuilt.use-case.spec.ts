@@ -63,6 +63,7 @@ interface World {
   lengthM: number;
   revisionInScope: boolean;
   addedInScope: boolean;
+  outside: boolean;
   featureInScope: boolean;
   versions: { geometryVersion: number; labelVersion: number };
   latestId: string;
@@ -78,6 +79,7 @@ function setup(partial: Partial<World> = {}) {
     lengthM: 10,
     revisionInScope: true,
     addedInScope: true,
+    outside: false,
     featureInScope: true,
     versions: { geometryVersion: 0, labelVersion: 0 },
     latestId: REVISION,
@@ -116,6 +118,7 @@ function setup(partial: Partial<World> = {}) {
     featureInScope: note('featureInScope', world.featureInScope),
     addedFeatureInScope: note('addedFeatureInScope', world.addedInScope),
     revisionInScope: note('revisionInScope', world.revisionInScope),
+    geometryOutsideDrawing: note('geometryOutsideDrawing', world.outside),
     approvedVersions: note('approvedVersions', world.versions),
     insertAsBuiltEdit: async (edit: NewAsBuiltEdit) => {
       calls.push('insertAsBuiltEdit');
@@ -245,6 +248,20 @@ describe('As-Built edit check order', () => {
     const inside = setup();
     expect((await inside.push(addRoute, { asBuiltScope: sites }))?.outcome).toBe('applied');
     expect(inside.calls).toContain('revisionInScope');
+  });
+
+  it('flags OUTSIDE_DRAWING for a supervisor whose geometry leaves the drawing, never rejects', async () => {
+    const out = setup({ outside: true });
+    const result = await out.push(reshape, { asBuiltScope: sites });
+    expect(result?.outcome).toBe('applied');
+    expect(out.inserted[0]?.flags).toContain('OUTSIDE_DRAWING');
+    const inside = setup({ outside: false });
+    await inside.push(reshape, { asBuiltScope: sites });
+    expect(inside.inserted[0]?.flags).not.toContain('OUTSIDE_DRAWING');
+    // A label has no geometry; a project-wide caller is not checked.
+    const wide = setup({ outside: true });
+    await wide.push(reshape);
+    expect(wide.calls).not.toContain('geometryOutsideDrawing');
   });
 
   it('a project-wide scope never asks for sites', async () => {

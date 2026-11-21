@@ -287,6 +287,68 @@ describe('GET and PUT supervisor sites', () => {
 
 // ---------------------------------------------------------------------------------------------
 
+describe('a supervisor reads nothing outside sync and As-Built (H1)', () => {
+  let fx: ExecutionFixture;
+  let noSiteToken: string;
+  let cadFileId: string;
+
+  beforeAll(async () => {
+    fx = await createExecutionFixture(ctx);
+    const email = `h1-${randomUUID().slice(0, 8)}@ftth.local`;
+    await ensureMember(ctx.pool, {
+      email,
+      password: 'H1Nosite#123',
+      role: 'supervisor',
+      projectId: fx.projectId,
+    });
+    noSiteToken = await loginAs(ctx, email, 'H1Nosite#123');
+    cadFileId =
+      (
+        await ctx.pool.query<{ cad_file_id: string }>(
+          'SELECT cad_file_id FROM design_revisions WHERE id = $1',
+          [fx.revisionId],
+        )
+      ).rows[0]?.cad_file_id ?? '';
+  }, 180_000);
+
+  it('answers 403 on CAD, design, drawing and work-order reads, with or without sites', async () => {
+    const p = `/projects/${fx.projectId}`;
+    const urls = [
+      ['get', `${p}/cad-files`],
+      ['get', `${p}/cad-files/${cadFileId}`],
+      ['get', `${p}/cad-files/${cadFileId}/content`],
+      ['get', `${p}/design-revisions`],
+      ['get', `${p}/design-revisions/${fx.revisionId}`],
+      ['get', `${p}/design-revisions/${fx.revisionId}/features`],
+      ['post', `${p}/design-revisions/${fx.revisionId}/tile-url`],
+      ['get', `${p}/site-drawings`],
+      ['get', `${p}/work-orders`],
+      ['get', `${p}/work-orders/${fx.workOrderId}`],
+      ['get', `${p}/work-orders/${fx.workOrderId}/sites`],
+    ] as const;
+    for (const token of [noSiteToken, fx.tokens.supervisorA]) {
+      for (const [method, url] of urls) {
+        const res = await http()[method](url).set(auth(token));
+        expect(res.status, `${method} ${url}`).toBe(403);
+      }
+    }
+    // The same routes still answer the PM, so the 403 is the role and not a wrong path.
+    expect((await http().get(`${p}/design-revisions`).set(auth(fx.tokens.pm))).status).toBe(200);
+    expect(
+      (await http().get(`${p}/work-orders/${fx.workOrderId}/sites`).set(auth(fx.tokens.pm))).status,
+    ).toBe(200);
+    // What he needs still works: bundle, changes and As-Built reads.
+    expect((await bootstrap(fx, fx.tokens.supervisorA)).status).toBe(200);
+    expect((await bootstrap(fx, noSiteToken)).status).toBe(200);
+    for (const suffix of ['state', 'lengths', 'edits']) {
+      expect(
+        (await http().get(`${p}/asbuilt/${suffix}`).set(auth(fx.tokens.supervisorA))).status,
+        suffix,
+      ).toBe(200);
+    }
+  });
+});
+
 describe('what a supervisor sees and records', () => {
   let fx: ExecutionFixture;
   let unassignedDrawing: string;
@@ -394,6 +456,62 @@ describe('what a supervisor sees and records', () => {
     expect((await pushOne(fx, fx.tokens.pm, updateOp(fx, fx.boxB, fx.revisionB))).outcome).toBe(
       'applied',
     );
+  });
+
+  it('gives a supervisor only the work-order lines of his sites (M1)', async () => {
+    // One work order per project: a supervisor with a site gets its lines, one without gets none.
+    const withSite = OfflineBundleSchema.parse((await bootstrap(fx, fx.tokens.supervisorA)).body);
+    expect(withSite.catalog.map((line) => line.id).sort()).toEqual(
+      [fx.items.civilMetres, fx.items.civilPieces, fx.items.installation].sort(),
+    );
+    const email = `nosite-${randomUUID().slice(0, 8)}@ftth.local`;
+    await ensureMember(ctx.pool, {
+      email,
+      password: 'NoSite#12345',
+      role: 'supervisor',
+      projectId: fx.projectId,
+    });
+    const token = await loginAs(ctx, email, 'NoSite#12345');
+    const none = OfflineBundleSchema.parse((await bootstrap(fx, token)).body);
+    expect(none.catalog).toEqual([]);
+    expect(none.features).toEqual([]);
+    // Project-wide roles keep the whole catalog.
+    const pm = OfflineBundleSchema.parse((await bootstrap(fx, fx.tokens.pm)).body);
+    expect(pm.catalog).toHaveLength(3);
+  });
+
+  it('flags OUTSIDE_DRAWING on a supervisor edit far from the drawing, never rejects (M2)', async () => {
+    const move = (token: string, x: number, y: number) =>
+      pushOne(fx, token, {
+        kind: 'asbuilt_edit.record',
+        clientOpId: randomUUID(),
+        capturedAt: new Date().toISOString(),
+        payload: {
+          designRevisionId: fx.revisionId,
+          note: null,
+          gps: null,
+          kind: 'move',
+          featureId: fx.boxA,
+          baseVersion: 0,
+          geometry: { type: 'Point', coordinates: [x, y] },
+        },
+      });
+    const flagsOf = async (result: OpResult): Promise<string[]> => {
+      if (result.outcome !== 'applied') throw new Error(JSON.stringify(result));
+      const { rows } = await ctx.pool.query<{ flags: string[] }>(
+        'SELECT flags FROM asbuilt_edits WHERE id = $1',
+        [result.updateId],
+      );
+      return rows[0]?.flags ?? [];
+    };
+    // Inside the extent of site A's features (plus 50 m): no flag.
+    expect(await flagsOf(await move(fx.tokens.supervisorA, E0 + 51, N0 + 5))).toEqual([]);
+    // Kilometres away (the extent of site B's drawing, say): applied with the flag.
+    expect(await flagsOf(await move(fx.tokens.supervisorA, E0 + 1000, N0 + 1000))).toEqual([
+      'OUTSIDE_DRAWING',
+    ]);
+    // Project-wide callers are not checked.
+    expect(await flagsOf(await move(fx.tokens.pm, E0 + 1000, N0 + 1000))).toEqual([]);
   });
 
   it('lets two supervisors of one site both record on it', async () => {

@@ -184,6 +184,17 @@ export interface ExecutionTx {
     featureId: string,
     scope: ExecutionScope,
   ): Promise<boolean>;
+  /**
+   * True when the geometry is not covered by the extent of the design features of the revision,
+   * expanded by `toleranceM` (also true when the revision has no features).
+   */
+  geometryOutsideDrawing(
+    projectId: string,
+    revisionId: string,
+    srid: number,
+    geometry: AsBuiltGeometry,
+    toleranceM: number,
+  ): Promise<boolean>;
   approvedVersions(projectId: string, featureId: string): Promise<ApprovedVersions>;
   insertAsBuiltEdit(edit: NewAsBuiltEdit): Promise<{ lengthM: string | null }>;
 
@@ -270,7 +281,8 @@ export interface ExecutionReadQueries {
     revisionId: string,
     scope: ExecutionScope,
   ): Promise<OfflineFeature[]>;
-  catalog(projectId: string): Promise<CatalogItem[]>;
+  /** Work-order lines; for a site scope only the lines of work orders that have one of his sites. */
+  catalog(projectId: string, scope: ExecutionScope): Promise<CatalogItem[]>;
   changes(
     projectId: string,
     scope: ExecutionScope,

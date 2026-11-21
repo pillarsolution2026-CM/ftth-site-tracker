@@ -413,6 +413,25 @@ export class DrizzleExecutionTx implements ExecutionTx {
     return row?.ok === true;
   }
 
+  async geometryOutsideDrawing(
+    projectId: string,
+    revisionId: string,
+    srid: number,
+    geometry: AsBuiltGeometry,
+    toleranceM: number,
+  ): Promise<boolean> {
+    const [row] = await rowsOf<{ outside: boolean }>(
+      this.db,
+      sql`SELECT coalesce(NOT ST_CoveredBy(
+                 ${projectGeometry(geometry, srid)},
+                 ST_SetSRID(ST_Expand(ST_Extent(df.geom), ${toleranceM}::float8)::geometry, ${srid}::int)),
+               true) AS outside
+          FROM design_features df
+          WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}`,
+    );
+    return row?.outside !== false;
+  }
+
   async approvedVersions(projectId: string, featureId: string): Promise<ApprovedVersions> {
     const [row] = await rowsOf<{ geometry_version: number; label_version: number }>(
       this.db,

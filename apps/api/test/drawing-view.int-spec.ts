@@ -162,7 +162,7 @@ describe('drawing view routes', () => {
 
     const processed = await insertFile();
     await as(supervisor)(http().post(viewUrl(processed))).expect(403);
-    await as(supervisor)(http().get(`${viewUrl(processed)}/status`)).expect(200);
+    await as(supervisor)(http().get(`${viewUrl(processed)}/status`)).expect(403);
   });
 
   it("hides another project's files (404 on all three routes)", async () => {
