@@ -194,8 +194,17 @@ export async function createExecutionFixture(ctx: TestContext): Promise<Executio
   const routeA = randomUUID();
   const boxA = randomUUID();
   const boxB = randomUUID();
-  // Site A's General first (the project's default drawing for the old lookups), then site B's,
-  // which is then dated older so that A stays "the General published last".
+  // Site B's General first, then site A's, so that A is "the General published last" (the
+  // project's default drawing for the old lookups). A published revision is immutable, so the
+  // order of publication sets this, not an UPDATE.
+  const revisionB = await publishRevision(
+    pool,
+    projectId,
+    [{ id: boxB, type: 'box', wkt: `POINT(${E0 + 1000} ${N0 + 1000})`, code: '2-1', isNew: true }],
+    1,
+    'general',
+    { siteId: siteB },
+  );
   const revisionId = await publishRevision(
     pool,
     projectId,
@@ -211,18 +220,6 @@ export async function createExecutionFixture(ctx: TestContext): Promise<Executio
     1,
     'general',
     { siteId: siteA },
-  );
-  const revisionB = await publishRevision(
-    pool,
-    projectId,
-    [{ id: boxB, type: 'box', wkt: `POINT(${E0 + 1000} ${N0 + 1000})`, code: '2-1', isNew: true }],
-    1,
-    'general',
-    { siteId: siteB },
-  );
-  await pool.query(
-    `UPDATE design_revisions SET published_at = now() - interval '1 hour' WHERE id = $1`,
-    [revisionB],
   );
   const drawingOf = async (revision: string) =>
     (
