@@ -7,7 +7,12 @@ import { I18nProvider } from '../../../shared/i18n/I18nProvider';
 import { InMemoryLocaleStorage } from '../../../shared/storage/locale-storage';
 import { ApiError, type AuthApi } from '../../auth/api/api-client';
 import { AuthProvider } from '../../auth/hooks/AuthProvider';
-import { createPortalCache, PORTAL_CACHE_FILE } from '../model/portal-cache';
+import { createOfflineProfile } from '../model/offline-profile';
+import {
+  createPortalCache,
+  PORTAL_CACHE_FILE,
+  PORTAL_CACHE_MAX_AGE_MS,
+} from '../model/portal-cache';
 import { HomeSwitch } from './HomeSwitch';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ replace: jest.fn(), push: jest.fn() }) }));
@@ -120,7 +125,7 @@ async function setup(
 ) {
   const { files, api: fileApi } = memoryFiles();
   const vault = createVault(async () => new Uint8Array(32).fill(7), testRandom);
-  const cache = createPortalCache(vault, fileApi);
+  const cache = createPortalCache(vault, fileApi, () => Date.parse(PORTAL.serverTime));
   if (seeded) await cache.write({ me, portal: PORTAL });
   const logout = jest.fn(async () => undefined);
   const auth: AuthApi = {
@@ -262,5 +267,48 @@ describe('portal cache', () => {
     expect((await cache.read())?.portal.contractor.name).toBe('Delta Fibre');
     files.set(PORTAL_CACHE_FILE, JSON.stringify({ me: CONTRACTOR_ME, portal: PORTAL }));
     expect(await cache.read()).toBeNull();
+  });
+});
+
+describe('offline snapshot safety', () => {
+  const vault = createVault(async () => new Uint8Array(32).fill(7), testRandom);
+  const jwt = (sub: string) =>
+    `h.${btoa(JSON.stringify({ sub })).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')}.s`;
+  const serverMs = Date.parse(PORTAL.serverTime);
+
+  it('refuses and wipes a snapshot older than the maximum age', async () => {
+    const { files, api } = memoryFiles();
+    const fresh = createPortalCache(vault, api, () => serverMs + PORTAL_CACHE_MAX_AGE_MS);
+    await fresh.write({ me: CONTRACTOR_ME, portal: PORTAL });
+    expect(await fresh.read()).not.toBeNull();
+    const stale = createPortalCache(vault, api, () => serverMs + PORTAL_CACHE_MAX_AGE_MS + 1);
+    expect(await stale.read()).toBeNull();
+    expect(files.has(PORTAL_CACHE_FILE)).toBe(false);
+  });
+
+  it('signs in offline only when the cached profile is the stored session user', async () => {
+    const { files, api } = memoryFiles();
+    const cache = createPortalCache(vault, api, () => serverMs);
+    await cache.write({ me: CONTRACTOR_ME, portal: PORTAL });
+    expect(await createOfflineProfile(cache, async () => jwt(CONTRACTOR_ME.id))()).toEqual(
+      CONTRACTOR_ME,
+    );
+    expect(await createOfflineProfile(cache, async () => jwt(ID(77)))()).toBeNull();
+    expect(files.has(PORTAL_CACHE_FILE)).toBe(false);
+
+    await cache.write({ me: CONTRACTOR_ME, portal: PORTAL });
+    expect(await createOfflineProfile(cache, async () => null)()).toBeNull();
+    expect(files.has(PORTAL_CACHE_FILE)).toBe(false);
+  });
+
+  it('refuses an expired snapshot for the offline profile', async () => {
+    const { files, api } = memoryFiles();
+    await createPortalCache(vault, api, () => serverMs).write({
+      me: CONTRACTOR_ME,
+      portal: PORTAL,
+    });
+    const late = createPortalCache(vault, api, () => serverMs + PORTAL_CACHE_MAX_AGE_MS + 1);
+    expect(await createOfflineProfile(late, async () => jwt(CONTRACTOR_ME.id))()).toBeNull();
+    expect(files.has(PORTAL_CACHE_FILE)).toBe(false);
   });
 });
