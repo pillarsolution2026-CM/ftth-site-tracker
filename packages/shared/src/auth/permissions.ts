@@ -19,11 +19,6 @@ export const PERMISSIONS = [
   'contract:read',
   /** Read the project's subcontractors, their lines and prices (ADR-036): admin and pm (owner). */
   'contractors:read',
-  /**
-   * Create, list, stop and restart the login accounts of the project's subcontractors
-   * (ADR-053): admin and pm (owner 2026-11-21).
-   */
-  'contractor_accounts:manage',
   /** See As-Built edits and state (Phase 4, ADR-030). Zone-scoped for supervisors. */
   'asbuilt:read',
   /** Record As-Built edits from the mobile app. ASSUMPTION: supervisor, pm, admin. */

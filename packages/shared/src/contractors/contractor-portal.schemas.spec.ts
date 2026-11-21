@@ -5,17 +5,15 @@ import {
   MeResponseSchema,
   UpdateContractorAccountRequestSchema,
   hasPermission,
+  PERMISSIONS,
 } from '../index.js';
 
 const uuid = (n: number): string => `00000000-0000-4000-8000-${n.toString().padStart(12, '0')}`;
 
 describe('contractor accounts (ADR-053)', () => {
-  it('admin and pm manage the accounts; qc, supervisor and contractor do not', () => {
-    expect(hasPermission(['pm'], 'contractor_accounts:manage')).toBe(true);
-    expect(hasPermission(['admin'], 'contractor_accounts:manage')).toBe(true);
-    for (const role of ['qc', 'supervisor', 'contractor'] as const) {
-      expect(hasPermission([role], 'contractor_accounts:manage')).toBe(false);
-    }
+  it('no project role manages accounts: they are admin-only routes (owner, ADR-053)', () => {
+    expect((PERMISSIONS as readonly string[]).includes('contractor_accounts:manage')).toBe(false);
+    expect(hasPermission(['contractor'], 'contractors:read')).toBe(false);
   });
 
   it('never accepts an admin flag on a new account and lower-cases the email', () => {

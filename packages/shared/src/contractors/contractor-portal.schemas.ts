@@ -7,8 +7,9 @@ import { UpdateStatusSchema } from '../execution/execution.schemas.js';
 /**
  * Read-only contractor login, subcontractors part 3, ADR-053. Owner decisions, 2026-11-21:
  * - A login account is a user linked to one contractor of the shared list (several accounts per
- *   company). The ADMIN and the PM create them; a PM only for a contractor registered on his
- *   project. A contractor account holds no project role and cannot be made admin.
+ *   company). ONLY THE PLATFORM ADMIN creates, stops and restarts them (owner, after the security
+ *   review: an account sees every project of its contractor, so a PM of one project must not
+ *   hold its password). A contractor account holds no project role and cannot be made admin.
  * - The contractor logs in on the web and in the mobile app (read-only, readable offline).
  * - He sees, for every work order he is registered on: his lines, quantities and prices; and the
  *   work recorded on him as a LIST (no drawing): element, date, quantity, review status and
@@ -25,7 +26,7 @@ import { UpdateStatusSchema } from '../execution/execution.schemas.js';
  */
 export const CONTRACTOR_PRICE_DAY_TIME_ZONE = 'Africa/Cairo';
 
-// ---------- accounts (admin, PM) ----------
+// ---------- accounts (platform admin only) ----------
 
 /** A login account of a contractor. Never the password or its hash. */
 export const ContractorAccountSchema = z.object({
@@ -39,9 +40,9 @@ export const ContractorAccountSchema = z.object({
 export type ContractorAccount = z.infer<typeof ContractorAccountSchema>;
 
 /**
- * GET /projects/:projectId/contractors/:registrationId/accounts (`contractor_accounts:manage`:
- * admin, pm of the project): every account of the registration's contractor (accounts belong to
- * the contractor, not to the registration, so the same list shows on each of its projects).
+ * GET /admin/projects/:projectId/contractors/:registrationId/accounts (platform admin): every
+ * account of the registration's contractor (accounts belong to the contractor, not to the
+ * registration, so the same list shows on each of its projects).
  */
 export const ContractorAccountListResponseSchema = z.object({
   contractorId: z.uuid(),
@@ -50,8 +51,8 @@ export const ContractorAccountListResponseSchema = z.object({
 export type ContractorAccountListResponse = z.infer<typeof ContractorAccountListResponseSchema>;
 
 /**
- * POST /projects/:projectId/contractors/:registrationId/accounts → 201 ContractorAccount. Same
- * fields and limits as an admin-created user; the initial password is typed by the admin or PM
+ * POST /admin/projects/:projectId/contractors/:registrationId/accounts → 201 ContractorAccount.
+ * Same fields and limits as an admin-created user; the initial password is typed by the admin
  * and given to the contractor. 409 CONFLICT `EMAIL_TAKEN` when the email exists.
  */
 export const CreateContractorAccountRequestSchema = CreateUserRequestSchema;
@@ -59,9 +60,8 @@ export type CreateContractorAccountRequest = z.infer<typeof CreateContractorAcco
 export type CreateContractorAccountInput = z.input<typeof CreateContractorAccountRequestSchema>;
 
 /**
- * PATCH /projects/:projectId/contractors/:registrationId/accounts/:userId → ContractorAccount.
- * ASSUMPTION (ADR-053, to confirm): whoever may create the account may also stop and restart it.
- * Stopping revokes its sessions.
+ * PATCH /admin/projects/:projectId/contractors/:registrationId/accounts/:userId →
+ * ContractorAccount. Stop or restart (admin only). Stopping revokes its sessions.
  */
 export const UpdateContractorAccountRequestSchema = z.strictObject({ isActive: z.boolean() });
 export type UpdateContractorAccountRequest = z.infer<typeof UpdateContractorAccountRequestSchema>;
