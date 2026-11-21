@@ -60,8 +60,12 @@ const op: RecordUpdateOp = {
 };
 
 /** A transaction where every check passes and the insert hits `constraint`. */
-function uowFailingOn(constraint: string): ExecutionUnitOfWork {
-  const pgError = Object.assign(new Error('duplicate key'), { code: '23505', constraint });
+function uowFailingOn(
+  constraint: string,
+  code = '23505',
+  message = 'duplicate key',
+): ExecutionUnitOfWork {
+  const pgError = Object.assign(new Error(message), { code, constraint });
   const tx: ExecutionTx = {
     lockProject: async () => undefined,
     findOperation: async () => null,
@@ -112,6 +116,40 @@ describe('PushSyncUseCase races', () => {
       { clientOpId: op.clientOpId, outcome: 'rejected', code: 'PHOTO_ID_REUSED' },
     ]);
   });
+
+  it.each([
+    [
+      '',
+      '23514',
+      'contractor quantity exceeded (contractor line x)',
+      'CONTRACTOR_QUANTITY_EXCEEDED',
+    ],
+    [
+      '',
+      '23514',
+      'the contractor line belongs to another work-order line',
+      'CONTRACTOR_LINE_NOT_FOUND',
+    ],
+    ['execution_update_lines_contractor_line_fkey', '23503', 'fk', 'CONTRACTOR_LINE_NOT_FOUND'],
+  ] as const)(
+    'turns the contractor backstop (%s %s) into a rejection of the op, not a failed batch',
+    async (constraint, code, message, expected) => {
+      const useCase = new PushSyncUseCase(
+        uowFailingOn(constraint, code, message),
+        new Phase2UnavailableCapabilities(),
+        { now: () => new Date() },
+        { next: () => id(9) },
+      );
+      const results = await useCase.execute({
+        projectId: id(10),
+        userId: id(11),
+        deviceId: id(12),
+        scope: { kind: 'project' },
+        ops: [op],
+      });
+      expect(results).toEqual([{ clientOpId: op.clientOpId, outcome: 'rejected', code: expected }]);
+    },
+  );
 
   it('rethrows unrelated database errors', async () => {
     const useCase = new PushSyncUseCase(

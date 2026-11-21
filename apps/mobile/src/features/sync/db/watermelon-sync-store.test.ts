@@ -5,7 +5,7 @@ import { testRandom } from '../../../shared/crypto/test-random';
 import { createVault } from '../../../shared/crypto/vault';
 import { createLocalDatabase } from './database';
 import { localSchema, TABLES } from './schema';
-import { WatermelonSyncStore } from './watermelon-sync-store';
+import { upgradeStoredOp, WatermelonSyncStore } from './watermelon-sync-store';
 
 const PROJECT = '00000000-0000-4000-8000-0000000000aa';
 let counter = 0;
@@ -231,5 +231,35 @@ describe('WatermelonSyncStore', () => {
     expect(received).toEqual([bytes]);
     expect(await store.getCursor()).toBe('1');
     expect(await store.summary()).toMatchObject({ pending: 0, photosWaiting: 0 });
+  });
+});
+
+describe('upgradeStoredOp (ADR-052)', () => {
+  it('reads a work line saved before ADR-052 as «self» and a material line as none', () => {
+    const legacy = {
+      kind: 'execution_update.record',
+      payload: {
+        lines: [
+          { workOrderItemId: 'a', quantity: '1', role: 'work' },
+          { workOrderItemId: 'b', quantity: '2', role: 'material' },
+          { workOrderItemId: 'c', quantity: '3', role: 'work', performer: null },
+        ],
+      },
+    };
+    expect(upgradeStoredOp(legacy)).toEqual({
+      kind: 'execution_update.record',
+      payload: {
+        lines: [
+          { workOrderItemId: 'a', quantity: '1', role: 'work', performer: { kind: 'self' } },
+          { workOrderItemId: 'b', quantity: '2', role: 'material', performer: null },
+          { workOrderItemId: 'c', quantity: '3', role: 'work', performer: null },
+        ],
+      },
+    });
+  });
+
+  it('leaves other operations untouched', () => {
+    const other = { kind: 'asbuilt_edit.record', payload: { x: 1 } };
+    expect(upgradeStoredOp(other)).toBe(other);
   });
 });

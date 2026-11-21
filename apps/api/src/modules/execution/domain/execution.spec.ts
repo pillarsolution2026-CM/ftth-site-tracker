@@ -4,6 +4,29 @@ import { decideChunk, looksLikeJpeg } from './photo-upload.js';
 import { computeUpdateFlags, type FlagFacts } from './update-flags.js';
 
 describe('canonicalJson / operationHash', () => {
+  it('hashes a line without a performer as before ADR-052, so an old resend stays a duplicate', () => {
+    const line = { workOrderItemId: 'i', quantity: '1', role: 'material' };
+    const before = operationHash({ kind: 'k', capturedAt: 't', payload: { lines: [line] } });
+    const now = operationHash({
+      kind: 'k',
+      capturedAt: 't',
+      payload: { lines: [{ ...line, performer: null }] },
+    });
+    expect(now).toBe(before);
+    const self = operationHash({
+      kind: 'k',
+      capturedAt: 't',
+      payload: { lines: [{ ...line, role: 'work', performer: { kind: 'self' } }] },
+    });
+    expect(self).not.toBe(
+      operationHash({
+        kind: 'k',
+        capturedAt: 't',
+        payload: { lines: [{ ...line, role: 'work' }] },
+      }),
+    );
+  });
+
   it('ignores key order and undefined fields', () => {
     expect(canonicalJson({ b: 1, a: [{ e: null, c: undefined, d: 2 }] })).toBe(
       '{"a":[{"d":2,"e":null}],"b":1}',

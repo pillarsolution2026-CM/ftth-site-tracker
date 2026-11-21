@@ -286,6 +286,14 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
   }
 
   async delete(projectId: string, registrationId: string): Promise<void> {
+    // Lock the registration's lines in id order, as a sync push does (ADR-052), so the cascade
+    // below never deadlocks with a push recording work on them (security review, low 3).
+    await rowsOf<{ id: string }>(
+      this.db,
+      sql`SELECT id FROM contractor_lines
+          WHERE project_id = ${projectId} AND registration_id = ${registrationId}
+          ORDER BY id FOR UPDATE`,
+    );
     const [worked] = await rowsOf<{ id: string }>(
       this.db,
       sql`SELECT cl.id FROM contractor_lines cl

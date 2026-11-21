@@ -13,7 +13,11 @@ import {
 } from '@ftth/shared';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
-import { uniqueViolation } from '../../../db/pg-errors.js';
+import {
+  foreignKeyViolation,
+  triggerViolationMessage,
+  uniqueViolation,
+} from '../../../db/pg-errors.js';
 import { operationHash } from '../domain/op-hash.js';
 import { computeAsBuiltFlags } from '../domain/asbuilt-flags.js';
 import { computeUpdateFlags } from '../domain/update-flags.js';
@@ -68,6 +72,26 @@ export class PushSyncUseCase {
     try {
       return await this.uow.run((tx) => this.apply(tx, input, op, hash));
     } catch (error) {
+      // The DB backstop of the contractor cap (migration 0027) disagreed with the API check:
+      // reject this op instead of failing the whole batch (security review, low 4).
+      const trigger = triggerViolationMessage(error);
+      if (trigger?.startsWith('contractor quantity exceeded')) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_QUANTITY_EXCEEDED',
+        };
+      }
+      if (
+        trigger?.startsWith('the contractor line belongs to another work-order line') ||
+        foreignKeyViolation(error) === 'execution_update_lines_contractor_line_fkey'
+      ) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_LINE_NOT_FOUND',
+        };
+      }
       const violated = uniqueViolation(error);
       // The same photo id raced in from a push to another project (per-project locks).
       if (violated === 'execution_photos_pkey') {
