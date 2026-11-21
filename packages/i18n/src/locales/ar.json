@@ -2110,7 +2110,12 @@
       "processingPhoto": "جارٍ تجهيز الصورة…",
       "acknowledge": "فهمت، احفظ رغم التحذير",
       "summaryLines": "{count} بند",
-      "summaryPhotos": "{count} صورة"
+      "summaryPhotos": "{count} صورة",
+      "performerSelf": "الشركة نفسها",
+      "performerWholeLine": "البند كله",
+      "performerScope": "نطاق الشغل: {scope}",
+      "performerLeft": "المتبقي {left} {unit}",
+      "performerExceeded": "الكمية أكبر من المتبقي للمقاول {name}: المتبقي {left} {unit}. على المدير رفع كمية المقاول أولًا."
     },
     "warnings": {
       "GPS_FAR": "موقعك يبعد أكثر من {distance} م عن العنصر",
@@ -2122,7 +2127,8 @@
       "NO_LINES": "أضف بندًا واحدًا على الأقل",
       "LABEL_TOO_LONG": "الـLabel طويل جدًا",
       "NOTE_TOO_LONG": "الملاحظات طويلة جدًا",
-      "PHOTOS_MISSING": "الصور الإجبارية ناقصة"
+      "PHOTOS_MISSING": "الصور الإجبارية ناقصة",
+      "CONTRACTOR_QUANTITY_EXCEEDED": "كمية مقاول أكبر من المتبقي له — اخفضها أو اطلب من المدير رفع كمية المقاول"
     },
     "pending": {
       "title": "في الانتظار",
@@ -2143,7 +2149,9 @@
         "ITEM_WORK_TYPE_MISMATCH": "البند لا يخص هذا النشاط",
         "VALIDATION_FAILED": "بيانات غير صالحة",
         "FEATURE_TYPE_NOT_ALLOWED": "هذا العنصر ليس كابينة أو غرفة تفتيش أو وصلة أو بوكس",
-        "GPS_ACCURACY_TOO_LOW": "دقة الـGPS أسوأ من المسموح، أعد الإرسال من مكان مفتوح"
+        "GPS_ACCURACY_TOO_LOW": "دقة الـGPS أسوأ من المسموح، أعد الإرسال من مكان مفتوح",
+        "CONTRACTOR_LINE_NOT_FOUND": "المقاول غير مسجّل على هذا البند",
+        "CONTRACTOR_QUANTITY_EXCEEDED": "الكمية أكبر من المتبقي للمقاول — على المدير رفع كميته ثم أعد الإرسال"
       },
       "updateStatus": {
         "pending": "بانتظار المراجعة",
@@ -2349,7 +2357,9 @@
       "PRICE_DATE_NOT_AFTER_LATEST": "التاريخ يجب أن يكون بعد آخر تاريخ سعر: {latestEffectiveFrom}.",
       "LAST_LINE": "لا يمكن حذف آخر بند؛ احذف تسجيل المقاول بالكامل.",
       "STALE_VERSION": "البيانات اتغيرت من مستخدم تاني، حدّث الصفحة وحاول تاني.",
-      "WHOLE_AND_SCOPES_MIXED": "لا يمكن خلط بند كامل وبند بنطاق على نفس بند أمر التكليف. اعرض الملف من جديد."
+      "WHOLE_AND_SCOPES_MIXED": "لا يمكن خلط بند كامل وبند بنطاق على نفس بند أمر التكليف. اعرض الملف من جديد.",
+      "QUANTITY_BELOW_RECORDED": "لا يمكن تقليل كمية المقاول إلى {requestedQuantity}: مسجَّل عليه {recordedQuantity} شغل (تحت المراجعة أو مقبول).",
+      "LINE_HAS_WORK": "لا يمكن الحذف: فيه شغل متسجل على المقاول في البند ده."
     },
     "section": {
       "title": "المقاولين الباطن",

@@ -37,3 +37,9 @@ export function compareQuantities(a: string, b: string): -1 | 0 | 1 {
 }
 
 export const isZeroQuantity = (value: string): boolean => toUnits(value) === 0n;
+
+/** total minus what is used, never below zero (what is left of a quantity). */
+export function remainingQuantity(total: string, ...used: readonly string[]): string {
+  const left = toUnits(total) - used.reduce((sum, value) => sum + toUnits(value), 0n);
+  return fromUnits(left < 0n ? 0n : left);
+}

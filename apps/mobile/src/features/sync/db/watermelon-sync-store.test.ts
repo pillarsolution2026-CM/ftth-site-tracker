@@ -43,7 +43,9 @@ function op(photoId: string, size = 4): SyncOp {
       featureId: uuid(),
       designRevisionId: uuid(),
       workType: 'civil',
-      lines: [{ workOrderItemId: uuid(), quantity: '2', role: 'work' }],
+      lines: [
+        { workOrderItemId: uuid(), quantity: '2', role: 'work', performer: { kind: 'self' } },
+      ],
       label: null,
       note: null,
       gps: null,
