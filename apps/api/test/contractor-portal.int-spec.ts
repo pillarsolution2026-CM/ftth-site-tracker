@@ -471,7 +471,8 @@ describe('accounts of a contractor', () => {
     expect((await login(email)).status).toBe(200);
 
     const types = await ctx.pool.query<{ type: string }>(
-      `SELECT type FROM events WHERE entity_id = $1 ORDER BY id`,
+      // Logins are events on the same user too; only the account's own events are checked.
+      `SELECT type FROM events WHERE entity_id = $1 AND type LIKE 'contractor_account.%' ORDER BY id`,
       [created.userId],
     );
     expect(types.rows.map((row) => row.type)).toEqual([
