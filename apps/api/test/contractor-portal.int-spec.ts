@@ -233,7 +233,8 @@ beforeAll(async () => {
   ctx = await createTestContext(inject('databaseUrl'));
   const contract = await createApprovedContract(ctx.pool, [
     { code: 'C-01', unit: 'م', quantity: '100', unitPrice: CONTRACT_PRICE, workType: 'civil' },
-    { code: 'C-02', unit: 'عدد', quantity: '10', unitPrice: CONTRACT_PRICE, workType: 'civil' },
+    // Two work orders (one per project) take C-02, so the contract holds both (10 + 10).
+    { code: 'C-02', unit: 'عدد', quantity: '20', unitPrice: CONTRACT_PRICE, workType: 'civil' },
   ]);
   const p1 = await createProjectIn(ctx.pool, contract.contractId, `Portal one ${tag}`);
   const p2 = await createProjectIn(ctx.pool, contract.contractId, `Portal two ${tag}`);
