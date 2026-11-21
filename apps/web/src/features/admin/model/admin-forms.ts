@@ -2,7 +2,6 @@ import {
   CreateAssignmentRequestSchema,
   CreateProjectRequestSchema,
   CreateUserRequestSchema,
-  isZoneScopedRole,
   type AssignableRole,
   type CreateAssignmentInput,
   type CreateProjectRequest,
@@ -119,32 +118,24 @@ export function validateUserForm(values: UserFormValues): FormResult<CreateUserI
 // Assignment
 // ---------------------------------------------------------------------------------------------
 
-export type AssignmentField = 'userId' | 'role' | 'zoneId';
+export type AssignmentField = 'userId' | 'role';
 export interface AssignmentFormValues {
   userId: string;
   role: AssignableRole;
-  zoneId: string;
 }
 
-export const EMPTY_ASSIGNMENT_FORM: AssignmentFormValues = { userId: '', role: 'pm', zoneId: '' };
-
-export const needsZone = (role: AssignableRole): boolean => isZoneScopedRole(role);
+export const EMPTY_ASSIGNMENT_FORM: AssignmentFormValues = { userId: '', role: 'pm' };
 
 const ASSIGNMENT_MESSAGES: Record<AssignmentField, MessageKey> = {
   userId: 'validation.required',
   role: 'admin.validation.invalid',
-  zoneId: 'admin.assignments.zoneRequired',
 };
 
+/** ADR-054: no zone for any role; a supervisor's sites are set apart. */
 export function validateAssignmentForm(
   values: AssignmentFormValues,
 ): FormResult<CreateAssignmentInput, AssignmentField> {
-  const input: CreateAssignmentInput = {
-    userId: values.userId,
-    role: values.role,
-    // A project-wide role never sends a zone, even if one was picked before the role changed.
-    zoneId: needsZone(values.role) && values.zoneId ? values.zoneId : null,
-  };
+  const input: CreateAssignmentInput = { userId: values.userId, role: values.role, zoneId: null };
   const parsed = CreateAssignmentRequestSchema.safeParse(input);
   return parsed.success
     ? { ok: true, payload: input }
@@ -154,9 +145,7 @@ export function validateAssignmentForm(
 /** API `details.reason` → message, for the 400/409 answers of the admin routes. */
 export const REASON_MESSAGES: Readonly<Record<string, MessageKey>> = {
   EMAIL_TAKEN: 'admin.users.emailTaken',
-  ZONE_NAME_TAKEN: 'admin.zones.nameTaken',
   ALREADY_ASSIGNED: 'admin.assignments.alreadyAssigned',
   USER_INACTIVE: 'admin.assignments.userInactive',
   USER_IS_ADMIN: 'admin.assignments.userIsAdmin',
-  ZONE_NOT_IN_PROJECT: 'admin.assignments.zoneNotInProject',
 };

@@ -7,7 +7,7 @@ async function loginAs(page: Page, email: string) {
   await page.getByRole('button', { name: 'دخول' }).click();
 }
 
-test('an admin sees every project, creates a user and a project, names a zone and assigns a supervisor', async ({
+test('an admin sees every project, creates a user and a project and assigns a supervisor (no zone, no contractor role)', async ({
   page,
 }) => {
   await loginAs(page, 'admin@example.com');
@@ -44,18 +44,16 @@ test('an admin sees every project, creates a user and a project, names a zone an
   await page.getByRole('button', { name: 'إنشاء أمر التكليف / المشروع' }).click();
   await expect(page.getByRole('heading', { name: 'مشروع شبرا' })).toBeVisible();
 
+  // Zones are retired (ADR-054): no zones section, no zone field, no contractor role.
+  await expect(page.getByLabel('اسم المنطقة')).toHaveCount(0);
+  await expect(page.getByLabel('المنطقة', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('الدور').locator('option[value="contractor"]')).toHaveCount(0);
   await page.getByLabel('الدور').selectOption('supervisor');
-  await expect(page.getByText('أضف منطقة أولًا لإسناد مشرف أو مقاول باطن')).toBeVisible();
-  await page.getByLabel('اسم المنطقة').fill('المنطقة أ');
-  await page.getByRole('button', { name: 'إضافة منطقة' }).click();
-  await expect(page.getByText('المنطقة أ').first()).toBeVisible();
-
   await page
     .getByLabel('المستخدم')
     .selectOption({ label: 'مشرف واحد — supervisor.one@example.com' });
-  await page.getByLabel('المنطقة', { exact: true }).selectOption({ label: 'المنطقة أ' });
   await page.getByRole('button', { name: 'إسناد' }).click();
-  await expect(page.getByRole('cell', { name: 'المنطقة أ' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'توزيع المواقع على المشرفين' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'مشرف', exact: true })).toBeVisible();
 });
 

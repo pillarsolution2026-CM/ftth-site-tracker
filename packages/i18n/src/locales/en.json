@@ -123,14 +123,6 @@
       "openContract": "Open contract",
       "contractNumber": "Contract number"
     },
-    "zones": {
-      "title": "Zones",
-      "name": "Zone name",
-      "add": "Add zone",
-      "none": "No zones yet",
-      "noBoundary": "No boundary yet (drawn later on the zones screen)",
-      "nameTaken": "A zone with this name already exists"
-    },
     "assignments": {
       "title": "Team",
       "user": "User",
@@ -140,14 +132,10 @@
       "remove": "Remove",
       "none": "Nobody is assigned yet",
       "chooseUser": "Choose a user",
-      "chooseZone": "Choose a zone",
-      "zoneRequired": "Supervisors and subcontractors need a zone",
-      "needZoneFirst": "Add a zone first to assign a supervisor or subcontractor",
       "projectWide": "Whole project",
       "alreadyAssigned": "This user already has this role here",
       "userInactive": "This user is deactivated",
       "userIsAdmin": "Admins already see every project",
-      "zoneNotInProject": "The zone does not belong to this project",
       "confirmRemove": "Remove {name} ({role}) from this project?"
     },
     "validation": {
@@ -269,7 +257,22 @@
     "cadFiles": "CAD files",
     "designRevisions": "Design revisions",
     "contract": "Contract",
-    "contractors": "Subcontractors"
+    "contractors": "Subcontractors",
+    "supervisorSites": "Supervisor sites"
+  },
+  "supervisorSites": {
+    "title": "Sites of the supervisors",
+    "workOrder": "Work order",
+    "count": "Sites selected: {count}",
+    "save": "Save",
+    "saved": "The supervisor’s sites are saved",
+    "noSupervisors": "No supervisors are assigned to this project yet. The admin assigns them from the admin screen.",
+    "noSites": "The work orders of this project have no sites yet.",
+    "note": "A supervisor sees and records only on his own sites; a supervisor with no site sees nothing.",
+    "errors": {
+      "notSupervisor": "This user is not a supervisor of this project",
+      "foreignSite": "One of the sites is not a site of this project. Refresh the page and try again."
+    }
   },
   "project": {
     "switcher": "Project",

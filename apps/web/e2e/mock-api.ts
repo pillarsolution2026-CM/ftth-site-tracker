@@ -991,6 +991,9 @@ async function handleProject(
   }
   if (resource === 'contract')
     return handleProjectContract(res, method, PROJECT_CONTRACTS[projectId] ?? null);
+  // ADR-054: nobody is assigned in the mock; the panel shows its empty state.
+  if (resource === 'supervisor-sites' && method === 'GET')
+    return send(res, 200, { sites: [], supervisors: [] });
   if (projectId !== PROJECT_ID) return sendError(res, 404, 'NOT_FOUND');
   if (resource === 'asbuilt') return asBuiltMock.handle(req, res, url, method, [id, sub, subId]);
   if (resource === 'sites' && id === undefined && method === 'PUT') {

@@ -5,21 +5,16 @@ import {
   ProjectListResponseSchema,
   ProjectSchema,
   UserListResponseSchema,
-  ZoneListResponseSchema,
-  ZoneSchema,
   type AdminUser,
   type Assignment,
   type AssignmentListResponse,
   type CreateAssignmentInput,
   type CreateProjectRequest,
   type CreateUserInput,
-  type CreateZoneRequest,
   type Project,
   type ProjectListResponse,
   type UpdateProjectRequest,
   type UserListResponse,
-  type Zone,
-  type ZoneListResponse,
 } from '@ftth/shared';
 import { bffJson, bffVoid } from '@/shared/api/bff-client';
 
@@ -37,14 +32,6 @@ export function createProject(body: CreateProjectRequest): Promise<Project> {
 
 export function updateProject(projectId: string, body: UpdateProjectRequest): Promise<Project> {
   return bffJson(project(projectId), ProjectSchema, { method: 'PATCH', body });
-}
-
-export function listZones(projectId: string): Promise<ZoneListResponse> {
-  return bffJson(`${project(projectId)}/zones`, ZoneListResponseSchema);
-}
-
-export function createZone(projectId: string, body: CreateZoneRequest): Promise<Zone> {
-  return bffJson(`${project(projectId)}/zones`, ZoneSchema, { method: 'POST', body });
 }
 
 export function listAssignments(projectId: string): Promise<AssignmentListResponse> {

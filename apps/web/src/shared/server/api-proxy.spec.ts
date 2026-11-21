@@ -182,6 +182,15 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows the supervisor-sites routes (ADR-054)', () => {
+    expect(upstreamPath([PROJECT, 'supervisor-sites'])).toBe(
+      `/projects/${PROJECT}/supervisor-sites`,
+    );
+    expect(upstreamPath([PROJECT, 'supervisors', 'abc-1', 'sites'])).toBe(
+      `/projects/${PROJECT}/supervisors/abc-1/sites`,
+    );
+  });
+
   it('rejects other resources, bad project ids and traversal', () => {
     expect(upstreamPath([PROJECT, 'members'])).toBeNull();
     expect(upstreamPath([PROJECT])).toBeNull();

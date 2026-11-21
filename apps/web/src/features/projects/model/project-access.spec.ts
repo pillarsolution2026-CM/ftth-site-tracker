@@ -23,6 +23,7 @@ const membership = (projectId: string, role: MeResponse['memberships'][number]['
   projectName: `Project ${projectId.slice(0, 1)}`,
   role,
   zoneIds: [],
+  siteIds: [],
 });
 
 describe('project access and navigation', () => {
@@ -35,6 +36,7 @@ describe('project access and navigation', () => {
       'contract',
       'contractors',
       'asbuilt',
+      'supervisorSites',
     ]);
     expect(can(access, 'work_orders:write')).toBe(true);
     expect(can(access, 'contract:read')).toBe(true);

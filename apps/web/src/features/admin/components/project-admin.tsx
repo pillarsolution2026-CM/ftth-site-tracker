@@ -5,7 +5,6 @@ import { ASSIGNABLE_ROLES, type AssignableRole } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { Select } from '@/shared/ui/form-controls';
-import { Input } from '@/shared/ui/input';
 import { Ltr } from '@/shared/ui/ltr';
 import { Notice } from '@/shared/ui/notice';
 import { PageHeader, Table, Td, Th } from '@/shared/ui/table';
@@ -13,7 +12,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { useContract } from '@/features/contracts/api/queries';
 import { ProjectContractorsSection } from '@/features/contractors/components/project-contractors-section';
 import { useProjectAdmin, type ProjectAdminModel } from '../hooks/use-project-admin';
-import { needsZone } from '../model/admin-forms';
+import { SupervisorSitesPanel } from '@/features/supervisor-sites/components/supervisor-sites-panel';
 import { ProjectFields } from './project-fields';
 
 const LINK =
@@ -96,55 +95,14 @@ function EditProjectCard({ edit }: { edit: ProjectAdminModel['edit'] }) {
   );
 }
 
-function ZonesCard({ zones }: { zones: ProjectAdminModel['zones'] }) {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <h2 className="mb-4 text-lg font-semibold">{t('admin.zones.title')}</h2>
-      {zones.loading ? (
-        <p role="status">{t('common.loading')}</p>
-      ) : zones.items.length === 0 ? (
-        <p className="mb-4">{t('admin.zones.none')}</p>
-      ) : (
-        <ul className="mb-4 divide-y divide-(--color-border)">
-          {zones.items.map((zone) => (
-            <li key={zone.id} className="flex min-h-11 flex-wrap items-center gap-3 py-2">
-              <span className="font-medium">{zone.name}</span>
-              {zone.hasBoundary ? null : (
-                <span className="text-sm opacity-80">{t('admin.zones.noBoundary')}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      <form noValidate onSubmit={zones.onSubmit} className="flex flex-wrap items-end gap-3">
-        <div className="min-w-60 flex-1">
-          <Input
-            id="zone-name"
-            label={t('admin.zones.name')}
-            value={zones.name}
-            maxLength={100}
-            error={zones.error ? t(zones.error) : undefined}
-            onChange={(event) => zones.onNameChange(event.target.value)}
-          />
-        </div>
-        <Button type="submit" variant="outline" disabled={zones.pending}>
-          {t('admin.zones.add')}
-        </Button>
-      </form>
-    </Card>
-  );
-}
-
-function AssignmentsCard({
+export function AssignmentsCard({
   assignments,
-  zones,
 }: {
   assignments: ProjectAdminModel['assignments'];
-  zones: ProjectAdminModel['zones'];
 }) {
   const { t } = useI18n();
-  const zoneNeeded = needsZone(assignments.values.role);
+  // Zones are retired (ADR-054): an old zone name is shown only when a row still has one.
+  const hasOldZone = assignments.items.some((assignment) => assignment.zoneName !== null);
   return (
     <Card>
       <h2 className="mb-4 text-lg font-semibold">{t('admin.assignments.title')}</h2>
@@ -158,7 +116,7 @@ function AssignmentsCard({
             <tr>
               <Th>{t('admin.assignments.user')}</Th>
               <Th>{t('admin.assignments.role')}</Th>
-              <Th>{t('admin.assignments.zone')}</Th>
+              {hasOldZone ? <Th>{t('admin.assignments.zone')}</Th> : null}
               <Th>{t('common.actions')}</Th>
             </tr>
           </thead>
@@ -176,7 +134,7 @@ function AssignmentsCard({
                   )}
                 </Td>
                 <Td>{t(`roles.${assignment.role}`)}</Td>
-                <Td>{assignment.zoneName ?? t('admin.assignments.projectWide')}</Td>
+                {hasOldZone ? <Td>{assignment.zoneName ?? '—'}</Td> : null}
                 <Td>
                   <Button
                     variant="outline"
@@ -202,7 +160,7 @@ function AssignmentsCard({
         </Table>
       )}
 
-      <form noValidate onSubmit={assignments.onSubmit} className="grid gap-4 sm:grid-cols-3">
+      <form noValidate onSubmit={assignments.onSubmit} className="grid gap-4 sm:grid-cols-2">
         <Select
           id="assignment-user"
           label={t('admin.assignments.user')}
@@ -229,34 +187,12 @@ function AssignmentsCard({
             </option>
           ))}
         </Select>
-        {zoneNeeded ? (
-          <Select
-            id="assignment-zone"
-            label={t('admin.assignments.zone')}
-            value={assignments.values.zoneId}
-            disabled={zones.items.length === 0}
-            hint={zones.items.length === 0 ? t('admin.assignments.needZoneFirst') : undefined}
-            error={assignments.errors.zoneId ? t(assignments.errors.zoneId) : undefined}
-            onChange={(event) => assignments.onChange('zoneId', event.target.value)}
-          >
-            <option value="">{t('admin.assignments.chooseZone')}</option>
-            {zones.items.map((zone) => (
-              <option key={zone.id} value={zone.id}>
-                {zone.name}
-              </option>
-            ))}
-          </Select>
-        ) : (
-          <div className="flex flex-col justify-end pb-2 text-sm opacity-80">
-            {t('admin.assignments.projectWide')}
-          </div>
-        )}
         {assignments.error ? (
-          <Notice kind="error" className="sm:col-span-3">
+          <Notice kind="error" className="sm:col-span-2">
             {t(assignments.error)}
           </Notice>
         ) : null}
-        <div className="sm:col-span-3">
+        <div className="sm:col-span-2">
           <Button type="submit" disabled={assignments.pending}>
             {t('admin.assignments.add')}
           </Button>
@@ -266,7 +202,7 @@ function AssignmentsCard({
   );
 }
 
-/** Presentational: one project's settings, zone names and team. */
+/** Presentational: one project's settings, team and the supervisors' sites. */
 export function ProjectAdminView({ model }: { model: ProjectAdminModel }) {
   const { t, locale } = useI18n();
   if (model.state === 'loading') return <p role="status">{t('common.loading')}</p>;
@@ -292,8 +228,8 @@ export function ProjectAdminView({ model }: { model: ProjectAdminModel }) {
       <ContractCard project={model.project} />
       <EditProjectCard edit={model.edit} />
       <ProjectContractorsSection projectId={model.project.id} />
-      <ZonesCard zones={model.zones} />
-      <AssignmentsCard assignments={model.assignments} zones={model.zones} />
+      <AssignmentsCard assignments={model.assignments} />
+      <SupervisorSitesPanel projectId={model.project.id} />
     </div>
   );
 }

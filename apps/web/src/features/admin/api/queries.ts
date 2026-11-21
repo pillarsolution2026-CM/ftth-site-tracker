@@ -3,7 +3,6 @@ import type {
   CreateAssignmentInput,
   CreateProjectRequest,
   CreateUserInput,
-  CreateZoneRequest,
   UpdateProjectRequest,
 } from '@ftth/shared';
 import { meQueryKey } from '@/features/auth/api/queries';
@@ -11,11 +10,9 @@ import {
   createAssignment,
   createProject,
   createUser,
-  createZone,
   listAssignments,
   listProjects,
   listUsers,
-  listZones,
   removeAssignment,
   setUserActive,
   updateProject,
@@ -23,7 +20,6 @@ import {
 
 export const adminProjectsKey = ['admin', 'projects'] as const;
 export const adminUsersKey = ['admin', 'users'] as const;
-export const adminZonesKey = (projectId: string) => ['admin', 'zones', projectId] as const;
 export const adminAssignmentsKey = (projectId: string) =>
   ['admin', 'assignments', projectId] as const;
 
@@ -34,14 +30,6 @@ export function useAdminProjects(enabled = true) {
 
 export function useAdminUsers() {
   return useQuery({ queryKey: adminUsersKey, queryFn: listUsers, retry: false });
-}
-
-export function useAdminZones(projectId: string) {
-  return useQuery({
-    queryKey: adminZonesKey(projectId),
-    queryFn: () => listZones(projectId),
-    retry: false,
-  });
 }
 
 export function useAdminAssignments(projectId: string) {
@@ -69,14 +57,6 @@ export function useUpdateProject(projectId: string) {
         client.invalidateQueries({ queryKey: adminProjectsKey }),
         client.invalidateQueries({ queryKey: meQueryKey }),
       ]),
-  });
-}
-
-export function useCreateZone(projectId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (body: CreateZoneRequest) => createZone(projectId, body),
-    onSuccess: () => client.invalidateQueries({ queryKey: adminZonesKey(projectId) }),
   });
 }
 

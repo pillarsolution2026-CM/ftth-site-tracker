@@ -31,7 +31,14 @@ export function can(access: ProjectAccess, permission: Permission): boolean {
 }
 
 export interface NavItem {
-  id: 'workOrders' | 'cadFiles' | 'designRevisions' | 'contract' | 'contractors' | 'asbuilt';
+  id:
+    | 'workOrders'
+    | 'cadFiles'
+    | 'designRevisions'
+    | 'contract'
+    | 'contractors'
+    | 'asbuilt'
+    | 'supervisorSites';
   labelKey: MessageKey;
   /** Path below `/{locale}/projects/{projectId}`. */
   segment: string;
@@ -68,6 +75,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     labelKey: 'asbuiltReview.nav',
     segment: 'asbuilt',
     permission: 'asbuilt:read',
+  },
+  // ADR-054: the PM (and the admin) give each supervisor his sites.
+  {
+    id: 'supervisorSites',
+    labelKey: 'nav.supervisorSites',
+    segment: 'supervisor-sites',
+    permission: 'supervisor_sites:manage',
   },
 ];
 

@@ -123,14 +123,6 @@
       "openContract": "Ouvrir le contrat",
       "contractNumber": "Numéro du contrat"
     },
-    "zones": {
-      "title": "Zones",
-      "name": "Nom de la zone",
-      "add": "Ajouter une zone",
-      "none": "Aucune zone",
-      "noBoundary": "Pas encore de limite (tracée plus tard sur l’écran des zones)",
-      "nameTaken": "Une zone porte déjà ce nom"
-    },
     "assignments": {
       "title": "Équipe",
       "user": "Utilisateur",
@@ -140,14 +132,10 @@
       "remove": "Retirer",
       "none": "Personne n’est encore affecté",
       "chooseUser": "Choisir un utilisateur",
-      "chooseZone": "Choisir une zone",
-      "zoneRequired": "Les superviseurs et les sous-traitants ont besoin d’une zone",
-      "needZoneFirst": "Ajoutez d’abord une zone pour affecter un superviseur ou un sous-traitant",
       "projectWide": "Tout le projet",
       "alreadyAssigned": "Cet utilisateur a déjà ce rôle ici",
       "userInactive": "Cet utilisateur est désactivé",
       "userIsAdmin": "Les administrateurs voient déjà tous les projets",
-      "zoneNotInProject": "La zone n’appartient pas à ce projet",
       "confirmRemove": "Retirer {name} ({role}) de ce projet ?"
     },
     "validation": {
@@ -269,7 +257,22 @@
     "cadFiles": "Fichiers CAO",
     "designRevisions": "Révisions de conception",
     "contract": "Contrat",
-    "contractors": "Sous-traitants"
+    "contractors": "Sous-traitants",
+    "supervisorSites": "Sites des superviseurs"
+  },
+  "supervisorSites": {
+    "title": "Sites des superviseurs",
+    "workOrder": "Ordre de travail",
+    "count": "Sites choisis : {count}",
+    "save": "Enregistrer",
+    "saved": "Les sites du superviseur sont enregistrés",
+    "noSupervisors": "Aucun superviseur n’est encore affecté à ce projet. L’administrateur les affecte depuis l’écran d’administration.",
+    "noSites": "Les ordres de travail de ce projet n’ont pas encore de sites.",
+    "note": "Un superviseur voit et saisit uniquement sur ses sites ; un superviseur sans site ne voit rien.",
+    "errors": {
+      "notSupervisor": "Cet utilisateur n’est pas superviseur de ce projet",
+      "foreignSite": "Un des sites n’appartient pas à ce projet. Actualisez la page et réessayez."
+    }
   },
   "project": {
     "switcher": "Projet",
