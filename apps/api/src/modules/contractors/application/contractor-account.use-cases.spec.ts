@@ -10,6 +10,11 @@ import type {
   ContractorPortalRepository,
   NewContractorAccount,
 } from '../domain/contractor-account.js';
+import { FixedWindowRateLimiter } from '../../identity/application/fixed-window-rate-limiter.js';
+import {
+  CONTRACTOR_ACCOUNT_CREATE_LIMIT,
+  ContractorAccountCreateRateLimitGuard,
+} from '../interface/contractor-account-rate-limit.guard.js';
 import { ContractorAccountGuard } from '../interface/contractor-portal.guard.js';
 import {
   CreateContractorAccountUseCase,
@@ -305,5 +310,31 @@ describe('ContractorAccountGuard', () => {
     await expect(
       new ContractorAccountGuard(portalWith(null)).canActivate(contextFor({})),
     ).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+  });
+});
+
+describe('ContractorAccountCreateRateLimitGuard', () => {
+  const contextFor = (sub: string, headers: Record<string, string>) =>
+    ({
+      switchToHttp: () => ({
+        getRequest: () => ({ auth: { sub, isAdmin: true } }),
+        getResponse: () => ({ setHeader: (k: string, v: string) => void (headers[k] = v) }),
+      }),
+    }) as never;
+
+  it('allows the limit per actor, then answers RATE_LIMITED with Retry-After', () => {
+    const guard = new ContractorAccountCreateRateLimitGuard(
+      new FixedWindowRateLimiter(clock, 600_000),
+    );
+    const headers: Record<string, string> = {};
+    for (let i = 0; i < CONTRACTOR_ACCOUNT_CREATE_LIMIT; i += 1) {
+      expect(guard.canActivate(contextFor(ACTOR, headers))).toBe(true);
+    }
+    expect(() => guard.canActivate(contextFor(ACTOR, headers))).toThrowError(
+      expect.objectContaining({ code: 'RATE_LIMITED' }),
+    );
+    expect(headers['Retry-After']).toBe('600');
+    // Another actor has his own window.
+    expect(guard.canActivate(contextFor(SUPERVISOR, headers))).toBe(true);
   });
 });

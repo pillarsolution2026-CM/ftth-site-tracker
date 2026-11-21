@@ -11,19 +11,18 @@ import {
   type UpdateContractorAccountRequest,
 } from '@ftth/shared';
 import { actorIdOf } from '../../../common/http/request-actor.js';
-import { ProjectIdParam } from '../../../common/http/params.js';
 import { UuidParamPipe } from '../../../common/http/uuid-param.pipe.js';
 import { openApiSchema } from '../../../common/openapi.js';
-import { PermissionGuard, RequirePermission } from '../../../common/permission.guard.js';
 import { ZodValidationPipe } from '../../../common/zod-validation.pipe.js';
 import type { AuthenticatedRequest } from '../../identity/interface/auth-request.js';
 import { JwtAuthGuard } from '../../identity/interface/jwt-auth.guard.js';
-import { ProjectScopeGuard } from '../../identity/interface/project-scope.guard.js';
+import { PlatformAdminGuard } from '../../identity/interface/platform-admin.guard.js';
 import {
   CreateContractorAccountUseCase,
   ListContractorAccountsUseCase,
   SetContractorAccountActiveUseCase,
 } from '../application/contractor-account.use-cases.js';
+import { ContractorAccountCreateRateLimitGuard } from './contractor-account-rate-limit.guard.js';
 import type { ContractorAccountRecord } from '../domain/contractor-account.js';
 
 const toDto = (account: ContractorAccountRecord): ContractorAccount => ({
@@ -36,13 +35,13 @@ const toDto = (account: ContractorAccountRecord): ContractorAccount => ({
 });
 
 /**
- * Login accounts of a registered contractor (ADR-053). Admin and the PM of the project
- * (`contractor_accounts:manage`); the registration must belong to the project in the URL.
+ * Login accounts of a registered contractor (ADR-053). Platform admin only; the registration must
+ * belong to the project in the URL (404 otherwise).
  */
-@ApiTags('contractors')
+@ApiTags('admin')
 @ApiBearerAuth()
-@Controller('projects/:projectId/contractors/:registrationId/accounts')
-@UseGuards(JwtAuthGuard, ProjectScopeGuard, PermissionGuard)
+@Controller('admin/projects/:projectId/contractors/:registrationId/accounts')
+@UseGuards(JwtAuthGuard, PlatformAdminGuard)
 export class ContractorAccountsController {
   constructor(
     @Inject(ListContractorAccountsUseCase) private readonly list: ListContractorAccountsUseCase,
@@ -52,10 +51,9 @@ export class ContractorAccountsController {
   ) {}
 
   @Get()
-  @RequirePermission('contractor_accounts:manage')
   @ApiOkResponse({ schema: openApiSchema(ContractorAccountListResponseSchema) })
   async getAll(
-    @ProjectIdParam() projectId: string,
+    @Param('projectId', UuidParamPipe) projectId: string,
     @Param('registrationId', UuidParamPipe) registrationId: string,
   ): Promise<ContractorAccountListResponse> {
     const result = await this.list.execute({ projectId, registrationId });
@@ -63,10 +61,10 @@ export class ContractorAccountsController {
   }
 
   @Post()
-  @RequirePermission('contractor_accounts:manage')
+  @UseGuards(ContractorAccountCreateRateLimitGuard)
   @ApiCreatedResponse({ schema: openApiSchema(ContractorAccountSchema) })
   async createOne(
-    @ProjectIdParam() projectId: string,
+    @Param('projectId', UuidParamPipe) projectId: string,
     @Param('registrationId', UuidParamPipe) registrationId: string,
     @Body(new ZodValidationPipe(CreateContractorAccountRequestSchema))
     body: CreateContractorAccountRequest,
@@ -80,10 +78,9 @@ export class ContractorAccountsController {
   }
 
   @Patch(':userId')
-  @RequirePermission('contractor_accounts:manage')
   @ApiOkResponse({ schema: openApiSchema(ContractorAccountSchema) })
   async updateOne(
-    @ProjectIdParam() projectId: string,
+    @Param('projectId', UuidParamPipe) projectId: string,
     @Param('registrationId', UuidParamPipe) registrationId: string,
     @Param('userId', UuidParamPipe) userId: string,
     @Body(new ZodValidationPipe(UpdateContractorAccountRequestSchema))

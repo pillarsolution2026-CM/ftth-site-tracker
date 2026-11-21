@@ -204,7 +204,7 @@ async function recordWork(work: RecordedWork): Promise<string> {
 }
 
 const accountsUrl = (projectId: string, registrationId: string, suffix = '') =>
-  `/projects/${projectId}/contractors/${registrationId}/accounts${suffix}`;
+  `/admin/projects/${projectId}/contractors/${registrationId}/accounts${suffix}`;
 
 async function createAccount(
   token: string,
@@ -324,7 +324,7 @@ afterAll(async () => {
 });
 
 describe('accounts of a contractor', () => {
-  it('lets the admin and the PM of the project create accounts and list them', async () => {
+  it('lets the admin create accounts and list them', async () => {
     const byAdmin = await createAccount(world.tokens.admin, alpha, `adm-${tag}@alpha.test`);
     expect(byAdmin.status, JSON.stringify(byAdmin.body)).toBe(201);
     const created = ContractorAccountSchema.parse(byAdmin.body);
@@ -332,27 +332,27 @@ describe('accounts of a contractor', () => {
     // Neither the password nor its hash is ever returned.
     expect(JSON.stringify(byAdmin.body)).not.toMatch(/password|argon/i);
 
-    const byPm = await createAccount(
-      world.tokens.pm1,
+    const second = await createAccount(
+      world.tokens.admin,
       alpha,
-      `pm-${tag}@alpha.test`,
+      `second-${tag}@alpha.test`,
       world.p1,
       'B',
     );
-    expect(byPm.status, JSON.stringify(byPm.body)).toBe(201);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
 
-    const list = await as(world.tokens.pm1)(
+    const list = await as(world.tokens.admin)(
       http().get(accountsUrl(world.p1, alpha.registrationId)),
     );
     expect(list.status).toBe(200);
     const parsed = ContractorAccountListResponseSchema.parse(list.body);
     expect(parsed.contractorId).toBe(alpha.contractorId);
     expect(parsed.items.map((item) => item.email).sort()).toEqual(
-      [`adm-${tag}@alpha.test`, `pm-${tag}@alpha.test`].sort(),
+      [`adm-${tag}@alpha.test`, `second-${tag}@alpha.test`].sort(),
     );
 
     // Accounts belong to the contractor: the same list shows from his registration on project 2.
-    const fromP2 = await as(world.tokens.pm2)(
+    const fromP2 = await as(world.tokens.admin)(
       http().get(accountsUrl(world.p2, alphaOnP2.registrationId)),
     );
     expect(ContractorAccountListResponseSchema.parse(fromP2.body).items).toHaveLength(2);
@@ -388,7 +388,7 @@ describe('accounts of a contractor', () => {
   it('answers 409 EMAIL_TAKEN for an email that exists (any case)', async () => {
     const email = `dup-${tag}@alpha.test`;
     expect((await createAccount(world.tokens.admin, alpha, email)).status).toBe(201);
-    const again = await createAccount(world.tokens.pm1, alpha, email.toUpperCase());
+    const again = await createAccount(world.tokens.admin, alpha, email.toUpperCase());
     expect(again.status).toBe(409);
     expect(again.body.details).toMatchObject({ reason: 'EMAIL_TAKEN' });
     // An existing normal user's email is taken too.
@@ -396,9 +396,18 @@ describe('accounts of a contractor', () => {
     expect(taken.status).toBe(409);
   });
 
-  it('refuses a PM of another project, the QC and the supervisor of the project, and anonymous callers', async () => {
+  it('refuses the PM (even of the project), the QC, the supervisor, a contractor account and anonymous callers', async () => {
+    const own = `own-${tag}@alpha.test`;
+    expect((await createAccount(world.tokens.admin, alpha, own)).status).toBe(201);
+    const contractorToken = await loginAs(ctx, own, PASSWORD);
     const url = accountsUrl(world.p1, alpha.registrationId);
-    for (const token of [world.tokens.pm2, world.tokens.qc1, world.tokens.supervisor1]) {
+    for (const token of [
+      world.tokens.pm1,
+      world.tokens.pm2,
+      world.tokens.qc1,
+      world.tokens.supervisor1,
+      contractorToken,
+    ]) {
       expect((await as(token)(http().get(url))).status).toBe(403);
       expect(
         (
@@ -409,15 +418,22 @@ describe('accounts of a contractor', () => {
           })
         ).status,
       ).toBe(403);
+      expect(
+        (
+          await as(token)(http().patch(`${url}/${world.userIds.supervisor1}`)).send({
+            isActive: false,
+          })
+        ).status,
+      ).toBe(403);
     }
     expect((await http().get(url)).status).toBe(401);
     const { rows } = await ctx.pool.query(`SELECT 1 FROM users WHERE email LIKE 'no-%@x.test'`);
     expect(rows).toEqual([]);
   });
 
-  it('answers 404 for a registration of another project (admin and PM, no oracle)', async () => {
+  it('answers 404 for a registration of another project (no oracle)', async () => {
     // The registration exists, but on project 2.
-    for (const token of [world.tokens.admin, world.tokens.pm1]) {
+    for (const token of [world.tokens.admin]) {
       const get = await as(token)(http().get(accountsUrl(world.p1, alphaOnP2.registrationId)));
       expect(get.status).toBe(404);
       const post = await createAccount(token, alphaOnP2, `x-${tag}@alpha.test`, world.p1);
@@ -434,12 +450,12 @@ describe('accounts of a contractor', () => {
   it('stops an account (no login, sessions revoked) and restarts it', async () => {
     const email = `stop-${tag}@alpha.test`;
     const created = ContractorAccountSchema.parse(
-      (await createAccount(world.tokens.pm1, alpha, email)).body,
+      (await createAccount(world.tokens.admin, alpha, email)).body,
     );
     const session = TokenPairSchema.parse((await login(email)).body);
     const url = accountsUrl(world.p1, alpha.registrationId, `/${created.userId}`);
 
-    const stopped = await as(world.tokens.pm1)(http().patch(url)).send({ isActive: false });
+    const stopped = await as(world.tokens.admin)(http().patch(url)).send({ isActive: false });
     expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
     expect(ContractorAccountSchema.parse(stopped.body).isActive).toBe(false);
     expect((await login(email)).status).toBe(401);
@@ -476,7 +492,7 @@ describe('accounts of a contractor', () => {
       randomUUID(),
     ];
     for (const target of targets) {
-      const res = await as(world.tokens.pm1)(
+      const res = await as(world.tokens.admin)(
         http().patch(accountsUrl(world.p1, alpha.registrationId, `/${target}`)),
       ).send({ isActive: false });
       expect(res.status, `target ${target}`).toBe(404);
@@ -486,12 +502,12 @@ describe('accounts of a contractor', () => {
       [[world.userIds.supervisor1, world.userIds.pm1, world.userIds.admin, other.userId]],
     );
     expect(rows.every((row) => row.is_active === true)).toBe(true);
-    // The PM of project 1 cannot reach Beta's own registration by project, only Alpha's list.
-    const strict = await as(world.tokens.pm1)(
+    // Malformed ids and extra fields are client errors.
+    const strict = await as(world.tokens.admin)(
       http().patch(accountsUrl(world.p1, alpha.registrationId, '/not-a-uuid')),
     ).send({ isActive: false });
     expect(strict.status).toBe(400);
-    const extra = await as(world.tokens.pm1)(
+    const extra = await as(world.tokens.admin)(
       http().patch(accountsUrl(world.p1, alpha.registrationId, `/${other.userId}`)),
     ).send({ isActive: false, isAdmin: true });
     expect(extra.status).toBe(400);

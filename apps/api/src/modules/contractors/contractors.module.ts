@@ -6,6 +6,7 @@ import { DB, type Database } from '../../db/db.module.js';
 import type { WorkbookReader } from '../work-orders/application/ports.js';
 import { ExcelJsWorkbookReader } from '../work-orders/infrastructure/exceljs-workbook-reader.js';
 import { IdentityModule } from '../identity/identity.module.js';
+import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rate-limiter.js';
 import { Argon2PasswordHasher } from '../identity/infrastructure/argon2-password-hasher.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
@@ -46,6 +47,7 @@ import type {
   RegistrationRepository,
 } from './domain/contractor.repository.js';
 import {
+  CONTRACTOR_ACCOUNT_RATE_LIMITER,
   CONTRACTOR_ACCOUNT_REPOSITORY,
   CONTRACTOR_ACCOUNT_UNIT_OF_WORK,
   CONTRACTOR_PORTAL_REPOSITORY,
@@ -62,6 +64,10 @@ import { DrizzleContractorPortalRepository } from './infrastructure/drizzle-cont
 import { DrizzleContractorRepository } from './infrastructure/drizzle-contractor.repository.js';
 import { DrizzleContractorUnitOfWork } from './infrastructure/drizzle-contractor.unit-of-work.js';
 import { DrizzleRegistrationRepository } from './infrastructure/drizzle-registration.repository.js';
+import {
+  CONTRACTOR_ACCOUNT_CREATE_WINDOW_MS,
+  ContractorAccountCreateRateLimitGuard,
+} from './interface/contractor-account-rate-limit.guard.js';
 import { ContractorAccountsController } from './interface/contractor-accounts.controller.js';
 import { ContractorPortalController } from './interface/contractor-portal.controller.js';
 import { ContractorAccountGuard } from './interface/contractor-portal.guard.js';
@@ -75,6 +81,11 @@ const withProjectsAndUow = [GET_PROJECT_USE_CASE, CONTRACTOR_UNIT_OF_WORK];
 const providers: Provider[] = [
   PermissionGuard,
   ContractorAccountGuard,
+  ContractorAccountCreateRateLimitGuard,
+  {
+    provide: CONTRACTOR_ACCOUNT_RATE_LIMITER,
+    useFactory: () => new FixedWindowRateLimiter(systemClock, CONTRACTOR_ACCOUNT_CREATE_WINDOW_MS),
+  },
   {
     provide: CONTRACTOR_ACCOUNT_REPOSITORY,
     inject: [DB],
