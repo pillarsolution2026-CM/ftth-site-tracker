@@ -2473,8 +2473,6 @@
     "recorded": "Recorded",
     "currentPrice": "Current price",
     "history": "Price history",
-    "showHistory": "Show prices of {code}",
-    "hideHistory": "Hide prices of {code}",
     "since": "from {date}",
     "work": "Recorded work",
     "workTable": "Recorded work, newest first",

@@ -68,7 +68,7 @@ export function ProjectContractorsSection({ projectId }: { projectId: string }) 
                   actions={actions}
                   availability={availability}
                 />
-                {/* The admin always holds contractor_accounts:manage. */}
+                {/* Platform admin only (ADR-053): this section is an admin screen. */}
                 <ContractorAccounts
                   projectId={projectId}
                   registrationId={registration.id}

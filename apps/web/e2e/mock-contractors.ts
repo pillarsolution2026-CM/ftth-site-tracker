@@ -671,6 +671,9 @@ export async function handleProjectContractors(
     return sendError(res, 404, 'NOT_FOUND');
   }
 
+  if (linesWord === 'accounts') {
+    return handleContractorAccounts(req, res, projectId, tail, helpers);
+  }
   const index = registrations.findIndex(
     (entry) => entry.id === registrationId && entry.projectId === projectId,
   );
@@ -749,10 +752,10 @@ export async function handleProjectContractors(
 const accountsByContractor = new Map<string, Record<string, unknown>[]>();
 
 /**
- * `/projects/:projectId/contractors/:registrationId/accounts[/:userId]`. Simplification: the real
+ * `/admin/projects/:projectId/contractors/:registrationId/accounts[/:userId]`. Simplification: the real
  * API also enforces the PM's project scope and revokes sessions when an account is stopped.
  */
-export async function handleContractorAccounts(
+async function handleContractorAccounts(
   req: IncomingMessage,
   res: ServerResponse,
   projectId: string,

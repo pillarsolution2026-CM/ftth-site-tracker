@@ -2473,8 +2473,6 @@
     "recorded": "Enregistré",
     "currentPrice": "Prix actuel",
     "history": "Historique des prix",
-    "showHistory": "Afficher les prix de {code}",
-    "hideHistory": "Masquer les prix de {code}",
     "since": "depuis le {date}",
     "work": "Travaux enregistrés",
     "workTable": "Travaux enregistrés, du plus récent au plus ancien",

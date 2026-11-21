@@ -185,7 +185,7 @@ interface Props {
   contractorName: string;
 }
 
-/** Container; shown only to users with `contractor_accounts:manage` (the caller decides). */
+/** Container; platform admin only: used only on the admin screens. */
 export function ContractorAccounts({ projectId, registrationId, contractorName }: Props) {
   const model = useContractorAccountsSection(projectId, registrationId);
   return (

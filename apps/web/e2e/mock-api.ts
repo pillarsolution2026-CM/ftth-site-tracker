@@ -66,7 +66,6 @@ import {
   configureContractors,
   handleProjectContractors,
   projectsWithoutWorkOrder,
-  handleContractorAccounts,
 } from './mock-contractors.ts';
 import {
   MOCK_DETECTION,
@@ -986,15 +985,6 @@ async function handleProject(
   if (resource === 'work-orders')
     return handleWorkOrders(req, res, method, projectId, [id, sub, subId, subSub]);
   if (resource === 'contractors') {
-    if (sub === 'accounts') {
-      return handleContractorAccounts(
-        req,
-        res,
-        projectId,
-        [id ?? '', sub, subId ?? ''].slice(0, subId ? 3 : 2),
-        helpers,
-      );
-    }
     // Read-only for the PM (contractors:read): GET only.
     if (method !== 'GET' || id !== undefined) return sendError(res, 404, 'NOT_FOUND');
     return handleProjectContractors(req, res, projectId, [], helpers);

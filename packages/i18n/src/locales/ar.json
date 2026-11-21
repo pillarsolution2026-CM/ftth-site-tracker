@@ -2473,8 +2473,6 @@
     "recorded": "المسجل",
     "currentPrice": "السعر الحالي",
     "history": "تاريخ الأسعار",
-    "showHistory": "عرض أسعار {code}",
-    "hideHistory": "إخفاء أسعار {code}",
     "since": "من {date}",
     "work": "الشغل المسجل",
     "workTable": "الشغل المسجل، الأحدث أولًا",

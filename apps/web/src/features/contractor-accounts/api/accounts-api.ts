@@ -7,11 +7,12 @@ import {
   type ContractorAccountListResponse,
   type CreateContractorAccountInput,
 } from '@ftth/shared';
-import { bffJson, projectApiPath } from '@/shared/api/bff-client';
+import { bffJson } from '@/shared/api/bff-client';
 
 const enc = encodeURIComponent;
+/** Platform-admin routes (ADR-053): through the admin BFF. */
 const accountsPath = (projectId: string, registrationId: string) =>
-  projectApiPath(projectId, `/contractors/${enc(registrationId)}/accounts`);
+  `/api/admin/projects/${enc(projectId)}/contractors/${enc(registrationId)}/accounts`;
 
 export function listContractorAccounts(
   projectId: string,

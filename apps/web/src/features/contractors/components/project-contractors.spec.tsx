@@ -2,31 +2,14 @@ import { screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '@/shared/api/bff-client';
 import { PM_ACCESS, PROJECT_ID, QC_ACCESS, renderScreen } from '@/test-utils/render';
-import {
-  REGISTRATION_ID,
-  SCOPE_BOX,
-  projectContractors,
-  scopedProject,
-} from '@/test-utils/contractors';
+import { SCOPE_BOX, projectContractors, scopedProject } from '@/test-utils/contractors';
 import { ProjectContractors } from './project-contractors';
 
 const api = vi.hoisted(() => ({ getProjectContractors: vi.fn() }));
 vi.mock('../api/contractors-api', () => api);
-const accounts = vi.hoisted(() => ({
-  listContractorAccounts: vi.fn(),
-  createContractorAccount: vi.fn(),
-  setContractorAccountActive: vi.fn(),
-}));
-vi.mock('@/features/contractor-accounts/api/accounts-api', () => accounts);
 
 describe('ProjectContractors (PM, read-only)', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    accounts.listContractorAccounts.mockResolvedValue({
-      contractorId: '3c1c9f2e-6b3d-4e8a-9c7f-2d4b6a8c0e1f',
-      items: [],
-    });
-  });
+  beforeEach(() => vi.resetAllMocks());
 
   it('shows the registrations, lines and exact total without any action', async () => {
     api.getProjectContractors.mockResolvedValue(projectContractors());
@@ -36,9 +19,7 @@ describe('ProjectContractors (PM, read-only)', () => {
     expect(screen.getByText('Nile Cables')).toBeInTheDocument();
     expect(screen.getByText('Trenching')).toBeInTheDocument();
     expect(screen.getByText(/Total for this subcontractor/)).toHaveTextContent('905.00 EGP');
-    expect(
-      screen.queryByRole('button', { name: /quantity|price|remove/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(api.getProjectContractors).toHaveBeenCalledWith(PROJECT_ID);
   });
 
@@ -50,9 +31,7 @@ describe('ProjectContractors (PM, read-only)', () => {
     expect(within(table).getByText(new RegExp(SCOPE_BOX))).toBeInTheDocument();
     expect(within(table).getByText(/Split: 3 scopes/)).toBeInTheDocument();
     expect(screen.getByText('nile-cables.xlsx')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /quantity|price|remove/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Upload more/ })).not.toBeInTheDocument();
   });
 
@@ -68,11 +47,12 @@ describe('ProjectContractors (PM, read-only)', () => {
     expect(screen.getByText('C-001').closest('bdi')).toHaveAttribute('dir', 'ltr');
   });
 
-  it('shows the contractor login accounts to the PM, per registration', async () => {
+  it('shows no login accounts section: accounts are managed by the platform admin only', async () => {
     api.getProjectContractors.mockResolvedValue(projectContractors());
     renderScreen(<ProjectContractors projectId={PROJECT_ID} />, { access: PM_ACCESS });
-    expect(await screen.findByRole('heading', { name: 'Contractor login accounts' })).toBeVisible();
-    expect(accounts.listContractorAccounts).toHaveBeenCalledWith(PROJECT_ID, REGISTRATION_ID);
+    await screen.findByText('Nile Cables');
+    expect(screen.queryByText('Contractor login accounts')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /account/i })).not.toBeInTheDocument();
   });
 
   it('says a work order is needed when the project has none', async () => {
