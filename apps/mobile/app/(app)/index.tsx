@@ -1,11 +1,14 @@
 import { useRouter } from 'expo-router';
-import { ProjectsScreen } from '../../src/features/projects/components/ProjectsScreen';
+import { HomeSwitch } from '../../src/features/contractor/components/HomeSwitch';
+import { portalApi, portalCache } from '../../src/features/contractor/default-deps';
 
 export default function Home() {
   const router = useRouter();
   return (
-    <ProjectsScreen
-      onOpen={(projectId) =>
+    <HomeSwitch
+      portalApi={portalApi}
+      portalCache={portalCache}
+      onOpenProject={(projectId) =>
         router.push({ pathname: '/project/[projectId]', params: { projectId } })
       }
     />

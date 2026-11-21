@@ -2,6 +2,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { authApi } from '../src/features/auth/api/default-api';
+import { clearPortalCache, offlineProfile } from '../src/features/contractor/default-deps';
 import { AuthProvider, useAuth } from '../src/features/auth/hooks/AuthProvider';
 import { I18nProvider } from '../src/shared/i18n/I18nProvider';
 import { useTheme } from '../src/shared/ui/theme';
@@ -33,7 +34,7 @@ function Routes() {
 export default function RootLayout() {
   return (
     <I18nProvider>
-      <AuthProvider api={authApi}>
+      <AuthProvider api={authApi} onSignedOut={clearPortalCache} offlineMe={offlineProfile}>
         <StatusBar style="auto" />
         <Routes />
       </AuthProvider>
