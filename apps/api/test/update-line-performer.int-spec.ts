@@ -218,10 +218,11 @@ describe('performer of a work line', () => {
       { item: fx.items.civilPieces, quantity: '2', performer: viaLine(a) },
       { item: fx.items.civilPieces, quantity: '3', performer: viaLine(b) },
       { item: fx.items.civilPieces, quantity: '1', performer: self },
-      { item: fx.items.installation, quantity: '1', performer: null, role: 'material' },
+      // Same work type as the update (civil): the material line has no performer.
+      { item: fx.items.civilMetres, quantity: '1', performer: null, role: 'material' },
     ]);
     const result = await push(operation);
-    expect(result.outcome).toBe('applied');
+    expect(result.outcome, JSON.stringify(result)).toBe('applied');
     const res = await http()
       .get(`/projects/${fx.projectId}/sync/changes?cursor=0&limit=500`)
       .set('Authorization', `Bearer ${fx.tokens.supervisorA}`);
