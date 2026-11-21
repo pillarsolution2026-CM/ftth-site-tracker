@@ -851,7 +851,14 @@ describe('pull and bootstrap', () => {
           featureId: f.boxA,
           designRevisionId: f.revisionId,
           workType: 'civil',
-          lines: [{ workOrderItemId: f.items.civilPieces, quantity: '1', role: 'work' }],
+          lines: [
+            {
+              workOrderItemId: f.items.civilPieces,
+              quantity: '1',
+              role: 'work',
+              performer: { kind: 'self' },
+            },
+          ],
           label: null,
           note: null,
           gps: null,

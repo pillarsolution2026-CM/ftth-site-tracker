@@ -12,7 +12,12 @@ import {
   type SyncOp,
 } from '@ftth/shared';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
-import { uniqueViolation } from '../../../db/pg-errors.js';
+import { Decimal } from '../../work-orders/domain/decimal.js';
+import {
+  foreignKeyViolation,
+  triggerViolationMessage,
+  uniqueViolation,
+} from '../../../db/pg-errors.js';
 import { operationHash } from '../domain/op-hash.js';
 import { computeAsBuiltFlags } from '../domain/asbuilt-flags.js';
 import { computeUpdateFlags } from '../domain/update-flags.js';
@@ -67,6 +72,26 @@ export class PushSyncUseCase {
     try {
       return await this.uow.run((tx) => this.apply(tx, input, op, hash));
     } catch (error) {
+      // The DB backstop of the contractor cap (migration 0027) disagreed with the API check:
+      // reject this op instead of failing the whole batch (security review, low 4).
+      const trigger = triggerViolationMessage(error);
+      if (trigger?.startsWith('contractor quantity exceeded')) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_QUANTITY_EXCEEDED',
+        };
+      }
+      if (
+        trigger?.startsWith('the contractor line belongs to another work-order line') ||
+        foreignKeyViolation(error) === 'execution_update_lines_contractor_line_fkey'
+      ) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_LINE_NOT_FOUND',
+        };
+      }
       const violated = uniqueViolation(error);
       // The same photo id raced in from a push to another project (per-project locks).
       if (violated === 'execution_photos_pkey') {
@@ -173,6 +198,7 @@ export class PushSyncUseCase {
     if (items.some((item) => item.workType !== payload.workType)) {
       throw new Rejection('ITEM_WORK_TYPE_MISMATCH');
     }
+    await this.checkContractorLines(tx, projectId, payload.lines);
     if (await tx.anyPhotoExists(payload.photos.map((photo) => photo.photoId))) {
       throw new Rejection('PHOTO_ID_REUSED');
     }
@@ -266,6 +292,48 @@ export class PushSyncUseCase {
       },
     });
     return result;
+  }
+
+  /**
+   * ADR-052: a contractor line of a work line must be a line of that same work-order line in this
+   * project, and the work on it (pending + approved, plus this op) stays within its quantity.
+   * `self` has no cap. The rows are locked until the end of the transaction.
+   */
+  private async checkContractorLines(
+    tx: ExecutionTx,
+    projectId: string,
+    lines: RecordUpdateOp['payload']['lines'],
+  ): Promise<void> {
+    const wanted = lines.flatMap((line) =>
+      line.role === 'work' && line.performer?.kind === 'contractor'
+        ? [{ contractorLineId: line.performer.contractorLineId, line }]
+        : [],
+    );
+    if (wanted.length === 0) return;
+    const ids = [...new Set(wanted.map((entry) => entry.contractorLineId))];
+    const facts = new Map(
+      (await tx.lockContractorLines(projectId, ids)).map((row) => [row.id, row]),
+    );
+    const adding = new Map<string, Decimal>();
+    for (const { contractorLineId, line } of wanted) {
+      const row = facts.get(contractorLineId);
+      if (!row || row.workOrderItemId !== line.workOrderItemId) {
+        throw new Rejection('CONTRACTOR_LINE_NOT_FOUND');
+      }
+      adding.set(
+        contractorLineId,
+        (adding.get(contractorLineId) ?? Decimal.zero).add(Decimal.parse(line.quantity)),
+      );
+    }
+    for (const [contractorLineId, quantity] of adding) {
+      const row = facts.get(contractorLineId);
+      if (!row) throw new Rejection('CONTRACTOR_LINE_NOT_FOUND');
+      if (
+        Decimal.parse(row.recordedQuantity).add(quantity).compare(Decimal.parse(row.quantity)) > 0
+      ) {
+        throw new Rejection('CONTRACTOR_QUANTITY_EXCEEDED');
+      }
+    }
   }
 
   /**

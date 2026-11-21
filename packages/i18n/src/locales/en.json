@@ -2110,7 +2110,12 @@
       "processingPhoto": "Preparing the photo…",
       "acknowledge": "Understood, save anyway",
       "summaryLines": "{count} items",
-      "summaryPhotos": "{count} photos"
+      "summaryPhotos": "{count} photos",
+      "performerSelf": "The company itself",
+      "performerWholeLine": "Whole line",
+      "performerScope": "Scope: {scope}",
+      "performerLeft": "Left {left} {unit}",
+      "performerExceeded": "The quantity is above what is left of contractor {name}: {left} {unit} left. The admin must raise the contractor quantity first."
     },
     "warnings": {
       "GPS_FAR": "You are more than {distance} m from the feature",
@@ -2122,7 +2127,8 @@
       "NO_LINES": "Add at least one item",
       "LABEL_TOO_LONG": "The label is too long",
       "NOTE_TOO_LONG": "The notes are too long",
-      "PHOTOS_MISSING": "Mandatory photos are missing"
+      "PHOTOS_MISSING": "Mandatory photos are missing",
+      "CONTRACTOR_QUANTITY_EXCEEDED": "A contractor quantity is above what is left for them: lower it or ask the admin to raise the contractor quantity"
     },
     "pending": {
       "title": "Pending",
@@ -2143,7 +2149,9 @@
         "ITEM_WORK_TYPE_MISMATCH": "Item does not belong to this activity",
         "VALIDATION_FAILED": "Invalid data",
         "FEATURE_TYPE_NOT_ALLOWED": "This item is not a cabinet, manhole, joint or box",
-        "GPS_ACCURACY_TOO_LOW": "GPS accuracy is worse than allowed; send again from open ground"
+        "GPS_ACCURACY_TOO_LOW": "GPS accuracy is worse than allowed; send again from open ground",
+        "CONTRACTOR_LINE_NOT_FOUND": "The contractor is not registered on this item",
+        "CONTRACTOR_QUANTITY_EXCEEDED": "The quantity is above what is left of the contractor: the admin must raise it, then send again"
       },
       "updateStatus": {
         "pending": "Awaiting review",
@@ -2349,7 +2357,9 @@
       "PRICE_DATE_NOT_AFTER_LATEST": "The date must be after the latest price date: {latestEffectiveFrom}.",
       "LAST_LINE": "The last line cannot be removed. Remove the whole registration instead.",
       "STALE_VERSION": "The data was changed by another user. Reload the page and try again.",
-      "WHOLE_AND_SCOPES_MIXED": "A line given whole and a line with a scope cannot be mixed on the same work-order line. Preview the sheet again."
+      "WHOLE_AND_SCOPES_MIXED": "A line given whole and a line with a scope cannot be mixed on the same work-order line. Preview the sheet again.",
+      "QUANTITY_BELOW_RECORDED": "The subcontractor quantity cannot go down to {requestedQuantity}: {recordedQuantity} of work is already recorded on it (pending or approved).",
+      "LINE_HAS_WORK": "Cannot remove: work is already recorded on this subcontractor line."
     },
     "section": {
       "title": "Subcontractors",

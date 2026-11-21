@@ -1,21 +1,25 @@
 import { createProjectCrs } from '@ftth/geo';
 import {
   RecordUpdateOpSchema,
+  performerKeyOf,
+  type CatalogContractor,
   type CatalogItem,
   type ClientWarning,
   type GpsFix,
+  type LinePerformer,
   type OfflineBundle,
   type OfflineFeature,
   type PhotoRequirement,
   type RecordUpdateOp,
-  type UpdateLineRole,
   type WorkType,
 } from '@ftth/shared';
+import type { OutboxEntry } from '@ftth/sync';
 import { distanceToFeature } from '../../cad/model/viewport';
 import {
   addQuantities,
   compareQuantities,
   isZeroQuantity,
+  remainingQuantity,
   stepQuantity,
 } from '../../../shared/model/quantity';
 
@@ -43,12 +47,25 @@ export interface CapturedPhoto {
   gps: GpsFix | null;
 }
 
+export interface WorkLine {
+  itemId: string;
+  performer: LinePerformer;
+  /** Decimal string, never zero (a zero line is removed). */
+  quantity: string;
+}
+
+export const SELF_PERFORMER: LinePerformer = { kind: 'self' };
+
 export interface UpdateDraft {
   feature: OfflineFeature;
   step: UpdateStep;
   workType: WorkType | null;
-  /** itemId → quantity (decimal string) per step. */
-  work: Readonly<Record<string, string>>;
+  /**
+   * Work lines (ADR-052): one per work-order item and performer, so one item may be split between
+   * contractors and the company itself. A performer appears once per item.
+   */
+  work: readonly WorkLine[];
+  /** itemId → quantity (decimal string); material lines carry no performer. */
   materials: Readonly<Record<string, string>>;
   label: string;
   note: string;
@@ -63,7 +80,7 @@ export function startDraft(feature: OfflineFeature): UpdateDraft {
     feature,
     step: 'activity',
     workType: null,
-    work: {},
+    work: [],
     materials: {},
     label: feature.code ?? '',
     note: '',
@@ -73,27 +90,114 @@ export function startDraft(feature: OfflineFeature): UpdateDraft {
   };
 }
 
-const lineKey = (role: UpdateLineRole): 'work' | 'materials' =>
-  role === 'work' ? 'work' : 'materials';
-
 export function chooseWorkType(draft: UpdateDraft, workType: WorkType): UpdateDraft {
   // Changing the activity drops lines of the previous one: items belong to one work type.
   if (draft.workType === workType) return draft;
-  return { ...draft, workType, work: {}, materials: {} };
+  return { ...draft, workType, work: [], materials: {} };
 }
 
-/** Stepper buttons (no keyboard for numbers, plan): ±1 or ±10 whole units. */
-export function stepLine(
-  draft: UpdateDraft,
-  role: UpdateLineRole,
+/** Stepper buttons on a material line (no keyboard for numbers, plan): ±1 or ±10 whole units. */
+export function stepMaterial(draft: UpdateDraft, itemId: string, delta: number): UpdateDraft {
+  const next = stepQuantity(draft.materials[itemId] ?? '0', delta);
+  const others = Object.entries(draft.materials).filter(([id]) => id !== itemId);
+  return {
+    ...draft,
+    materials: Object.fromEntries(isZeroQuantity(next) ? others : [...others, [itemId, next]]),
+  };
+}
+
+const isLine = (line: WorkLine, itemId: string, performer: LinePerformer): boolean =>
+  line.itemId === itemId && performerKeyOf(line.performer) === performerKeyOf(performer);
+
+export const workQuantity = (
+  draft: Pick<UpdateDraft, 'work'>,
   itemId: string,
+  performer: LinePerformer,
+): string => draft.work.find((line) => isLine(line, itemId, performer))?.quantity ?? '0';
+
+/**
+ * Stepper buttons on a work line of one performer. The same performer on the same item is one
+ * line (a performer appears once per work-order line); another performer adds another line.
+ */
+export function stepWork(
+  draft: UpdateDraft,
+  itemId: string,
+  performer: LinePerformer,
   delta: number,
 ): UpdateDraft {
-  const key = lineKey(role);
-  const next = stepQuantity(draft[key][itemId] ?? '0', delta);
-  const others = Object.entries(draft[key]).filter(([id]) => id !== itemId);
-  const lines = Object.fromEntries(isZeroQuantity(next) ? others : [...others, [itemId, next]]);
-  return { ...draft, [key]: lines };
+  const next = stepQuantity(workQuantity(draft, itemId, performer), delta);
+  const work = draft.work.some((line) => isLine(line, itemId, performer))
+    ? draft.work.map((line) =>
+        isLine(line, itemId, performer) ? { ...line, quantity: next } : line,
+      )
+    : [...draft.work, { itemId, performer, quantity: next }];
+  return { ...draft, work: work.filter((line) => !isZeroQuantity(line.quantity)) };
+}
+
+/** Quantity left of a contractor line on this phone: bundle numbers minus the own unsent updates. */
+export function contractorLeft(
+  contractor: Pick<CatalogContractor, 'quantity' | 'recordedQuantity' | 'contractorLineId'>,
+  unsyncedByContractorLine: Readonly<Record<string, string>>,
+): string {
+  return remainingQuantity(
+    contractor.quantity,
+    contractor.recordedQuantity,
+    unsyncedByContractorLine[contractor.contractorLineId] ?? '0',
+  );
+}
+
+export interface ContractorOverrun {
+  itemId: string;
+  contractor: CatalogContractor;
+  left: string;
+}
+
+/** Contractor lines whose typed quantity is above what is left of them (saving is blocked). */
+export function contractorOverruns(
+  draft: Pick<UpdateDraft, 'work'>,
+  catalog: readonly CatalogItem[],
+  unsyncedByContractorLine: Readonly<Record<string, string>>,
+): ContractorOverrun[] {
+  return draft.work.flatMap((line): ContractorOverrun[] => {
+    if (line.performer.kind !== 'contractor') return [];
+    const lineId = line.performer.contractorLineId;
+    const contractor = catalog
+      .find((item) => item.id === line.itemId)
+      ?.contractors.find((candidate) => candidate.contractorLineId === lineId);
+    // A contractor line the bundle does not know cannot be checked here; the server decides.
+    if (!contractor) return [];
+    const left = contractorLeft(contractor, unsyncedByContractorLine);
+    return compareQuantities(line.quantity, left) > 0
+      ? [{ itemId: line.itemId, contractor, left }]
+      : [];
+  });
+}
+
+/**
+ * What this device recorded since the bundle was built and the server does not count yet (outbox):
+ * per item, and per contractor line (work lines only).
+ */
+export function unsyncedTotals(
+  entries: readonly OutboxEntry[],
+  since: string,
+): { byItem: Record<string, string>; byContractorLine: Record<string, string> } {
+  const byItem: Record<string, string> = {};
+  const byContractorLine: Record<string, string> = {};
+  for (const entry of entries) {
+    if (entry.op.kind !== 'execution_update.record') continue;
+    if (entry.state === 'rejected' || entry.op.capturedAt < since) continue;
+    for (const line of entry.op.payload.lines) {
+      byItem[line.workOrderItemId] = addQuantities(
+        byItem[line.workOrderItemId] ?? '0',
+        line.quantity,
+      );
+      if (line.performer?.kind === 'contractor') {
+        const id = line.performer.contractorLineId;
+        byContractorLine[id] = addQuantities(byContractorLine[id] ?? '0', line.quantity);
+      }
+    }
+  }
+  return { byItem, byContractorLine };
 }
 
 /**
@@ -135,24 +239,38 @@ export function missingPhotos(
 }
 
 export type StepProblem =
-  'NO_ACTIVITY' | 'NO_LINES' | 'LABEL_TOO_LONG' | 'NOTE_TOO_LONG' | 'PHOTOS_MISSING';
+  | 'NO_ACTIVITY'
+  | 'NO_LINES'
+  | 'LABEL_TOO_LONG'
+  | 'NOTE_TOO_LONG'
+  | 'PHOTOS_MISSING'
+  | 'CONTRACTOR_QUANTITY_EXCEEDED';
+
+/** What the phone knows about contractor quantities (for the block of ADR-052). */
+export interface ContractorContext {
+  catalog: readonly CatalogItem[];
+  unsyncedByContractorLine: Readonly<Record<string, string>>;
+}
 
 /** What blocks leaving `step` (save stays locked until mandatory photos are complete, plan). */
 export function stepProblems(
   draft: UpdateDraft,
   step: UpdateStep,
   requirements: readonly PhotoRequirement[],
+  contractors?: ContractorContext,
 ): StepProblem[] {
   switch (step) {
     case 'activity':
       return draft.workType ? [] : ['NO_ACTIVITY'];
     case 'work':
+      return contractors &&
+        contractorOverruns(draft, contractors.catalog, contractors.unsyncedByContractorLine)
+          .length > 0
+        ? ['CONTRACTOR_QUANTITY_EXCEEDED']
+        : [];
     case 'materials':
       // Either step may be empty, not both: an update records at least one line.
-      return step === 'materials' &&
-        Object.keys(draft.work).length + Object.keys(draft.materials).length === 0
-        ? ['NO_LINES']
-        : [];
+      return draft.work.length + Object.keys(draft.materials).length === 0 ? ['NO_LINES'] : [];
     case 'location': {
       const problems: StepProblem[] = [];
       if (draft.label.trim().length > 200) problems.push('LABEL_TOO_LONG');
@@ -163,13 +281,17 @@ export function stepProblems(
       return missingPhotos(draft, requirements).length > 0 ? ['PHOTOS_MISSING'] : [];
     case 'review':
       return UPDATE_STEPS.slice(0, -1).flatMap((earlier) =>
-        stepProblems(draft, earlier, requirements),
+        stepProblems(draft, earlier, requirements, contractors),
       );
   }
 }
 
-export function goNext(draft: UpdateDraft, requirements: readonly PhotoRequirement[]): UpdateDraft {
-  if (stepProblems(draft, draft.step, requirements).length > 0) return draft;
+export function goNext(
+  draft: UpdateDraft,
+  requirements: readonly PhotoRequirement[],
+  contractors?: ContractorContext,
+): UpdateDraft {
+  if (stepProblems(draft, draft.step, requirements, contractors).length > 0) return draft;
   const index = UPDATE_STEPS.indexOf(draft.step);
   return { ...draft, step: UPDATE_STEPS[Math.min(index + 1, UPDATE_STEPS.length - 1)] ?? 'review' };
 }
@@ -215,10 +337,12 @@ export function computeWarnings(draft: UpdateDraft, ctx: WarningContext): Update
   }
 
   const totals = new Map<string, string>();
-  for (const lines of [draft.work, draft.materials]) {
-    for (const [itemId, quantity] of Object.entries(lines)) {
-      totals.set(itemId, addQuantities(totals.get(itemId) ?? '0', quantity));
-    }
+  const recorded = [
+    ...draft.work.map((line) => [line.itemId, line.quantity] as const),
+    ...Object.entries(draft.materials),
+  ];
+  for (const [itemId, quantity] of recorded) {
+    totals.set(itemId, addQuantities(totals.get(itemId) ?? '0', quantity));
   }
   const overrunItemIds: string[] = [];
   for (const [itemId, quantity] of totals) {
@@ -240,9 +364,10 @@ export function canSave(
   draft: UpdateDraft,
   requirements: readonly PhotoRequirement[],
   warnings: readonly ClientWarning[],
+  contractors?: ContractorContext,
 ): boolean {
   return (
-    stepProblems(draft, 'review', requirements).length === 0 &&
+    stepProblems(draft, 'review', requirements, contractors).length === 0 &&
     warnings.every((warning) => draft.acknowledged.includes(warning))
   );
 }
@@ -255,15 +380,17 @@ export function buildRecordOp(
 ): RecordUpdateOp {
   if (!draft.workType) throw new Error('No activity chosen');
   const lines = [
-    ...Object.entries(draft.work).map(([workOrderItemId, quantity]) => ({
-      workOrderItemId,
-      quantity,
+    ...draft.work.map((line) => ({
+      workOrderItemId: line.itemId,
+      quantity: line.quantity,
       role: 'work' as const,
+      performer: line.performer,
     })),
     ...Object.entries(draft.materials).map(([workOrderItemId, quantity]) => ({
       workOrderItemId,
       quantity,
       role: 'material' as const,
+      performer: null,
     })),
   ];
   const label = draft.label.trim();

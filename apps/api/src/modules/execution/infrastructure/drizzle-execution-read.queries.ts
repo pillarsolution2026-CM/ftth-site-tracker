@@ -1,6 +1,7 @@
 import type {
   CatalogItem,
   ExecutionUpdate,
+  LinePerformer,
   OfflineFeature,
   OfflineFeatureGeometry,
   UpdateFlag,
@@ -146,6 +147,42 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
           WHERE i.project_id = ${projectId}
           ORDER BY o.number, i.line_no`,
     );
+    // Contractor lines (ADR-052): quantities only, never prices.
+    const contractorRows = await rowsOf<{
+      id: string;
+      work_order_item_id: string;
+      contractor_id: string;
+      contractor_name: string;
+      scope: string | null;
+      quantity: string;
+      recorded: string;
+    }>(
+      this.db,
+      sql`SELECT cl.id, cl.work_order_item_id, c.id AS contractor_id, c.name AS contractor_name,
+                 cl.scope, cl.quantity::text AS quantity,
+                 COALESCE((
+                   SELECT sum(l.quantity) FROM execution_update_lines l
+                   JOIN execution_updates u ON u.project_id = l.project_id AND u.id = l.update_id
+                   WHERE l.contractor_line_id = cl.id AND u.status <> 'rejected'), 0)::text AS recorded
+          FROM contractor_lines cl
+          JOIN contractor_registrations r ON r.project_id = cl.project_id AND r.id = cl.registration_id
+          JOIN contractors c ON c.id = r.contractor_id
+          WHERE cl.project_id = ${projectId}
+          ORDER BY c.name COLLATE "C", cl.scope COLLATE "C" NULLS FIRST, cl.id`,
+    );
+    const contractorsOf = new Map<string, CatalogItem['contractors']>();
+    for (const row of contractorRows) {
+      const list = contractorsOf.get(row.work_order_item_id) ?? [];
+      list.push({
+        contractorLineId: row.id,
+        contractorId: row.contractor_id,
+        contractorName: row.contractor_name,
+        scope: row.scope,
+        quantity: toDecimalText(row.quantity),
+        recordedQuantity: toDecimalText(row.recorded),
+      });
+      contractorsOf.set(row.work_order_item_id, list);
+    }
     return rows.map((row) => ({
       id: row.id,
       workOrderId: row.work_order_id,
@@ -157,6 +194,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       quantity: toDecimalText(row.quantity),
       workType: row.work_type,
       recordedQuantity: toDecimalText(row.recorded),
+      contractors: contractorsOf.get(row.id) ?? [],
     }));
   }
 
@@ -184,7 +222,12 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       flags: UpdateFlag[];
       review_reason: string | null;
       sync_seq: string;
-      lines: { workOrderItemId: string; quantity: string; role: 'work' | 'material' }[];
+      lines: {
+        workOrderItemId: string;
+        quantity: string;
+        role: 'work' | 'material';
+        performer: LinePerformer | null;
+      }[];
       photos: { photoId: string; requirementKey: string; sizeBytes: number; stored: boolean }[];
     }>(
       this.db,
@@ -195,7 +238,12 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                  (SELECT COALESCE(json_agg(json_build_object(
                      'workOrderItemId', l.work_order_item_id,
                      'quantity', l.quantity::text,
-                     'role', l.role) ORDER BY l.line_no), '[]')
+                     'role', l.role,
+                     'performer', CASE l.performer
+                       WHEN 'contractor' THEN json_build_object(
+                         'kind', 'contractor', 'contractorLineId', l.contractor_line_id)
+                       WHEN 'self' THEN json_build_object('kind', 'self')
+                     END) ORDER BY l.line_no), '[]')
                   FROM execution_update_lines l WHERE l.update_id = u.id) AS lines,
                  (SELECT COALESCE(json_agg(json_build_object(
                      'photoId', p.id,

@@ -12,9 +12,33 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/**
+ * A line without a performer hashes as before ADR-052, when the field did not exist: an op
+ * applied then and resent now (its lines parsed with `performer: null`) is still a duplicate.
+ */
+function withoutNullPerformers(payload: unknown): unknown {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const record = payload as Record<string, unknown>;
+  if (!Array.isArray(record.lines)) return payload;
+  return {
+    ...record,
+    lines: record.lines.map((line: unknown) => {
+      if (line === null || typeof line !== 'object') return line;
+      const { performer, ...rest } = line as Record<string, unknown>;
+      return performer === null ? rest : line;
+    }),
+  };
+}
+
 /** Fingerprint of an operation: a resend must match it exactly to count as the same operation. */
 export function operationHash(op: { kind: string; capturedAt: string; payload: unknown }): string {
   return createHash('sha256')
-    .update(canonicalJson({ kind: op.kind, capturedAt: op.capturedAt, payload: op.payload }))
+    .update(
+      canonicalJson({
+        kind: op.kind,
+        capturedAt: op.capturedAt,
+        payload: withoutNullPerformers(op.payload),
+      }),
+    )
     .digest('hex');
 }

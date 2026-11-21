@@ -2110,7 +2110,12 @@
       "processingPhoto": "Préparation de la photo…",
       "acknowledge": "Compris, enregistrer quand même",
       "summaryLines": "{count} articles",
-      "summaryPhotos": "{count} photos"
+      "summaryPhotos": "{count} photos",
+      "performerSelf": "La société elle-même",
+      "performerWholeLine": "Toute la ligne",
+      "performerScope": "Périmètre : {scope}",
+      "performerLeft": "Reste {left} {unit}",
+      "performerExceeded": "La quantité dépasse le reste du sous-traitant {name} : {left} {unit}. L’administrateur doit d’abord augmenter sa quantité."
     },
     "warnings": {
       "GPS_FAR": "Vous êtes à plus de {distance} m de l'élément",
@@ -2122,7 +2127,8 @@
       "NO_LINES": "Ajoutez au moins un article",
       "LABEL_TOO_LONG": "Le label est trop long",
       "NOTE_TOO_LONG": "Les remarques sont trop longues",
-      "PHOTOS_MISSING": "Des photos obligatoires manquent"
+      "PHOTOS_MISSING": "Des photos obligatoires manquent",
+      "CONTRACTOR_QUANTITY_EXCEEDED": "Une quantité de sous-traitant dépasse son reste : réduisez-la ou demandez à l’administrateur de l’augmenter"
     },
     "pending": {
       "title": "En attente",
@@ -2143,7 +2149,9 @@
         "ITEM_WORK_TYPE_MISMATCH": "L'article n'appartient pas à cette activité",
         "VALIDATION_FAILED": "Données invalides",
         "FEATURE_TYPE_NOT_ALLOWED": "Cet élément n'est pas une armoire, une chambre, une jonction ou un boîtier",
-        "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé"
+        "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé",
+        "CONTRACTOR_LINE_NOT_FOUND": "Le sous-traitant n’est pas enregistré sur cet article",
+        "CONTRACTOR_QUANTITY_EXCEEDED": "La quantité dépasse le reste du sous-traitant : l’administrateur doit l’augmenter, puis renvoyez"
       },
       "updateStatus": {
         "pending": "En attente de validation",
@@ -2349,7 +2357,9 @@
       "PRICE_DATE_NOT_AFTER_LATEST": "La date doit suivre la dernière date de prix : {latestEffectiveFrom}.",
       "LAST_LINE": "La dernière ligne ne peut pas être supprimée. Retirez plutôt tout l’enregistrement.",
       "STALE_VERSION": "Les données ont été modifiées par un autre utilisateur. Rechargez la page et réessayez.",
-      "WHOLE_AND_SCOPES_MIXED": "Une ligne confiée entière et une ligne avec périmètre ne peuvent pas être mélangées sur la même ligne de l’ordre de travail. Relancez l’aperçu."
+      "WHOLE_AND_SCOPES_MIXED": "Une ligne confiée entière et une ligne avec périmètre ne peuvent pas être mélangées sur la même ligne de l’ordre de travail. Relancez l’aperçu.",
+      "QUANTITY_BELOW_RECORDED": "La quantité du sous-traitant ne peut pas descendre à {requestedQuantity} : {recordedQuantity} de travaux y sont déjà enregistrés (en attente ou acceptés).",
+      "LINE_HAS_WORK": "Suppression impossible : des travaux sont déjà enregistrés sur cette ligne du sous-traitant."
     },
     "section": {
       "title": "Sous-traitants",

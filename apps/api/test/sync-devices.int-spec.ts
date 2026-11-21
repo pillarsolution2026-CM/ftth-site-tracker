@@ -132,7 +132,7 @@ class Device {
         featureId,
         designRevisionId: fx.revisionId,
         workType: 'civil',
-        lines: [{ workOrderItemId: itemId, quantity, role: 'work' }],
+        lines: [{ workOrderItemId: itemId, quantity, role: 'work', performer: { kind: 'self' } }],
         label: null,
         note: `device ${this.id.slice(0, 4)} #${this.seq}`,
         gps: { lon: nearBox[0], lat: nearBox[1], accuracyM: 4, at },

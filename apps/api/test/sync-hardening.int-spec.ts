@@ -49,7 +49,14 @@ function op(photo: Buffer, photoId = randomUUID()) {
       featureId: fx.boxA,
       designRevisionId: fx.revisionId,
       workType: 'civil',
-      lines: [{ workOrderItemId: fx.items.civilPieces, quantity: '0.01', role: 'work' }],
+      lines: [
+        {
+          workOrderItemId: fx.items.civilPieces,
+          quantity: '0.01',
+          role: 'work',
+          performer: { kind: 'self' },
+        },
+      ],
       label: null,
       note: null,
       gps: null,

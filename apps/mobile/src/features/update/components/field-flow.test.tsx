@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
 import { createProjectCrs } from '@ftth/geo';
-import { translate } from '@ftth/i18n';
-import type { OfflineBundle, SyncPushRequest } from '@ftth/shared';
+import { ltr, translate } from '@ftth/i18n';
+import type { OfflineBundle, OpRejectionCode, SyncPushRequest } from '@ftth/shared';
 import { testRandom } from '../../../shared/crypto/test-random';
 import { createVault } from '../../../shared/crypto/vault';
 import { I18nProvider } from '../../../shared/i18n/I18nProvider';
@@ -31,6 +32,8 @@ const BOX = '00000000-0000-4000-8000-0000000000a3';
 const ITEM = '00000000-0000-4000-8000-0000000000a4';
 const DRAWING_1 = '00000000-0000-4000-8000-0000000000b1';
 const DRAWING_2 = '00000000-0000-4000-8000-0000000000b2';
+const CONTRACTOR_A = '00000000-0000-4000-8000-0000000000e2';
+const CONTRACTOR_B = '00000000-0000-4000-8000-0000000000e3';
 const SITE = '00000000-0000-4000-8000-0000000000b3';
 const E = 330_000;
 const N = 3_340_000;
@@ -70,6 +73,24 @@ const bundle: OfflineBundle = {
       quantity: '10',
       workType: 'civil',
       recordedQuantity: '0',
+      contractors: [
+        {
+          contractorLineId: CONTRACTOR_A,
+          contractorId: '00000000-0000-4000-8000-0000000000d2',
+          contractorName: 'شركة الأمل',
+          scope: 'حفر',
+          quantity: '20',
+          recordedQuantity: '15',
+        },
+        {
+          contractorLineId: CONTRACTOR_B,
+          contractorId: '00000000-0000-4000-8000-0000000000d3',
+          contractorName: 'شركة النور',
+          scope: null,
+          quantity: '50',
+          recordedQuantity: '0',
+        },
+      ],
     },
   ],
   settings: {
@@ -97,6 +118,8 @@ class FakeApi {
   /** The drawingId of each bootstrap request (null: none asked). */
   bootstraps: (string | null)[] = [];
   failDrawings = new Set<string>();
+  /** Refuse every pushed op with this code (null: apply them). */
+  rejectWith: OpRejectionCode | null = null;
   /** Drawings the server lists; empty keeps the single-drawing bundle of the older tests. */
   drawings: OfflineBundle['drawings'] = [];
 
@@ -125,11 +148,15 @@ class FakeApi {
       this.pushes.push(request);
       return json(200, {
         serverTime: '2026-10-30T09:00:00.000Z',
-        results: request.ops.map((op, i) => ({
-          clientOpId: op.clientOpId,
-          outcome: 'applied',
-          updateId: `00000000-0000-4000-8000-00000000${String(i).padStart(4, '0')}`,
-        })),
+        results: request.ops.map((op, i) =>
+          this.rejectWith
+            ? { clientOpId: op.clientOpId, outcome: 'rejected', code: this.rejectWith }
+            : {
+                clientOpId: op.clientOpId,
+                outcome: 'applied',
+                updateId: `00000000-0000-4000-8000-00000000${String(i).padStart(4, '0')}`,
+              },
+        ),
       });
     }
     if (url.includes('/sync/changes')) {
@@ -278,9 +305,9 @@ describe('supervisor field flow', () => {
     await fireEvent.press(screen.getByTestId('activity-civil'));
     await fireEvent.press(screen.getByTestId('wizard-next'));
     // 2 work items: stepper buttons, no keyboard
-    await fireEvent.press(await screen.findByTestId('work-C-01-+1'));
-    await fireEvent.press(screen.getByTestId('work-C-01-+1'));
-    expect(screen.getByTestId('work-C-01-qty').props.children).toContain('2');
+    await fireEvent.press(await screen.findByTestId('work-C-01-self-+1'));
+    await fireEvent.press(screen.getByTestId('work-C-01-self-+1'));
+    expect(screen.getByTestId('work-C-01-self-qty').props.children).toContain('2');
     await fireEvent.press(screen.getByTestId('wizard-next'));
     // 3 materials (may stay empty because step 2 has a line)
     await fireEvent.press(screen.getByTestId('wizard-next'));
@@ -321,7 +348,9 @@ describe('supervisor field flow', () => {
         featureId: BOX,
         designRevisionId: REVISION,
         workType: 'civil',
-        lines: [{ workOrderItemId: ITEM, quantity: '2', role: 'work' }],
+        lines: [
+          { workOrderItemId: ITEM, quantity: '2', role: 'work', performer: { kind: 'self' } },
+        ],
         note: 'حفر يدوي',
         label: '1-1',
         acknowledgedWarnings: ['GPS_FAR'],
@@ -329,6 +358,182 @@ describe('supervisor field flow', () => {
     });
     await waitFor(() => expect(api.uploaded.get(photo.photoId)).toBe(4));
     expect(await screen.findAllByText(/وصل للخادم/)).toBeTruthy();
+  });
+
+  describe('contractor of each work line (ADR-052)', () => {
+    const press = (id: string) => fireEvent.press(screen.getByTestId(id));
+    const disabled = (id: string) => screen.getByTestId(id).props.accessibilityState.disabled;
+
+    /** One wizard after another: the second opens when the first is saved (same outbox). */
+    function Harness({ wizard }: { wizard: UpdateWizardDeps }) {
+      const [round, setRound] = useState(1);
+      return (
+        <UpdateWizardScreen
+          key={round}
+          feature={bundle.features[0] ?? (undefined as never)}
+          deps={{ ...wizard, newId: () => `00000000-0000-4000-8000-0000000000c${round}` }}
+          onDone={() => setRound((r) => r + 1)}
+          onCancel={() => undefined}
+        />
+      );
+    }
+
+    async function openWork() {
+      const ctx = setup();
+      ctx.files.set(`bundle-${USER}-${PROJECT}.json`, await vault.sealText(JSON.stringify(bundle)));
+      ctx.api.online = false;
+      await render(
+        <I18nProvider storage={new InMemoryLocaleStorage()}>
+          <FieldProvider projectId={PROJECT} userId={USER} deps={ctx.deps}>
+            <Harness wizard={wizardDeps()} />
+            <PendingScreen onBack={() => undefined} />
+          </FieldProvider>
+        </I18nProvider>,
+      );
+      await fireEvent.press(await screen.findByTestId('activity-civil'));
+      await press('wizard-next');
+      await screen.findByTestId(`work-C-01-${CONTRACTOR_A}`);
+      return ctx;
+    }
+
+    /** From the work step to the saved update. */
+    async function finish() {
+      await press('wizard-next'); // materials (may stay empty)
+      await press('wizard-next'); // location
+      await press('wizard-next'); // photos
+      await press('take-photo-general');
+      await waitFor(() => expect(disabled('wizard-next')).toBe(false));
+      await press('wizard-next');
+      await press('acknowledge');
+      await press('wizard-save');
+    }
+
+    it('offers each contractor of the line with scope and quantity left, and the company itself', async () => {
+      await openWork();
+      expect(screen.getByText('شركة الأمل')).toBeTruthy();
+      expect(screen.getByText(new RegExp('نطاق الشغل: حفر'))).toBeTruthy();
+      expect(screen.getByText(new RegExp(t('field.update.performerWholeLine')))).toBeTruthy();
+      expect(
+        screen.getByText(
+          new RegExp(t('field.update.performerLeft', { left: ltr('5'), unit: 'عدد' })),
+        ),
+      ).toBeTruthy();
+      expect(screen.getByText(t('field.update.performerSelf'))).toBeTruthy();
+      expect(screen.getByTestId('work-C-01-self')).toBeTruthy();
+    });
+
+    it('splits one line between two contractors and the company, and sends each performer', async () => {
+      const { api, goOnline } = await openWork();
+      for (let i = 0; i < 3; i++) await press(`work-C-01-${CONTRACTOR_A}-+1`);
+      await press(`work-C-01-${CONTRACTOR_B}-+10`);
+      await press('work-C-01-self-+1');
+      expect(disabled('wizard-next')).toBe(false);
+      await finish();
+      await waitFor(() => expect(screen.getAllByText(/لم يُرسل/).length).toBeGreaterThan(0));
+      api.online = true;
+      await act(async () => {
+        goOnline();
+      });
+      await waitFor(() => expect(api.pushes).toHaveLength(1));
+      expect(api.pushes[0]?.ops[0]).toMatchObject({
+        payload: {
+          lines: [
+            {
+              workOrderItemId: ITEM,
+              quantity: '3',
+              role: 'work',
+              performer: { kind: 'contractor', contractorLineId: CONTRACTOR_A },
+            },
+            {
+              workOrderItemId: ITEM,
+              quantity: '10',
+              role: 'work',
+              performer: { kind: 'contractor', contractorLineId: CONTRACTOR_B },
+            },
+            { workOrderItemId: ITEM, quantity: '1', role: 'work', performer: { kind: 'self' } },
+          ],
+        },
+      });
+    });
+
+    it('blocks a quantity above what is left of the contractor; the company itself has no limit', async () => {
+      await openWork();
+      // Bundle: 20 - 15 = 5 left. 6 is refused, naming the contractor and what is left.
+      for (let i = 0; i < 6; i++) await press(`work-C-01-${CONTRACTOR_A}-+1`);
+      const message = await screen.findByTestId(`contractor-exceeded-${CONTRACTOR_A}`);
+      expect(JSON.stringify(message.props.children)).toContain('شركة الأمل');
+      expect(screen.getByTestId('problem-CONTRACTOR_QUANTITY_EXCEEDED')).toBeTruthy();
+      expect(disabled('wizard-next')).toBe(true);
+      await press(`work-C-01-${CONTRACTOR_A}--1`);
+      expect(screen.queryByTestId(`contractor-exceeded-${CONTRACTOR_A}`)).toBeNull();
+      expect(disabled('wizard-next')).toBe(false);
+      await press('work-C-01-self-+10');
+      expect(disabled('wizard-next')).toBe(false);
+    });
+
+    it('counts the own unsent updates of the phone in what is left', async () => {
+      await openWork();
+      for (let i = 0; i < 4; i++) await press(`work-C-01-${CONTRACTOR_A}-+1`);
+      await finish();
+      // Second wizard: 5 - 4 = 1 left.
+      await fireEvent.press(await screen.findByTestId('activity-civil'));
+      await press('wizard-next');
+      await screen.findByTestId(`work-C-01-${CONTRACTOR_A}`);
+      expect(
+        screen.getByText(
+          new RegExp(t('field.update.performerLeft', { left: ltr('1'), unit: 'عدد' })),
+        ),
+      ).toBeTruthy();
+      await press(`work-C-01-${CONTRACTOR_A}-+1`);
+      expect(screen.queryByTestId(`contractor-exceeded-${CONTRACTOR_A}`)).toBeNull();
+      await press(`work-C-01-${CONTRACTOR_A}-+1`);
+      expect(await screen.findByTestId(`contractor-exceeded-${CONTRACTOR_A}`)).toBeTruthy();
+      expect(disabled('wizard-next')).toBe(true);
+    });
+
+    it('records material lines without a performer', async () => {
+      const { api, goOnline } = await openWork();
+      await press('work-C-01-self-+1');
+      await press('wizard-next');
+      await press('material-C-01-+1');
+      await finish();
+      api.online = true;
+      await act(async () => {
+        goOnline();
+      });
+      await waitFor(() => expect(api.pushes).toHaveLength(1));
+      expect(api.pushes[0]?.ops[0]).toMatchObject({
+        payload: {
+          lines: [
+            { role: 'work', performer: { kind: 'self' } },
+            { role: 'material', performer: null },
+          ],
+        },
+      });
+    });
+
+    it('shows the translated reason when the server refuses a contractor quantity', async () => {
+      const { api, goOnline } = await openWork();
+      api.rejectWith = 'CONTRACTOR_QUANTITY_EXCEEDED';
+      await press(`work-C-01-${CONTRACTOR_A}-+1`);
+      await finish();
+      api.online = true;
+      await act(async () => {
+        goOnline();
+      });
+      expect(
+        await screen.findByText(t('field.pending.rejections.CONTRACTOR_QUANTITY_EXCEEDED')),
+      ).toBeTruthy();
+    });
+
+    it('translates both refusal codes in Arabic, English and French', () => {
+      for (const locale of ['ar', 'en', 'fr'] as const) {
+        for (const code of ['CONTRACTOR_LINE_NOT_FOUND', 'CONTRACTOR_QUANTITY_EXCEEDED'] as const) {
+          const key = `field.pending.rejections.${code}` as const;
+          expect(translate(locale, key)).not.toBe(key);
+        }
+      }
+    });
   });
 
   describe('drawings', () => {

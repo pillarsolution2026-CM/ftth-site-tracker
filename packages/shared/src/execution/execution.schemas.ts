@@ -23,10 +23,34 @@ export const UPDATE_LINE_ROLES = ['work', 'material'] as const;
 export const UpdateLineRoleSchema = z.enum(UPDATE_LINE_ROLES);
 export type UpdateLineRole = z.infer<typeof UpdateLineRoleSchema>;
 
+/**
+ * Who did the work of a work line (ADR-052, subcontractors part 2): a contractor line of the
+ * work order (`contractor_lines.id`: one contractor on one work-order line and one scope), or the
+ * company's own crew («الشركة نفسها», always offered). Material lines carry no performer: they are
+ * recorded on the update's work as a whole (owner 2026-11-21).
+ */
+export const LINE_PERFORMER_KINDS = ['contractor', 'self'] as const;
+export const LinePerformerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('contractor'), contractorLineId: z.uuid() }),
+  z.object({ kind: z.literal('self') }),
+]);
+export type LinePerformer = z.infer<typeof LinePerformerSchema>;
+
+/** Key of a performer inside one update: the contractor line id, or `self`. */
+export function performerKeyOf(performer: LinePerformer | null): string {
+  if (performer === null) return '-';
+  return performer.kind === 'contractor' ? performer.contractorLineId : 'self';
+}
+
 export const UpdateLineInputSchema = z.object({
   workOrderItemId: z.uuid(),
   quantity: PositiveQuantitySchema,
   role: UpdateLineRoleSchema,
+  /**
+   * Required on a `work` line, `null` on a `material` line. One work-order line may appear on
+   * several work lines of the same update, once per performer (split between contractors).
+   */
+  performer: LinePerformerSchema.nullable().default(null),
 });
 export type UpdateLineInput = z.infer<typeof UpdateLineInputSchema>;
 
@@ -84,9 +108,33 @@ export const RecordUpdatePayloadSchema = z
     if (photoIds.size !== payload.photos.length) {
       ctx.addIssue({ code: 'custom', path: ['photos'], message: 'Duplicate photoId' });
     }
-    const lineKeys = new Set(payload.lines.map((line) => `${line.role}:${line.workOrderItemId}`));
+    payload.lines.forEach((line, index) => {
+      if (line.role === 'work' && line.performer === null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['lines', index, 'performer'],
+          message: 'A work line needs its contractor or «self»',
+        });
+      }
+      if (line.role === 'material' && line.performer !== null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['lines', index, 'performer'],
+          message: 'A material line carries no contractor',
+        });
+      }
+    });
+    const lineKeys = new Set(
+      payload.lines.map(
+        (line) => `${line.role}:${line.workOrderItemId}:${performerKeyOf(line.performer)}`,
+      ),
+    );
     if (lineKeys.size !== payload.lines.length) {
-      ctx.addIssue({ code: 'custom', path: ['lines'], message: 'Duplicate item in the same step' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lines'],
+        message: 'Duplicate item and performer in the same step',
+      });
     }
   });
 export type RecordUpdatePayload = z.infer<typeof RecordUpdatePayloadSchema>;
@@ -120,6 +168,8 @@ export const UpdateLineSchema = z.object({
   workOrderItemId: z.uuid(),
   quantity: DecimalStringSchema,
   role: UpdateLineRoleSchema,
+  /** null on material lines and on work lines recorded before ADR-052 (trial data). */
+  performer: LinePerformerSchema.nullable().default(null),
 });
 
 export const UpdatePhotoStateSchema = z.object({

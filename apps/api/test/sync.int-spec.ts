@@ -55,7 +55,7 @@ interface OpOptions {
   featureId?: string;
   revisionId?: string;
   workType?: string;
-  lines?: { workOrderItemId: string; quantity: string; role: string }[];
+  lines?: { workOrderItemId: string; quantity: string; role: string; performer?: unknown }[];
   gps?: [number, number] | null;
   capturedAt?: string;
   photo?: Buffer;
@@ -74,7 +74,14 @@ function op(o: OpOptions = {}) {
       featureId: o.featureId ?? fx.boxA,
       designRevisionId: o.revisionId ?? fx.revisionId,
       workType: o.workType ?? 'civil',
-      lines: o.lines ?? [{ workOrderItemId: fx.items.civilPieces, quantity: '1', role: 'work' }],
+      lines: o.lines ?? [
+        {
+          workOrderItemId: fx.items.civilPieces,
+          quantity: '1',
+          role: 'work',
+          performer: { kind: 'self' },
+        },
+      ],
       label: null,
       note: null,
       gps: gps ? { lon: gps[0], lat: gps[1], accuracyM: 5, at: now } : null,
@@ -186,7 +193,14 @@ describe('POST /projects/:projectId/sync/push', () => {
       ...operation,
       payload: {
         ...operation.payload,
-        lines: [{ workOrderItemId: fx.items.civilPieces, quantity: '2', role: 'work' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.civilPieces,
+            quantity: '2',
+            role: 'work',
+            performer: { kind: 'self' },
+          },
+        ],
       },
     };
     const reused = { clientOpId: operation.clientOpId, outcome: 'rejected', code: 'OP_ID_REUSED' };
@@ -232,11 +246,29 @@ describe('POST /projects/:projectId/sync/push', () => {
       'REVISION_NOT_PUBLISHED',
     );
     await reject(
-      op({ lines: [{ workOrderItemId: fx.foreignItem, quantity: '1', role: 'work' }] }),
+      op({
+        lines: [
+          {
+            workOrderItemId: fx.foreignItem,
+            quantity: '1',
+            role: 'work',
+            performer: { kind: 'self' },
+          },
+        ],
+      }),
       'ITEM_NOT_FOUND',
     );
     await reject(
-      op({ lines: [{ workOrderItemId: fx.items.installation, quantity: '1', role: 'work' }] }),
+      op({
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '1',
+            role: 'work',
+            performer: { kind: 'self' },
+          },
+        ],
+      }),
       'ITEM_WORK_TYPE_MISMATCH',
     );
     const photoId = randomUUID();
@@ -262,7 +294,14 @@ describe('POST /projects/:projectId/sync/push', () => {
     expect(await applied(op({ capturedAt: '1970-01-01T00:00:00Z' }))).toEqual(['CLOCK_BEHIND']);
     const overrun = op({
       featureId: fx.routeA,
-      lines: [{ workOrderItemId: fx.items.civilMetres, quantity: '100.0001', role: 'work' }],
+      lines: [
+        {
+          workOrderItemId: fx.items.civilMetres,
+          quantity: '100.0001',
+          role: 'work',
+          performer: { kind: 'self' },
+        },
+      ],
     });
     expect(await applied(overrun)).toEqual(['ITEM_OVERRUN']);
   });
@@ -284,7 +323,12 @@ describe('POST /projects/:projectId/sync/push', () => {
   it('validates the batch: float quantities and oversized batches are 400', async () => {
     const floaty = op({
       lines: [
-        { workOrderItemId: fx.items.civilPieces, quantity: 1 as unknown as string, role: 'work' },
+        {
+          workOrderItemId: fx.items.civilPieces,
+          quantity: 1 as unknown as string,
+          role: 'work',
+          performer: { kind: 'self' },
+        },
       ],
     });
     expect((await push(fx.tokens.supervisorA, [floaty])).status).toBe(400);
@@ -483,7 +527,14 @@ describe('newer revisions', () => {
       fx.tokens.supervisorA,
       op({
         workType: 'installation',
-        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '0.5',
+            role: 'material',
+            performer: null,
+          },
+        ],
       }),
     );
     if (onOld.outcome !== 'applied') throw new Error('not applied');
@@ -495,7 +546,14 @@ describe('newer revisions', () => {
         revisionId: rev2,
         gps: null,
         workType: 'installation',
-        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '0.5',
+            role: 'material',
+            performer: null,
+          },
+        ],
       }),
     );
     if (onNew.outcome !== 'applied') throw new Error('not applied');
@@ -539,7 +597,14 @@ describe('scope across revisions', () => {
         revisionId: old,
         gps: null,
         workType: 'installation',
-        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '0.5',
+            role: 'material',
+            performer: null,
+          },
+        ],
       }),
     );
     expect(result).toMatchObject({ outcome: 'rejected', code: 'FEATURE_OUT_OF_SCOPE' });
