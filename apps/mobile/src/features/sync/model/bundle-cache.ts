@@ -9,7 +9,7 @@ export interface TextFiles {
 }
 
 /**
- * One file per user, project and drawing (ADR-049 part B): another user's zones are never
+ * One file per user, project and drawing (ADR-049 part B): another user's sites are never
  * shown from the cache, and a drawing downloaded once opens offline. Without a drawing id the
  * file is the one written before drawings existed (the General published last).
  */

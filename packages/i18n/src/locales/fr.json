@@ -2616,6 +2616,7 @@
     "onPhoneOld": "Sur le téléphone (révision {revNo}) - révision plus récente {latest} disponible",
     "notOnPhone": "Non téléchargé - téléchargé au choix",
     "empty": "Aucun plan n'est encore publié pour ce projet.",
+    "noSites": "Vous n'avez aucun site sur ce projet. Contactez le chef de projet.",
     "notOnPhoneOffline": "Ce plan n'est pas sur le téléphone. Connectez-vous à Internet pour le télécharger.",
     "autoDownloading": "Téléchargement {done} sur {total}"
   },

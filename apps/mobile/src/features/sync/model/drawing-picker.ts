@@ -74,3 +74,26 @@ export function drawingsToDownload(
       return held === undefined || held < d.revision.revNo;
     });
 }
+
+/**
+ * A supervisor with no site (ADR-054) gets a bundle of scope `sites` with nothing in it: say so
+ * instead of showing an empty map. Project-wide roles are never in this state.
+ */
+export function bundleHasNoSites(bundle: {
+  scope: { kind: 'project' } | { kind: 'sites'; siteIds: readonly string[] };
+  drawings: readonly unknown[];
+}): boolean {
+  return (
+    bundle.scope.kind === 'sites' &&
+    bundle.scope.siteIds.length === 0 &&
+    bundle.drawings.length === 0
+  );
+}
+
+/** The membership of a supervisor who was given no site on the project (ADR-054). */
+export function membershipHasNoSites(membership: {
+  role: string;
+  siteIds: readonly string[];
+}): boolean {
+  return membership.role === 'supervisor' && membership.siteIds.length === 0;
+}
