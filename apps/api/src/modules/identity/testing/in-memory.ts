@@ -14,7 +14,7 @@ import type {
   RefreshTokenRecord,
   RefreshTokenRepository,
 } from '../domain/refresh-token.js';
-import type { User, UserRepository } from '../domain/user.js';
+import type { ContractorAccountLookup, User, UserRepository } from '../domain/user.js';
 
 /** In-memory fakes for unit tests of the identity use cases (never used for PostGIS-backed code). */
 
@@ -109,6 +109,13 @@ export class InMemoryMemberships implements MembershipRepository {
   }
   async listForUserInProject(userId: string, projectId: string): Promise<AssignmentRow[]> {
     return this.rows.filter((row) => row.userId === userId && row.projectId === projectId);
+  }
+}
+
+export class InMemoryContractorAccounts implements ContractorAccountLookup {
+  constructor(readonly byUser = new Map<string, { id: string; name: string }>()) {}
+  async contractorOf(userId: string): Promise<{ id: string; name: string } | null> {
+    return this.byUser.get(userId) ?? null;
   }
 }
 
