@@ -68,7 +68,11 @@ export async function publishRevision(
    * The site of the drawing: a string reuses that site's file of the kind (or makes its drawing);
    * null makes an unassigned drawing; omitted keeps the old behaviour (the project's first file).
    */
-  options: { siteId?: string | null } = {},
+  options: {
+    siteId?: string | null;
+    /** How long ago it was published (a published revision is immutable: set it here). */
+    publishedAgoSeconds?: number;
+  } = {},
 ): Promise<string> {
   // A later revision of the same kind is a newer revision of the same drawing (ADR-049 part B):
   // feature identity, REVISION_OUTDATED and FEATURE_REMOVED are per drawing.
@@ -141,9 +145,9 @@ export async function publishRevision(
   // Published one second in the past so a device clock "now" is never before publication.
   await pool.query(
     `UPDATE design_revisions
-     SET status = 'published', rev_no = $2, published_at = now() - interval '1 second'
+     SET status = 'published', rev_no = $2, published_at = now() - make_interval(secs => $3)
      WHERE id = $1`,
-    [revisionId, revNo],
+    [revisionId, revNo, options.publishedAgoSeconds ?? 1],
   );
   return revisionId;
 }

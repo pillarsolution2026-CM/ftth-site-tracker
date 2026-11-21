@@ -739,11 +739,10 @@ describe('a published revision of a drawing without a site keeps syncing', () =>
   it('serves the bundle, lists the drawing and takes a pick by drawing id', async () => {
     const project = fx.projectId;
     // The fixture's drawings belong to sites; this one has none («بدون موقع»), published long ago.
-    const unassigned = await publishRevision(ctx.pool, project, [], 3, 'general', { siteId: null });
-    await ctx.pool.query(
-      `UPDATE design_revisions SET published_at = now() - interval '2 hours' WHERE id = $1`,
-      [unassigned],
-    );
+    const unassigned = await publishRevision(ctx.pool, project, [], 3, 'general', {
+      siteId: null,
+      publishedAgoSeconds: 7200,
+    });
     const bundle = OfflineBundleSchema.parse(
       (
         await http()

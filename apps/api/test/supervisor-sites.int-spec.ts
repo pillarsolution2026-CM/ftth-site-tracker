@@ -372,11 +372,7 @@ describe('what a supervisor sees and records', () => {
       ],
       3,
       'general',
-      { siteId: null },
-    );
-    await ctx.pool.query(
-      `UPDATE design_revisions SET published_at = now() - interval '2 hours' WHERE id = $1`,
-      [revision],
+      { siteId: null, publishedAgoSeconds: 7200 },
     );
     unassignedDrawing =
       (

@@ -456,7 +456,9 @@ describe('GET /projects/:projectId/sync/bootstrap', () => {
     const bundle = OfflineBundleSchema.parse((await bootstrap(fx.tokens.pm)).body);
     // The default drawing is the General published last (site A); site B's is picked by id.
     expect(bundle.features).toHaveLength(2);
-    expect(bundle.drawings.map((d) => d.siteId).sort()).toEqual([fx.siteA, fx.siteB].sort());
+    // Project-wide roles also get drawings without a site («بدون موقع») made by other tests.
+    const siteIds = bundle.drawings.map((d) => d.siteId).filter((id) => id !== null);
+    expect(siteIds.sort()).toEqual([fx.siteA, fx.siteB].sort());
     const pickedB = OfflineBundleSchema.parse(
       (
         await http()
