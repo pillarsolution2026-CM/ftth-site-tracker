@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { PermissionGuard, RequirePermission } from './permission.guard.js';
 
 class Handlers {
-  @RequirePermission('work_orders:read')
+  @RequirePermission('execution:read')
   read(): void {}
 
   @RequirePermission('work_orders:write')

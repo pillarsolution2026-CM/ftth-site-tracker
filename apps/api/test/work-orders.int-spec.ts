@@ -872,13 +872,15 @@ describe('access control', () => {
     expect((await withPm(http().get(`${base(theirs.projectId)}/${inB.id}`))).status).toBe(403);
   });
 
-  it('lets a supervisor and qc read but not write', async () => {
+  it('lets qc read but not write; the supervisor reads nothing here (ADR-054)', async () => {
     const s = await scenario();
     const order = await createOrder(s);
     for (const token of [supervisor, qc]) {
       const authed = auth(token);
-      expect((await authed(http().get(base(s.projectId)))).status).toBe(200);
-      expect((await authed(http().get(`${base(s.projectId)}/${order.id}`))).status).toBe(200);
+      expect((await authed(http().get(base(s.projectId)))).status).toBe(token === qc ? 200 : 403);
+      expect((await authed(http().get(`${base(s.projectId)}/${order.id}`))).status).toBe(
+        token === qc ? 200 : 403,
+      );
       for (const res of [
         await authed(http().post(base(s.projectId))).send({ number: uniqueNumber() }),
         await authed(http().patch(`${base(s.projectId)}/${order.id}`)).send({
@@ -944,12 +946,12 @@ describe('PDF attachments', () => {
       sha256: createHash('sha256').update(content).digest('hex'),
     });
 
-    const list = await auth(supervisor)(http().get(url));
+    const list = await auth(qc)(http().get(url));
     expect(list.body.items.map((a: { id: string }) => a.id)).toEqual([attachment.id]);
 
     const download = await http()
       .get(`${url}/${attachment.id}/content`)
-      .set('Authorization', `Bearer ${supervisor}`)
+      .set('Authorization', `Bearer ${qc}`)
       .buffer(true)
       .parse((res, callback) => {
         const chunks: Buffer[] = [];

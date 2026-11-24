@@ -69,7 +69,7 @@ export const OP_REJECTION_CODES = [
   /** A photoId of this op belongs to another update. */
   'PHOTO_ID_REUSED',
   'FEATURE_NOT_FOUND',
-  /** The feature is outside the caller's zones. */
+  /** The feature is outside the caller's sites (ADR-054). */
   'FEATURE_OUT_OF_SCOPE',
   /** designRevisionId is not a published revision of this project containing the feature. */
   'REVISION_NOT_PUBLISHED',
@@ -88,6 +88,14 @@ export const OP_REJECTION_CODES = [
   'FEATURE_TYPE_NOT_ALLOWED',
   /** The fix is reported worse than GPS_PROPOSAL_MAX_ACCURACY_M (the phone should never send it). */
   'GPS_ACCURACY_TOO_LOW',
+  // ---- Contractor per work line (ADR-052) ----
+  /** The contractor line is not a contractor of that work-order line in this project. */
+  'CONTRACTOR_LINE_NOT_FOUND',
+  /**
+   * The quantity is above what is left of the contractor's quantity (its quantity minus pending
+   * and approved work on it; rejected work does not count). The admin raises the quantity first.
+   */
+  'CONTRACTOR_QUANTITY_EXCEEDED',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;
@@ -171,6 +179,23 @@ export const OfflineFeatureSchema = z.object({
 });
 export type OfflineFeature = z.infer<typeof OfflineFeatureSchema>;
 
+/**
+ * A contractor the supervisor may pick on a work line (ADR-052): one contractor line of the
+ * work-order line. Never a price (the phone shows no prices).
+ */
+export const CatalogContractorSchema = z.object({
+  contractorLineId: z.uuid(),
+  contractorId: z.uuid(),
+  contractorName: z.string(),
+  /** Scope of work («نطاق الشغل»); null = the whole line. */
+  scope: z.string().nullable(),
+  /** The contractor's quantity on this line and scope. */
+  quantity: DecimalStringSchema,
+  /** Pending + approved work on this contractor line (any user) when the bundle was built. */
+  recordedQuantity: DecimalStringSchema,
+});
+export type CatalogContractor = z.infer<typeof CatalogContractorSchema>;
+
 /** A work-order item the supervisor may record against (no prices: ADR-011 visibility pending). */
 export const CatalogItemSchema = z.object({
   id: z.uuid(),
@@ -185,6 +210,8 @@ export const CatalogItemSchema = z.object({
   workType: WorkTypeSchema.nullable(),
   /** Sum of all non-rejected update lines (any user) when the bundle was built. */
   recordedQuantity: DecimalStringSchema,
+  /** Contractors on this line (ADR-052); «self» is always offered besides them. */
+  contractors: z.array(CatalogContractorSchema).default([]),
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 
@@ -229,11 +256,16 @@ export type OfflineDrawing = z.infer<typeof OfflineDrawingSchema>;
 export const OfflineBundleSchema = z.object({
   serverTime: z.iso.datetime({ offset: true }),
   project: z.object({ id: z.uuid(), name: z.string(), crsEpsg: z.number().int() }),
+  /** ADR-054: a supervisor's reach is his sites; project-wide roles see the whole project. */
   scope: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('project') }),
-    z.object({ kind: z.literal('zones'), zoneIds: z.array(z.uuid()) }),
+    z.object({ kind: z.literal('sites'), siteIds: z.array(z.uuid()) }),
   ]),
-  /** Every published drawing with its latest published revision (ADR-049 part B). */
+  /**
+   * Every published drawing with its latest published revision (ADR-049 part B). ADR-054: for a
+   * supervisor only the drawings of his sites (names of other sites are never sent); drawings
+   * without a site are never sent to him.
+   */
   drawings: z.array(OfflineDrawingSchema).default([]),
   /**
    * The picked drawing's latest published revision (`drawingId`), else the General published

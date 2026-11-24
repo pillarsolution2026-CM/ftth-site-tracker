@@ -13,6 +13,7 @@ function me(overrides: Partial<MeResponse> = {}): MeResponse {
     locale: 'en',
     isAdmin: false,
     memberships: [],
+    contractor: null,
     ...overrides,
   };
 }
@@ -22,6 +23,7 @@ const membership = (projectId: string, role: MeResponse['memberships'][number]['
   projectName: `Project ${projectId.slice(0, 1)}`,
   role,
   zoneIds: [],
+  siteIds: [],
 });
 
 describe('project access and navigation', () => {
@@ -34,6 +36,7 @@ describe('project access and navigation', () => {
       'contract',
       'contractors',
       'asbuilt',
+      'supervisorSites',
     ]);
     expect(can(access, 'work_orders:write')).toBe(true);
     expect(can(access, 'contract:read')).toBe(true);
@@ -72,6 +75,8 @@ describe('project access and navigation', () => {
 
   it('links to the first readable section', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'supervisor')] }), P1);
-    expect(firstSectionPath('ar', access)).toBe(`/ar/projects/${P1}/work-orders`);
+    // A supervisor only has asbuilt:* on the web (ADR-054): no work-order, CAD or design sections.
+    expect(visibleNavItems(access).map((item) => item.id)).toEqual(['asbuilt']);
+    expect(firstSectionPath('ar', access)).toBe(`/ar/projects/${P1}/asbuilt`);
   });
 });

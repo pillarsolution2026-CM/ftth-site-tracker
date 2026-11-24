@@ -123,14 +123,6 @@
       "openContract": "Ouvrir le contrat",
       "contractNumber": "Numéro du contrat"
     },
-    "zones": {
-      "title": "Zones",
-      "name": "Nom de la zone",
-      "add": "Ajouter une zone",
-      "none": "Aucune zone",
-      "noBoundary": "Pas encore de limite (tracée plus tard sur l’écran des zones)",
-      "nameTaken": "Une zone porte déjà ce nom"
-    },
     "assignments": {
       "title": "Équipe",
       "user": "Utilisateur",
@@ -140,14 +132,10 @@
       "remove": "Retirer",
       "none": "Personne n’est encore affecté",
       "chooseUser": "Choisir un utilisateur",
-      "chooseZone": "Choisir une zone",
-      "zoneRequired": "Les superviseurs et les sous-traitants ont besoin d’une zone",
-      "needZoneFirst": "Ajoutez d’abord une zone pour affecter un superviseur ou un sous-traitant",
       "projectWide": "Tout le projet",
       "alreadyAssigned": "Cet utilisateur a déjà ce rôle ici",
       "userInactive": "Cet utilisateur est désactivé",
       "userIsAdmin": "Les administrateurs voient déjà tous les projets",
-      "zoneNotInProject": "La zone n’appartient pas à ce projet",
       "confirmRemove": "Retirer {name} ({role}) de ce projet ?"
     },
     "validation": {
@@ -269,7 +257,22 @@
     "cadFiles": "Fichiers CAO",
     "designRevisions": "Révisions de conception",
     "contract": "Contrat",
-    "contractors": "Sous-traitants"
+    "contractors": "Sous-traitants",
+    "supervisorSites": "Sites des superviseurs"
+  },
+  "supervisorSites": {
+    "title": "Sites des superviseurs",
+    "workOrder": "Ordre de travail",
+    "count": "Sites choisis : {count}",
+    "save": "Enregistrer",
+    "saved": "Les sites du superviseur sont enregistrés",
+    "noSupervisors": "Aucun superviseur n’est encore affecté à ce projet. L’administrateur les affecte depuis l’écran d’administration.",
+    "noSites": "Les ordres de travail de ce projet n’ont pas encore de sites.",
+    "note": "Un superviseur voit et saisit uniquement sur ses sites ; un superviseur sans site ne voit rien.",
+    "errors": {
+      "notSupervisor": "Cet utilisateur n’est pas superviseur de ce projet",
+      "foreignSite": "Un des sites n’appartient pas à ce projet. Actualisez la page et réessayez."
+    }
   },
   "project": {
     "switcher": "Projet",
@@ -2419,7 +2422,12 @@
       "processingPhoto": "Préparation de la photo…",
       "acknowledge": "Compris, enregistrer quand même",
       "summaryLines": "{count} articles",
-      "summaryPhotos": "{count} photos"
+      "summaryPhotos": "{count} photos",
+      "performerSelf": "La société elle-même",
+      "performerWholeLine": "Toute la ligne",
+      "performerScope": "Périmètre : {scope}",
+      "performerLeft": "Reste {left} {unit}",
+      "performerExceeded": "La quantité dépasse le reste du sous-traitant {name} : {left} {unit}. L’administrateur doit d’abord augmenter sa quantité."
     },
     "warnings": {
       "GPS_FAR": "Vous êtes à plus de {distance} m de l'élément",
@@ -2431,7 +2439,8 @@
       "NO_LINES": "Ajoutez au moins un article",
       "LABEL_TOO_LONG": "Le label est trop long",
       "NOTE_TOO_LONG": "Les remarques sont trop longues",
-      "PHOTOS_MISSING": "Des photos obligatoires manquent"
+      "PHOTOS_MISSING": "Des photos obligatoires manquent",
+      "CONTRACTOR_QUANTITY_EXCEEDED": "Une quantité de sous-traitant dépasse son reste : réduisez-la ou demandez à l’administrateur de l’augmenter"
     },
     "pending": {
       "title": "En attente",
@@ -2452,7 +2461,9 @@
         "ITEM_WORK_TYPE_MISMATCH": "L'article n'appartient pas à cette activité",
         "VALIDATION_FAILED": "Données invalides",
         "FEATURE_TYPE_NOT_ALLOWED": "Cet élément n'est pas une armoire, une chambre, une jonction ou un boîtier",
-        "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé"
+        "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé",
+        "CONTRACTOR_LINE_NOT_FOUND": "Le sous-traitant n’est pas enregistré sur cet article",
+        "CONTRACTOR_QUANTITY_EXCEEDED": "La quantité dépasse le reste du sous-traitant : l’administrateur doit l’augmenter, puis renvoyez"
       },
       "updateStatus": {
         "pending": "En attente de validation",
@@ -2521,13 +2532,15 @@
       "BASE_OUTDATED": "Base obsolète",
       "REVISION_OUTDATED": "Révision obsolète",
       "FEATURE_REMOVED": "Élément supprimé",
-      "CLOCK_AHEAD": "Horloge en avance"
+      "CLOCK_AHEAD": "Horloge en avance",
+      "OUTSIDE_DRAWING": "Hors du dessin"
     },
     "flagExplain": {
       "BASE_OUTDATED": "Une autre modification de cet élément a été approuvée après la version sur laquelle celle-ci a été dessinée. Elle ne peut pas être approuvée : rejetez-la pour que le superviseur la redessine sur l'état actuel.",
       "REVISION_OUTDATED": "Le superviseur a dessiné sur une révision de conception qui n'est plus la dernière publiée. Vérifiez le dessin avant d'approuver.",
       "FEATURE_REMOVED": "Cet élément n'est plus dans la dernière révision de conception publiée. Vérifiez que la modification a encore un sens.",
-      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable."
+      "CLOCK_AHEAD": "L'horloge du téléphone était en avance sur le serveur à l'enregistrement, donc l'heure de saisie n'est pas fiable.",
+      "OUTSIDE_DRAWING": "La géométrie modifiée dépasse l’étendue des éléments de conception de ce dessin (les sites n’ont pas de limite). Vérifiez avant d’approuver."
     },
     "noFlags": "Aucune alerte",
     "detail": {
@@ -2658,7 +2671,9 @@
       "PRICE_DATE_NOT_AFTER_LATEST": "La date doit suivre la dernière date de prix : {latestEffectiveFrom}.",
       "LAST_LINE": "La dernière ligne ne peut pas être supprimée. Retirez plutôt tout l’enregistrement.",
       "STALE_VERSION": "Les données ont été modifiées par un autre utilisateur. Rechargez la page et réessayez.",
-      "WHOLE_AND_SCOPES_MIXED": "Une ligne confiée entière et une ligne avec périmètre ne peuvent pas être mélangées sur la même ligne de l’ordre de travail. Relancez l’aperçu."
+      "WHOLE_AND_SCOPES_MIXED": "Une ligne confiée entière et une ligne avec périmètre ne peuvent pas être mélangées sur la même ligne de l’ordre de travail. Relancez l’aperçu.",
+      "QUANTITY_BELOW_RECORDED": "La quantité du sous-traitant ne peut pas descendre à {requestedQuantity} : {recordedQuantity} de travaux y sont déjà enregistrés (en attente ou acceptés).",
+      "LINE_HAS_WORK": "Suppression impossible : des travaux sont déjà enregistrés sur cette ligne du sous-traitant."
     },
     "section": {
       "title": "Sous-traitants",
@@ -2721,6 +2736,74 @@
       "committing": "Enregistrement…",
       "mappingNote": "Le périmètre est facultatif ; le type de travaux n’est pas utilisé."
     }
+  },
+  "contractorAccounts": {
+    "title": "Comptes de connexion du sous-traitant",
+    "intro": "Personnes de {name} qui peuvent se connecter pour voir leurs lignes, leurs prix et les travaux enregistrés. Lecture seule.",
+    "none": "Aucun compte de connexion pour le moment",
+    "loadFailed": "Les comptes n’ont pas pu être chargés",
+    "list": "Comptes de {name}",
+    "email": "E-mail",
+    "displayName": "Nom",
+    "locale": "Langue",
+    "status": "Statut",
+    "active": "Actif",
+    "stopped": "Arrêté",
+    "createdAt": "Créé le",
+    "new": "Ajouter un compte",
+    "password": "Mot de passe initial",
+    "passwordRule": "12 à 128 caractères. Remettez-le vous-même au sous-traitant : aucun e-mail n’est envoyé.",
+    "submit": "Créer le compte",
+    "creating": "Création…",
+    "created": "Compte créé. Remettez vous-même le mot de passe au sous-traitant.",
+    "emailTaken": "Un compte avec cet e-mail existe déjà",
+    "stop": "Arrêter",
+    "restart": "Réactiver",
+    "confirmStop": "Arrêter le compte de {name} ? La personne est déconnectée et ne peut plus se connecter tant que vous ne le réactivez pas.",
+    "confirmRestart": "Réactiver le compte de {name} ? La personne pourra se reconnecter."
+  },
+  "contractorPortal": {
+    "title": "Mes travaux et mes prix",
+    "welcome": "Bienvenue, {name}",
+    "readOnly": "Lecture seule",
+    "pendingNote": "Les travaux enregistrés restent « en revue » jusqu’à leur examen ; seuls les travaux approuvés sont acceptés.",
+    "totals": "Valeur des travaux enregistrés",
+    "totalsFor": "Totaux en {currency}",
+    "approved": "Approuvé",
+    "pending": "En revue",
+    "rejected": "Rejeté",
+    "registrations": "Mes bons de travaux",
+    "noRegistrations": "Vous n’êtes inscrit sur aucun bon de travaux pour le moment",
+    "registeredOn": "Inscrit le",
+    "workOrder": "Bon de travaux",
+    "lines": "Mes lignes dans {project}, bon de travaux {workOrder}",
+    "noLines": "Aucune ligne",
+    "code": "Code",
+    "description": "Description",
+    "unit": "Unité",
+    "scope": "Périmètre",
+    "wholeLine": "Ligne entière",
+    "quantity": "Quantité",
+    "recorded": "Enregistré",
+    "currentPrice": "Prix actuel",
+    "history": "Historique des prix",
+    "since": "depuis le {date}",
+    "work": "Travaux enregistrés",
+    "workTable": "Travaux enregistrés, du plus récent au plus ancien",
+    "noWork": "Aucun travail enregistré pour le moment",
+    "date": "Date",
+    "element": "Élément",
+    "line": "Ligne",
+    "statusLabel": "Statut",
+    "reason": "Motif",
+    "unitPrice": "Prix unitaire",
+    "value": "Valeur",
+    "filterRegistration": "Bon de travaux",
+    "filterStatus": "Statut",
+    "all": "Tous",
+    "logout": "Se déconnecter",
+    "loadFailed": "Vos données n’ont pas pu être chargées",
+    "redirecting": "Ouverture de votre page…"
   },
   "drawingKind": {
     "general": "Général (principal)",
@@ -2847,7 +2930,41 @@
     "onPhoneOld": "Sur le téléphone (révision {revNo}) - révision plus récente {latest} disponible",
     "notOnPhone": "Non téléchargé - téléchargé au choix",
     "empty": "Aucun plan n'est encore publié pour ce projet.",
+    "noSites": "Vous n'avez aucun site sur ce projet. Contactez le chef de projet.",
     "notOnPhoneOffline": "Ce plan n'est pas sur le téléphone. Connectez-vous à Internet pour le télécharger.",
     "autoDownloading": "Téléchargement {done} sur {total}"
+  },
+  "mobileContractor": {
+    "title": "Sous-traitant",
+    "readOnly": "Consultation seulement. Rien ne peut être modifié ici.",
+    "lastUpdated": "Dernière mise à jour {time}",
+    "offline": "Pas de connexion. Dernières données enregistrées affichées.",
+    "noData": "Aucune donnée enregistrée. Connectez-vous à Internet et tirez pour actualiser.",
+    "loadFailed": "Impossible de charger vos données.",
+    "retry": "Réessayer",
+    "totals": "Totaux",
+    "approved": "Accepté",
+    "pending": "En revue",
+    "rejected": "Refusé",
+    "filter": "Filtrer par statut",
+    "filterAll": "Tous",
+    "myLines": "Mes lignes",
+    "work": "Travaux enregistrés",
+    "noLines": "Aucune ligne sur cet ordre de travail.",
+    "noWork": "Aucun travail à afficher.",
+    "registration": "{project} - Ordre de travail {number}",
+    "unit": "Unité",
+    "scope": "Périmètre",
+    "wholeLine": "Toute la ligne",
+    "quantity": "Quantité",
+    "recorded": "Enregistré",
+    "price": "Prix actuel",
+    "date": "Date",
+    "element": "Élément",
+    "reason": "Motif : {reason}",
+    "unitPrice": "Prix unitaire",
+    "value": "Valeur",
+    "noRegistrations": "Vous n'êtes inscrit sur aucun ordre de travail.",
+    "showMore": "Afficher plus"
   }
 }

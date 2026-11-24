@@ -132,7 +132,7 @@ class Device {
         featureId,
         designRevisionId: fx.revisionId,
         workType: 'civil',
-        lines: [{ workOrderItemId: itemId, quantity, role: 'work' }],
+        lines: [{ workOrderItemId: itemId, quantity, role: 'work', performer: { kind: 'self' } }],
         label: null,
         note: `device ${this.id.slice(0, 4)} #${this.seq}`,
         gps: { lon: nearBox[0], lat: nearBox[1], accuracyM: 4, at },
@@ -225,7 +225,7 @@ describe('Phase 3 acceptance (simulated): 20 updates in airplane mode', () => {
   });
 });
 
-describe('three devices on the same zone with a flaky network', () => {
+describe('three devices on the same site with a flaky network', () => {
   it('ends with every update once, quantities added up and everyone seeing everything', async () => {
     const random = rng(20261030);
     const devices = [

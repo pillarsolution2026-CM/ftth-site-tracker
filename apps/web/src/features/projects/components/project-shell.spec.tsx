@@ -29,6 +29,7 @@ function user(overrides: Partial<MeResponse>): MeResponse {
     locale: 'en',
     isAdmin: false,
     memberships: [],
+    contractor: null,
     ...overrides,
   };
 }
@@ -38,6 +39,7 @@ const member = (projectId: string, projectName: string, role: 'pm' | 'qc' | 'con
   projectName,
   role,
   zoneIds: [],
+  siteIds: [],
 });
 
 function renderShell(projectId = P1) {

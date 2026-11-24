@@ -12,9 +12,14 @@ import {
   type SyncOp,
 } from '@ftth/shared';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
-import { uniqueViolation } from '../../../db/pg-errors.js';
+import { Decimal } from '../../work-orders/domain/decimal.js';
+import {
+  foreignKeyViolation,
+  triggerViolationMessage,
+  uniqueViolation,
+} from '../../../db/pg-errors.js';
 import { operationHash } from '../domain/op-hash.js';
-import { computeAsBuiltFlags } from '../domain/asbuilt-flags.js';
+import { computeAsBuiltFlags, OUTSIDE_DRAWING_TOLERANCE_M } from '../domain/asbuilt-flags.js';
 import { computeUpdateFlags } from '../domain/update-flags.js';
 import type {
   ExecutionCapabilities,
@@ -67,6 +72,26 @@ export class PushSyncUseCase {
     try {
       return await this.uow.run((tx) => this.apply(tx, input, op, hash));
     } catch (error) {
+      // The DB backstop of the contractor cap (migration 0027) disagreed with the API check:
+      // reject this op instead of failing the whole batch (security review, low 4).
+      const trigger = triggerViolationMessage(error);
+      if (trigger?.startsWith('contractor quantity exceeded')) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_QUANTITY_EXCEEDED',
+        };
+      }
+      if (
+        trigger?.startsWith('the contractor line belongs to another work-order line') ||
+        foreignKeyViolation(error) === 'execution_update_lines_contractor_line_fkey'
+      ) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_LINE_NOT_FOUND',
+        };
+      }
       const violated = uniqueViolation(error);
       // The same photo id raced in from a push to another project (per-project locks).
       if (violated === 'execution_photos_pkey') {
@@ -133,7 +158,7 @@ export class PushSyncUseCase {
       return await this.record(tx, input, input.scope, op, hash);
     } catch (error) {
       if (error instanceof Rejection) {
-        // Not stored: the device may fix the cause (e.g. a zone is assigned) and send a new op.
+        // Not stored: the device may fix the cause (e.g. a site is given to him) and send a new op.
         return { clientOpId: op.clientOpId, outcome: 'rejected', code: error.code };
       }
       throw error;
@@ -173,6 +198,7 @@ export class PushSyncUseCase {
     if (items.some((item) => item.workType !== payload.workType)) {
       throw new Rejection('ITEM_WORK_TYPE_MISMATCH');
     }
+    await this.checkContractorLines(tx, projectId, payload.lines);
     if (await tx.anyPhotoExists(payload.photos.map((photo) => photo.photoId))) {
       throw new Rejection('PHOTO_ID_REUSED');
     }
@@ -269,9 +295,51 @@ export class PushSyncUseCase {
   }
 
   /**
-   * A supervisor's GPS fix for a point item of the published drawing (ADR-037). Owner decision:
-   * any supervisor assigned to the project, an item in any zone, so no zone check; the caller only
-   * needs `execution:write` (a null scope refuses). The PM decides later; nothing else changes.
+   * ADR-052: a contractor line of a work line must be a line of that same work-order line in this
+   * project, and the work on it (pending + approved, plus this op) stays within its quantity.
+   * `self` has no cap. The rows are locked until the end of the transaction.
+   */
+  private async checkContractorLines(
+    tx: ExecutionTx,
+    projectId: string,
+    lines: RecordUpdateOp['payload']['lines'],
+  ): Promise<void> {
+    const wanted = lines.flatMap((line) =>
+      line.role === 'work' && line.performer?.kind === 'contractor'
+        ? [{ contractorLineId: line.performer.contractorLineId, line }]
+        : [],
+    );
+    if (wanted.length === 0) return;
+    const ids = [...new Set(wanted.map((entry) => entry.contractorLineId))];
+    const facts = new Map(
+      (await tx.lockContractorLines(projectId, ids)).map((row) => [row.id, row]),
+    );
+    const adding = new Map<string, Decimal>();
+    for (const { contractorLineId, line } of wanted) {
+      const row = facts.get(contractorLineId);
+      if (!row || row.workOrderItemId !== line.workOrderItemId) {
+        throw new Rejection('CONTRACTOR_LINE_NOT_FOUND');
+      }
+      adding.set(
+        contractorLineId,
+        (adding.get(contractorLineId) ?? Decimal.zero).add(Decimal.parse(line.quantity)),
+      );
+    }
+    for (const [contractorLineId, quantity] of adding) {
+      const row = facts.get(contractorLineId);
+      if (!row) throw new Rejection('CONTRACTOR_LINE_NOT_FOUND');
+      if (
+        Decimal.parse(row.recordedQuantity).add(quantity).compare(Decimal.parse(row.quantity)) > 0
+      ) {
+        throw new Rejection('CONTRACTOR_QUANTITY_EXCEEDED');
+      }
+    }
+  }
+
+  /**
+   * A supervisor's GPS fix for a point item of the published drawing (ADR-037). ADR-054: only for a
+   * feature of one of his sites (the owner replaced "an item in any zone"); the caller needs
+   * `execution:write` (a null scope refuses). The PM decides later; nothing else changes.
    */
   private async proposePoint(
     tx: ExecutionTx,
@@ -287,6 +355,16 @@ export class PushSyncUseCase {
     if (!target) {
       const exists = await tx.featureExists(projectId, payload.featureId);
       throw new Rejection(exists ? 'REVISION_NOT_PUBLISHED' : 'FEATURE_NOT_FOUND');
+    }
+    if (
+      !(await tx.featureInScope(
+        projectId,
+        payload.designRevisionId,
+        payload.featureId,
+        input.scope,
+      ))
+    ) {
+      throw new Rejection('FEATURE_OUT_OF_SCOPE');
     }
     if (!isGpsProposalFeatureType(target.featureType)) {
       throw new Rejection('FEATURE_TYPE_NOT_ALLOWED');
@@ -369,7 +447,7 @@ export class PushSyncUseCase {
   /**
    * One As-Built edit (ADR-030). Check order, first failure wins (phase-4 contracts): write
    * permission, published revision, target (new id for adds; known feature for the rest), tool
-   * versus feature kind, geometry validity, zone scope. Flags are never a rejection.
+   * versus feature kind, geometry validity, site scope. Flags are never a rejection.
    */
   private async recordAsBuilt(
     tx: ExecutionTx,
@@ -427,7 +505,7 @@ export class PushSyncUseCase {
         ? true
         : latest !== null && (await tx.featureInRevision(projectId, latest.id, payload.featureId));
 
-    if (scope.kind === 'zones') {
+    if (scope.kind === 'sites') {
       if (origin === 'design') {
         const inScope = await tx.featureInScope(
           projectId,
@@ -449,9 +527,8 @@ export class PushSyncUseCase {
         if (!(await tx.addedFeatureInScope(projectId, payload.featureId, scope))) {
           throw new Rejection('FEATURE_OUT_OF_SCOPE');
         }
-      }
-      // The proposed shape must touch the caller's zones too: nobody moves a feature out of reach.
-      if (geometry && !(await tx.geometryInScope(projectId, revision.crsEpsg, geometry, scope))) {
+      } else if (!(await tx.revisionInScope(projectId, payload.designRevisionId, scope))) {
+        // A new feature is added on a drawing of one of his sites (it is linked to a site through it).
         throw new Rejection('FEATURE_OUT_OF_SCOPE');
       }
     }
@@ -459,7 +536,19 @@ export class PushSyncUseCase {
     const receivedAt = this.clock.now();
     const capturedAt = new Date(op.capturedAt);
     const baseVersion = 'baseVersion' in payload ? payload.baseVersion : null;
+    // Sites have no boundary: a supervisor's geometry is kept to its drawing by review (flag only).
+    const outsideDrawing =
+      scope.kind === 'sites' &&
+      geometry !== null &&
+      (await tx.geometryOutsideDrawing(
+        projectId,
+        payload.designRevisionId,
+        revision.crsEpsg,
+        geometry,
+        OUTSIDE_DRAWING_TOLERANCE_M,
+      ));
     const flags = computeAsBuiltFlags({
+      outsideDrawing,
       kind: payload.kind,
       baseVersion,
       current: isAdd

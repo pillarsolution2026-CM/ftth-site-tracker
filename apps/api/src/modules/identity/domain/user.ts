@@ -15,3 +15,9 @@ export interface UserRepository {
   findByEmail(email: string): Promise<User | null>;
   findById(id: string): Promise<User | null>;
 }
+
+/** The contractor a login account belongs to (ADR-053); contractor accounts are users of one contractor. */
+export interface ContractorAccountLookup {
+  /** The contractor of the user, or null when the user is not a contractor account. */
+  contractorOf(userId: string): Promise<{ id: string; name: string } | null>;
+}

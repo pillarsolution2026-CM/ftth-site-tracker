@@ -1,7 +1,11 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '../../../common/app-error.js';
 import type { DbHandle } from '../../../db/db.module.js';
-import { triggerViolationMessage, uniqueViolation } from '../../../db/pg-errors.js';
+import {
+  restrictingConstraint,
+  triggerViolationMessage,
+  uniqueViolation,
+} from '../../../db/pg-errors.js';
 import {
   contractorImportFiles,
   contractorLinePrices,
@@ -11,6 +15,7 @@ import {
   workOrderItems,
   workOrders,
 } from '../../../db/schema.js';
+import { rowsOf } from '../../../db/sql.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
 import type {
   ContractorImportFile,
@@ -60,10 +65,30 @@ const numbersIn = (message: string, pattern: RegExp): string[] | null => {
  * Safety net: maps the trigger messages and constraints of migration 0013 to the conflict reasons
  * a client understands, when the application checks were bypassed or raced.
  */
-function translate(error: unknown, workOrderItemId?: string): never {
+function translate(error: unknown, workOrderItemId?: string, contractorLineId?: string): never {
   if (error instanceof AppError) throw error;
+  if (restrictingConstraint(error) === 'execution_update_lines_contractor_line_fkey') {
+    throw new AppError(
+      'CONFLICT',
+      'Work was recorded on this contractor line; it cannot be removed',
+      {
+        reason: 'LINE_HAS_WORK',
+        contractorLineId,
+      },
+    );
+  }
   const message = triggerViolationMessage(error);
   if (message !== null) {
+    if (message.includes('below the recorded work')) {
+      const [recordedQuantity, requestedQuantity] =
+        numbersIn(message, /recorded ([\d.]+), requested ([\d.]+)/) ?? [];
+      throw new AppError('CONFLICT', 'The quantity is below the work already recorded', {
+        reason: 'QUANTITY_BELOW_RECORDED',
+        contractorLineId,
+        recordedQuantity,
+        requestedQuantity,
+      });
+    }
     if (message.includes('above the work-order quantity')) {
       const found = numbersIn(
         message,
@@ -261,15 +286,41 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
   }
 
   async delete(projectId: string, registrationId: string): Promise<void> {
-    const deleted = await this.db
-      .delete(contractorRegistrations)
-      .where(
-        and(
-          eq(contractorRegistrations.projectId, projectId),
-          eq(contractorRegistrations.id, registrationId),
-        ),
-      )
-      .returning({ id: contractorRegistrations.id });
+    // Lock the registration's lines in id order, as a sync push does (ADR-052), so the cascade
+    // below never deadlocks with a push recording work on them (security review, low 3).
+    await rowsOf<{ id: string }>(
+      this.db,
+      sql`SELECT id FROM contractor_lines
+          WHERE project_id = ${projectId} AND registration_id = ${registrationId}
+          ORDER BY id FOR UPDATE`,
+    );
+    const [worked] = await rowsOf<{ id: string }>(
+      this.db,
+      sql`SELECT cl.id FROM contractor_lines cl
+          WHERE cl.project_id = ${projectId} AND cl.registration_id = ${registrationId}
+            AND EXISTS (SELECT 1 FROM execution_update_lines l WHERE l.contractor_line_id = cl.id)
+          ORDER BY cl.id LIMIT 1`,
+    );
+    if (worked) {
+      throw new AppError('CONFLICT', 'Work was recorded on this contractor; it cannot be removed', {
+        reason: 'LINE_HAS_WORK',
+        contractorLineId: worked.id,
+      });
+    }
+    let deleted: { id: string }[];
+    try {
+      deleted = await this.db
+        .delete(contractorRegistrations)
+        .where(
+          and(
+            eq(contractorRegistrations.projectId, projectId),
+            eq(contractorRegistrations.id, registrationId),
+          ),
+        )
+        .returning({ id: contractorRegistrations.id });
+    } catch (error) {
+      translate(error);
+    }
     if (deleted.length === 0) throw new AppError('NOT_FOUND', 'Contractor registration not found');
   }
 
@@ -303,16 +354,21 @@ export class DrizzleRegistrationRepository implements RegistrationRepository {
         .where(and(eq(contractorLines.projectId, projectId), eq(contractorLines.id, lineId)))
         .returning({ id: contractorLines.id });
     } catch (error) {
-      translate(error);
+      translate(error, undefined, lineId);
     }
     if (updated.length === 0) throw new AppError('NOT_FOUND', 'Contractor line not found');
   }
 
   async deleteLine(projectId: string, lineId: string): Promise<void> {
-    const deleted = await this.db
-      .delete(contractorLines)
-      .where(and(eq(contractorLines.projectId, projectId), eq(contractorLines.id, lineId)))
-      .returning({ id: contractorLines.id });
+    let deleted: { id: string }[];
+    try {
+      deleted = await this.db
+        .delete(contractorLines)
+        .where(and(eq(contractorLines.projectId, projectId), eq(contractorLines.id, lineId)))
+        .returning({ id: contractorLines.id });
+    } catch (error) {
+      translate(error, undefined, lineId);
+    }
     if (deleted.length === 0) throw new AppError('NOT_FOUND', 'Contractor line not found');
   }
 

@@ -6,6 +6,8 @@ import { DB, type Database } from '../../db/db.module.js';
 import type { WorkbookReader } from '../work-orders/application/ports.js';
 import { ExcelJsWorkbookReader } from '../work-orders/infrastructure/exceljs-workbook-reader.js';
 import { IdentityModule } from '../identity/identity.module.js';
+import { FixedWindowRateLimiter } from '../identity/application/fixed-window-rate-limiter.js';
+import { Argon2PasswordHasher } from '../identity/infrastructure/argon2-password-hasher.js';
 import type { GetProjectUseCase } from '../projects/application/get-project.use-case.js';
 import { ProjectsModule } from '../projects/projects.module.js';
 import { GET_PROJECT_USE_CASE } from '../projects/projects.tokens.js';
@@ -19,6 +21,12 @@ import {
   UpdateContractorUseCase,
 } from './application/contractor.use-cases.js';
 import {
+  CreateContractorAccountUseCase,
+  ListContractorAccountsUseCase,
+  SetContractorAccountActiveUseCase,
+} from './application/contractor-account.use-cases.js';
+import { GetContractorPortalUseCase } from './application/contractor-portal.use-case.js';
+import {
   CommitContractorImportUseCase,
   PreviewContractorImportUseCase,
 } from './application/import.use-cases.js';
@@ -29,19 +37,40 @@ import {
   UpdateContractorLineUseCase,
 } from './application/registration.use-cases.js';
 import type {
+  ContractorAccountRepository,
+  ContractorAccountUnitOfWork,
+  ContractorPortalRepository,
+} from './domain/contractor-account.js';
+import type {
   ContractorRepository,
   ContractorUnitOfWork,
   RegistrationRepository,
 } from './domain/contractor.repository.js';
 import {
+  CONTRACTOR_ACCOUNT_RATE_LIMITER,
+  CONTRACTOR_ACCOUNT_REPOSITORY,
+  CONTRACTOR_ACCOUNT_UNIT_OF_WORK,
+  CONTRACTOR_PORTAL_REPOSITORY,
   CONTRACTOR_REPOSITORY,
   CONTRACTOR_UNIT_OF_WORK,
   CONTRACTOR_WORKBOOK_READER,
   REGISTRATION_REPOSITORY,
 } from './contractors.tokens.js';
+import {
+  DrizzleContractorAccountRepository,
+  DrizzleContractorAccountUnitOfWork,
+} from './infrastructure/drizzle-contractor-account.repository.js';
+import { DrizzleContractorPortalRepository } from './infrastructure/drizzle-contractor-portal.repository.js';
 import { DrizzleContractorRepository } from './infrastructure/drizzle-contractor.repository.js';
 import { DrizzleContractorUnitOfWork } from './infrastructure/drizzle-contractor.unit-of-work.js';
 import { DrizzleRegistrationRepository } from './infrastructure/drizzle-registration.repository.js';
+import {
+  CONTRACTOR_ACCOUNT_CREATE_WINDOW_MS,
+  ContractorAccountCreateRateLimitGuard,
+} from './interface/contractor-account-rate-limit.guard.js';
+import { ContractorAccountsController } from './interface/contractor-accounts.controller.js';
+import { ContractorPortalController } from './interface/contractor-portal.controller.js';
+import { ContractorAccountGuard } from './interface/contractor-portal.guard.js';
 import { AdminContractorImportController } from './interface/admin-contractor-import.controller.js';
 import { AdminContractorsController } from './interface/admin-contractors.controller.js';
 import { AdminProjectContractorsController } from './interface/admin-project-contractors.controller.js';
@@ -51,6 +80,51 @@ const withProjectsAndUow = [GET_PROJECT_USE_CASE, CONTRACTOR_UNIT_OF_WORK];
 
 const providers: Provider[] = [
   PermissionGuard,
+  ContractorAccountGuard,
+  ContractorAccountCreateRateLimitGuard,
+  {
+    provide: CONTRACTOR_ACCOUNT_RATE_LIMITER,
+    useFactory: () => new FixedWindowRateLimiter(systemClock, CONTRACTOR_ACCOUNT_CREATE_WINDOW_MS),
+  },
+  {
+    provide: CONTRACTOR_ACCOUNT_REPOSITORY,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleContractorAccountRepository(db),
+  },
+  {
+    provide: CONTRACTOR_ACCOUNT_UNIT_OF_WORK,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleContractorAccountUnitOfWork(db),
+  },
+  {
+    provide: CONTRACTOR_PORTAL_REPOSITORY,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleContractorPortalRepository(db),
+  },
+  {
+    provide: ListContractorAccountsUseCase,
+    inject: [CONTRACTOR_ACCOUNT_REPOSITORY],
+    useFactory: (accounts: ContractorAccountRepository) =>
+      new ListContractorAccountsUseCase(accounts),
+  },
+  {
+    provide: CreateContractorAccountUseCase,
+    inject: [CONTRACTOR_ACCOUNT_REPOSITORY, CONTRACTOR_ACCOUNT_UNIT_OF_WORK],
+    useFactory: (accounts: ContractorAccountRepository, uow: ContractorAccountUnitOfWork) =>
+      new CreateContractorAccountUseCase(accounts, uow, new Argon2PasswordHasher()),
+  },
+  {
+    provide: SetContractorAccountActiveUseCase,
+    inject: [CONTRACTOR_ACCOUNT_REPOSITORY, CONTRACTOR_ACCOUNT_UNIT_OF_WORK],
+    useFactory: (accounts: ContractorAccountRepository, uow: ContractorAccountUnitOfWork) =>
+      new SetContractorAccountActiveUseCase(accounts, uow, systemClock),
+  },
+  {
+    provide: GetContractorPortalUseCase,
+    inject: [CONTRACTOR_PORTAL_REPOSITORY],
+    useFactory: (portal: ContractorPortalRepository) =>
+      new GetContractorPortalUseCase(portal, systemClock),
+  },
   {
     provide: CONTRACTOR_REPOSITORY,
     inject: [DB],
@@ -170,6 +244,8 @@ const providers: Provider[] = [
     AdminContractorImportController,
     AdminProjectContractorsController,
     ProjectContractorsController,
+    ContractorAccountsController,
+    ContractorPortalController,
   ],
   providers,
 })

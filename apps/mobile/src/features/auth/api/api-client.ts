@@ -1,7 +1,9 @@
 import {
   ApiErrorSchema,
+  ContractorPortalResponseSchema,
   MeResponseSchema,
   TokenPairSchema,
+  type ContractorPortalResponse,
   type ErrorCode,
   type LoginRequest,
   type MeResponse,
@@ -31,6 +33,8 @@ export interface ApiClientOptions {
 export interface AuthApi {
   login(credentials: LoginRequest): Promise<TokenPair>;
   me(): Promise<MeResponse>;
+  /** The contractor's read-only view (ADR-053); 403 for any user that is not a contractor. */
+  contractorPortal(): Promise<ContractorPortalResponse>;
   logout(): Promise<void>;
   /** True when a token pair is stored (session may still be expired). */
   hasSession(): Promise<boolean>;
@@ -136,6 +140,8 @@ export function createAuthApi({ baseUrl, storage, fetchFn }: ApiClientOptions): 
     },
 
     me: () => authed('/auth/me', MeResponseSchema),
+
+    contractorPortal: () => authed('/contractor/me', ContractorPortalResponseSchema),
 
     async logout() {
       const tokens = await storage.read();

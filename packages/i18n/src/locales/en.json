@@ -123,14 +123,6 @@
       "openContract": "Open contract",
       "contractNumber": "Contract number"
     },
-    "zones": {
-      "title": "Zones",
-      "name": "Zone name",
-      "add": "Add zone",
-      "none": "No zones yet",
-      "noBoundary": "No boundary yet (drawn later on the zones screen)",
-      "nameTaken": "A zone with this name already exists"
-    },
     "assignments": {
       "title": "Team",
       "user": "User",
@@ -140,14 +132,10 @@
       "remove": "Remove",
       "none": "Nobody is assigned yet",
       "chooseUser": "Choose a user",
-      "chooseZone": "Choose a zone",
-      "zoneRequired": "Supervisors and subcontractors need a zone",
-      "needZoneFirst": "Add a zone first to assign a supervisor or subcontractor",
       "projectWide": "Whole project",
       "alreadyAssigned": "This user already has this role here",
       "userInactive": "This user is deactivated",
       "userIsAdmin": "Admins already see every project",
-      "zoneNotInProject": "The zone does not belong to this project",
       "confirmRemove": "Remove {name} ({role}) from this project?"
     },
     "validation": {
@@ -269,7 +257,22 @@
     "cadFiles": "CAD files",
     "designRevisions": "Design revisions",
     "contract": "Contract",
-    "contractors": "Subcontractors"
+    "contractors": "Subcontractors",
+    "supervisorSites": "Supervisor sites"
+  },
+  "supervisorSites": {
+    "title": "Sites of the supervisors",
+    "workOrder": "Work order",
+    "count": "Sites selected: {count}",
+    "save": "Save",
+    "saved": "The supervisor’s sites are saved",
+    "noSupervisors": "No supervisors are assigned to this project yet. The admin assigns them from the admin screen.",
+    "noSites": "The work orders of this project have no sites yet.",
+    "note": "A supervisor sees and records only on his own sites; a supervisor with no site sees nothing.",
+    "errors": {
+      "notSupervisor": "This user is not a supervisor of this project",
+      "foreignSite": "One of the sites is not a site of this project. Refresh the page and try again."
+    }
   },
   "project": {
     "switcher": "Project",
@@ -2419,7 +2422,12 @@
       "processingPhoto": "Preparing the photo…",
       "acknowledge": "Understood, save anyway",
       "summaryLines": "{count} items",
-      "summaryPhotos": "{count} photos"
+      "summaryPhotos": "{count} photos",
+      "performerSelf": "The company itself",
+      "performerWholeLine": "Whole line",
+      "performerScope": "Scope: {scope}",
+      "performerLeft": "Left {left} {unit}",
+      "performerExceeded": "The quantity is above what is left of contractor {name}: {left} {unit} left. The admin must raise the contractor quantity first."
     },
     "warnings": {
       "GPS_FAR": "You are more than {distance} m from the feature",
@@ -2431,7 +2439,8 @@
       "NO_LINES": "Add at least one item",
       "LABEL_TOO_LONG": "The label is too long",
       "NOTE_TOO_LONG": "The notes are too long",
-      "PHOTOS_MISSING": "Mandatory photos are missing"
+      "PHOTOS_MISSING": "Mandatory photos are missing",
+      "CONTRACTOR_QUANTITY_EXCEEDED": "A contractor quantity is above what is left for them: lower it or ask the admin to raise the contractor quantity"
     },
     "pending": {
       "title": "Pending",
@@ -2452,7 +2461,9 @@
         "ITEM_WORK_TYPE_MISMATCH": "Item does not belong to this activity",
         "VALIDATION_FAILED": "Invalid data",
         "FEATURE_TYPE_NOT_ALLOWED": "This item is not a cabinet, manhole, joint or box",
-        "GPS_ACCURACY_TOO_LOW": "GPS accuracy is worse than allowed; send again from open ground"
+        "GPS_ACCURACY_TOO_LOW": "GPS accuracy is worse than allowed; send again from open ground",
+        "CONTRACTOR_LINE_NOT_FOUND": "The contractor is not registered on this item",
+        "CONTRACTOR_QUANTITY_EXCEEDED": "The quantity is above what is left of the contractor: the admin must raise it, then send again"
       },
       "updateStatus": {
         "pending": "Awaiting review",
@@ -2521,13 +2532,15 @@
       "BASE_OUTDATED": "Outdated base",
       "REVISION_OUTDATED": "Outdated revision",
       "FEATURE_REMOVED": "Feature removed",
-      "CLOCK_AHEAD": "Clock ahead"
+      "CLOCK_AHEAD": "Clock ahead",
+      "OUTSIDE_DRAWING": "Outside the drawing"
     },
     "flagExplain": {
       "BASE_OUTDATED": "Another edit of this feature was approved after the version this edit was drawn on. It cannot be approved: reject it so the supervisor redraws it on the current state.",
       "REVISION_OUTDATED": "The supervisor drew this on a design revision that is no longer the latest published one. Check the drawing before approving.",
       "FEATURE_REMOVED": "This feature is not in the latest published design revision any more. Check that the edit still makes sense.",
-      "CLOCK_AHEAD": "The phone clock was ahead of the server when the edit was saved, so the capture time is not reliable."
+      "CLOCK_AHEAD": "The phone clock was ahead of the server when the edit was saved, so the capture time is not reliable.",
+      "OUTSIDE_DRAWING": "The edited geometry reaches outside the extent of this drawing’s design features (sites have no boundary). Check it before approving."
     },
     "noFlags": "No flags",
     "detail": {
@@ -2658,7 +2671,9 @@
       "PRICE_DATE_NOT_AFTER_LATEST": "The date must be after the latest price date: {latestEffectiveFrom}.",
       "LAST_LINE": "The last line cannot be removed. Remove the whole registration instead.",
       "STALE_VERSION": "The data was changed by another user. Reload the page and try again.",
-      "WHOLE_AND_SCOPES_MIXED": "A line given whole and a line with a scope cannot be mixed on the same work-order line. Preview the sheet again."
+      "WHOLE_AND_SCOPES_MIXED": "A line given whole and a line with a scope cannot be mixed on the same work-order line. Preview the sheet again.",
+      "QUANTITY_BELOW_RECORDED": "The subcontractor quantity cannot go down to {requestedQuantity}: {recordedQuantity} of work is already recorded on it (pending or approved).",
+      "LINE_HAS_WORK": "Cannot remove: work is already recorded on this subcontractor line."
     },
     "section": {
       "title": "Subcontractors",
@@ -2721,6 +2736,74 @@
       "committing": "Saving…",
       "mappingNote": "Scope of work is optional; work type is not used."
     }
+  },
+  "contractorAccounts": {
+    "title": "Contractor login accounts",
+    "intro": "People of {name} who can sign in to see their lines, prices and recorded work. They can only read.",
+    "none": "No login account yet",
+    "loadFailed": "The accounts could not be loaded",
+    "list": "Accounts of {name}",
+    "email": "Email",
+    "displayName": "Name",
+    "locale": "Language",
+    "status": "Status",
+    "active": "Active",
+    "stopped": "Stopped",
+    "createdAt": "Created",
+    "new": "Add an account",
+    "password": "Initial password",
+    "passwordRule": "12 to 128 characters. Give it to the contractor yourself: no email is sent.",
+    "submit": "Create account",
+    "creating": "Creating…",
+    "created": "Account created. Give the password to the contractor yourself.",
+    "emailTaken": "An account with this email already exists",
+    "stop": "Stop",
+    "restart": "Restart",
+    "confirmStop": "Stop the account of {name}? They are signed out and cannot sign in until you restart it.",
+    "confirmRestart": "Restart the account of {name}? They can sign in again."
+  },
+  "contractorPortal": {
+    "title": "My work and prices",
+    "welcome": "Welcome, {name}",
+    "readOnly": "Read-only view",
+    "pendingNote": "Recorded work stays «under review» until it is reviewed; only approved work counts as accepted.",
+    "totals": "Value of recorded work",
+    "totalsFor": "Totals in {currency}",
+    "approved": "Approved",
+    "pending": "Under review",
+    "rejected": "Rejected",
+    "registrations": "My work orders",
+    "noRegistrations": "You are not registered on any work order yet",
+    "registeredOn": "Registered on",
+    "workOrder": "Work order",
+    "lines": "My lines in {project}, work order {workOrder}",
+    "noLines": "No lines",
+    "code": "Code",
+    "description": "Description",
+    "unit": "Unit",
+    "scope": "Scope",
+    "wholeLine": "Whole line",
+    "quantity": "Quantity",
+    "recorded": "Recorded",
+    "currentPrice": "Current price",
+    "history": "Price history",
+    "since": "from {date}",
+    "work": "Recorded work",
+    "workTable": "Recorded work, newest first",
+    "noWork": "No work recorded yet",
+    "date": "Date",
+    "element": "Element",
+    "line": "Line",
+    "statusLabel": "Status",
+    "reason": "Reason",
+    "unitPrice": "Unit price",
+    "value": "Value",
+    "filterRegistration": "Work order",
+    "filterStatus": "Status",
+    "all": "All",
+    "logout": "Log out",
+    "loadFailed": "Your data could not be loaded",
+    "redirecting": "Opening your page…"
   },
   "drawingKind": {
     "general": "General (main)",
@@ -2847,7 +2930,41 @@
     "onPhoneOld": "On the phone (revision {revNo}) - newer revision {latest} available",
     "notOnPhone": "Not downloaded - downloads when chosen",
     "empty": "No drawings are published for this project yet.",
+    "noSites": "You have no sites on this project. Talk to the project manager.",
     "notOnPhoneOffline": "This drawing is not on the phone. Connect to the internet to download it.",
     "autoDownloading": "Downloading {done} of {total}"
+  },
+  "mobileContractor": {
+    "title": "Contractor",
+    "readOnly": "View only. You cannot change anything here.",
+    "lastUpdated": "Last updated {time}",
+    "offline": "No connection. Showing the last saved data.",
+    "noData": "No saved data yet. Connect to the internet and pull down to refresh.",
+    "loadFailed": "Could not load your data.",
+    "retry": "Try again",
+    "totals": "Totals",
+    "approved": "Approved",
+    "pending": "Under review",
+    "rejected": "Rejected",
+    "filter": "Filter by status",
+    "filterAll": "All",
+    "myLines": "My lines",
+    "work": "Recorded work",
+    "noLines": "No lines on this work order.",
+    "noWork": "No work to show.",
+    "registration": "{project} - Work order {number}",
+    "unit": "Unit",
+    "scope": "Scope",
+    "wholeLine": "The whole line",
+    "quantity": "Quantity",
+    "recorded": "Recorded",
+    "price": "Current price",
+    "date": "Date",
+    "element": "Element",
+    "reason": "Reason: {reason}",
+    "unitPrice": "Unit price",
+    "value": "Value",
+    "noRegistrations": "You are not registered on any work order yet.",
+    "showMore": "Show more"
   }
 }

@@ -12,8 +12,8 @@ import type { Readable } from 'node:stream';
 import type { DomainEventInput } from '../../../common/event-log.port.js';
 import type { ApprovedVersions } from '../domain/review.js';
 
-/** Where the caller may read or review: the whole project, or what touches some zones. */
-export type AsBuiltScope = { kind: 'project' } | { kind: 'zones'; zoneIds: readonly string[] };
+/** Where the caller may read or review: the whole project, or what belongs to some sites (ADR-054). */
+export type AsBuiltScope = { kind: 'project' } | { kind: 'sites'; siteIds: readonly string[] };
 
 /** Read side (also used by the sync pull / bootstrap and by Phase 5 through `AsBuiltLengthsPort`). */
 export interface AsBuiltReadQueries {

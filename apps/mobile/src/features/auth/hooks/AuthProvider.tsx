@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LoginRequest, MeResponse } from '@ftth/shared';
-import type { AuthApi } from '../api/api-client';
+import { ApiError, type AuthApi } from '../api/api-client';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 
@@ -14,7 +14,27 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ api, children }: { api: AuthApi; children: ReactNode }) {
+interface AuthProviderProps {
+  api: AuthApi;
+  children: ReactNode;
+  /** Wipes data kept for the signed-in user (contractor cache, ADR-053): logout, ended session. */
+  onSignedOut?: () => Promise<void>;
+  /**
+   * The profile kept from the last online session, used only when /auth/me cannot be reached
+   * (phone offline) so a contractor can still read the saved answer.
+   */
+  offlineMe?: () => Promise<MeResponse | null>;
+}
+
+async function quietly(task: (() => Promise<unknown>) | undefined): Promise<void> {
+  try {
+    await task?.();
+  } catch {
+    // A failed wipe must not block signing out.
+  }
+}
+
+export function AuthProvider({ api, children, onSignedOut, offlineMe }: AuthProviderProps) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [me, setMe] = useState<MeResponse | null>(null);
 
@@ -28,7 +48,17 @@ export function AuthProvider({ api, children }: { api: AuthApi; children: ReactN
         if (!active) return;
         setMe(profile);
         setStatus('signedIn');
-      } catch {
+      } catch (error) {
+        const offline = error instanceof ApiError && error.code === 'NETWORK';
+        const kept = offline ? await offlineMe?.().catch(() => null) : null;
+        if (!active) return;
+        if (kept?.contractor) {
+          setMe(kept);
+          setStatus('signedIn');
+          return;
+        }
+        // No stored session, or the server ended it (401/403): nothing may stay readable.
+        if (!offline) await quietly(onSignedOut);
         if (!active) return;
         setMe(null);
         setStatus('signedOut');
@@ -37,7 +67,7 @@ export function AuthProvider({ api, children }: { api: AuthApi; children: ReactN
     return () => {
       active = false;
     };
-  }, [api]);
+  }, [api, onSignedOut, offlineMe]);
 
   const login = useCallback(
     async (credentials: LoginRequest) => {
@@ -50,10 +80,11 @@ export function AuthProvider({ api, children }: { api: AuthApi; children: ReactN
   );
 
   const logout = useCallback(async () => {
+    await quietly(onSignedOut);
     await api.logout();
     setMe(null);
     setStatus('signedOut');
-  }, [api]);
+  }, [api, onSignedOut]);
 
   const value = useMemo(() => ({ status, me, login, logout }), [status, me, login, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -24,8 +24,10 @@ export const ProjectMembershipSchema = z.object({
   projectId: z.uuid(),
   projectName: z.string(),
   role: RoleSchema,
-  /** Empty when the role is project-wide. */
+  /** Retired with zones (ADR-054): always empty. */
   zoneIds: z.array(z.uuid()),
+  /** A supervisor's sites (ADR-054); empty for project-wide roles. */
+  siteIds: z.array(z.uuid()).default([]),
 });
 export type ProjectMembership = z.infer<typeof ProjectMembershipSchema>;
 
@@ -36,6 +38,11 @@ export const MeResponseSchema = z.object({
   locale: z.enum(['ar', 'en', 'fr']),
   isAdmin: z.boolean(),
   memberships: z.array(ProjectMembershipSchema),
+  /**
+   * Set for a contractor login account (ADR-053): it holds no membership and sees only
+   * GET /contractor/me. Null for every other user.
+   */
+  contractor: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
 });
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 

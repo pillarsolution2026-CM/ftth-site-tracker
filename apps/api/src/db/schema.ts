@@ -270,6 +270,29 @@ export const workOrderSites = pgTable(
   ],
 );
 
+/** Sites a supervisor works on (migration 0029, ADR-054); a site may have several supervisors. */
+export const supervisorSites = pgTable(
+  'supervisor_sites',
+  {
+    projectId: uuid('project_id').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    siteId: uuid('site_id').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.siteId] }),
+    foreignKey({
+      name: 'supervisor_sites_site_fkey',
+      columns: [table.projectId, table.siteId],
+      foreignColumns: [workOrderSites.projectId, workOrderSites.id],
+    }).onDelete('cascade'),
+    index('supervisor_sites_project_site_idx').on(table.projectId, table.siteId),
+  ],
+);
+
 export const workOrderAttachments = pgTable(
   'work_order_attachments',
   {
@@ -1092,6 +1115,7 @@ export const contractorLines = pgTable(
       columns: [table.projectId, table.workOrderItemId],
       foreignColumns: [workOrderItems.projectId, workOrderItems.id],
     }).onDelete('restrict'),
+    unique('contractor_lines_project_id_id_key').on(table.projectId, table.id),
     // contractor_lines_registration_item_scope_key: unique (registration, line, COALESCE(scope_key, '')).
     index('contractor_lines_item_idx').on(table.workOrderItemId),
   ],
@@ -1141,6 +1165,22 @@ export const contractorImportFiles = pgTable(
   ],
 );
 
+export const contractorAccounts = pgTable(
+  'contractor_accounts',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    contractorId: uuid('contractor_id')
+      .notNull()
+      .references(() => contractors.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Migration 0028 (ADR-053): triggers keep an account out of admin and out of assignments.
+  (table) => [index('contractor_accounts_contractor_idx').on(table.contractorId)],
+);
+
 export const schema = {
   users,
   refreshTokens,
@@ -1160,6 +1200,7 @@ export const schema = {
   contractorLines,
   contractorLinePrices,
   contractorImportFiles,
+  contractorAccounts,
   cadFiles,
   cadLayers,
   cadInserts,

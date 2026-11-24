@@ -24,6 +24,12 @@ const api = vi.hoisted(() => ({
   addContractorPrice: vi.fn(),
 }));
 vi.mock('../api/contractors-api', () => api);
+const accounts = vi.hoisted(() => ({
+  listContractorAccounts: vi.fn(),
+  createContractorAccount: vi.fn(),
+  setContractorAccountActive: vi.fn(),
+}));
+vi.mock('@/features/contractor-accounts/api/accounts-api', () => accounts);
 
 /** Numbers and codes are isolated with direction marks; compare the words. */
 const plain = (text: string | null) => (text ?? '').replace(/[⁦-⁩]/g, '');
@@ -47,6 +53,10 @@ const twoLines = () =>
 describe('ProjectContractorsSection (admin)', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    accounts.listContractorAccounts.mockResolvedValue({
+      contractorId: '3c1c9f2e-6b3d-4e8a-9c7f-2d4b6a8c0e1f',
+      items: [],
+    });
     api.getAdminProjectContractors.mockResolvedValue(projectContractors());
     api.listContractors.mockResolvedValue({ items: [] });
     api.removeRegistration.mockResolvedValue(undefined);
@@ -70,6 +80,12 @@ describe('ProjectContractorsSection (admin)', () => {
     // The uploaded sheet is listed.
     const files = screen.getByRole('region', { name: 'Uploaded files' });
     expect(within(files).getByText('nile-cables.xlsx')).toBeInTheDocument();
+  });
+
+  it('shows the contractor login accounts of each registration to the admin', async () => {
+    renderScreen(<ProjectContractorsSection projectId={PROJECT_ID} />);
+    expect(await screen.findByRole('heading', { name: 'Contractor login accounts' })).toBeVisible();
+    expect(accounts.listContractorAccounts).toHaveBeenCalledWith(PROJECT_ID, REGISTRATION_ID);
   });
 
   it('shows each line scope, «whole line» when empty, with the per-line summary', async () => {

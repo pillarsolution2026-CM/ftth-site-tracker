@@ -182,6 +182,21 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows only the two supervisor-sites routes (ADR-054)', () => {
+    const U = '7a000000-0000-4000-8000-000000000001';
+    expect(upstreamPath([PROJECT, 'supervisor-sites'])).toBe(
+      `/projects/${PROJECT}/supervisor-sites`,
+    );
+    expect(upstreamPath([PROJECT, 'supervisors', U, 'sites'])).toBe(
+      `/projects/${PROJECT}/supervisors/${U}/sites`,
+    );
+    expect(upstreamPath([PROJECT, 'supervisors'])).toBeNull();
+    expect(upstreamPath([PROJECT, 'supervisors', 'abc-1', 'sites'])).toBeNull();
+    expect(upstreamPath([PROJECT, 'supervisors', U, 'other'])).toBeNull();
+    expect(upstreamPath([PROJECT, 'supervisors', U, 'sites', 'x'])).toBeNull();
+    expect(upstreamPath([PROJECT, 'supervisor-sites', 'x'])).toBeNull();
+  });
+
   it('rejects other resources, bad project ids and traversal', () => {
     expect(upstreamPath([PROJECT, 'members'])).toBeNull();
     expect(upstreamPath([PROJECT])).toBeNull();
@@ -351,6 +366,29 @@ describe('createApiProxy', () => {
     ]);
     expect(options.status).toBe(405);
     expect(seen).toHaveLength(0);
+  });
+
+  it('lets supervisor-sites take GET only and the supervisor sites route PUT only', async () => {
+    const proxy = createApiProxy({ apiUrl, session: session('access-1') });
+    const U = '7a000000-0000-4000-8000-000000000001';
+    const post = await proxy(request('POST', `${PROJECT}/supervisor-sites`), [
+      PROJECT,
+      'supervisor-sites',
+    ]);
+    expect(post.status).toBe(405);
+    const get = await proxy(request('GET', `${PROJECT}/supervisors/${U}/sites`), [
+      PROJECT,
+      'supervisors',
+      U,
+      'sites',
+    ]);
+    expect(get.status).toBe(405);
+    expect(seen).toHaveLength(0);
+    const ok = await proxy(request('GET', `${PROJECT}/supervisor-sites`), [
+      PROJECT,
+      'supervisor-sites',
+    ]);
+    expect(ok.status).toBe(200);
   });
 
   it('passes JSON mutations and upstream error bodies through', async () => {

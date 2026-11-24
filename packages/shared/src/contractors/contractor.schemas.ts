@@ -216,6 +216,11 @@ export type AddContractorPriceRequest = z.infer<typeof AddContractorPriceRequest
  *   remove the registration instead.
  * - LINE_NOT_IN_WORK_ORDER, LEGACY_ITEM, LINE_REPEATED, WHOLE_AND_SCOPES_MIXED: the database
  *   refused an import row that changed after its preview (concurrent write); preview again.
+ * - QUANTITY_BELOW_RECORDED (ADR-052): a contractor line cannot drop below the pending and
+ *   approved work recorded on it; details also carry `contractorLineId`, `recordedQuantity`,
+ *   `requestedQuantity`.
+ * - LINE_HAS_WORK (ADR-052): a contractor line or registration with work recorded on it (any
+ *   status) cannot be removed; details carry `contractorLineId` when known.
  */
 export const CONTRACTOR_CONFLICT_REASONS = [
   'CONTRACTOR_NAME_TAKEN',
@@ -229,6 +234,8 @@ export const CONTRACTOR_CONFLICT_REASONS = [
   'LEGACY_ITEM',
   'LINE_REPEATED',
   'WHOLE_AND_SCOPES_MIXED',
+  'QUANTITY_BELOW_RECORDED',
+  'LINE_HAS_WORK',
 ] as const;
 export type ContractorConflictReason = (typeof CONTRACTOR_CONFLICT_REASONS)[number];
 

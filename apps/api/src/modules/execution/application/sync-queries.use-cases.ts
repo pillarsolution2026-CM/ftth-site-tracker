@@ -23,11 +23,23 @@ export class GetOfflineBundleUseCase {
   }): Promise<OfflineBundle> {
     const project = await this.queries.projectInfo(input.projectId);
     if (!project) throw new AppError('NOT_FOUND', 'Project not found');
-    const drawings = await this.queries.publishedDrawings(input.projectId);
+    // ADR-054: a supervisor gets only the drawings of his sites. A drawing of another site (or an
+    // unassigned one) answers 404 exactly like an unknown id, so ids cannot be probed.
+    const drawings = await this.queries.publishedDrawings(input.projectId, input.scope);
     if (input.drawingId && !drawings.some((d) => d.drawingId === input.drawingId)) {
       throw new AppError('NOT_FOUND', 'No published revision for this drawing');
     }
-    const revision = await this.queries.latestPublishedRevision(input.projectId, input.drawingId);
+    // Project-wide: the General published last when none is picked. A site scope picks among his
+    // own drawings only (never another site's General).
+    const revision =
+      input.scope.kind === 'project'
+        ? await this.queries.latestPublishedRevision(input.projectId, input.drawingId)
+        : (drawings.find((d) => d.drawingId === input.drawingId)?.revision ??
+          [...drawings]
+            .filter((d) => d.kind === 'general')
+            .sort((a, b) => b.revision.publishedAt.getTime() - a.revision.publishedAt.getTime())[0]
+            ?.revision ??
+          null);
     const features = revision
       ? await this.queries.featuresInScope(input.projectId, revision.id, input.scope)
       : [];
@@ -37,7 +49,7 @@ export class GetOfflineBundleUseCase {
       scope:
         input.scope.kind === 'project'
           ? { kind: 'project' }
-          : { kind: 'zones', zoneIds: [...input.scope.zoneIds] },
+          : { kind: 'sites', siteIds: [...input.scope.siteIds] },
       drawings: drawings.map((d) => ({
         drawingId: d.drawingId,
         siteId: d.siteId,
@@ -61,7 +73,7 @@ export class GetOfflineBundleUseCase {
           }
         : null,
       features,
-      catalog: await this.queries.catalog(input.projectId),
+      catalog: await this.queries.catalog(input.projectId, input.scope),
       asBuilt: input.asBuiltScope
         ? await this.asBuilt.stateInScope(input.projectId, input.asBuiltScope)
         : [],

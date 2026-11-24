@@ -57,7 +57,7 @@ export function bundleWith(asBuilt: AsBuiltFeatureState[] = []): OfflineBundle {
     serverTime: '2026-10-30T08:00:00.000Z',
     project: { id: PROJECT, name: 'قليوب', crsEpsg: 32636 },
     drawings: [],
-    scope: { kind: 'zones', zoneIds: ['00000000-0000-4000-8000-0000000000a5'] },
+    scope: { kind: 'sites', siteIds: ['00000000-0000-4000-8000-0000000000a5'] },
     revision: {
       id: REVISION,
       revNo: 1,

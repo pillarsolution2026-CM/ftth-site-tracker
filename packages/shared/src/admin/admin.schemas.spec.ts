@@ -67,17 +67,20 @@ describe('CreateUserRequestSchema', () => {
 });
 
 describe('CreateAssignmentRequestSchema', () => {
-  it('needs a zone for supervisor and contractor', () => {
+  it('assigns a supervisor without a zone and no longer assigns contractors (ADR-053/054)', () => {
     expect(
-      CreateAssignmentRequestSchema.safeParse({ userId: USER_ID, role: 'supervisor' }).success,
-    ).toBe(false);
+      CreateAssignmentRequestSchema.parse({ userId: USER_ID, role: 'supervisor' }).zoneId,
+    ).toBeNull();
     expect(
       CreateAssignmentRequestSchema.safeParse({
         userId: USER_ID,
-        role: 'contractor',
+        role: 'supervisor',
         zoneId: ZONE_ID,
       }).success,
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      CreateAssignmentRequestSchema.safeParse({ userId: USER_ID, role: 'contractor' }).success,
+    ).toBe(false);
   });
 
   it('forbids a zone for project-wide roles', () => {

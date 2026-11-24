@@ -47,10 +47,35 @@ export interface OutboxSummary {
 
 const KEYS = { cursor: 'sync.cursor', lastSyncAt: 'sync.last_ok_at' } as const;
 
+/**
+ * An update saved by an app version before ADR-052 has no `performer` on its lines; the schema
+ * now requires one on work lines. Such ops are trial data (owner 2026-11-21): their work lines
+ * are read as «الشركة نفسها» and material lines as none, so the outbox and «في الانتظار» keep
+ * working after the upgrade (security review, medium).
+ */
+export function upgradeStoredOp(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object') return raw;
+  const op = raw as { kind?: unknown; payload?: { lines?: unknown } };
+  if (op.kind !== 'execution_update.record' || !Array.isArray(op.payload?.lines)) return raw;
+  return {
+    ...op,
+    payload: {
+      ...op.payload,
+      lines: op.payload.lines.map((line: unknown) => {
+        if (line === null || typeof line !== 'object' || 'performer' in line) return line;
+        const role = (line as { role?: unknown }).role;
+        return { ...line, performer: role === 'work' ? { kind: 'self' } : null };
+      }),
+    },
+  };
+}
+
 async function toEntry(vault: Vault, record: Model): Promise<OutboxEntry> {
   return {
     clientOpId: str(record, 'client_op_id'),
-    op: SyncOpSchema.parse(JSON.parse(await vault.openText(str(record, 'op_json')))),
+    op: SyncOpSchema.parse(
+      upgradeStoredOp(JSON.parse(await vault.openText(str(record, 'op_json')))),
+    ),
     state: str(record, 'state') as OutboxState,
     attempts: num(record, 'attempts'),
     updateId: optionalStr(record, 'update_id'),

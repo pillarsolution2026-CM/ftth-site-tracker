@@ -197,6 +197,25 @@ describe('contractorErrorMsg', () => {
     });
   });
 
+  it('carries the recorded work of QUANTITY_BELOW_RECORDED and knows LINE_HAS_WORK (ADR-052)', () => {
+    expect(
+      contractorErrorMsg(
+        new ApiClientError('CONFLICT', 409, {
+          reason: 'QUANTITY_BELOW_RECORDED',
+          contractorLineId: '00000000-0000-4000-8000-000000000001',
+          recordedQuantity: '40',
+          requestedQuantity: '30',
+        }),
+      ),
+    ).toEqual({
+      key: 'contractors.reasons.QUANTITY_BELOW_RECORDED',
+      params: { requestedQuantity: '30', recordedQuantity: '40' },
+    });
+    expect(
+      contractorErrorMsg(new ApiClientError('CONFLICT', 409, { reason: 'LINE_HAS_WORK' })),
+    ).toEqual({ key: 'contractors.reasons.LINE_HAS_WORK', params: {} });
+  });
+
   it('knows STALE_VERSION, WHOLE_AND_SCOPES_MIXED and the fallbacks', () => {
     expect(
       contractorErrorMsg(new ApiClientError('CONFLICT', 409, { reason: 'STALE_VERSION' })),

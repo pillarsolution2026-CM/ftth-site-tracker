@@ -194,6 +194,12 @@ export const ASBUILT_EDIT_FLAGS = [
   'REVISION_OUTDATED',
   'FEATURE_REMOVED',
   'CLOCK_AHEAD',
+  /**
+   * ADR-054 (security review M2): sites have no boundary, so a supervisor's edit is kept to the
+   * drawing it is recorded on only by review: the edited geometry reaches outside the extent of
+   * that drawing's design features (plus a tolerance). Never a rejection.
+   */
+  'OUTSIDE_DRAWING',
 ] as const;
 export const AsBuiltEditFlagSchema = z.enum(ASBUILT_EDIT_FLAGS);
 export type AsBuiltEditFlag = z.infer<typeof AsBuiltEditFlagSchema>;

@@ -29,6 +29,7 @@ export function makeSummary(overrides: Partial<UserSummary> = {}): UserSummary {
 
 export class InMemoryUserAdmin implements UserAdminRepository {
   readonly revoked: string[] = [];
+  readonly contractorAccountIds = new Set<string>();
   readonly hashes = new Map<string, string>();
   constructor(readonly users: UserSummary[] = []) {}
 
@@ -56,6 +57,9 @@ export class InMemoryUserAdmin implements UserAdminRepository {
     if (!user) return null;
     user.isActive = active;
     return { ...user };
+  }
+  async isContractorAccount(userId: string): Promise<boolean> {
+    return this.contractorAccountIds.has(userId);
   }
   async revokeSessions(userId: string): Promise<void> {
     this.revoked.push(userId);

@@ -12,13 +12,10 @@ import {
   CreateAssignmentRequestSchema,
   CreateProjectRequestSchema,
   CreateUserRequestSchema,
-  CreateZoneRequestSchema,
   ProjectListResponseSchema,
   ProjectSchema,
   UpdateProjectRequestSchema,
   UserListResponseSchema,
-  ZoneListResponseSchema,
-  ZoneSchema,
 } from '@ftth/shared';
 import { contractTerms, countProject, handleContracts } from './mock-contracts.ts';
 import { handleContractors, handleProjectContractors } from './mock-contractors.ts';
@@ -49,7 +46,6 @@ interface State {
     locale: 'ar' | 'en' | 'fr';
     contractId: string | null;
   }[];
-  zones: { id: string; projectId: string; name: string }[];
   users: {
     id: string;
     email: string;
@@ -76,7 +72,6 @@ export function createAdminState(project: {
 }): State {
   return {
     projects: [{ ...project, client: 'Client', crsEpsg: 32636, currency: 'EGP', locale: 'ar' }],
-    zones: [],
     users: [
       {
         id: ADMIN_ID,
@@ -94,7 +89,6 @@ export function createAdminState(project: {
 
 function assignmentView(state: State, row: State['assignments'][number]) {
   const user = state.users.find((candidate) => candidate.id === row.userId);
-  const zone = state.zones.find((candidate) => candidate.id === row.zoneId);
   return AssignmentSchema.parse({
     id: row.id,
     userId: row.userId,
@@ -103,7 +97,7 @@ function assignmentView(state: State, row: State['assignments'][number]) {
     userIsActive: user?.isActive ?? false,
     role: row.role,
     zoneId: row.zoneId,
-    zoneName: zone?.name ?? null,
+    zoneName: null,
     createdAt: row.createdAt,
   });
 }
@@ -180,23 +174,6 @@ export async function handleAdmin(
   }
   if (sub === 'contractors') {
     return handleProjectContractors(req, res, project.id, segments.slice(4), helpers);
-  }
-  if (sub === 'zones') {
-    const zones = () =>
-      state.zones
-        .filter((zone) => zone.projectId === project.id)
-        .map((zone) => ({ id: zone.id, name: zone.name, hasBoundary: false }));
-    if (method === 'GET') return send(res, 200, ZoneListResponseSchema.parse({ items: zones() }));
-    if (method === 'POST') {
-      const body = CreateZoneRequestSchema.safeParse(await readJson(req));
-      if (!body.success) return invalid();
-      if (zones().some((zone) => zone.name.toLowerCase() === body.data.name.toLowerCase())) {
-        return sendError(res, 409, 'CONFLICT', { reason: 'ZONE_NAME_TAKEN' });
-      }
-      const zone = { id: randomUUID(), projectId: project.id, name: body.data.name };
-      state.zones.push(zone);
-      return send(res, 201, ZoneSchema.parse({ id: zone.id, name: zone.name, hasBoundary: false }));
-    }
   }
   if (sub === 'assignments') {
     if (method === 'GET') {

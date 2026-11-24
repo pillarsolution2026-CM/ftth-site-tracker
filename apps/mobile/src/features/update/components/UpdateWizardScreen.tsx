@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ltr } from '@ftth/i18n';
 import {
   WORK_TYPES,
+  performerKeyOf,
   type CatalogItem,
   type GpsFix,
+  type LinePerformer,
   type OfflineFeature,
-  type UpdateLineRole,
 } from '@ftth/shared';
 import { minTouchTarget, radius, spacing, statusTokens, typography } from '@ftth/ui-tokens';
-import { addQuantities } from '../../../shared/model/quantity';
 import { useI18n } from '../../../shared/i18n/I18nProvider';
 import { Button } from '../../../shared/ui/Button';
 import { useTheme } from '../../../shared/ui/theme';
@@ -21,15 +21,21 @@ import {
   canSave,
   chooseWorkType,
   computeWarnings,
+  contractorLeft,
+  contractorOverruns,
   goBack,
   goNext,
   itemsForActivity,
   missingPhotos,
   photoRequirementsFor,
   startDraft,
-  stepLine,
+  SELF_PERFORMER,
+  stepMaterial,
   stepProblems,
+  stepWork,
+  unsyncedTotals,
   UPDATE_STEPS,
+  workQuantity,
   type CapturedPhoto,
   type UpdateDraft,
 } from '../model/update-wizard';
@@ -72,22 +78,12 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
     () => (bundle ? photoRequirementsFor(bundle, draft.workType) : []),
     [bundle, draft.workType],
   );
-  const unsyncedByItem = useMemo(() => {
-    // Lines the server did not count yet when the bundle was built.
-    const totals: Record<string, string> = {};
-    const since = bundle?.serverTime ?? '';
-    for (const entry of entries) {
-      if (entry.op.kind !== 'execution_update.record') continue;
-      if (entry.state === 'rejected' || entry.op.capturedAt < since) continue;
-      for (const line of entry.op.payload.lines) {
-        totals[line.workOrderItemId] = addQuantities(
-          totals[line.workOrderItemId] ?? '0',
-          line.quantity,
-        );
-      }
-    }
-    return totals;
-  }, [bundle, entries]);
+  // Lines the server did not count yet when the bundle was built.
+  const unsynced = useMemo(
+    () => unsyncedTotals(entries, bundle?.serverTime ?? ''),
+    [bundle, entries],
+  );
+  const unsyncedByItem = unsynced.byItem;
 
   if (!bundle || !bundle.revision) return null;
   const warnings = computeWarnings(draft, {
@@ -97,7 +93,12 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
     unsyncedByItem,
   });
   const stepIndex = UPDATE_STEPS.indexOf(draft.step);
-  const problems = stepProblems(draft, draft.step, requirements);
+  const contractorContext = {
+    catalog: bundle.catalog,
+    unsyncedByContractorLine: unsynced.byContractorLine,
+  };
+  const problems = stepProblems(draft, draft.step, requirements, contractorContext);
+  const overruns = contractorOverruns(draft, bundle.catalog, unsynced.byContractorLine);
   const items = itemsForActivity(bundle.catalog, draft.workType);
   const revisionId = bundle.revision.id;
 
@@ -141,19 +142,38 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
     }
   };
 
-  const lineList = (role: UpdateLineRole) =>
+  const workList = () =>
     items.length === 0 ? (
       <Text style={{ color: theme.text }}>{t('field.update.noItems')}</Text>
     ) : (
       items.map((item) => (
-        <ItemStepper
-          key={`${role}-${item.id}`}
+        <WorkItemCard
+          key={`work-${item.id}`}
           item={item}
-          quantity={(role === 'work' ? draft.work : draft.materials)[item.id] ?? '0'}
+          draft={draft}
+          unsyncedByContractorLine={unsynced.byContractorLine}
           overrun={warnings.overrunItemIds.includes(item.id)}
-          onStep={(delta) => setDraft((d) => stepLine(d, role, item.id, delta))}
-          role={role}
+          onStep={(performer, delta) => setDraft((d) => stepWork(d, item.id, performer, delta))}
         />
+      ))
+    );
+
+  const materialList = () =>
+    items.length === 0 ? (
+      <Text style={{ color: theme.text }}>{t('field.update.noItems')}</Text>
+    ) : (
+      items.map((item) => (
+        <ItemCard
+          key={`material-${item.id}`}
+          item={item}
+          overrun={warnings.overrunItemIds.includes(item.id)}
+        >
+          <Stepper
+            quantity={draft.materials[item.id] ?? '0'}
+            onStep={(delta) => setDraft((d) => stepMaterial(d, item.id, delta))}
+            idPrefix={`material-${item.code}`}
+          />
+        </ItemCard>
       ))
     );
 
@@ -199,7 +219,7 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
           <>
             <Notice text={t('field.update.phase2Items')} />
             <Notice text={t('field.update.suggestedUnavailable')} />
-            {lineList(draft.step === 'work' ? 'work' : 'material')}
+            {draft.step === 'work' ? workList() : materialList()}
           </>
         ) : null}
         {draft.step === 'location' ? (
@@ -279,7 +299,7 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
             <Text style={{ color: theme.text }} testID="review-summary">
               {t(`items.workTypes.${draft.workType ?? 'civil'}`)} ·{' '}
               {t('field.update.summaryLines', {
-                count: ltr(Object.keys(draft.work).length + Object.keys(draft.materials).length),
+                count: ltr(draft.work.length + Object.keys(draft.materials).length),
               })}{' '}
               · {t('field.update.summaryPhotos', { count: ltr(draft.photos.length) })}
             </Text>
@@ -311,6 +331,21 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
             {t(`field.problems.${problem}`)}
           </Text>
         ))}
+        {draft.step === 'work'
+          ? overruns.map((overrun) => (
+              <Text
+                key={overrun.contractor.contractorLineId}
+                style={{ color: theme.danger }}
+                testID={`contractor-exceeded-${overrun.contractor.contractorLineId}`}
+              >
+                {t('field.update.performerExceeded', {
+                  name: overrun.contractor.contractorName,
+                  left: ltr(overrun.left),
+                  unit: items.find((item) => item.id === overrun.itemId)?.unit ?? '',
+                })}
+              </Text>
+            ))
+          : null}
       </ScrollView>
 
       <View style={[styles.footer, { borderColor: theme.border }]}>
@@ -325,13 +360,13 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
             label={t('field.update.save')}
             onPress={() => void save()}
             busy={busy}
-            disabled={!canSave(draft, requirements, warnings.warnings)}
+            disabled={!canSave(draft, requirements, warnings.warnings, contractorContext)}
             testID="wizard-save"
           />
         ) : (
           <Button
             label={t('field.update.next')}
-            onPress={() => setDraft((d) => goNext(d, requirements))}
+            onPress={() => setDraft((d) => goNext(d, requirements, contractorContext))}
             disabled={problems.length > 0 || busy}
             testID="wizard-next"
           />
@@ -341,18 +376,14 @@ export function UpdateWizardScreen({ feature, deps, onDone, onCancel }: UpdateWi
   );
 }
 
-function ItemStepper({
+function ItemCard({
   item,
-  quantity,
   overrun,
-  onStep,
-  role,
+  children,
 }: {
   item: CatalogItem;
-  quantity: string;
   overrun: boolean;
-  onStep: (delta: number) => void;
-  role: UpdateLineRole;
+  children: ReactNode;
 }) {
   const { t } = useI18n();
   const theme = useTheme();
@@ -371,27 +402,100 @@ function ItemStepper({
         })}
         {overrun ? ' ⚠' : ''}
       </Text>
-      <View style={styles.stepper}>
-        {[-10, -1].map((delta) => (
-          <StepButton
-            key={delta}
-            delta={delta}
-            onPress={() => onStep(delta)}
-            testID={`${role}-${item.code}-${delta}`}
-          />
-        ))}
-        <Text style={[styles.quantity, { color: theme.text }]} testID={`${role}-${item.code}-qty`}>
-          {ltr(quantity)}
-        </Text>
-        {[1, 10].map((delta) => (
-          <StepButton
-            key={delta}
-            delta={delta}
-            onPress={() => onStep(delta)}
-            testID={`${role}-${item.code}-+${delta}`}
-          />
-        ))}
-      </View>
+      {children}
+    </View>
+  );
+}
+
+/**
+ * A work item with one stepper per performer: each contractor of the work-order line (name, scope,
+ * quantity left) and «الشركة نفسها», always offered. A line is split by raising several steppers.
+ */
+function WorkItemCard({
+  item,
+  draft,
+  unsyncedByContractorLine,
+  overrun,
+  onStep,
+}: {
+  item: CatalogItem;
+  draft: UpdateDraft;
+  unsyncedByContractorLine: Readonly<Record<string, string>>;
+  overrun: boolean;
+  onStep: (performer: LinePerformer, delta: number) => void;
+}) {
+  const { t } = useI18n();
+  const theme = useTheme();
+  const performers: { performer: LinePerformer; title: string; detail: string | null }[] = [
+    ...item.contractors.map((contractor) => ({
+      performer: { kind: 'contractor', contractorLineId: contractor.contractorLineId } as const,
+      title: contractor.contractorName,
+      detail: `${
+        contractor.scope === null
+          ? t('field.update.performerWholeLine')
+          : t('field.update.performerScope', { scope: contractor.scope })
+      } · ${t('field.update.performerLeft', {
+        left: ltr(contractorLeft(contractor, unsyncedByContractorLine)),
+        unit: item.unit,
+      })}`,
+    })),
+    { performer: SELF_PERFORMER, title: t('field.update.performerSelf'), detail: null },
+  ];
+  return (
+    <ItemCard item={item} overrun={overrun}>
+      {performers.map(({ performer, title, detail }) => {
+        const key = performerKeyOf(performer);
+        return (
+          <View
+            key={key}
+            style={[styles.performer, { borderColor: theme.border }]}
+            testID={`work-${item.code}-${key}`}
+          >
+            <Text style={[styles.itemTitle, { color: theme.text }]}>{title}</Text>
+            {detail ? <Text style={{ color: theme.text }}>{detail}</Text> : null}
+            <Stepper
+              quantity={workQuantity(draft, item.id, performer)}
+              onStep={(delta) => onStep(performer, delta)}
+              idPrefix={`work-${item.code}-${key}`}
+            />
+          </View>
+        );
+      })}
+    </ItemCard>
+  );
+}
+
+function Stepper({
+  quantity,
+  onStep,
+  idPrefix,
+}: {
+  quantity: string;
+  onStep: (delta: number) => void;
+  idPrefix: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.stepper}>
+      {[-10, -1].map((delta) => (
+        <StepButton
+          key={delta}
+          delta={delta}
+          onPress={() => onStep(delta)}
+          testID={`${idPrefix}-${delta}`}
+        />
+      ))}
+      <Text style={[styles.quantity, { color: theme.text }]} testID={`${idPrefix}-qty`}>
+        {ltr(quantity)}
+      </Text>
+      {[1, 10].map((delta) => (
+        <StepButton
+          key={delta}
+          delta={delta}
+          onPress={() => onStep(delta)}
+          testID={`${idPrefix}-+${delta}`}
+        />
+      ))}
     </View>
   );
 }
@@ -481,6 +585,11 @@ const styles = StyleSheet.create({
   },
   item: { borderWidth: 2, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
   itemTitle: { fontWeight: '600' },
+  performer: {
+    borderTopWidth: 1,
+    paddingTop: spacing.sm,
+    gap: spacing.xs,
+  },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, writingDirection: 'ltr' },
   stepButton: {
     minWidth: minTouchTarget,

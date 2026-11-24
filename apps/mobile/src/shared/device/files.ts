@@ -34,3 +34,8 @@ export async function writeText(name: string, text: string): Promise<void> {
   if (!file.exists) file.create({ intermediates: true });
   await file.write(text);
 }
+
+export async function deleteText(name: string): Promise<void> {
+  const file = new File(Paths.document, name);
+  if (file.exists) file.delete();
+}

@@ -8,8 +8,8 @@ import { ProjectScopeGuard } from './project-scope.guard.js';
 const USER = '11111111-1111-4111-8111-111111111111';
 const PROJECT_A = '22222222-2222-4222-8222-222222222222';
 const PROJECT_B = '33333333-3333-4333-8333-333333333333';
-const ZONE_1 = '44444444-4444-4444-8444-444444444444';
-const ZONE_2 = '55555555-5555-4555-8555-555555555555';
+const SITE_1 = '44444444-4444-4444-8444-444444444444';
+const SITE_2 = '55555555-5555-4555-8555-555555555555';
 
 function contextFor(request: Partial<AuthenticatedRequest>): ExecutionContext {
   return { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
@@ -24,10 +24,22 @@ function requestFor(projectId: string, isAdmin = false): Partial<AuthenticatedRe
 }
 
 describe('ProjectScopeGuard', () => {
-  it('allows a member and exposes role and zones on the request', async () => {
+  it('allows a member and exposes role and sites on the request', async () => {
     const guard = guardWith([
-      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', zoneId: ZONE_1 },
-      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', zoneId: ZONE_2 },
+      {
+        userId: USER,
+        projectId: PROJECT_A,
+        projectName: 'A',
+        role: 'supervisor',
+        siteIds: [SITE_1],
+      },
+      {
+        userId: USER,
+        projectId: PROJECT_A,
+        projectName: 'A',
+        role: 'supervisor',
+        siteIds: [SITE_2],
+      },
     ]);
     const request = requestFor(PROJECT_A);
 
@@ -35,17 +47,17 @@ describe('ProjectScopeGuard', () => {
     expect(request.projectAccess).toEqual({
       projectId: PROJECT_A,
       roles: ['supervisor'],
-      scope: { kind: 'zones', zoneIds: [ZONE_1, ZONE_2] },
+      scope: { kind: 'sites', siteIds: [SITE_1, SITE_2] },
       grants: [
-        { role: 'supervisor', zoneId: ZONE_1 },
-        { role: 'supervisor', zoneId: ZONE_2 },
+        { role: 'supervisor', siteIds: [SITE_1] },
+        { role: 'supervisor', siteIds: [SITE_2] },
       ],
     });
   });
 
-  it('gives project-wide roles an empty zone list', async () => {
+  it('gives project-wide roles the whole project', async () => {
     const guard = guardWith([
-      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'pm', zoneId: null },
+      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'pm', siteIds: [] },
     ]);
     const request = requestFor(PROJECT_A);
 
@@ -53,30 +65,49 @@ describe('ProjectScopeGuard', () => {
     expect(request.projectAccess?.scope).toEqual({ kind: 'project' });
   });
 
-  it('fails closed: a zoneless supervisor or contractor is FORBIDDEN, not project-wide', async () => {
-    for (const role of ['supervisor', 'contractor'] as const) {
-      const guard = guardWith([
-        { userId: USER, projectId: PROJECT_A, projectName: 'A', role, zoneId: null },
-      ]);
-      await expect(guard.canActivate(contextFor(requestFor(PROJECT_A)))).rejects.toMatchObject({
-        code: 'FORBIDDEN',
-      });
-    }
+  it('lets a supervisor without sites in (he sees nothing, so the phone can say so)', async () => {
+    const guard = guardWith([
+      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', siteIds: [] },
+    ]);
+    const request = requestFor(PROJECT_A);
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+    expect(request.projectAccess?.scope).toEqual({ kind: 'sites', siteIds: [] });
   });
 
-  it('ignores a zoneless supervisor row when another zoned row exists', async () => {
+  it('fails closed: a retired project contractor assignment grants nothing', async () => {
     const guard = guardWith([
-      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', zoneId: null },
-      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'supervisor', zoneId: ZONE_1 },
+      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'contractor', siteIds: [] },
+    ]);
+    await expect(guard.canActivate(contextFor(requestFor(PROJECT_A)))).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
+  it('merges the sites of two supervisor rows of the same user', async () => {
+    const guard = guardWith([
+      {
+        userId: USER,
+        projectId: PROJECT_A,
+        projectName: 'A',
+        role: 'supervisor',
+        siteIds: [SITE_1],
+      },
+      {
+        userId: USER,
+        projectId: PROJECT_A,
+        projectName: 'A',
+        role: 'supervisor',
+        siteIds: [SITE_1, SITE_2],
+      },
     ]);
     const request = requestFor(PROJECT_A);
     await guard.canActivate(contextFor(request));
-    expect(request.projectAccess?.scope).toEqual({ kind: 'zones', zoneIds: [ZONE_1] });
+    expect(request.projectAccess?.scope).toEqual({ kind: 'sites', siteIds: [SITE_1, SITE_2] });
   });
 
   it('rejects a non-member with FORBIDDEN', async () => {
     const guard = guardWith([
-      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'pm', zoneId: null },
+      { userId: USER, projectId: PROJECT_A, projectName: 'A', role: 'pm', siteIds: [] },
     ]);
 
     await expect(guard.canActivate(contextFor(requestFor(PROJECT_B)))).rejects.toMatchObject({
@@ -86,7 +117,7 @@ describe('ProjectScopeGuard', () => {
 
   it('does not leak other users memberships', async () => {
     const guard = guardWith([
-      { userId: 'someone-else', projectId: PROJECT_A, projectName: 'A', role: 'pm', zoneId: null },
+      { userId: 'someone-else', projectId: PROJECT_A, projectName: 'A', role: 'pm', siteIds: [] },
     ]);
 
     await expect(guard.canActivate(contextFor(requestFor(PROJECT_A)))).rejects.toMatchObject({

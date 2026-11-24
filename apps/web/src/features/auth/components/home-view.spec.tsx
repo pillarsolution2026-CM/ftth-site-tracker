@@ -22,6 +22,7 @@ const me = (overrides: Partial<MeResponse>): MeResponse => ({
   locale: 'en',
   isAdmin: false,
   memberships: [],
+  contractor: null,
   ...overrides,
 });
 const base = { loading: false, failureCode: null, loggingOut: false, onLogout: () => {} };
@@ -50,7 +51,9 @@ describe('HomeView', () => {
         {...base}
         me={me({
           isAdmin: true,
-          memberships: [{ projectId: A, projectName: 'Alpha', role: 'pm', zoneIds: [] }],
+          memberships: [
+            { projectId: A, projectName: 'Alpha', role: 'pm', zoneIds: [], siteIds: [] },
+          ],
         })}
         allProjects={null}
         allProjectsLoading={false}
@@ -64,7 +67,9 @@ describe('HomeView', () => {
       <HomeView
         {...base}
         me={me({
-          memberships: [{ projectId: B, projectName: 'Beta', role: 'supervisor', zoneIds: [A] }],
+          memberships: [
+            { projectId: B, projectName: 'Beta', role: 'supervisor', zoneIds: [A], siteIds: [] },
+          ],
         })}
         allProjects={null}
         allProjectsLoading={false}

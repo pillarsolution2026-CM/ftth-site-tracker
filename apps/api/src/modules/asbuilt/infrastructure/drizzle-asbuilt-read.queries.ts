@@ -209,7 +209,7 @@ export class DrizzleAsBuiltReadQueries
           ON a.project_id = df.project_id AND a.feature_id = df.feature_id
         WHERE df.project_id = ${projectId} AND df.revision_id = ANY(${uuidArray(revisionIds)})
           AND df.feature_type = 'route'
-          AND ${stateScope(scope)}
+          AND ${stateScope(scope, 'df')}
         UNION ALL
         SELECT a.feature_id, NULL, true, NULL, a.length_m::text, true, a.geometry_version
         FROM asbuilt_features a

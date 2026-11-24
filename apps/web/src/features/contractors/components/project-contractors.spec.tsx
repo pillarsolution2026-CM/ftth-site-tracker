@@ -47,6 +47,14 @@ describe('ProjectContractors (PM, read-only)', () => {
     expect(screen.getByText('C-001').closest('bdi')).toHaveAttribute('dir', 'ltr');
   });
 
+  it('shows no login accounts section: accounts are managed by the platform admin only', async () => {
+    api.getProjectContractors.mockResolvedValue(projectContractors());
+    renderScreen(<ProjectContractors projectId={PROJECT_ID} />, { access: PM_ACCESS });
+    await screen.findByText('Nile Cables');
+    expect(screen.queryByText('Contractor login accounts')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /account/i })).not.toBeInTheDocument();
+  });
+
   it('says a work order is needed when the project has none', async () => {
     api.getProjectContractors.mockResolvedValue(
       projectContractors({ workOrderId: null, registrations: [], availability: [] }),

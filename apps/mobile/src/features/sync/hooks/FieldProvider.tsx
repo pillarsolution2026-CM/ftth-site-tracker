@@ -35,6 +35,7 @@ import {
   EMPTY_INDEX,
   loadCachedBundle,
   loadDrawingIndex,
+  pruneRemovedDrawings,
   saveBundle,
   saveDrawingIndex,
   withDownloadedBundle,
@@ -188,6 +189,13 @@ export function FieldProvider({
         try {
           const fresh = await fetchBundle(drawing.drawingId);
           await saveBundle(deps.files, deps.vault, userId, fresh, drawing.drawingId);
+          await pruneRemovedDrawings(
+            deps.files,
+            userId,
+            projectId,
+            indexRef.current.downloaded,
+            fresh,
+          );
           if (!mounted.current) return;
           await updateIndex(withDownloadedBundle(indexRef.current, fresh));
         } catch {
@@ -200,7 +208,7 @@ export function FieldProvider({
       autoRunning.current = false;
       if (mounted.current) setAutoProgress(null);
     }
-  }, [deps.files, deps.vault, fetchBundle, updateIndex, userId]);
+  }, [deps.files, deps.vault, fetchBundle, projectId, updateIndex, userId]);
 
   const refreshLocal = useCallback(async () => {
     setSummary(await store.summary());
@@ -292,6 +300,13 @@ export function FieldProvider({
       try {
         const fresh = await fetchBundle(target);
         await saveBundle(deps.files, deps.vault, userId, fresh, target);
+        await pruneRemovedDrawings(
+          deps.files,
+          userId,
+          projectId,
+          indexRef.current.downloaded,
+          fresh,
+        );
         const held = fresh.revision?.drawingId ?? null;
         const listed = fresh.drawings.find((d) => d.drawingId === held);
         await updateIndex({
@@ -309,7 +324,7 @@ export function FieldProvider({
         return false;
       }
     },
-    [autoDownload, bundle, deps.files, deps.vault, fetchBundle, updateIndex, userId],
+    [autoDownload, bundle, deps.files, deps.vault, fetchBundle, projectId, updateIndex, userId],
   );
 
   const selectDrawing = useCallback(

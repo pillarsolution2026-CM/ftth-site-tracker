@@ -55,7 +55,7 @@ interface OpOptions {
   featureId?: string;
   revisionId?: string;
   workType?: string;
-  lines?: { workOrderItemId: string; quantity: string; role: string }[];
+  lines?: { workOrderItemId: string; quantity: string; role: string; performer?: unknown }[];
   gps?: [number, number] | null;
   capturedAt?: string;
   photo?: Buffer;
@@ -72,9 +72,17 @@ function op(o: OpOptions = {}) {
     capturedAt: o.capturedAt ?? now,
     payload: {
       featureId: o.featureId ?? fx.boxA,
-      designRevisionId: o.revisionId ?? fx.revisionId,
+      // Box B is drawn in site B's General (ADR-054); everything else in site A's.
+      designRevisionId: o.revisionId ?? (o.featureId === fx.boxB ? fx.revisionB : fx.revisionId),
       workType: o.workType ?? 'civil',
-      lines: o.lines ?? [{ workOrderItemId: fx.items.civilPieces, quantity: '1', role: 'work' }],
+      lines: o.lines ?? [
+        {
+          workOrderItemId: fx.items.civilPieces,
+          quantity: '1',
+          role: 'work',
+          performer: { kind: 'self' },
+        },
+      ],
       label: null,
       note: null,
       gps: gps ? { lon: gps[0], lat: gps[1], accuracyM: 5, at: now } : null,
@@ -186,7 +194,14 @@ describe('POST /projects/:projectId/sync/push', () => {
       ...operation,
       payload: {
         ...operation.payload,
-        lines: [{ workOrderItemId: fx.items.civilPieces, quantity: '2', role: 'work' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.civilPieces,
+            quantity: '2',
+            role: 'work',
+            performer: { kind: 'self' },
+          },
+        ],
       },
     };
     const reused = { clientOpId: operation.clientOpId, outcome: 'rejected', code: 'OP_ID_REUSED' };
@@ -205,7 +220,7 @@ describe('POST /projects/:projectId/sync/push', () => {
     expect(res.status).toBe(200);
     expect(res.body.results.map((r: OpResult) => r.outcome)).toEqual(['applied', 'rejected']);
     expect(res.body.results[1].code).toBe('FEATURE_OUT_OF_SCOPE');
-    // Supervisor B owns zone B.
+    // Supervisor B holds site B.
     expect((await pushOne(fx.tokens.supervisorB, op({ featureId: fx.boxB }))).outcome).toBe(
       'applied',
     );
@@ -232,11 +247,29 @@ describe('POST /projects/:projectId/sync/push', () => {
       'REVISION_NOT_PUBLISHED',
     );
     await reject(
-      op({ lines: [{ workOrderItemId: fx.foreignItem, quantity: '1', role: 'work' }] }),
+      op({
+        lines: [
+          {
+            workOrderItemId: fx.foreignItem,
+            quantity: '1',
+            role: 'work',
+            performer: { kind: 'self' },
+          },
+        ],
+      }),
       'ITEM_NOT_FOUND',
     );
     await reject(
-      op({ lines: [{ workOrderItemId: fx.items.installation, quantity: '1', role: 'work' }] }),
+      op({
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '1',
+            role: 'work',
+            performer: { kind: 'self' },
+          },
+        ],
+      }),
       'ITEM_WORK_TYPE_MISMATCH',
     );
     const photoId = randomUUID();
@@ -262,7 +295,14 @@ describe('POST /projects/:projectId/sync/push', () => {
     expect(await applied(op({ capturedAt: '1970-01-01T00:00:00Z' }))).toEqual(['CLOCK_BEHIND']);
     const overrun = op({
       featureId: fx.routeA,
-      lines: [{ workOrderItemId: fx.items.civilMetres, quantity: '100.0001', role: 'work' }],
+      lines: [
+        {
+          workOrderItemId: fx.items.civilMetres,
+          quantity: '100.0001',
+          role: 'work',
+          performer: { kind: 'self' },
+        },
+      ],
     });
     expect(await applied(overrun)).toEqual(['ITEM_OVERRUN']);
   });
@@ -284,7 +324,12 @@ describe('POST /projects/:projectId/sync/push', () => {
   it('validates the batch: float quantities and oversized batches are 400', async () => {
     const floaty = op({
       lines: [
-        { workOrderItemId: fx.items.civilPieces, quantity: 1 as unknown as string, role: 'work' },
+        {
+          workOrderItemId: fx.items.civilPieces,
+          quantity: 1 as unknown as string,
+          role: 'work',
+          performer: { kind: 'self' },
+        },
       ],
     });
     expect((await push(fx.tokens.supervisorA, [floaty])).status).toBe(400);
@@ -324,18 +369,18 @@ describe('POST /projects/:projectId/sync/push', () => {
 });
 
 describe('security review fixes', () => {
-  it('does not let a read-only project-wide role widen a zone-scoped write role (qc + supervisor of B)', async () => {
+  it('does not let a read-only project-wide role widen a site-scoped write role (qc + supervisor of site B)', async () => {
     const email = `exec-mixed-${randomUUID().slice(0, 8)}@ftth.local`;
-    for (const [role, zoneId] of [
-      ['qc', undefined],
-      ['supervisor', fx.zoneB],
+    for (const [role, siteIds] of [
+      ['qc', []],
+      ['supervisor', [fx.siteB]],
     ] as const) {
       await ensureMember(ctx.pool, {
         email,
         password: 'Mixed#12345',
         role,
         projectId: fx.projectId,
-        ...(zoneId ? { zoneId } : {}),
+        siteIds: [...siteIds],
       });
     }
     const token = await loginAs(ctx, email, 'Mixed#12345');
@@ -379,11 +424,11 @@ describe('GET /projects/:projectId/sync/bootstrap', () => {
   const bootstrap = (token: string, project = fx.projectId) =>
     http().get(`/projects/${project}/sync/bootstrap`).set('Authorization', `Bearer ${token}`);
 
-  it('gives a supervisor the features of their zones in the project CRS, the catalog without prices, and Phase 2 capabilities as unavailable', async () => {
+  it('gives a supervisor the features of their sites in the project CRS, the catalog without prices, and Phase 2 capabilities as unavailable', async () => {
     const res = await bootstrap(fx.tokens.supervisorA);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const bundle = OfflineBundleSchema.parse(res.body);
-    expect(bundle.scope).toEqual({ kind: 'zones', zoneIds: [fx.zoneA] });
+    expect(bundle.scope).toEqual({ kind: 'sites', siteIds: [fx.siteA] });
     expect(bundle.features.map((f) => f.id).sort()).toEqual([fx.boxA, fx.routeA].sort());
     const route = bundle.features.find((f) => f.id === fx.routeA);
     expect(route?.geometry).toEqual({
@@ -407,9 +452,22 @@ describe('GET /projects/:projectId/sync/bootstrap', () => {
     });
   });
 
-  it('gives project-wide roles every feature and refuses other projects', async () => {
+  it('gives project-wide roles every drawing and refuses other projects', async () => {
     const bundle = OfflineBundleSchema.parse((await bootstrap(fx.tokens.pm)).body);
-    expect(bundle.features).toHaveLength(3);
+    // The default drawing is the General published last (site A); site B's is picked by id.
+    expect(bundle.features).toHaveLength(2);
+    // Project-wide roles also get drawings without a site («بدون موقع») made by other tests.
+    const siteIds = bundle.drawings.map((d) => d.siteId).filter((id) => id !== null);
+    expect(siteIds.sort()).toEqual([fx.siteA, fx.siteB].sort());
+    const pickedB = OfflineBundleSchema.parse(
+      (
+        await http()
+          .get(`/projects/${fx.projectId}/sync/bootstrap`)
+          .query({ drawingId: fx.drawingB })
+          .set('Authorization', `Bearer ${fx.tokens.pm}`)
+      ).body,
+    );
+    expect(pickedB.features.map((f) => f.id)).toEqual([fx.boxB]);
     expect((await bootstrap(fx.tokens.supervisorA, fx.otherProjectId)).status).toBe(403);
     expect((await bootstrap(fx.tokens.contractor)).status).toBe(403);
   });
@@ -432,7 +490,7 @@ describe('GET /projects/:projectId/sync/changes', () => {
       .query({ cursor, limit })
       .set('Authorization', `Bearer ${token}`);
 
-  it('pages with a server cursor and only shows updates in the caller zones', async () => {
+  it('pages with a server cursor and only shows updates in the caller sites', async () => {
     const b = await pushOne(fx.tokens.supervisorB, op({ featureId: fx.boxB }));
     const all = SyncChangesResponseSchema.parse((await changes(fx.tokens.pm)).body);
     const forA = SyncChangesResponseSchema.parse((await changes(fx.tokens.supervisorA)).body);
@@ -464,7 +522,7 @@ describe('GET /projects/:projectId/sync/changes', () => {
 
 describe('newer revisions', () => {
   it('flags updates made on an outdated revision and on a removed feature', async () => {
-    // Rev 2 keeps the route and box B and drops box A.
+    // Rev 2 of site A's General keeps the route and drops box A.
     const rev2 = await publishRevision(
       ctx.pool,
       fx.projectId,
@@ -475,15 +533,23 @@ describe('newer revisions', () => {
           wkt: `LINESTRING(${E0} ${N0}, ${E0 + 100} ${N0})`,
           isNew: false,
         },
-        { id: fx.boxB, type: 'box', wkt: `POINT(${E0 + 1000} ${N0 + 1000})`, isNew: false },
       ],
       2,
+      'general',
+      { siteId: fx.siteA },
     );
     const onOld = await pushOne(
       fx.tokens.supervisorA,
       op({
         workType: 'installation',
-        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '0.5',
+            role: 'material',
+            performer: null,
+          },
+        ],
       }),
     );
     if (onOld.outcome !== 'applied') throw new Error('not applied');
@@ -495,7 +561,14 @@ describe('newer revisions', () => {
         revisionId: rev2,
         gps: null,
         workType: 'installation',
-        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
+        lines: [
+          {
+            workOrderItemId: fx.items.installation,
+            quantity: '0.5',
+            role: 'material',
+            performer: null,
+          },
+        ],
       }),
     );
     if (onNew.outcome !== 'applied') throw new Error('not applied');
@@ -504,8 +577,8 @@ describe('newer revisions', () => {
 });
 
 describe('scope across revisions', () => {
-  it('refuses an update named on an old revision when the feature now lies outside the zone', async () => {
-    // The route moves out of zone A in a newer revision; supervisor A names the old one.
+  it('keeps an update named on an old revision in scope: the site is the drawing, not the geometry', async () => {
+    // The route moves far away in a newer revision of the same drawing; supervisor A names the old one.
     const old = await publishRevision(
       ctx.pool,
       fx.projectId,
@@ -518,6 +591,8 @@ describe('scope across revisions', () => {
         },
       ],
       10,
+      'general',
+      { siteId: fx.siteA },
     );
     await publishRevision(
       ctx.pool,
@@ -531,18 +606,28 @@ describe('scope across revisions', () => {
         },
       ],
       11,
+      'general',
+      { siteId: fx.siteA },
     );
-    const result = await pushOne(
+    const lines = [
+      {
+        workOrderItemId: fx.items.installation,
+        quantity: '0.5',
+        role: 'material',
+        performer: null,
+      },
+    ];
+    const onOld = await pushOne(
       fx.tokens.supervisorA,
-      op({
-        featureId: fx.routeA,
-        revisionId: old,
-        gps: null,
-        workType: 'installation',
-        lines: [{ workOrderItemId: fx.items.installation, quantity: '0.5', role: 'material' }],
-      }),
+      op({ featureId: fx.routeA, revisionId: old, gps: null, workType: 'installation', lines }),
     );
-    expect(result).toMatchObject({ outcome: 'rejected', code: 'FEATURE_OUT_OF_SCOPE' });
+    expect(onOld.outcome).toBe('applied');
+    // Supervisor B holds another site: the same feature and revision stay out of his reach.
+    const asB = await pushOne(
+      fx.tokens.supervisorB,
+      op({ featureId: fx.routeA, revisionId: old, gps: null, workType: 'installation', lines }),
+    );
+    expect(asB).toMatchObject({ outcome: 'rejected', code: 'FEATURE_OUT_OF_SCOPE' });
   });
 });
 

@@ -671,8 +671,9 @@ describe('answer and trench marks lifecycle', () => {
     const file = await generalWithCurves();
     await answer(file, 'has_trench');
     const mark = (await addMark(file, 'C1', '3')).body.id as string;
-    // Reads: pm, supervisor (cad_files:read); not the contractor.
-    expect((await getState(file, supervisor)).status).toBe(200);
+    // Reads: pm and qc (cad_files:read); not the supervisor (ADR-054: sync only), not the contractor.
+    expect((await getState(file, supervisor)).status).toBe(403);
+    expect((await getState(file, pm)).status).toBe(200);
     expect((await getState(file, contractor)).status).toBe(403);
     // Writes: design:write only.
     expect((await answer(file, 'pull_only', supervisor)).status).toBe(403);
