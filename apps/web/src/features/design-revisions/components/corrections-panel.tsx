@@ -237,6 +237,12 @@ function Values({ item }: { item: DrawingCorrection }) {
           <Ltr>
             (Δx {round(c.dx)}, Δy {round(c.dy)})
           </Ltr>
+          {c.toLayer !== null ? (
+            <>
+              {' '}
+              → <Ltr className="break-all">{c.toLayer}</Ltr>
+            </>
+          ) : null}
         </>
       );
     case 'mirror_item':
@@ -322,15 +328,36 @@ function Values({ item }: { item: DrawingCorrection }) {
         <>
           {t(`design.corrections.values.shape_${c.shape}`)}
           {c.pattern !== null ? <Ltr> {c.pattern}</Ltr> : null}{' '}
-          <Ltr className="break-all">{c.layer}</Ltr> (
-          {t('design.corrections.values.screenOnly')})
+          <Ltr className="break-all">{c.layer}</Ltr> ({t('design.corrections.values.screenOnly')})
+        </>
+      );
+    case 'merge_layer':
+      return (
+        <>
+          <Ltr className="break-all">{c.from}</Ltr> → <Ltr className="break-all">{c.to}</Ltr>
+        </>
+      );
+    case 'set_attribute':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr> <bdi>{c.from}</bdi> → <bdi>{c.to}</bdi>
+        </>
+      );
+    case 'set_group':
+      return (
+        <>
+          <bdi>{c.name}</bdi>{' '}
+          {c.handles.length === 0
+            ? t('design.corrections.values.ungrouped')
+            : t('design.corrections.values.groupCount', { count: c.handles.length })}{' '}
+          ({t('design.corrections.values.screenOnly')})
         </>
       );
     case 'set_order':
       return (
         <>
-          <Ltr>{c.handle}</Ltr> {t('design.corrections.values.order')}{' '}
-          <Ltr>{round(c.order)}</Ltr> ({t('design.corrections.values.screenOnly')})
+          <Ltr>{c.handle}</Ltr> {t('design.corrections.values.order')} <Ltr>{round(c.order)}</Ltr> (
+          {t('design.corrections.values.screenOnly')})
         </>
       );
   }

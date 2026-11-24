@@ -13,6 +13,7 @@ import { CadCommandLine, CadRibbon, CanvasButton, PenButton } from './cad-ribbon
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
+import { WorkspaceDialogs } from './workspace-dialogs';
 
 /**
  * «عارض الرسومات» (ADR-039): the drawing as drawn, with the layers, the problem places and the
@@ -229,10 +230,9 @@ function Workspace({
           shown: viewer.osm.shown,
           onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
         }}
+        layerScreen={viewer.layerScreen}
       />
-      <div
-        className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}
-      >
+      <div className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}>
         <div className={`min-w-0 flex-1 ${full ? 'flex min-h-0 flex-col' : ''}`}>
           <DrawingCanvas viewer={viewer} model={model} fill={full}>
             <div
@@ -294,6 +294,7 @@ function Workspace({
               <PenButton edit={edit} />
             </div>
             <CanvasPopover viewer={viewer} />
+            <WorkspaceDialogs viewer={viewer} />
           </DrawingCanvas>
           <CadCommandLine edit={edit} />
           {managerOpen ? (

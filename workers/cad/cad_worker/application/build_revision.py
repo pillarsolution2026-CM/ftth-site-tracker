@@ -47,6 +47,7 @@ from cad_worker.domain.corrections import (
     curve_handles,
     dismissed_places,
     layer_aliases,
+    merged_layers,
     parse_corrections,
     with_layer_aliases,
 )
@@ -174,7 +175,9 @@ def _build(job: CadBuildRevisionJob, deps: BuildDeps, started: float) -> Outcome
             raise BuildFailure("MAPPING_INVALID", f"unknown drawing kind {kind!r}")
         # Route layers for routes; point layers for their closed shapes (ADR-033); zone layers
         # (ADR-041); curves named by a correction wherever they are.
-        drawing = tx.load_drawing(rules.curve_layers(), curve_handles(corrections))
+        drawing = tx.load_drawing(
+            rules.curve_layers() | merged_layers(corrections), curve_handles(corrections)
+        )
         # Corrections made on the program page (ADR-038), before classification and checks: every
         # feature, text link and problem sees the corrected drawing. The background tile layer is
         # rendered from the raw rows and does not show them.

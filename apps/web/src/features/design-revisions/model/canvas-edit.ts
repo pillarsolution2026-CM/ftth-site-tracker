@@ -58,8 +58,13 @@ export function moveEdits(handles: readonly string[], dx: number, dy: number): C
   return handles.map((handle) => ({ kind: 'move_item', handle, dx: r(dx), dy: r(dy) }));
 }
 
-export function copyEdits(handles: readonly string[], dx: number, dy: number): CanvasEdit[] {
-  return handles.map((handle) => ({ kind: 'copy_item', handle, dx: r(dx), dy: r(dy) }));
+export function copyEdits(
+  handles: readonly string[],
+  dx: number,
+  dy: number,
+  toLayer: string | null = null,
+): CanvasEdit[] {
+  return handles.map((handle) => ({ kind: 'copy_item', handle, dx: r(dx), dy: r(dy), toLayer }));
 }
 
 /** One turn edit per handle, the angle brought into ±180. */

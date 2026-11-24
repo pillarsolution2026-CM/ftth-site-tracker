@@ -29,6 +29,25 @@ import { effectiveLayer, type DrawingPreview } from '../model/drawing-preview';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
 import { curveLength, distance, GeometryError, nearestOnCurve, type Pt } from '../model/geometry';
 import type { Bounds } from '../model/view-transform';
+import type { WorkspaceDialog } from './use-drawing-viewer';
+import type { LayerScreen } from './use-layer-screen';
+import {
+  blockAfterSelect,
+  isLayerCommand,
+  LAYER_OBJECT_STEPS,
+  LAYER_TRACKED,
+  layerAfterSelect,
+  layerBegin,
+  layerEnter,
+  layerObject,
+  layerOption,
+  layerPoint,
+  layerPrompt,
+  layerSketch,
+  layerText,
+  type LayerPromptKey,
+  type LayerStep,
+} from './layer-commands';
 
 /**
  * The Draw and Modify commands added for the owner (2026-11-24), on the same command line as the
@@ -72,6 +91,7 @@ const SELECTING_EXTRA: ReadonlySet<CommandId> = new Set<CommandId>([
 ]);
 
 export type ExtraStep =
+  | LayerStep
   | 'x_brPick'
   | 'x_brFirst'
   | 'x_brSecond'
@@ -131,6 +151,7 @@ export type ExtraStep =
 
 /** Prompts of the added commands (i18n keys under `design.cad.cmd`). */
 export type ExtraPromptKey =
+  | LayerPromptKey
   | 'breakSelect'
   | 'breakFirst'
   | 'breakSecond'
@@ -188,6 +209,7 @@ export type ExtraPromptKey =
 
 /** Steps that wait for an object pick (a click picks, a typed point is refused). */
 export const EXTRA_OBJECT_STEPS: readonly string[] = [
+  ...LAYER_OBJECT_STEPS,
   'x_brPick',
   'x_bapPick',
   'x_lenPick',
@@ -200,6 +222,7 @@ export const EXTRA_OBJECT_STEPS: readonly string[] = [
 ];
 /** Steps that follow the pointer for the rubber band. */
 export const EXTRA_TRACKED: readonly string[] = [
+  ...LAYER_TRACKED,
   'x_brSecond',
   'x_bapPoint',
   'x_splNext',
@@ -227,6 +250,8 @@ export interface ExtraSettings {
   lengthen: { mode: 'DE' | 'T' | 'P'; value: number };
   helixTurns: number;
   splineCv: boolean;
+  /** PICKSTYLE: picking one member of a group picks the whole group. */
+  groupPick: boolean;
 }
 
 export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
@@ -237,6 +262,7 @@ export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
   lengthen: { mode: 'DE', value: 0 },
   helixTurns: 3,
   splineCv: false,
+  groupPick: true,
 };
 
 /** Per run: what the added command has taken so far. */
@@ -292,6 +318,10 @@ export interface ExtraContext<R extends ExtraRun> {
   layerNameOf: (index: number) => string;
   needDrawLayer: () => boolean;
   geometryMessage: (caught: unknown) => void;
+  /** Layers an item may move to (they have a usable rule). */
+  usableLayers: readonly string[];
+  layerScreen?: LayerScreen;
+  openDialog?: (dialog: WorkspaceDialog | null) => void;
 }
 
 interface Prompt {
@@ -323,11 +353,12 @@ const go = <R extends ExtraRun>(
 const data = (r: ExtraRun): ExtraData => r.flags.extra ?? {};
 
 /** Whether the run is one of the added commands. */
-export const isExtra = (cmd: CommandId) => EXTRA_COMMANDS.has(cmd);
+export const isExtra = (cmd: CommandId) => EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd);
 
 // ---------- prompts ----------
 
 export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null {
+  if (isLayerCommand(r.cmd)) return layerPrompt(r);
   const p = (
     key: Prompt['key'],
     options: CommandOption[] = [],
@@ -516,6 +547,7 @@ export function extraBegin<R extends ExtraRun>(
   cmd: CommandId,
   fresh: (step: string) => R,
 ): R | null {
+  if (isLayerCommand(cmd)) return layerBegin(ctx, cmd, fresh);
   const picked = ctx.handles.length > 0;
   const start = (step: ExtraStep, extra: ExtraData = {}): R => {
     const r = fresh(step);
@@ -585,6 +617,11 @@ export function extraBegin<R extends ExtraRun>(
  * on, or null when the command is done.
  */
 export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): R | null {
+  if (r.cmd === 'block') {
+    blockAfterSelect(ctx, r);
+    return null;
+  }
+  if (isLayerCommand(r.cmd)) return layerAfterSelect(ctx, r);
   if (ctx.handles.length === 0) {
     ctx.finish();
     return null;
@@ -655,6 +692,7 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
 // ---------- entries ----------
 
 export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Point): void {
+  if (isLayerCommand(r.cmd)) return layerPoint(ctx, r, p);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -802,6 +840,10 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
 }
 
 export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: number): void {
+  if (isLayerCommand(r.cmd)) {
+    ctx.say(ctx.msg('badValue'));
+    return;
+  }
   const d = data(r);
   const s = ctx.settings;
   const positive = (then: () => void, allowZero = false) => {
@@ -930,6 +972,7 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
 }
 
 export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key: string): void {
+  if (isLayerCommand(r.cmd)) return layerOption(ctx, r, key);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -1028,7 +1071,13 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
 }
 
 /** Enter / Space on a step of an added command. */
+/** Free text on a step of an added command (a layer, group or block name). */
+export function extraText<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: string): void {
+  if (isLayerCommand(r.cmd)) layerText(ctx, r, value);
+}
+
 export function extraEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void {
+  if (isLayerCommand(r.cmd)) return layerEnter(ctx, r);
   const d = data(r);
   const s = ctx.settings;
   switch (r.step as ExtraStep) {
@@ -1112,6 +1161,7 @@ export function extraObject<R extends ExtraRun>(
   index: number | null,
   at: Point,
 ): void {
+  if (isLayerCommand(r.cmd)) return layerObject(ctx, r, index);
   const d = data(r);
   if (index === null || !ctx.pickable(index)) {
     ctx.say(ctx.msg('nothingThere'));
@@ -1209,6 +1259,7 @@ export function extraSketch(
   at: Point,
   settings: ExtraSettings,
 ): { points: Point[]; closed: boolean } | null {
+  if (isLayerCommand(r.cmd)) return layerSketch(r, at);
   const d = data(r);
   const a = pt(at);
   try {
@@ -1506,7 +1557,13 @@ function arrayDone<R extends ExtraRun>(ctx: ExtraContext<R>, d: ExtraData): void
     offsets.flatMap(([dx, dy]) =>
       ctx.handles.map(
         (handle) =>
-          ({ kind: 'copy_item', handle, dx: roundCoord(dx), dy: roundCoord(dy) }) as CanvasEdit,
+          ({
+            kind: 'copy_item',
+            handle,
+            dx: roundCoord(dx),
+            dy: roundCoord(dy),
+            toLayer: null,
+          }) as CanvasEdit,
       ),
     ),
   );

@@ -146,7 +146,7 @@ describe('CAD ribbon in the preview (ADR-050)', () => {
       scene,
       [
         correction({ kind: 'erase_item', handle: 'A' }, at(1)),
-        correction({ kind: 'copy_item', handle: 'B', dx: 0, dy: 10 }, at(2)),
+        correction({ kind: 'copy_item', handle: 'B', dx: 0, dy: 10, toLayer: null }, at(2)),
         correction({ kind: 'mirror_item', handle: 'A1', x1: 0, y1: 0, x2: 0, y2: 1 }, at(3)),
         correction({ kind: 'scale_item', handle: 'T1', x: 0, y: 0, factor: 2 }, at(4)),
         correction(

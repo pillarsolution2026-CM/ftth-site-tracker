@@ -41,7 +41,12 @@ drawing units.
   problem.
 - the drawing screen (owner 2026-11-24): `add_shape {shape, layer, points, pattern, scale, angle,
   color, color2, inner, outer}` (a hatch, gradient, wipeout, donut, XLINE or RAY) and
-  `set_order {handle, order}` (AutoCAD's draw order) are checked and then ignored, as notes.
+  `set_order {handle, order}` (AutoCAD's draw order) are checked and then ignored, as notes;
+  `copy_item` may carry `toLayer` (COPYTOLAYER: the copy goes on that layer); `merge_layer
+  {from, to}` (LAYMRG) moves every row of `from` to `to`, which keeps its own rule (the curves of
+  `from` are read even when it has no rule, `merged_layers`); `set_attribute {handle, from, to}`
+  (EATTEDIT) gives the insert's first attribute whose value is `from` the value `to`; `set_group
+  {name, handles, block}` (GROUP / BLOCK made on the page) is screen only.
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -90,6 +95,7 @@ LINETYPES = frozenset({"continuous", "dashed", "dotted", "center"})
 SHAPE_KINDS = frozenset({"hatch", "gradient", "wipeout", "donut", "xline", "ray"})
 HATCH_PATTERNS = frozenset({"SOLID", "ANSI31", "ANSI37", "DOTS"})
 MAX_DRAW_ORDER = 1_000_000_000
+MAX_GROUP_HANDLES = 2000
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 ADDED_CURVE_TYPE = "LWPOLYLINE"
 # Control characters U+0000-U+001F are refused in handles, layers and texts (as the contract).
@@ -171,6 +177,7 @@ class CopyItem:
     handle: str
     dx: float
     dy: float
+    to_layer: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +259,28 @@ class AddShape:
 
 
 @dataclass(frozen=True, slots=True)
+class MergeLayer:
+    from_layer: str
+    to_layer: str
+
+
+@dataclass(frozen=True, slots=True)
+class SetAttribute:
+    handle: str
+    from_value: str
+    to_value: str
+
+
+@dataclass(frozen=True, slots=True)
+class SetGroup:
+    """Screen only (owner 2026-11-24): the build ignores it."""
+
+    name: str
+    handles: tuple[str, ...]
+    block: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SetOrder:
     """Screen only (owner 2026-11-24): the build ignores it."""
 
@@ -281,6 +310,9 @@ Correction = (
     | SetStyle
     | AddShape
     | SetOrder
+    | MergeLayer
+    | SetAttribute
+    | SetGroup
 )
 
 
@@ -307,7 +339,7 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "move_item": frozenset({"kind", "handle", "dx", "dy"}),
     "rotate_item": frozenset({"kind", "handle", "x", "y", "angle"}),
     "erase_item": frozenset({"kind", "handle"}),
-    "copy_item": frozenset({"kind", "handle", "dx", "dy"}),
+    "copy_item": frozenset({"kind", "handle", "dx", "dy", "toLayer"}),
     "mirror_item": frozenset({"kind", "handle", "x1", "y1", "x2", "y2"}),
     "scale_item": frozenset({"kind", "handle", "x", "y", "factor"}),
     "add_curve": frozenset({"kind", "layer", "points", "closed"}),
@@ -333,6 +365,9 @@ _KEYS: Mapping[str, frozenset[str]] = {
         }
     ),
     "set_order": frozenset({"kind", "handle", "order"}),
+    "merge_layer": frozenset({"kind", "from", "to"}),
+    "set_attribute": frozenset({"kind", "handle", "from", "to"}),
+    "set_group": frozenset({"kind", "name", "handles", "block"}),
 }
 
 
@@ -417,7 +452,10 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         return EraseItem(_handle(cid, body.get("handle")))
     if kind == "copy_item":
         return CopyItem(
-            _handle(cid, body.get("handle")), _finite(cid, body, "dx"), _finite(cid, body, "dy")
+            _handle(cid, body.get("handle")),
+            _finite(cid, body, "dx"),
+            _finite(cid, body, "dy"),
+            None if body.get("toLayer") is None else _layer(cid, body, "toLayer"),
         )
     if kind == "mirror_item":
         m = MirrorItem(
@@ -469,6 +507,28 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         return _style(cid, body)
     if kind == "add_shape":
         return _shape(cid, body)
+    if kind == "merge_layer":
+        merged = MergeLayer(_layer(cid, body, "from"), _layer(cid, body, "to"))
+        if merged.from_layer == merged.to_layer:
+            raise CorrectionInvalidError(f"correction {cid}: merge into another layer")
+        return merged
+    if kind == "set_attribute":
+        changed = SetAttribute(
+            _handle(cid, body.get("handle")), _text(cid, body, "from"), _text(cid, body, "to")
+        )
+        if changed.from_value == changed.to_value:
+            raise CorrectionInvalidError(f"correction {cid}: the new value must differ")
+        return changed
+    if kind == "set_group":
+        handles = body.get("handles")
+        if not isinstance(handles, list) or len(handles) > MAX_GROUP_HANDLES:
+            raise CorrectionInvalidError(
+                f"correction {cid}: `handles` must be an array of at most {MAX_GROUP_HANDLES}"
+            )
+        block = body.get("block", False)
+        if not isinstance(block, bool):
+            raise CorrectionInvalidError(f"correction {cid}: `block` must be true or false")
+        return SetGroup(_text(cid, body, "name"), tuple(_handle(cid, h) for h in handles), block)
     if kind == "set_order":
         order = _number(body.get("order"))
         if order is None or abs(order) > MAX_DRAW_ORDER:
@@ -698,6 +758,14 @@ def curve_handles(corrections: Iterable[FrozenCorrection]) -> frozenset[str]:
     return frozenset(out)
 
 
+def merged_layers(corrections: Iterable[FrozenCorrection]) -> frozenset[str]:
+    """Layers a `merge_layer` empties: their curves are read even when they have no rule, so
+    they reach the layer they are merged into."""
+    return frozenset(
+        fc.correction.from_layer for fc in corrections if isinstance(fc.correction, MergeLayer)
+    )
+
+
 # ---------- applying ----------
 
 
@@ -719,9 +787,10 @@ def apply_corrections(
         move_targets = move_targets | {a for a, like in aliases.items() if like in move_targets}
         for fc in corrections:
             c = fc.correction
-            if isinstance(c, MoveLayer) and c.to_layer not in move_targets:
+            target = c.to_layer if isinstance(c, MoveLayer | MergeLayer) else None
+            if target is not None and target not in move_targets:
                 raise CorrectionInvalidError(
-                    f"drawing correction {fc.id}: layer {c.to_layer} has no rule that makes it a "
+                    f"drawing correction {fc.id}: layer {target} has no rule that makes it a "
                     "drawing item or label"
                 )
     if not metres_per_unit > 0:
@@ -837,8 +906,12 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
         if curve is None:
             raise CorrectionInvalidError(f"{where}: no line with handle {c.handle} in the drawing")
         rows.curves[c.handle] = dataclasses.replace(curve, points=c.points, closed=c.closed)
-    elif isinstance(c, AddNote | SetStyle | AddShape | SetOrder):
+    elif isinstance(c, AddNote | SetStyle | AddShape | SetOrder | SetGroup):
         return  # screen only (ADR-051): no row, quantity or problem changes
+    elif isinstance(c, MergeLayer):
+        _relayer(rows, c.from_layer, c.to_layer)
+    elif isinstance(c, SetAttribute):
+        _set_attribute(rows, c, where)
     elif isinstance(c, RenameLayer):
         _relayer(rows, c.from_layer, c.to_layer)
     elif isinstance(c, DeleteLayer):
@@ -917,15 +990,44 @@ def _copy(rows: _Rows, c: CopyItem, fix: str, where: str) -> None:
         return (p[0] + c.dx, p[1] + c.dy)
 
     if (insert := rows.inserts.get(c.handle)) is not None:
-        rows.inserts[fix] = dataclasses.replace(insert, handle=fix, position=shift(insert.position))
+        rows.inserts[fix] = dataclasses.replace(
+            insert,
+            handle=fix,
+            position=shift(insert.position),
+            layer=c.to_layer or insert.layer,
+        )
     elif (text := rows.texts.get(c.handle)) is not None:
-        rows.put_text(dataclasses.replace(text, handle=fix, position=shift(text.position)))
+        rows.put_text(
+            dataclasses.replace(
+                text, handle=fix, position=shift(text.position), layer=c.to_layer or text.layer
+            )
+        )
     elif (curve := rows.curves.get(c.handle)) is not None:
         rows.curves[fix] = dataclasses.replace(
-            curve, handle=fix, points=tuple(shift(p) for p in curve.points)
+            curve,
+            handle=fix,
+            points=tuple(shift(p) for p in curve.points),
+            layer=c.to_layer or curve.layer,
         )
     else:
         raise CorrectionInvalidError(f"{where}: no item with handle {c.handle} in the drawing")
+
+
+def _set_attribute(rows: _Rows, c: SetAttribute, where: str) -> None:
+    insert = rows.inserts.get(c.handle)
+    if insert is None:
+        raise CorrectionInvalidError(f"{where}: no block with handle {c.handle} in the drawing")
+    for i, attribute in enumerate(insert.attributes):
+        if c.from_value in (attribute.value, attribute.raw_value):
+            changed = dataclasses.replace(
+                attribute, value=c.to_value, raw_value=c.to_value, readable=True
+            )
+            attributes = (*insert.attributes[:i], changed, *insert.attributes[i + 1 :])
+            rows.inserts[c.handle] = dataclasses.replace(insert, attributes=attributes)
+            return
+    raise CorrectionInvalidError(
+        f"{where}: block {c.handle} has no attribute with the value {c.from_value!r}"
+    )
 
 
 def _relayer(rows: _Rows, source: str, target: str) -> None:

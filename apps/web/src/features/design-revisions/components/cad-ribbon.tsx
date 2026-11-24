@@ -6,6 +6,7 @@ import type { DrawingLinetype } from '@ftth/shared';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
+import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
 import {
   ACI_COLORS,
@@ -89,7 +90,9 @@ function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string
 }
 
 /** This program's own drawings of the commands (in the spirit of a CAD ribbon). */
-const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers' | 'osm', ReactNode> = {
+type IconKey =
+  CommandId | 'undo' | 'redo' | 'markers' | 'osm' | 'bedit' | 'attdef' | 'fade' | 'layerstate';
+const ICONS: Record<IconKey, ReactNode> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -363,6 +366,170 @@ const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers' | 'osm', ReactNode> 
       <rect x="10" y="10" width="11" height="11" fill="currentColor" fillOpacity="0.35" />
     </>
   ),
+  layoff: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M15 16l5 5M20 16l-5 5" />
+    </>
+  ),
+  layiso: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="15" width="6" height="6" />
+    </>
+  ),
+  layuniso: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="15" width="6" height="6" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  layfrz: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M18 14v8M14.5 16l7 4M14.5 20l7-4" />
+    </>
+  ),
+  laythw: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M18 13.5v1.5M18 21v1.5M13.5 18H15M21 18h1.5" />
+    </>
+  ),
+  laylck: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="17" width="7" height="5" />
+      <path d="M15.5 17v-2a2 2 0 0 1 4 0v2" />
+    </>
+  ),
+  layulk: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="17" width="7" height="5" />
+      <path d="M15.5 17v-2a2 2 0 0 1 3.8-.8" />
+    </>
+  ),
+  layon: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M16 18h5M18.5 15.5v5" />
+    </>
+  ),
+  layerp: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M20 20h-6l2-2M14 20l2 2" />
+    </>
+  ),
+  laycur: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M14 18h7M18 15l3 3-3 3" />
+    </>
+  ),
+  copytolayer: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="13" y="15" width="5" height="5" />
+      <rect x="16" y="17" width="5" height="5" />
+    </>
+  ),
+  laywalk: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M15 21l2-5 2 5M16 19h2" />
+    </>
+  ),
+  laymrg: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M14 15l3 3 3-3M17 18v4" />
+    </>
+  ),
+  laydel: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M14 16h7M15 16l.7 6h3.6l.7-6" />
+    </>
+  ),
+  find: (
+    <>
+      <circle cx="10" cy="10" r="6" />
+      <path d="M14.5 14.5 21 21" />
+    </>
+  ),
+  group: (
+    <>
+      <rect x="3" y="3" width="18" height="18" strokeDasharray="2 2" />
+      <rect x="6" y="6" width="5" height="5" />
+      <circle cx="15.5" cy="15.5" r="2.5" />
+    </>
+  ),
+  ungroup: (
+    <>
+      <rect x="3" y="3" width="8" height="8" />
+      <circle cx="17" cy="17" r="3" />
+      <path d="M14 3h7v7" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  groupedit: (
+    <>
+      <rect x="3" y="3" width="14" height="14" strokeDasharray="2 2" />
+      <path d="M13 21l1-3 6-6 2 2-6 6z" />
+    </>
+  ),
+  pickstyle: (
+    <>
+      <rect x="3" y="3" width="13" height="13" strokeDasharray="2 2" />
+      <path d="M14 14l7 3-3 1-1 3z" />
+    </>
+  ),
+  block: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4 8-4V8M12 12v8" />
+      <path d="M19 2v4M17 4h4" />
+    </>
+  ),
+  insert: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4 8-4V8M12 12v8" />
+    </>
+  ),
+  eattedit: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M13 21l1-3 6-6 2 2-6 6z" />
+    </>
+  ),
+  bedit: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4M14 21l1-3 5-5 2 2-5 5z" />
+    </>
+  ),
+  attdef: (
+    <>
+      <rect x="3" y="6" width="18" height="12" />
+      <path d="M7 15l2-6 2 6M7.7 13h2.6M14 9h4M14 12h4M14 15h3" />
+    </>
+  ),
+  fade: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" opacity="0.45" />
+      <path d="M3 14l9 5 9-5" />
+    </>
+  ),
+  layerstate: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M3 14l9 5 9-5" />
+      <path d="M3 19l9 5" opacity="0" />
+    </>
+  ),
   undo: <path d="M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3" />,
   redo: <path d="M15 4l5 5-5 5M20 9H10a6 6 0 0 0 0 12h3" />,
   markers: (
@@ -411,6 +578,151 @@ function StripButton({
 function shortcutOf(id: CommandId): string {
   const def = COMMANDS[id];
   return def.aliases[0] ?? def.name;
+}
+
+/** A small icon-only tool, as AutoCAD's compact panel rows (the name shows on hover). */
+function IconTile({ edit, id }: { edit: CanvasEditState; id: CommandId }) {
+  const { t } = useI18n();
+  const label = t(`design.cad.tool.${id}` as MessageKey);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={edit.command === id}
+      title={`${label} — ${COMMANDS[id].name}`}
+      onClick={() => edit.run(id)}
+      className={`flex min-h-8 min-w-8 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
+        edit.command === id ? DARK.on : DARK.tile
+      }`}
+    >
+      <Svg size="size-4">{ICONS[id]}</Svg>
+    </button>
+  );
+}
+
+/**
+ * A tool of AutoCAD's panel that the web screen cannot do (it needs the block definitions of the
+ * file): shown greyed with the reason, so nothing pretends to work.
+ */
+function Unavailable({ icon, label, reason }: { icon: IconKey; label: string; reason: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-label={label}
+      title={`${label} — ${reason}`}
+      className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs opacity-40 ${DARK.tile}`}
+    >
+      <Svg size="size-4">{ICONS[icon]}</Svg>
+      <span dir="ltr" className="whitespace-nowrap">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+/** Named layer states (AutoCAD's «Unsaved Layer State» drop-down); kept in this browser. */
+function LayerStates({ screen }: { screen: LayerScreen }) {
+  const { t } = useI18n();
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const unsaved = t('design.cad.layerStateUnsaved');
+  return (
+    <div className="flex items-center gap-0.5">
+      <select
+        aria-label={t('design.cad.layerStates')}
+        title={t('design.cad.layerStates')}
+        className={`min-h-7 w-44 rounded px-1 text-xs ${DARK.field}`}
+        value={screen.current ?? ''}
+        onChange={(event) => {
+          if (event.target.value) screen.restoreState(event.target.value);
+        }}
+      >
+        <option value="">{unsaved}</option>
+        {screen.states.map((state) => (
+          <option key={state} value={state}>
+            {state}
+          </option>
+        ))}
+      </select>
+      {naming ? (
+        <form
+          className="flex items-center gap-0.5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            screen.saveState(name);
+            setName('');
+            setNaming(false);
+          }}
+        >
+          <input
+            aria-label={t('design.cad.layerStateName')}
+            value={name}
+            autoFocus
+            onChange={(event) => setName(event.target.value)}
+            className={`min-h-7 w-28 rounded px-1 text-xs ${DARK.field}`}
+          />
+          <button type="submit" className={`min-h-7 rounded px-1.5 text-xs ${DARK.tile}`}>
+            {t('design.cad.layerStateSave')}
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          aria-label={t('design.cad.layerStateNew')}
+          title={t('design.cad.layerStateNew')}
+          onClick={() => setNaming(true)}
+          className={`min-h-7 min-w-7 rounded text-xs ${DARK.tile}`}
+        >
+          +
+        </button>
+      )}
+      {screen.current ? (
+        <button
+          type="button"
+          aria-label={t('design.cad.layerStateDelete', { name: screen.current })}
+          title={t('design.cad.layerStateDelete', { name: screen.current })}
+          onClick={() => screen.current && screen.deleteState(screen.current)}
+          className={`min-h-7 min-w-7 rounded text-xs ${DARK.tile}`}
+        >
+          ✕
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Locked layer fading: on / off and how much (AutoCAD's slider, 0-90 %). */
+function LockedFading({ screen }: { screen: LayerScreen }) {
+  const { t } = useI18n();
+  const { fade } = screen;
+  return (
+    <div className="flex items-center gap-1 text-xs">
+      <button
+        type="button"
+        aria-pressed={fade.on}
+        aria-label={t('design.cad.lockedFading')}
+        title={t('design.cad.lockedFading')}
+        onClick={() => screen.setFade({ ...fade, on: !fade.on })}
+        className={`flex min-h-7 min-w-7 items-center justify-center rounded ${fade.on ? DARK.on : DARK.tile}`}
+      >
+        <Svg size="size-4">{ICONS.fade}</Svg>
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={90}
+        step={5}
+        value={fade.percent}
+        aria-label={t('design.cad.lockedFadingPercent')}
+        onChange={(event) => screen.setFade({ ...fade, percent: Number(event.target.value) })}
+        className="w-24"
+      />
+      <span dir="ltr" className="w-9 text-end">
+        {fade.percent}%
+      </span>
+    </div>
+  );
 }
 
 function Tile({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId; big?: boolean }) {
@@ -610,6 +922,7 @@ export function CadRibbon({
   markersShown,
   onToggleMarkers,
   osm,
+  layerScreen,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
@@ -621,6 +934,7 @@ export function CadRibbon({
   onToggleMarkers: () => void;
   /** OpenStreetMap behind the drawing: needs the file's CRS; loaded only when turned on. */
   osm: { available: boolean; shown: boolean; onToggle: () => void };
+  layerScreen: LayerScreen;
 }) {
   const { t } = useI18n();
   if (!edit.available || !edit.editing) return null;
@@ -808,7 +1122,23 @@ export function CadRibbon({
             </span>
           </button>
         </Panel>
-        <Panel title={t('design.cad.panel.layers')}>
+        <Panel
+          title={t('design.cad.panel.layers')}
+          more={
+            <div className="flex flex-col gap-1">
+              <LayerStates screen={layerScreen} />
+              <div className="flex flex-wrap gap-0.5">
+                <IconTile edit={edit} id="layerp" />
+                <IconTile edit={edit} id="laycur" />
+                <IconTile edit={edit} id="copytolayer" />
+                <IconTile edit={edit} id="laywalk" />
+                <IconTile edit={edit} id="laymrg" />
+                <IconTile edit={edit} id="laydel" />
+              </div>
+              <LockedFading screen={layerScreen} />
+            </div>
+          }
+        >
           <Tile edit={edit} id="layer" big />
           <div className="flex flex-col gap-1">
             <LayerDropdown
@@ -818,11 +1148,74 @@ export function CadRibbon({
               onToggleFrozen={onToggleFrozen}
               onToggleLocked={onToggleLocked}
             />
-            <div className="flex gap-0.5">
+            <div className="flex flex-wrap items-center gap-0.5">
+              <IconTile edit={edit} id="layoff" />
+              <IconTile edit={edit} id="layiso" />
+              <IconTile edit={edit} id="layfrz" />
+              <IconTile edit={edit} id="laylck" />
               <Tile edit={edit} id="laymcur" />
+            </div>
+            <div className="flex flex-wrap items-center gap-0.5">
+              <IconTile edit={edit} id="layon" />
+              <IconTile edit={edit} id="layuniso" />
+              <IconTile edit={edit} id="laythw" />
+              <IconTile edit={edit} id="layulk" />
               <Tile edit={edit} id="laymch" />
+              <Tile edit={edit} id="find" />
             </div>
           </div>
+        </Panel>
+        <Panel title={t('design.cad.panel.groups')}>
+          <Tile edit={edit} id="group" big />
+          <Rows>
+            <IconTile edit={edit} id="ungroup" />
+            <IconTile edit={edit} id="groupedit" />
+            <button
+              type="button"
+              aria-pressed={edit.groupPick}
+              aria-label={t('design.cad.tool.pickstyle')}
+              title={`${t('design.cad.tool.pickstyle')} — PICKSTYLE`}
+              onClick={() => edit.run('pickstyle')}
+              className={`flex min-h-8 min-w-8 items-center justify-center rounded ${
+                edit.groupPick ? DARK.on : DARK.tile
+              }`}
+            >
+              <Svg size="size-4">{ICONS.pickstyle}</Svg>
+            </button>
+          </Rows>
+        </Panel>
+        <Panel
+          title={t('design.cad.panel.block')}
+          more={
+            <>
+              <Unavailable
+                icon="attdef"
+                label={t('design.cad.tool.attdef')}
+                reason={t('design.cad.blockInCad')}
+              />
+              <Unavailable
+                icon="attdef"
+                label={t('design.cad.tool.battman')}
+                reason={t('design.cad.blockInCad')}
+              />
+              <Unavailable
+                icon="attdef"
+                label={t('design.cad.tool.attsync')}
+                reason={t('design.cad.blockInCad')}
+              />
+            </>
+          }
+        >
+          <Tile edit={edit} id="insert" big />
+          <Rows>
+            <Tile edit={edit} id="block" />
+            <Unavailable
+              icon="bedit"
+              label={t('design.cad.tool.bedit')}
+              reason={t('design.cad.blockInCad')}
+            />
+            <Tile edit={edit} id="eattedit" />
+          </Rows>
         </Panel>
         <Panel title={t('design.cad.panel.properties')}>
           <Tile edit={edit} id="matchprop" big />

@@ -217,10 +217,11 @@ describe('AutoCAD-like screen corrections (ADR-051)', () => {
     expect(ok({ kind: 'set_style', handle: 'C1', lineweight: MAX_LINEWEIGHT_MM + 1 })).toBe(false);
     expect(ok({ kind: 'set_style', handle: 'C1', lineweight: -1 })).toBe(false);
   });
-  it('only notes, styles, shapes and draw order are screen-only', () => {
+  it('only notes, styles, shapes, draw order and groups are screen-only', () => {
     expect([...SCREEN_ONLY_CORRECTION_KINDS].sort()).toEqual([
       'add_note',
       'add_shape',
+      'set_group',
       'set_order',
       'set_style',
     ]);
@@ -332,5 +333,29 @@ describe('screen shapes and draw order (owner 2026-11-24)', () => {
     expect(ok({ kind: 'set_order', handle: 'C1', order: -3.5 })).toBe(true);
     expect(ok({ kind: 'set_order', handle: 'C1', order: Number.NaN })).toBe(false);
     expect(ok({ kind: 'set_order', handle: 'C1', order: 2e9 })).toBe(false);
+  });
+});
+
+describe('layers, groups and attributes (owner 2026-11-24)', () => {
+  const parse = (input: object) => DrawingCorrectionInputSchema.safeParse(input);
+  const ok = (input: object) => parse(input).success;
+  it('a copy may go on another layer; without one it keeps the original layer', () => {
+    const copy = parse({ kind: 'copy_item', handle: 'C1', dx: 1, dy: 0 });
+    expect(copy.success && copy.data).toMatchObject({ toLayer: null });
+    expect(ok({ kind: 'copy_item', handle: 'C1', dx: 0, dy: 0, toLayer: 'NEW' })).toBe(true);
+  });
+  it('a merge needs two layers', () => {
+    expect(ok({ kind: 'merge_layer', from: 'A', to: 'B' })).toBe(true);
+    expect(ok({ kind: 'merge_layer', from: 'A', to: 'A' })).toBe(false);
+  });
+  it('a group has a name; no handles ungroups it', () => {
+    const group = parse({ kind: 'set_group', name: 'G1', handles: ['A', 'B'] });
+    expect(group.success && group.data).toMatchObject({ block: false });
+    expect(ok({ kind: 'set_group', name: 'G1', handles: [] })).toBe(true);
+    expect(ok({ kind: 'set_group', name: ' ', handles: [] })).toBe(false);
+  });
+  it('an attribute changes from one value to another', () => {
+    expect(ok({ kind: 'set_attribute', handle: 'I1', from: 'FDB-1', to: 'FDB-2' })).toBe(true);
+    expect(ok({ kind: 'set_attribute', handle: 'I1', from: 'X', to: 'X' })).toBe(false);
   });
 });

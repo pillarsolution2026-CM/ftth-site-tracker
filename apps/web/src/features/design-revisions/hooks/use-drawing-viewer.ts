@@ -41,7 +41,11 @@ import {
 import { useMapping } from '@/features/cad-mapping/api/queries';
 import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
+import { useLayerScreen, type LayerScreen } from './use-layer-screen';
 import { useFixTools, type FixTools } from './use-fix-tools';
+
+export type WorkspaceDialog =
+  { kind: 'find' } | { kind: 'laywalk' } | { kind: 'attributes'; index: number };
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {
@@ -133,6 +137,13 @@ export interface DrawingViewer {
   popover: ViewerPopover | null;
   closePopover: () => void;
   markerCount: number;
+  /** The Layers panel on the screen: off, isolate, freeze, lock, states, fading. */
+  layerScreen: LayerScreen;
+  /** Dialogs of the workspace: FIND, Layer Walk, Edit Attributes (owner 2026-11-24). */
+  dialog: WorkspaceDialog | null;
+  setDialog: (dialog: WorkspaceDialog | null) => void;
+  /** Centres an entity on the screen and marks it (FIND). */
+  zoomToEntity: (index: number) => void;
   /** AutoCAD's object isolation, for the screen only (nothing is saved). */
   isolation: {
     active: boolean;
@@ -352,8 +363,22 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [layers, layerQuery],
   );
 
+  const layerScreen = useLayerScreen({
+    cadFileId,
+    layerCount: layers?.length ?? 0,
+    snapshot: { overrides, frozen, locked },
+    apply: (s) => {
+      setOverrides(s.overrides);
+      setFrozen(s.frozen);
+      setLocked(s.locked);
+    },
+  });
+  const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
+
   const textHeight = defaultTextHeight(tools.metresPerUnit);
   const edit = useCanvasEdit({
+    layerScreen,
+    openDialog: setDialog,
     projectId,
     cadFileId,
     available: canFix && enabled,
@@ -451,9 +476,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             noteHeight: textHeight,
             mapBehind,
             objectShown,
+            lockedFade:
+              layerScreen.fade.on && locked.size > 0
+                ? { layers: locked, alpha: 1 - layerScreen.fade.percent / 100 }
+                : undefined,
           }
         : null,
     [
+      layerScreen.fade.on,
+      layerScreen.fade.percent,
+      locked,
       objectShown,
       mapBehind,
       layerColor,
@@ -614,14 +646,23 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     markersShown,
     setMarkersShown,
     osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
+    layerScreen,
+    dialog,
+    setDialog,
+    zoomToEntity: (index) => {
+      if (!scene) return;
+      const box = boxOf(scene, index);
+      const half = Math.max((box.maxX - box.minX) / 2, (box.maxY - box.minY) / 2, 1) * 3;
+      setCustom(windowTransform((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, half, size));
+      setSelected(index);
+    },
     isolation: {
       active: objectShown !== undefined,
       isolate: (indexes) => {
         setIsolatedTo(new Set(indexes));
         setHiddenObjects(NO_ENTITIES);
       },
-      hide: (indexes) =>
-        setHiddenObjects((previous) => new Set([...previous, ...indexes])),
+      hide: (indexes) => setHiddenObjects((previous) => new Set([...previous, ...indexes])),
       end: () => {
         setIsolatedTo(null);
         setHiddenObjects(NO_ENTITIES);

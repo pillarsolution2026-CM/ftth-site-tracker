@@ -63,6 +63,9 @@ export const DRAWING_CORRECTION_KINDS = [
   'set_style',
   'add_shape',
   'set_order',
+  'merge_layer',
+  'set_group',
+  'set_attribute',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
@@ -98,7 +101,10 @@ export const SCREEN_ONLY_CORRECTION_KINDS: readonly DrawingCorrectionKind[] = [
   'set_style',
   'add_shape',
   'set_order',
+  'set_group',
 ];
+/** Objects in one group or page block (`set_group`; technical cap). */
+export const MAX_GROUP_HANDLES = 2000;
 /**
  * Shapes the drawing screen saves and draws, ignored by the build (owner 2026-11-24): a hatch or
  * gradient inside a closed boundary, a wipeout (an area painted with the background), a donut
@@ -216,6 +222,11 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
     handle: Handle,
     dx: Coord,
     dy: Coord,
+    /**
+     * AutoCAD's COPYTOLAYER (owner 2026-11-24): the copy goes on this layer; null keeps the
+     * original's. On a layer without a rule the copy is for drawing only (as a drawn line).
+     */
+    toLayer: LayerName.nullable().default(null),
   }),
   /** Mirrored across the line through (x1, y1) and (x2, y2) (ADR-050); the two points differ. */
   z
@@ -400,6 +411,40 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
     handle: Handle,
     order: z.number().refine(Number.isFinite).min(-MAX_DRAW_ORDER).max(MAX_DRAW_ORDER),
   }),
+  /**
+   * AutoCAD's LAYMRG (owner 2026-11-24): every item on `from` moves to `to`, which keeps its own
+   * rule (unlike `rename_layer`, where the target takes the rule of `from`). `from` is then empty.
+   */
+  z
+    .strictObject({
+      kind: z.literal('merge_layer'),
+      from: LayerName,
+      to: LayerName,
+    })
+    .refine((m) => m.from !== m.to, 'Merge into another layer'),
+  /**
+   * A named group of items (GROUP) or a block made on the page (BLOCK) — screen only: picking one
+   * member picks them all. The latest of a name wins; no handles ungroups it.
+   */
+  z.strictObject({
+    kind: z.literal('set_group'),
+    name: Text.max(MAX_TEXT_LENGTH),
+    handles: z.array(Handle).max(MAX_GROUP_HANDLES),
+    block: z.boolean().default(false),
+  }),
+  /**
+   * AutoCAD's EATTEDIT (owner 2026-11-24): the attribute of the insert whose value is `from`
+   * (the first one, in the file's order) gets `to`. The drawing view does not carry tags, so the
+   * value names the attribute.
+   */
+  z
+    .strictObject({
+      kind: z.literal('set_attribute'),
+      handle: Handle,
+      from: Text.max(MAX_TEXT_LENGTH),
+      to: Text.max(MAX_TEXT_LENGTH),
+    })
+    .refine((a) => a.from !== a.to, 'The new value must differ'),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;
 

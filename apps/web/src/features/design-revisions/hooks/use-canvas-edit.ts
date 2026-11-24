@@ -93,6 +93,7 @@ import {
   extraPoint,
   extraPrompt,
   extraSketch,
+  extraText,
   isExtra,
   type ExtraContext,
   type ExtraData,
@@ -100,6 +101,9 @@ import {
   type ExtraSettings,
   type ExtraStep,
 } from './extra-commands';
+import { LAYER_TEXT_STEPS } from './layer-commands';
+import type { WorkspaceDialog } from './use-drawing-viewer';
+import type { LayerScreen } from './use-layer-screen';
 
 export type { Point } from '../model/cad-commands';
 
@@ -423,6 +427,7 @@ const OBJECT_STEPS: readonly Step[] = [
   'dimSelect',
 ];
 
+const isTextStep = (step: Step) => TEXT_STEPS.includes(step) || LAYER_TEXT_STEPS.includes(step);
 const isTracked = (step: Step) => TRACKED.includes(step) || EXTRA_TRACKED.includes(step);
 const isObjectStep = (step: Step) =>
   OBJECT_STEPS.includes(step) || EXTRA_OBJECT_STEPS.includes(step);
@@ -454,6 +459,12 @@ export interface CanvasEditState {
   /** The command running, null at «Type a command». */
   command: CommandId | null;
   run: (id: CommandId) => void;
+  /** PICKSTYLE: picking one member of a group picks the group. */
+  groupPick: boolean;
+  /** EATTEDIT: the attribute of a block reference changes from one value to another. */
+  setAttribute: (index: number, from: string, to: string) => void;
+  /** FIND: a text's new content (a text, or an attribute of a block reference). */
+  replaceText: (index: number, from: string, to: string) => void;
   /** Starts a command with one of its options already chosen (ribbon drop-downs, menus). */
   runWith: (id: CommandId, option: string) => void;
   prompt: CommandPrompt;
@@ -550,6 +561,10 @@ interface Input {
   onOpenLayers?: () => void;
   /** Layers with a rule of their own in the mapping (any target). */
   ruledLayers?: ReadonlySet<string>;
+  /** The Layers panel on the screen (LAYOFF, LAYISO, …; owner 2026-11-24). */
+  layerScreen?: LayerScreen;
+  /** FIND, Layer Walk and Edit Attributes open a dialog. */
+  openDialog?: (dialog: WorkspaceDialog | null) => void;
 }
 
 /** Degrees counter-clockwise from the base point to the point (0 = to the right, as CAD). */
@@ -658,6 +673,19 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     t(`design.cad.msg.${key}` as MessageKey, params);
 
   const handles = scene ? handlesOf(scene, selection) : [];
+  /** The entity and, with group selection on, every shown member of its groups. */
+  const groupMembers = (index: number): number[] => {
+    if (!scene || !shown || !extraSettings.groupPick || shown.groups.size === 0) return [index];
+    const handle = scene.view.entities[index]?.handle;
+    const out = new Set([index]);
+    for (const group of shown.groups.values()) {
+      if (!handle || !group.handles.includes(handle)) continue;
+      for (const h of group.handles) {
+        for (const i of scene.byHandle.get(h) ?? []) if (pickable(i)) out.add(i);
+      }
+    }
+    return [...out];
+  };
   const addLike: CommandId | null = (() => {
     if (!scene || selection.size !== 1) return null;
     const [index] = selection;
@@ -1073,6 +1101,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           layerNameOf,
           needDrawLayer,
           geometryMessage,
+          usableLayers: layers,
+          layerScreen: input.layerScreen,
+          openDialog: input.openDialog,
         }
       : null;
 
@@ -2531,9 +2562,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const typed = text;
     setText('');
     if (!editing) return;
-    if (run && TEXT_STEPS.includes(run.step)) {
+    if (run && isTextStep(run.step)) {
       say(`${promptLine(run)} ${typed}`);
-      feedText(run, typed);
+      const ctx = extraFor(run);
+      if (ctx) extraText(ctx, run, typed);
+      else feedText(run, typed);
       return;
     }
     const last = run ? (run.points[run.points.length - 1] ?? run.base) : null;
@@ -2701,6 +2734,20 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       begin(id);
     },
+    groupPick: extraSettings.groupPick,
+    setAttribute: (index, from, to) => {
+      const handle = scene?.view.entities[index]?.handle;
+      if (!handle || from === to || !to.trim()) return;
+      add([{ kind: 'set_attribute', handle, from, to: to.trim() }]);
+    },
+    replaceText: (index, from, to) => {
+      const handle = scene?.view.entities[index]?.handle;
+      if (!scene || !handle || from === to || !to.trim()) return;
+      if (isTextEntity(scene, index)) add([{ kind: 'set_text', handle, text: to.trim() }]);
+      else if (scene.view.entities[index]?.kind === 'INSERT') {
+        add([{ kind: 'set_attribute', handle, from, to: to.trim() }]);
+      }
+    },
     runWith: (id, key) => {
       if (!editing) return;
       if (run) setRun(null);
@@ -2721,7 +2768,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       say(`${promptLine(run)} ${key}`);
       feedOption(run, key);
     },
-    textEntry: run !== null && TEXT_STEPS.includes(run.step),
+    textEntry: run !== null && isTextStep(run.step),
     focusNonce,
     key: (k, ctrl) => {
       if (!editing) return false;
@@ -2741,7 +2788,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         }
         return true;
       }
-      if (k === 'Enter' || (k === ' ' && !(run && TEXT_STEPS.includes(run.step)))) {
+      if (k === 'Enter' || (k === ' ' && !(run && isTextStep(run.step)))) {
         submit();
         return true;
       }
@@ -2809,10 +2856,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       // AutoCAD: a click adds to the selection; Shift + click (or Remove mode) takes it off.
       const removing = run?.flags.removing === true;
+      // PICKSTYLE on: one member of a group picks the whole group (AutoCAD).
+      const members = groupMembers(entity);
       setSelection((before) => {
         const next = new Set(before);
-        if ((additive || removing) && before.has(entity)) next.delete(entity);
-        else if (!removing) next.add(entity);
+        if ((additive || removing) && before.has(entity)) members.forEach((i) => next.delete(i));
+        else if (!removing) members.forEach((i) => next.add(i));
         return next;
       });
       if (run) say(msg('found', { count: 1 }));

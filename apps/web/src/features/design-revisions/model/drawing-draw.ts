@@ -84,6 +84,8 @@ export interface DrawModel {
   layerColor?: ReadonlyMap<number, string>;
   /** Height of dimension and leader texts, drawing units. */
   noteHeight?: number;
+  /** Locked layers drawn faded (AutoCAD's locked layer fading); undefined: not faded. */
+  lockedFade?: { layers: ReadonlySet<number>; alpha: number };
   /** Objects isolated / hidden on the screen (AutoCAD's ISOLATEOBJECTS); undefined: all shown. */
   objectShown?: (index: number) => boolean;
   /** OpenStreetMap is shown under the drawing: the background is left clear (owner 2026-11-24). */
@@ -223,10 +225,18 @@ export function drawBase(
   let current = '';
   const texted: number[] = [];
   const styled: number[] = [];
+  const faded: number[] = [];
+  const fade = model.lockedFade;
+  const isFaded = (index: number) =>
+    fade !== undefined && fade.layers.has(effectiveLayer(scene, preview, index));
   for (const index of shown) {
     const entity = entities[index] as DrawingViewEntity;
     if (entity.texts.length > 0) texted.push(index);
     if (entity.paths.length === 0) continue;
+    if (isFaded(index)) {
+      faded.push(index);
+      continue;
+    }
     if (preview.styleOf.has(index)) {
       styled.push(index);
       continue;
@@ -245,6 +255,15 @@ export function drawBase(
       current = color;
     }
     strokeEntity(ctx, model, cache, index);
+  }
+  // Locked layer fading: faded strokes of the locked layers.
+  if (fade && faded.length > 0) {
+    ctx.globalAlpha = fade.alpha;
+    for (const index of faded) {
+      ctx.strokeStyle = colorOf(model, index);
+      strokeEntity(ctx, model, cache, index);
+    }
+    ctx.globalAlpha = 1;
   }
   // Line types and weights (set_style; ADR-051): dashes and widths in screen pixels.
   for (const index of styled) {
@@ -271,6 +290,7 @@ export function drawBase(
     }
     const replaced = preview.textOf.get(index);
     const turned = preview.transformOf.get(index);
+    ctx.globalAlpha = isFaded(index) && fade ? fade.alpha : 1;
     entity.texts.forEach((text, i) => {
       const at = turned ? applyAffine(turned, text.x, text.y) : text;
       fillTextAt(
@@ -281,10 +301,13 @@ export function drawBase(
         at.y,
         text.height * (turned ? scaleOf(turned) : 1),
         text.rotation + (turned ? angleOf(turned) : 0),
-        i === 0 && replaced !== undefined ? replaced : text.text,
+        i === 0 && replaced !== undefined
+          ? replaced
+          : (preview.attrOf.get(index)?.get(text.text) ?? text.text),
       );
     });
   }
+  ctx.globalAlpha = 1;
   for (const extra of preview.extraTexts) {
     if (!model.layerShown(extra.layer)) continue;
     ctx.fillStyle = layerColorOf(model, extra.layer, extra.color);
@@ -451,10 +474,16 @@ function drawAdded(
   const { entities } = scene.view;
   setWorldTransform(ctx, scene, tf, vp);
   ctx.lineWidth = 1 / tf.scale;
+  const copyLayer = (copy: { index: number; layer?: number }) =>
+    copy.layer ?? effectiveLayer(scene, preview, copy.index);
+  const copyColor = (copy: { index: number; layer?: number }) =>
+    copy.layer === undefined
+      ? colorOf(model, copy.index)
+      : layerColorOf(model, copy.layer, scene.view.layers[copy.layer]?.color ?? '#ffffff');
   for (const copy of preview.copies) {
     const entity = entities[copy.index];
-    if (!entity || !model.layerShown(effectiveLayer(scene, preview, copy.index))) continue;
-    ctx.strokeStyle = colorOf(model, copy.index);
+    if (!entity || !model.layerShown(copyLayer(copy))) continue;
+    ctx.strokeStyle = copyColor(copy);
     if (entity.paths.length) strokeWith(ctx, model, cache, copy.index, copy.transform);
   }
   const { x: ox, y: oy } = scene.origin;
@@ -474,10 +503,10 @@ function drawAdded(
   setScreenTransform(ctx, vp);
   for (const copy of preview.copies) {
     const entity = entities[copy.index];
-    if (!entity?.texts.length || !model.layerShown(effectiveLayer(scene, preview, copy.index))) {
+    if (!entity?.texts.length || !model.layerShown(copyLayer(copy))) {
       continue;
     }
-    ctx.fillStyle = colorOf(model, copy.index);
+    ctx.fillStyle = copyColor(copy);
     for (const text of entity.texts) {
       const at = applyAffine(copy.transform, text.x, text.y);
       fillTextAt(

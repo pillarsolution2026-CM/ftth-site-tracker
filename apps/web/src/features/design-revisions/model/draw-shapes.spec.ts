@@ -111,10 +111,13 @@ describe('ELLIPSE, POLYGON, HELIX', () => {
     expect(Math.max(...points.map((p) => p[0]))).toBeCloseTo(10, 6);
     expect(Math.max(...points.map((p) => p[1]))).toBeCloseTo(5, 1);
     const arc = ellipsePoints([0, 0], [10, 0], 0.5, 0, 90);
-    close([arc[0] as Pt, arc[arc.length - 1] as Pt], [
-      [10, 0],
-      [0, 5],
-    ]);
+    close(
+      [arc[0] as Pt, arc[arc.length - 1] as Pt],
+      [
+        [10, 0],
+        [0, 5],
+      ],
+    );
     expect(() => ellipsePoints([0, 0], [0, 0], 0.5)).toThrow(GeometryError);
   });
   it('a polygon inscribed or circumscribed about a circle, or on an edge', () => {
@@ -154,10 +157,13 @@ describe('SPLINE', () => {
       [30, 0],
     ];
     const curve = cvSpline(cv);
-    close([curve[0] as Pt, curve[curve.length - 1] as Pt], [
-      [0, 0],
-      [30, 0],
-    ]);
+    close(
+      [curve[0] as Pt, curve[curve.length - 1] as Pt],
+      [
+        [0, 0],
+        [30, 0],
+      ],
+    );
     expect(Math.max(...curve.map((p) => Math.abs(p[1])))).toBeLessThan(10);
   });
 });

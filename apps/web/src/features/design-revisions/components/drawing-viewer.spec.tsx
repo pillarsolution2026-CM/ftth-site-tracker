@@ -1158,8 +1158,8 @@ describe(
         await type(user, '');
         await save(user);
         expect(sent()).toEqual([
-          { kind: 'copy_item', handle: 'B', dx: 75, dy: 0 },
-          { kind: 'copy_item', handle: 'B', dx: 150, dy: 0 },
+          { kind: 'copy_item', handle: 'B', dx: 75, dy: 0, toLayer: null },
+          { kind: 'copy_item', handle: 'B', dx: 150, dy: 0, toLayer: null },
         ]);
       });
 
@@ -1278,6 +1278,143 @@ describe(
         await save(user);
         expect(sent()).toEqual(
           [60, 70, 80, 90].map((x) => ({ kind: 'add_item', layer: 'Sap', x, y: 25 })),
+        );
+      });
+    });
+
+    describe('Layers, Groups and Block panels (owner 2026-11-24)', () => {
+      it('LAYOFF turns the layer of the picked object off; LAYERP brings it back', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await type(user, 'layoff');
+        expect(history()).toMatch(/Layer "Route" has been turned off/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+        await type(user, 'layerp');
+        expect(history()).toMatch(/Layers restored/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      });
+
+      it('the Layers panel has the AutoCAD tools, layer states and locked layer fading', async () => {
+        const { user } = await openWorkspace();
+        const layers = screen.getByRole('group', { name: 'Layers' });
+        for (const name of [
+          'Off',
+          'Isolate',
+          'Freeze',
+          'Lock',
+          'Turn All Layers On',
+          'Unisolate',
+        ]) {
+          expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
+        }
+        for (const name of ['Thaw All Layers', 'Unlock', 'Find']) {
+          expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
+        }
+        await user.click(screen.getByRole('button', { name: 'More Layers tools' }));
+        const more = screen.getByRole('group', { name: 'More Layers tools' });
+        expect(within(more).getByRole('combobox', { name: 'Layer State' })).toHaveValue('');
+        for (const name of ['Previous', 'Change to Current Layer', 'Copy Objects to New Layer']) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        for (const name of ['Layer Walk', 'Merge', 'Delete']) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        expect(within(more).getByRole('button', { name: 'Locked layer fading' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        expect(within(more).getByText('50%')).toBeInTheDocument();
+      });
+
+      it('LAYMRG moves every object of one layer to another; COPYTOLAYER copies there', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'laymrg');
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 20, 21);
+        expect(history()).toMatch(/Every object on layer "Route" will move to layer "Sap"/);
+        await type(user, 'y');
+        await click(user, canvas, 75, 25);
+        await type(user, 'copytolayer');
+        await click(user, canvas, 20, 21);
+        await type(user, '');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'merge_layer', from: 'Route', to: 'Sap' },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0, toLayer: 'Sap' },
+        ]);
+      });
+
+      it('FIND finds a text and Replace All changes it', async () => {
+        const { user } = await openWorkspace();
+        await type(user, 'find');
+        const dialog = screen.getByRole('dialog', { name: 'Find and Replace' });
+        await user.type(within(dialog).getByLabelText('Find what'), '36');
+        expect(within(dialog).getByText('1 found')).toBeInTheDocument();
+        await user.click(within(dialog).getByRole('button', { name: 'Find' }));
+        await user.type(within(dialog).getByLabelText('Replace with'), '48');
+        await user.click(within(dialog).getByRole('button', { name: 'Replace All' }));
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'set_text', handle: 'T1', text: 'F 48 C' }]);
+      });
+
+      it('GROUP makes a group; with group selection on, one member picks them all', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 25, 0);
+        await type(user, 'group');
+        expect(history()).toMatch(/Group "\*A1" has been created with 2 object\(s\)/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        await type(user, 'block');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'set_group', name: '*A1', handles: ['B', 'A'], block: false },
+          { kind: 'erase_item', handle: 'B' },
+          { kind: 'erase_item', handle: 'A' },
+        ]);
+      });
+
+      it('INSERT places a copy of a block reference; EATTEDIT changes its value', async () => {
+        const view = testView();
+        api.getDrawingView.mockResolvedValue({
+          ...view,
+          entities: view.entities.map((e) =>
+            e.handle === 'A1'
+              ? { ...e, texts: [{ x: 21, y: 21, height: 1, rotation: 0, text: 'S1' }] }
+              : e,
+          ),
+        });
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'insert');
+        await click(user, canvas, 21, 21);
+        await type(user, '50,50');
+        await type(user, '');
+        await type(user, 'eattedit');
+        await click(user, canvas, 21, 21);
+        const dialog = screen.getByRole('dialog', { name: 'Enhanced Attribute Editor - A1' });
+        const value = within(dialog).getByLabelText('Value 1');
+        await user.clear(value);
+        await user.type(value, 'S2');
+        await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'copy_item', handle: 'A1', dx: 29, dy: 29, toLayer: null },
+          { kind: 'set_attribute', handle: 'A1', from: 'S1', to: 'S2' },
+        ]);
+      });
+
+      it('the Block panel says which block tools need AutoCAD', async () => {
+        await openWorkspace();
+        const block = screen.getByRole('group', { name: 'Block' });
+        expect(within(block).getByRole('button', { name: 'Insert' })).toBeEnabled();
+        expect(within(block).getByRole('button', { name: 'Edit' })).toBeDisabled();
+        expect(within(block).getByRole('button', { name: 'Edit' })).toHaveAttribute(
+          'title',
+          expect.stringMatching(/edited in AutoCAD/),
         );
       });
     });
@@ -1647,7 +1784,7 @@ describe(
         expect(sent()).toEqual([
           { kind: 'move_item', handle: 'B', dx: 5, dy: 0 },
           { kind: 'move_item', handle: 'A', dx: 3, dy: 4 },
-          { kind: 'copy_item', handle: 'B', dx: 0, dy: 5 },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 5, toLayer: null },
         ]);
       });
 
@@ -1685,11 +1822,11 @@ describe(
         await type(user, '');
         await save(user);
         expect(sent()).toEqual([
-          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0 },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0, toLayer: null },
           expect.objectContaining({ kind: 'rotate_item', handle: 'B', angle: 90 }),
           expect.objectContaining({ kind: 'rotate_item', handle: 'A', angle: 60 }),
           expect.objectContaining({ kind: 'scale_item', handle: 'A1', factor: 3 }),
-          { kind: 'copy_item', handle: 'T1', dx: 0, dy: 0 },
+          { kind: 'copy_item', handle: 'T1', dx: 0, dy: 0, toLayer: null },
           expect.objectContaining({ kind: 'mirror_item', handle: 'T1' }),
         ]);
       });
