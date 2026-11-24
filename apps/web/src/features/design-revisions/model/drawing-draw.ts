@@ -79,6 +79,8 @@ export interface DrawModel {
   layerColor?: ReadonlyMap<number, string>;
   /** Height of dimension and leader texts, drawing units. */
   noteHeight?: number;
+  /** Objects isolated / hidden on the screen (AutoCAD's ISOLATEOBJECTS); undefined: all shown. */
+  objectShown?: (index: number) => boolean;
   /** OpenStreetMap is shown under the drawing: the background is left clear (owner 2026-11-24). */
   mapBehind?: boolean;
 }
@@ -199,6 +201,7 @@ export function drawBase(
   const shown: number[] = [];
   for (const index of candidates) {
     if (preview.erased.has(index)) continue;
+    if (model.objectShown && !model.objectShown(index)) continue;
     if (model.layerShown(effectiveLayer(scene, preview, index))) shown.push(index);
   }
 
@@ -567,7 +570,9 @@ export function drawOverlay(
       b.maxY >= bounds.minY
     );
   };
-  const shown = (index: number) => model.layerShown(effectiveLayer(scene, preview, index));
+  const shown = (index: number) =>
+    (!model.objectShown || model.objectShown(index)) &&
+    model.layerShown(effectiveLayer(scene, preview, index));
 
   setWorldTransform(ctx, scene, tf, vp);
   ctx.lineJoin = 'round';

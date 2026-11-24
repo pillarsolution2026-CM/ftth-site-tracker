@@ -133,6 +133,19 @@ export interface DrawingViewer {
   popover: ViewerPopover | null;
   closePopover: () => void;
   markerCount: number;
+  /** AutoCAD's object isolation, for the screen only (nothing is saved). */
+  isolation: {
+    active: boolean;
+    /** Only these objects stay on the screen. */
+    isolate: (indexes: ReadonlySet<number>) => void;
+    /** These objects leave the screen. */
+    hide: (indexes: ReadonlySet<number>) => void;
+    end: () => void;
+  };
+  /** A right click in the edit mode: with nothing picked it picks the object under the pointer. */
+  pickForMenu: (sx: number, sy: number) => void;
+  /** The details panel of an object (the right-click «Properties»). */
+  showProperties: (index: number) => void;
   /** OpenStreetMap under the drawing (owner 2026-11-24): loaded only once turned on. */
   osm: {
     /** Drawing point → Lon/Lat; null when the file has no CRS / unit mapping yet. */
@@ -265,6 +278,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [problems.data, corrections.data, revisionCreatedAt],
   );
   const markers = markersShown ? allMarkers : NO_MARKERS;
+  const [isolatedTo, setIsolatedTo] = useState<ReadonlySet<number> | null>(null);
+  const [hiddenObjects, setHiddenObjects] = useState<ReadonlySet<number>>(NO_ENTITIES);
+  const objectShown = useMemo(
+    () =>
+      isolatedTo === null && hiddenObjects.size === 0
+        ? undefined
+        : (index: number) =>
+            (isolatedTo === null || isolatedTo.has(index)) && !hiddenObjects.has(index),
+    [isolatedTo, hiddenObjects],
+  );
   const mapping = useMapping(projectId, cadFileId, enabled);
   const toLonLat = useMemo(() => drawingToLonLat(mapping.data?.mapping), [mapping.data]);
   const [osmShown, setOsmShown] = useState(false);
@@ -339,7 +362,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     layers: tools.layers,
     // Picking asks per entity: its layer (after saved moves) must be drawn, and not locked.
     isShown: (index) =>
-      scene !== null && preview !== null && isShown(effectiveLayer(scene, preview, index)),
+      scene !== null &&
+      preview !== null &&
+      (objectShown === undefined || objectShown(index)) &&
+      isShown(effectiveLayer(scene, preview, index)),
     isLocked: (index) =>
       scene !== null && preview !== null && locked.has(effectiveLayer(scene, preview, index)),
     textHeight,
@@ -424,9 +450,11 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             layerColor,
             noteHeight: textHeight,
             mapBehind,
+            objectShown,
           }
         : null,
     [
+      objectShown,
       mapBehind,
       layerColor,
       textHeight,
@@ -586,5 +614,47 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     markersShown,
     setMarkersShown,
     osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
+    isolation: {
+      active: objectShown !== undefined,
+      isolate: (indexes) => {
+        setIsolatedTo(new Set(indexes));
+        setHiddenObjects(NO_ENTITIES);
+      },
+      hide: (indexes) =>
+        setHiddenObjects((previous) => new Set([...previous, ...indexes])),
+      end: () => {
+        setIsolatedTo(null);
+        setHiddenObjects(NO_ENTITIES);
+      },
+    },
+    pickForMenu: (sx, sy) => {
+      if (!scene || !shownPreview || !edit.editing || edit.command !== null) return;
+      if (edit.chosenCount > 0) return;
+      const world = toWorld(transform, size, sx, sy);
+      const hit = hitEntity(
+        scene,
+        world.x,
+        world.y,
+        ENTITY_HIT_PX / transform.scale,
+        (index) =>
+          !shownPreview.erased.has(index) &&
+          (objectShown === undefined || objectShown(index)) &&
+          isShown(effectiveLayer(scene, shownPreview, index)),
+        shownPreview.transformOf,
+        shownPreview.curveOf,
+      );
+      if (hit !== null) edit.pick(hit, world, false);
+    },
+    showProperties: (index) => {
+      if (!scene) return;
+      const box = boxOf(scene, index);
+      setSelected(index);
+      setPopover({
+        x: (box.minX + box.maxX) / 2,
+        y: (box.minY + box.maxY) / 2,
+        entity: index,
+        marker: null,
+      });
+    },
   };
 }

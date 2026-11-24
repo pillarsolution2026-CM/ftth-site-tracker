@@ -398,6 +398,19 @@ const OBJECT_STEPS: readonly Step[] = [
 ];
 
 const CURVE_KINDS = new Set(['LINE', 'LWPOLYLINE', 'POLYLINE']);
+/** DXF type → the command that draws one like it (ADDSELECTED). */
+const DRAW_LIKE: Readonly<Record<string, CommandId>> = {
+  LINE: 'line',
+  LWPOLYLINE: 'pline',
+  POLYLINE: 'pline',
+  CIRCLE: 'circle',
+  ARC: 'arc',
+  POINT: 'point',
+  TEXT: 'text',
+  MTEXT: 'text',
+  DIMENSION: 'dimlinear',
+  LEADER: 'leader',
+};
 const NONE: ReadonlySet<number> = new Set();
 const HISTORY_LINES = 50;
 const opt = (word: string, key: string): CommandOption => ({ word, key });
@@ -429,6 +442,12 @@ export interface CanvasEditState {
   chosen: ReadonlySet<number>;
   chosenCount: number;
   clearChosen: () => void;
+  /** AutoCAD's SELECTSIMILAR: every shown object of the same type on the same layer. */
+  selectSimilar: () => void;
+  /** The draw command ADDSELECTED would start for the one picked object; null when none fits. */
+  addSelectedCommand: CommandId | null;
+  /** AutoCAD's ADDSELECTED: draw a new object like the picked one, on its layer. */
+  addSelected: () => void;
   /** A click on the canvas in the edit mode (`at`: the drawing point clicked). */
   pick: (entity: number | null, at: Point, additive: boolean) => void;
   /** A drag on the canvas draws a selection box. */
@@ -606,6 +625,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     t(`design.cad.msg.${key}` as MessageKey, params);
 
   const handles = scene ? handlesOf(scene, selection) : [];
+  const addLike: CommandId | null = (() => {
+    if (!scene || selection.size !== 1) return null;
+    const [index] = selection;
+    const kind = index === undefined ? '' : (scene.view.entities[index]?.kind ?? '');
+    return DRAW_LIKE[kind] ?? null;
+  })();
   const pickable = (index: number) =>
     shown !== null && !shown.erased.has(index) && isShown(index) && !isLocked(index);
   const layerNameOf = (index: number): string => {
@@ -2619,6 +2644,33 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     chosen: selection,
     chosenCount: handles.length,
     clearChosen: () => setSelection(NONE),
+    selectSimilar: () => {
+      if (!scene || !shown || selection.size === 0) return;
+      const like = new Set<string>();
+      for (const index of selection) {
+        like.add(`${scene.view.entities[index]?.kind}|${effectiveLayer(scene, shown, index)}`);
+      }
+      const all = new Set<number>();
+      scene.view.entities.forEach((entity, index) => {
+        if (pickable(index) && like.has(`${entity.kind}|${effectiveLayer(scene, shown, index)}`))
+          all.add(index);
+      });
+      setSelection(all);
+      say(msg('found', { count: all.size }));
+    },
+    addSelectedCommand: addLike,
+    addSelected: () => {
+      if (!editing || addLike === null || run) return;
+      const [index] = selection;
+      if (index === undefined) return;
+      const layer = layerNameOf(index);
+      setSelection(NONE);
+      if (layer) {
+        setCurrentLayer(layer);
+        say(msg('currentNow', { layer }));
+      }
+      begin(addLike);
+    },
     pick: (entity, at, additive) => {
       if (!editing || !scene) return;
       setError(null);

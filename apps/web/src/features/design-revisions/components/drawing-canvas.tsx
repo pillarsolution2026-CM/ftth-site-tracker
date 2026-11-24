@@ -12,6 +12,7 @@ import { Ltr } from '@/shared/ui/ltr';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
+import { CanvasContextMenu } from './canvas-context-menu';
 import { OsmBackdrop } from './osm-backdrop';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
@@ -41,6 +42,7 @@ const sameBase = (a: BaseState, model: DrawModel, width: number, height: number,
   a.model.preview === model.preview &&
   a.model.layerShown === model.layerShown &&
   a.model.mapBehind === model.mapBehind &&
+  a.model.objectShown === model.objectShown &&
   a.width === width &&
   a.height === height &&
   a.dpr === dpr;
@@ -81,6 +83,8 @@ export function DrawingCanvas({
   /** Edit mode, layer tool: a left drag draws a selection box instead of panning (ADR-047). */
   const bandFrom = useRef<{ x: number; y: number } | null>(null);
   const boxing = viewer.edit.boxing;
+  /** The right-click menu on picked objects (owner 2026-11-24), at canvas pixels. */
+  const [menu, setMenu] = useState<Pointer | null>(null);
 
   // Canvas size follows the (resizable) container.
   useEffect(() => {
@@ -194,6 +198,9 @@ export function DrawingCanvas({
   };
 
   const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+    // The right button opens the menu (contextmenu); it neither pans nor picks.
+    if (event.button === 2) return;
+    setMenu(null);
     const p = local(event);
     pointers.current.set(event.pointerId, p);
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -245,6 +252,7 @@ export function DrawingCanvas({
   };
 
   const onPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.button === 2 && !pointers.current.has(event.pointerId)) return;
     const wasSingle = pointers.current.size === 1;
     const p = local(event);
     pointers.current.delete(event.pointerId);
@@ -331,6 +339,16 @@ export function DrawingCanvas({
           setHair(null);
         }}
         onKeyDown={onKeyDown}
+        onContextMenu={(event) => {
+          if (!viewer.edit.editing) return;
+          event.preventDefault();
+          if (viewer.edit.command !== null) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const p = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+          viewer.pickForMenu(p.x, p.y);
+          viewer.closePopover();
+          setMenu(p);
+        }}
       />
       {hair ? (
         <div aria-hidden="true" data-testid="crosshair" className="pointer-events-none">
@@ -352,6 +370,17 @@ export function DrawingCanvas({
         <span className="font-sans">{t('design.viewer.coords')}: </span>
         <Ltr>{cursor ? `X ${cursor.x.toFixed(2)}  Y ${cursor.y.toFixed(2)}` : '—'}</Ltr>
       </div>
+      {menu ? (
+        <CanvasContextMenu
+          viewer={viewer}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => {
+            setMenu(null);
+            canvasRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      ) : null}
       {children}
     </div>
   );

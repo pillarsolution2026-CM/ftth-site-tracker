@@ -871,7 +871,9 @@ describe(
       await user.click(map);
       expect(map).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByTestId('osm-backdrop')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '© OpenStreetMap contributors' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', { name: '© OpenStreetMap contributors' }),
+      ).toBeInTheDocument();
       await waitFor(() => expect(ctx.clearRect).toHaveBeenCalled());
       await user.click(map);
       expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
@@ -911,6 +913,126 @@ describe(
         delete (document as { exitFullscreen?: unknown }).exitFullscreen;
         delete (document as { fullscreenElement?: unknown }).fullscreenElement;
       }
+    });
+
+    describe('right-click menu on picked objects (owner 2026-11-24)', () => {
+      const rightClick = async (user: User, canvas: Element, x: number, y: number) =>
+        user.pointer({ keys: '[MouseRight]', target: canvas, coords: at(x, y) });
+      const menu = () => screen.getByRole('menu', { name: 'Menu of the picked objects' });
+      const item = (name: string) => within(menu()).getByRole('menuitem', { name });
+
+      it('right-click on an object picks it and shows only the chosen items; Erase erases it', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        const names = within(menu())
+          .getAllByRole('menuitem')
+          .map((element) => element.textContent?.replace('›', '').trim());
+        expect(names).toEqual([
+          'Isolate',
+          'Erase',
+          'Move',
+          'Copy Selection',
+          'Scale',
+          'Rotate',
+          'Draw Order',
+          'Group',
+          'Add Selected',
+          'Select Similar',
+          'Deselect All',
+          'Properties',
+        ]);
+        await user.click(item('Draw Order'));
+        const order = screen.getByRole('menu', { name: 'Draw Order' });
+        expect(
+          within(order)
+            .getAllByRole('menuitem')
+            .map((element) => element.textContent?.trim()),
+        ).toEqual(['Bring to Front', 'Send to Back', 'Bring Above Objects', 'Send Under Objects']);
+        await user.click(item('Erase'));
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+      });
+
+      it('Move from the menu asks for the base point of the picked object', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Move'));
+        expect(prompt()).toMatch(/^MOVE Specify base point/);
+      });
+
+      it('Hide Objects takes them off the screen; End Object Isolation brings them back', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Isolate'));
+        await user.click(
+          within(screen.getByRole('menu', { name: 'Isolate' })).getByRole('menuitem', {
+            name: 'Hide Objects',
+          }),
+        );
+        // Hidden: a click there picks nothing, so Delete erases nothing.
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+        // With nothing picked the menu still ends the isolation.
+        await rightClick(user, canvas, 10, 45);
+        expect(item('Erase')).toBeDisabled();
+        await user.click(item('Isolate'));
+        await user.click(
+          within(screen.getByRole('menu', { name: 'Isolate' })).getByRole('menuitem', {
+            name: 'End Object Isolation',
+          }),
+        );
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      });
+
+      it('Select Similar picks the same type on the same layer; Deselect All drops them', async () => {
+        const view = testView();
+        api.getDrawingView.mockResolvedValue({
+          ...view,
+          entities: [
+            ...view.entities,
+            {
+              handle: 'B2',
+              layer: 0,
+              color: null,
+              kind: 'LINE',
+              paths: [[50, 10, 100, 10]],
+              texts: [],
+            },
+          ],
+        });
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Select Similar'));
+        expect(history()).toMatch(/2 found/);
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Deselect All'));
+        await user.keyboard('{Delete}');
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+      });
+
+      it('Add Selected starts the same command on the layer of the picked object', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Add Selected'));
+        expect(history()).toMatch(/"Route" is now the current layer/);
+        expect(prompt()).toMatch(/^LINE Specify first point/);
+      });
+
+      it('Properties shows the details of the picked object', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Properties'));
+        const panel = await screen.findByRole('dialog', {
+          name: 'Details of the place on the drawing',
+        });
+        expect(within(panel).getByText('B')).toBeInTheDocument();
+      });
     });
 
     it('LINE needs a current layer; then draws segments, typed or clicked; PLINE closes', async () => {
