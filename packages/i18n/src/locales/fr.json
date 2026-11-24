@@ -1702,6 +1702,10 @@
       "commandInput": "Commande",
       "history": "Historique des commandes",
       "undo": "Annuler",
+      "redo": "Rétablir",
+      "markersHide": "Masquer les marques d'erreur",
+      "markersShow": "Afficher les marques d'erreur",
+      "markers": "Erreurs",
       "panel": {
         "draw": "Dessiner",
         "modify": "Modifier",

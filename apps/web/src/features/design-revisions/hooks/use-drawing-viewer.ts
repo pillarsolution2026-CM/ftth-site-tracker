@@ -130,6 +130,9 @@ export interface DrawingViewer {
   popover: ViewerPopover | null;
   closePopover: () => void;
   markerCount: number;
+  /** The error markers are drawn (the tab-strip toggle). */
+  markersShown: boolean;
+  setMarkersShown: (shown: boolean) => void;
 }
 
 interface Input {
@@ -148,6 +151,7 @@ interface Input {
 }
 
 const NO_ENTITIES: ReadonlySet<number> = new Set();
+const NO_MARKERS: readonly ProblemMarker[] = [];
 
 /** Where to look for a place: its own point, else the middle of the entities of its handle. */
 function focusCentre(scene: DrawingScene, focus: ShowPlace): { x: number; y: number } | null {
@@ -240,7 +244,9 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         : null,
     [scene, corrections.data, tools.metresPerUnit],
   );
-  const markers = useMemo(
+  // The error markers can be hidden from the drawing (owner 2026-11-24); nothing else changes.
+  const [markersShown, setMarkersShown] = useState(true);
+  const allMarkers = useMemo(
     () =>
       buildMarkers(
         problems.data?.items ?? [],
@@ -248,6 +254,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       ),
     [problems.data, corrections.data, revisionCreatedAt],
   );
+  const markers = markersShown ? allMarkers : NO_MARKERS;
 
   // Layers: the view's `visible` is the start; the user's choices override it.
   const [overrides, setOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
@@ -559,6 +566,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       setPopover(null);
       setSelected(null);
     },
-    markerCount: markers.length,
+    markerCount: allMarkers.length,
+    markersShown,
+    setMarkersShown,
   };
 }

@@ -1702,6 +1702,10 @@
       "commandInput": "الأمر",
       "history": "الأوامر اللي فاتت",
       "undo": "رجوع",
+      "redo": "تقديم",
+      "markersHide": "اخفي علامات الأخطاء",
+      "markersShow": "اظهر علامات الأخطاء",
+      "markers": "الأخطاء",
       "panel": {
         "draw": "Draw",
         "modify": "Modify",

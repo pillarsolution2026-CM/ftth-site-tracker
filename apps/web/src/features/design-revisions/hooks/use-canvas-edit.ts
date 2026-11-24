@@ -472,6 +472,9 @@ export interface CanvasEditState {
   preview: DrawingPreview | null;
   undo: () => void;
   canUndo: boolean;
+  /** One step forward again after Undo (Ctrl+Y); a new edit empties it, as in AutoCAD. */
+  redo: () => void;
+  canRedo: boolean;
   save: () => void;
   saving: boolean;
   cancel: () => void;
@@ -539,6 +542,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   }>({ chamfer: null, fillet: null, rotation: 0, length: 10, width: 10, area: 100 });
   const [previous, setPrevious] = useState<ReadonlySet<number>>(NONE);
   const [edits, setEdits] = useState<readonly CanvasEdit[]>([]);
+  /** Edits taken back by Undo, the last one on top (Redo). */
+  const [undone, setUndone] = useState<readonly CanvasEdit[]>([]);
   const [error, setError] = useState<ErrorMessage | null>(null);
 
   // Leaving the page with unsaved edits asks first.
@@ -689,6 +694,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const add = (added: CanvasEdit[]): number[] => {
     const at = edits.length;
     setEdits((previous) => addEdits(previous, added));
+    setUndone([]);
     setError(null);
     return added.map((_, i) => at + i);
   };
@@ -2431,7 +2437,18 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       undoPoint(run);
       return;
     }
-    setEdits((previous) => previous.slice(0, -1));
+    const last = edits[edits.length - 1];
+    if (last === undefined) return;
+    setEdits(edits.slice(0, -1));
+    setUndone((previous) => [...previous, last]);
+  };
+
+  const redo = () => {
+    const back = undone[undone.length - 1];
+    if (back === undefined) return;
+    setUndone(undone.slice(0, -1));
+    setEdits((previous) => [...previous, back]);
+    setError(null);
   };
 
   // ---------- what is drawn while a command runs ----------
@@ -2564,6 +2581,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       if (!editing) return false;
       if (ctrl && k.toLowerCase() === 'z') {
         undo();
+        return true;
+      }
+      if (ctrl && k.toLowerCase() === 'y') {
+        redo();
         return true;
       }
       if (k === 'Escape') {
@@ -2749,6 +2770,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     preview: shown,
     undo,
     canUndo: edits.length > 0 || (run !== null && run.points.length > 1),
+    redo,
+    canRedo: undone.length > 0,
     save: () => {
       if (edits.length === 0) {
         setEditing(false);
@@ -2761,6 +2784,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         {
           onSuccess: () => {
             setEdits([]);
+            setUndone([]);
             setEditing(false);
             finish();
             setHistory([]);
@@ -2773,6 +2797,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     saving: saveMutation.isPending,
     cancel: () => {
       setEdits([]);
+      setUndone([]);
       setEditing(false);
       setError(null);
       setHistory([]);

@@ -89,7 +89,7 @@ function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string
 }
 
 /** This program's own drawings of the commands (in the spirit of a CAD ribbon). */
-const ICONS: Record<CommandId | 'undo', ReactNode> = {
+const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers', ReactNode> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -245,8 +245,44 @@ const ICONS: Record<CommandId | 'undo', ReactNode> = {
       <path d="M5 17h14M15 14l4 3-4 3" />
     </>
   ),
-  undo: <path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3" />,
+  undo: <path d="M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3" />,
+  redo: <path d="M15 4l5 5-5 5M20 9H10a6 6 0 0 0 0 12h3" />,
+  markers: (
+    <>
+      <path d="M12 3 2.5 20h19z" />
+      <path d="M12 10v4M12 17v.5" />
+    </>
+  ),
 };
+
+/** A small button on the dark tab strip next to «Home» (Undo, Redo, the error markers). */
+function StripButton({
+  label,
+  onClick,
+  disabled,
+  pressed,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  pressed?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      disabled={disabled}
+      className={`relative mb-0.5 flex min-h-7 min-w-8 items-center justify-center rounded px-1 focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-35 ${DARK.tile}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 function shortcutOf(id: CommandId): string {
   const def = COMMANDS[id];
@@ -308,15 +344,21 @@ export function CadRibbon({
   onToggleLayer,
   onToggleFrozen,
   onToggleLocked,
+  markersShown,
+  onToggleMarkers,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
   onToggleLayer: (index: number) => void;
   onToggleFrozen: (index: number) => void;
   onToggleLocked: (index: number) => void;
+  /** The error markers are drawn; the strip button hides / shows them. */
+  markersShown: boolean;
+  onToggleMarkers: () => void;
 }) {
   const { t } = useI18n();
   if (!edit.available || !edit.editing) return null;
+  const markersLabel = markersShown ? t('design.cad.markersHide') : t('design.cad.markersShow');
   const count = edit.edits.length;
   return (
     <div
@@ -329,6 +371,30 @@ export function CadRibbon({
         <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold">
           {t('design.cad.home')}
         </span>
+        <span aria-hidden="true" className="mx-1 mb-1 h-4 border-s border-[#454b55]" />
+        <StripButton
+          label={`${t('design.cad.undo')} (Ctrl+Z)`}
+          onClick={edit.undo}
+          disabled={!edit.canUndo}
+        >
+          <Svg size="size-4">{ICONS.undo}</Svg>
+        </StripButton>
+        <StripButton
+          label={`${t('design.cad.redo')} (Ctrl+Y)`}
+          onClick={edit.redo}
+          disabled={!edit.canRedo}
+        >
+          <Svg size="size-4">{ICONS.redo}</Svg>
+        </StripButton>
+        <StripButton label={markersLabel} pressed={!markersShown} onClick={onToggleMarkers}>
+          <Svg size="size-4">{ICONS.markers}</Svg>
+          {markersShown ? null : (
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-1.5 top-1/2 h-0.5 -rotate-45 bg-[#ff6b6b]"
+            />
+          )}
+        </StripButton>
       </div>
       <div className="flex flex-wrap items-stretch gap-y-2 py-1.5">
         <Panel title={t('design.cad.panel.draw')}>
@@ -385,16 +451,6 @@ export function CadRibbon({
           <PropertiesControls edit={edit} />
         </Panel>
         <div className="ms-auto flex items-center gap-2 px-2">
-          <button
-            type="button"
-            onClick={edit.undo}
-            disabled={!edit.canUndo}
-            title={`${t('design.cad.undo')} (Ctrl+Z)`}
-            className={`flex min-h-11 min-w-12 flex-col items-center justify-center rounded px-1.5 text-xs disabled:opacity-40 ${DARK.tile}`}
-          >
-            <Svg>{ICONS.undo}</Svg>
-            <span>{t('design.cad.undo')}</span>
-          </button>
           <button
             type="button"
             onClick={edit.cancel}
@@ -740,7 +796,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
               event.key === 'Enter' ||
               event.key === 'Escape' ||
               (event.key === ' ' && !edit.textEntry) ||
-              (ctrl && event.key.toLowerCase() === 'z' && edit.input === '')
+              (ctrl && ['z', 'y'].includes(event.key.toLowerCase()) && edit.input === '')
             ) {
               event.preventDefault();
               edit.key(event.key, ctrl);

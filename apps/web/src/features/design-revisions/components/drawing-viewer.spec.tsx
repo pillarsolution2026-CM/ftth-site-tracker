@@ -803,6 +803,52 @@ describe(
       expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
     });
 
+    it('the tab strip next to Home: Undo and Redo one step, Ctrl+Y; a new edit empties Redo', async () => {
+      const { canvas, user } = await openWorkspace();
+      const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+      const undo = within(ribbon).getByRole('button', { name: 'Undo (Ctrl+Z)' });
+      const redo = within(ribbon).getByRole('button', { name: 'Redo (Ctrl+Y)' });
+      expect(undo).toBeDisabled();
+      expect(redo).toBeDisabled();
+      await click(user, canvas, 75, 25);
+      await user.keyboard('{Delete}');
+      expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      await user.click(undo);
+      expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+      expect(redo).toBeEnabled();
+      await user.click(redo);
+      expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      expect(redo).toBeDisabled();
+      await user.click(canvas);
+      await user.keyboard('{Control>}z{/Control}');
+      expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+      await user.keyboard('{Control>}y{/Control}');
+      expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      // Undo, then a new edit: nothing is left to redo (as in AutoCAD).
+      await user.click(undo);
+      await click(user, canvas, 75, 25);
+      await user.keyboard('{Delete}');
+      expect(redo).toBeDisabled();
+      await save(user);
+      expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+    });
+
+    it('the tab strip hides and shows the error markers', async () => {
+      const { user } = await openWorkspace();
+      const codes = () => ctx.fillText.mock.calls.map((call) => call[0] as string);
+      await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+      const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+      ctx.fillText.mockClear();
+      await user.click(within(ribbon).getByRole('button', { name: 'Hide the error markers' }));
+      const show = within(ribbon).getByRole('button', { name: 'Show the error markers' });
+      expect(show).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(ctx.fillText).toHaveBeenCalled());
+      expect(codes()).not.toContain('LABEL_MISSING');
+      ctx.fillText.mockClear();
+      await user.click(show);
+      await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+    });
+
     it('LINE needs a current layer; then draws segments, typed or clicked; PLINE closes', async () => {
       const { canvas, user } = await openWorkspace();
       await type(user, 'l');

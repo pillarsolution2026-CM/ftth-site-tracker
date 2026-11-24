@@ -204,6 +204,8 @@ function Workspace({
         onToggleLayer={viewer.toggleLayer}
         onToggleFrozen={viewer.toggleFrozen}
         onToggleLocked={viewer.toggleLocked}
+        markersShown={viewer.markersShown}
+        onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
       />
       <div className="flex flex-col gap-3 lg:flex-row lg:gap-0">
         <div className="min-w-0 flex-1">

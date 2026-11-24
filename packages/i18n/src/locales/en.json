@@ -1702,6 +1702,10 @@
       "commandInput": "Command",
       "history": "Command history",
       "undo": "Undo",
+      "redo": "Redo",
+      "markersHide": "Hide the error markers",
+      "markersShow": "Show the error markers",
+      "markers": "Errors",
       "panel": {
         "draw": "Draw",
         "modify": "Modify",
