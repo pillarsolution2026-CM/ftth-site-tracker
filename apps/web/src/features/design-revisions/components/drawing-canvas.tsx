@@ -12,6 +12,7 @@ import { Ltr } from '@/shared/ui/ltr';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
+import { OsmBackdrop } from './osm-backdrop';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
 /** Scenes up to this many entities are redrawn whole on every frame; bigger ones cache the base. */
@@ -39,6 +40,7 @@ const sameBase = (a: BaseState, model: DrawModel, width: number, height: number,
   a.model.scene === model.scene &&
   a.model.preview === model.preview &&
   a.model.layerShown === model.layerShown &&
+  a.model.mapBehind === model.mapBehind &&
   a.width === width &&
   a.height === height &&
   a.dpr === dpr;
@@ -52,10 +54,13 @@ const sameBase = (a: BaseState, model: DrawModel, width: number, height: number,
 export function DrawingCanvas({
   viewer,
   model,
+  fill = false,
   children,
 }: {
   viewer: DrawingViewer;
   model: DrawModel;
+  /** Full screen: the canvas takes the height left instead of 72 % of the window. */
+  fill?: boolean;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
@@ -118,8 +123,11 @@ export function DrawingCanvas({
         const dx = (base.tf.cx - transform.cx) * transform.scale;
         const dy = (transform.cy - base.tf.cy) * transform.scale;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = CANVAS_BG;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (model.mapBehind) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        else {
+          ctx.fillStyle = CANVAS_BG;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
         ctx.drawImage(base.canvas, Math.round(dx * dpr), Math.round(dy * dpr));
         drawOverlay(ctx, model, cache, transform, viewport);
         return;
@@ -144,6 +152,7 @@ export function DrawingCanvas({
       forceFull.current = false;
       if (big && baseRef.current) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(baseRef.current.canvas, 0, 0);
       }
       drawOverlay(ctx, model, cache, transform, viewport);
@@ -298,15 +307,20 @@ export function DrawingCanvas({
     <div
       ref={containerRef}
       dir="ltr"
-      className="relative h-[72vh] min-h-80 resize-y overflow-hidden border border-[#3b4048] bg-black"
+      className={`relative overflow-hidden border border-[#3b4048] bg-black ${
+        fill ? 'min-h-0 flex-1' : 'h-[72vh] min-h-80 resize-y'
+      }`}
     >
+      {model.mapBehind && viewer.osm.toLonLat ? (
+        <OsmBackdrop transform={transform} size={size} toLonLat={viewer.osm.toLonLat} />
+      ) : null}
       <canvas
         ref={canvasRef}
         role="application"
         tabIndex={0}
         aria-label={t('design.viewer.canvasLabel')}
         aria-describedby="drawing-canvas-help"
-        className="block size-full cursor-none touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
+        className="relative block size-full cursor-none touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
         style={{ width: '100%', height: '100%' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

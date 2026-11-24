@@ -79,6 +79,8 @@ export interface DrawModel {
   layerColor?: ReadonlyMap<number, string>;
   /** Height of dimension and leader texts, drawing units. */
   noteHeight?: number;
+  /** OpenStreetMap is shown under the drawing: the background is left clear (owner 2026-11-24). */
+  mapBehind?: boolean;
 }
 
 /** The colour an entity is drawn in now: its style, else its own, else its layer's (ADR-051). */
@@ -182,8 +184,11 @@ export function drawBase(
   const { scene, preview } = model;
   const { entities } = scene.view;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = CANVAS_BG;
-  ctx.fillRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
+  if (model.mapBehind) ctx.clearRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
+  else {
+    ctx.fillStyle = CANVAS_BG;
+    ctx.fillRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
+  }
 
   const candidates = cullEntities(scene, visibleBounds(tf, vp));
   // Moved entities are culled by where they were drawn: add them so they show where they are now.

@@ -89,7 +89,7 @@ function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string
 }
 
 /** This program's own drawings of the commands (in the spirit of a CAD ribbon). */
-const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers', ReactNode> = {
+const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers' | 'osm', ReactNode> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -253,6 +253,12 @@ const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers', ReactNode> = {
       <path d="M12 10v4M12 17v.5" />
     </>
   ),
+  osm: (
+    <>
+      <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
+      <path d="M9 4v14M15 6v14" />
+    </>
+  ),
 };
 
 /** A small button on the dark tab strip next to «Home» (Undo, Redo, the error markers). */
@@ -346,6 +352,7 @@ export function CadRibbon({
   onToggleLocked,
   markersShown,
   onToggleMarkers,
+  osm,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
@@ -355,6 +362,8 @@ export function CadRibbon({
   /** The error markers are drawn; the strip button hides / shows them. */
   markersShown: boolean;
   onToggleMarkers: () => void;
+  /** OpenStreetMap behind the drawing: needs the file's CRS; loaded only when turned on. */
+  osm: { available: boolean; shown: boolean; onToggle: () => void };
 }) {
   const { t } = useI18n();
   if (!edit.available || !edit.editing) return null;
@@ -429,6 +438,22 @@ export function CadRibbon({
             <Tile edit={edit} id="leader" />
             <Tile edit={edit} id="textedit" />
           </Rows>
+          <button
+            type="button"
+            aria-label={t('design.cad.osm')}
+            aria-pressed={osm.shown}
+            title={osm.available ? t('design.cad.osmHint') : t('design.cad.osmNoCrs')}
+            disabled={!osm.available}
+            onClick={osm.onToggle}
+            className={`flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-40 ${
+              osm.shown ? DARK.on : DARK.tile
+            }`}
+          >
+            <Svg size="size-7">{ICONS.osm}</Svg>
+            <span dir="ltr" className="whitespace-nowrap">
+              {t('design.cad.osm')}
+            </span>
+          </button>
         </Panel>
         <Panel title={t('design.cad.panel.layers')}>
           <Tile edit={edit} id="layer" big />

@@ -1706,6 +1706,12 @@
       "markersHide": "اخفي علامات الأخطاء",
       "markersShow": "اظهر علامات الأخطاء",
       "markers": "الأخطاء",
+      "osm": "OpenStreetMap",
+      "osmHint": "اعرض خريطة OpenStreetMap تحت الرسمة بدل الخلفية السودا (بتحمّل لما تدوس بس)",
+      "osmNoCrs": "الخريطة محتاجة نظام إحداثيات الملف ووحدته: احفظ ربط الطبقات الأول",
+      "osmAttribution": "© مساهمو OpenStreetMap",
+      "fullScreen": "ملء الشاشة",
+      "fullScreenExit": "اخرج من ملء الشاشة",
       "panel": {
         "draw": "Draw",
         "modify": "Modify",

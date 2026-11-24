@@ -1706,6 +1706,12 @@
       "markersHide": "Hide the error markers",
       "markersShow": "Show the error markers",
       "markers": "Errors",
+      "osm": "OpenStreetMap",
+      "osmHint": "Show OpenStreetMap under the drawing instead of the black background (loaded only when pressed)",
+      "osmNoCrs": "The map needs the file's CRS and unit: save the layer mapping first",
+      "osmAttribution": "© OpenStreetMap contributors",
+      "fullScreen": "Full screen",
+      "fullScreenExit": "Exit full screen",
       "panel": {
         "draw": "Draw",
         "modify": "Modify",

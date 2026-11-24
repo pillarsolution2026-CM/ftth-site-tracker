@@ -14,6 +14,7 @@ export function createMockContext() {
     globalAlpha: 1,
     setTransform: vi.fn(),
     fillRect: vi.fn(),
+    clearRect: vi.fn(),
     strokeRect: vi.fn(),
     stroke: vi.fn(),
     fill: vi.fn(),

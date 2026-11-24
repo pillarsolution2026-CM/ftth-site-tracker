@@ -849,6 +849,70 @@ describe(
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
     });
 
+    it('OpenStreetMap needs the file CRS', async () => {
+      await openWorkspace();
+      const map = tool('OpenStreetMap');
+      expect(map).toBeDisabled();
+      expect(map).toHaveAttribute('title', expect.stringMatching(/needs the file's CRS/));
+    });
+
+    it('OpenStreetMap is shown under the drawing on demand and hidden again', async () => {
+      const mapped = await mappingApi.getMapping();
+      mappingApi.getMapping.mockResolvedValue({
+        ...mapped,
+        mapping: { ...mapped.mapping, crsEpsg: 32636, drawingUnit: 'm', placement: null },
+      });
+      const { user } = await openWorkspace();
+      const map = tool('OpenStreetMap');
+      await waitFor(() => expect(map).toBeEnabled());
+      // Nothing of the map is there before it is asked for.
+      expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
+      ctx.clearRect.mockClear();
+      await user.click(map);
+      expect(map).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('osm-backdrop')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '© OpenStreetMap contributors' })).toBeInTheDocument();
+      await waitFor(() => expect(ctx.clearRect).toHaveBeenCalled());
+      await user.click(map);
+      expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
+    });
+
+    it('full screen puts the whole workspace on the screen, and the same button leaves it', async () => {
+      const request = vi.fn(function (this: Element) {
+        Object.defineProperty(document, 'fullscreenElement', {
+          configurable: true,
+          value: this,
+        });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      });
+      const exit = vi.fn(() => {
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      });
+      Object.defineProperty(Element.prototype, 'requestFullscreen', {
+        configurable: true,
+        value: request,
+      });
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+      try {
+        const { user } = await openWorkspace();
+        await user.click(screen.getByRole('button', { name: 'Full screen' }));
+        expect(request).toHaveBeenCalledTimes(1);
+        const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        expect(request.mock.contexts[0]).toContainElement(ribbon);
+        expect(request.mock.contexts[0]).toContainElement(screen.getByLabelText('Command'));
+        await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
+        expect(exit).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+      } finally {
+        delete (Element.prototype as { requestFullscreen?: unknown }).requestFullscreen;
+        delete (document as { exitFullscreen?: unknown }).exitFullscreen;
+        delete (document as { fullscreenElement?: unknown }).fullscreenElement;
+      }
+    });
+
     it('LINE needs a current layer; then draws segments, typed or clicked; PLINE closes', async () => {
       const { canvas, user } = await openWorkspace();
       await type(user, 'l');

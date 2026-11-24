@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import type { LonLat } from '@ftth/geo';
 import { ltr } from '@ftth/i18n';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -37,6 +38,8 @@ import {
   type Size,
   type ViewTransform,
 } from '../model/view-transform';
+import { useMapping } from '@/features/cad-mapping/api/queries';
+import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
@@ -130,6 +133,13 @@ export interface DrawingViewer {
   popover: ViewerPopover | null;
   closePopover: () => void;
   markerCount: number;
+  /** OpenStreetMap under the drawing (owner 2026-11-24): loaded only once turned on. */
+  osm: {
+    /** Drawing point → Lon/Lat; null when the file has no CRS / unit mapping yet. */
+    toLonLat: ((x: number, y: number) => LonLat) | null;
+    shown: boolean;
+    setShown: (shown: boolean) => void;
+  };
   /** The error markers are drawn (the tab-strip toggle). */
   markersShown: boolean;
   setMarkersShown: (shown: boolean) => void;
@@ -255,6 +265,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [problems.data, corrections.data, revisionCreatedAt],
   );
   const markers = markersShown ? allMarkers : NO_MARKERS;
+  const mapping = useMapping(projectId, cadFileId, enabled);
+  const toLonLat = useMemo(() => drawingToLonLat(mapping.data?.mapping), [mapping.data]);
+  const [osmShown, setOsmShown] = useState(false);
+  const mapBehind = osmShown && toLonLat !== null;
 
   // Layers: the view's `visible` is the start; the user's choices override it.
   const [overrides, setOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
@@ -409,9 +423,11 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             sketch: edit.sketch,
             layerColor,
             noteHeight: textHeight,
+            mapBehind,
           }
         : null,
     [
+      mapBehind,
       layerColor,
       textHeight,
       edit.chosen,
@@ -569,5 +585,6 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     markerCount: allMarkers.length,
     markersShown,
     setMarkersShown,
+    osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
   };
 }

@@ -1706,6 +1706,12 @@
       "markersHide": "Masquer les marques d'erreur",
       "markersShow": "Afficher les marques d'erreur",
       "markers": "Erreurs",
+      "osm": "OpenStreetMap",
+      "osmHint": "Afficher OpenStreetMap sous le dessin au lieu du fond noir (chargé seulement au clic)",
+      "osmNoCrs": "La carte a besoin du SCR et de l'unité du fichier : enregistrez d'abord le mappage des calques",
+      "osmAttribution": "© contributeurs OpenStreetMap",
+      "fullScreen": "Plein écran",
+      "fullScreenExit": "Quitter le plein écran",
       "panel": {
         "draw": "Dessiner",
         "modify": "Modifier",
