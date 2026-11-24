@@ -404,7 +404,9 @@ export type GeometryErrorCode =
   | 'NO_CROSSING'
   | 'DISTANCE'
   | 'PARALLEL'
-  | 'CLOSED';
+  | 'CLOSED'
+  | 'SHAPE'
+  | 'SPLIT_CLOSED';
 
 /** A command cannot be done with these points; `code` names the reason for the command line. */
 export class GeometryError extends Error {

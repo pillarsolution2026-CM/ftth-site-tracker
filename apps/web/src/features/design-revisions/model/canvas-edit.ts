@@ -25,7 +25,12 @@ export function isTextEntity(scene: DrawingScene, index: number): boolean {
 export const stepOf = (edit: CanvasEdit): Affine | null => stepOfInput(edit);
 
 /** Edits that a later edit of the same handle replaces (the others add up, in order). */
-const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>(['move_layer', 'set_text', 'set_style']);
+const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>([
+  'move_layer',
+  'set_text',
+  'set_style',
+  'set_order',
+]);
 
 export function addEdits(edits: readonly CanvasEdit[], added: readonly CanvasEdit[]): CanvasEdit[] {
   const key = (edit: CanvasEdit) =>

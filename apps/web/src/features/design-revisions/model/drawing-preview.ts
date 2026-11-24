@@ -3,6 +3,8 @@ import type {
   DrawingCorrectionInput,
   DrawingLinetype,
   DrawingNoteKind,
+  DrawingShapeKind,
+  HatchPattern,
 } from '@ftth/shared';
 import {
   compose,
@@ -57,6 +59,24 @@ export interface PreviewNote {
   layerName: string;
 }
 
+/** A hatch, gradient, wipeout, donut, XLINE or RAY drawn on the page (add_shape): screen only. */
+export interface PreviewShape {
+  shape: DrawingShapeKind;
+  points: readonly (readonly [number, number])[];
+  pattern: HatchPattern | null;
+  scale: number;
+  angle: number;
+  /** Its own colour, null = the layer's. */
+  color: string | null;
+  color2: string | null;
+  inner: number | null;
+  outer: number | null;
+  layer: number;
+  /** The layer's colour (`color` null). */
+  layerColor: string;
+  layerName: string;
+}
+
 /** How an entity is drawn (set_style, ADR-051); null = by layer. Screen only. */
 export interface PreviewStyle {
   color: string | null;
@@ -98,6 +118,10 @@ export interface DrawingPreview {
   notes: readonly PreviewNote[];
   /** Entity → its latest style (set_style; ADR-051). */
   styleOf: ReadonlyMap<number, PreviewStyle>;
+  /** Shapes drawn on the page (add_shape; owner 2026-11-24). */
+  shapes: readonly PreviewShape[];
+  /** Entity → its draw order (set_order): drawn lowest first, 0 when unset. */
+  orderOf: ReadonlyMap<number, number>;
 }
 
 export const EMPTY_PREVIEW: DrawingPreview = {
@@ -114,6 +138,8 @@ export const EMPTY_PREVIEW: DrawingPreview = {
   curveOf: new Map(),
   notes: [],
   styleOf: new Map(),
+  shapes: [],
+  orderOf: new Map(),
 };
 
 /** Text height of an added label that has none: 0.25 m, or 2.5 drawing units without a scale. */
@@ -175,6 +201,8 @@ export function applyInputs(
   const curveOf = new Map(base.curveOf);
   let notes = [...base.notes];
   const styleOf = new Map(base.styleOf);
+  let shapes = [...base.shapes];
+  const orderOf = new Map(base.orderOf);
   const layers = scene.view.layers;
   const layerIndex = (name: string) =>
     scene.layerByName.get(name) ?? scene.layerByName.get(aliases.get(name) ?? '') ?? -1;
@@ -279,6 +307,7 @@ export function applyInputs(
         extraItems = extraItems.map(rename);
         extraCurves = extraCurves.map(rename);
         notes = notes.map(rename);
+        shapes = shapes.map(rename);
         break;
       }
       case 'delete_layer': {
@@ -288,6 +317,7 @@ export function applyInputs(
         extraItems = extraItems.filter(keep);
         extraCurves = extraCurves.filter(keep);
         notes = notes.filter(keep);
+        shapes = shapes.filter(keep);
         break;
       }
       case 'set_curve':
@@ -318,6 +348,27 @@ export function applyInputs(
           });
         }
         break;
+      case 'add_shape': {
+        const layer = layerIndex(correction.layer);
+        shapes.push({
+          shape: correction.shape,
+          points: correction.points,
+          pattern: correction.pattern,
+          scale: correction.scale,
+          angle: correction.angle,
+          color: correction.color,
+          color2: correction.color2,
+          inner: correction.inner,
+          outer: correction.outer,
+          layer,
+          layerColor: colorOf(layer),
+          layerName: correction.layer,
+        });
+        break;
+      }
+      case 'set_order':
+        for (const index of indexes(correction.handle)) orderOf.set(index, correction.order);
+        break;
       case 'dismiss_problem':
         break; // changes nothing on the drawing (ADR-046)
     }
@@ -336,6 +387,8 @@ export function applyInputs(
     curveOf,
     notes,
     styleOf,
+    shapes,
+    orderOf,
   };
 }
 

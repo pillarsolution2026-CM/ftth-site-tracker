@@ -34,6 +34,7 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
     case 'mirror_item':
     case 'scale_item':
     case 'set_style':
+    case 'set_order':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
     case 'set_curve':
       return { handles: [input.handle], kinds: ['curve'] };

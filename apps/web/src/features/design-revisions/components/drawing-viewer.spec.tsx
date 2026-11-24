@@ -713,7 +713,7 @@ describe(
       for (const name of ['Line', 'Polyline', 'Circle', 'Arc', 'Rectangle', 'Trim', 'Fillet']) {
         expect(tool(name)).toBeInTheDocument();
       }
-      expect(within(ribbon).queryByRole('button', { name: /Array|Table/ })).not.toBeInTheDocument();
+      expect(within(ribbon).queryByRole('button', { name: /^Table$/ })).not.toBeInTheDocument();
       expect(tool('Move')).toHaveAttribute('title', expect.stringMatching(/MOVE \(M\)$/));
       expect(prompt()).toBe('Type a command');
       await waitFor(() => expect(fills).toContain('#000000'));
@@ -1032,6 +1032,253 @@ describe(
           name: 'Details of the place on the drawing',
         });
         expect(within(panel).getByText('B')).toBeInTheDocument();
+      });
+    });
+
+    describe('Draw and Modify commands added for the owner (2026-11-24)', () => {
+      it('the Draw and Modify panels open their slide-outs and drop-downs', async () => {
+        const { user } = await openWorkspace();
+        await user.click(screen.getByRole('button', { name: 'More Draw tools' }));
+        const more = screen.getByRole('group', { name: 'More Draw tools' });
+        for (const name of [
+          'Spline Fit',
+          'Spline CV',
+          'Ray',
+          'Construction Line',
+          'Multiple Points',
+        ]) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        for (const name of [
+          'Divide',
+          'Measure',
+          'Region',
+          'Wipeout',
+          'Helix',
+          'Donut',
+          'Polygon',
+        ]) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        await user.click(screen.getByRole('button', { name: 'Hatch ▾' }));
+        const hatch = screen.getByRole('menu', { name: 'Hatch' });
+        expect(
+          within(hatch)
+            .getAllByRole('menuitem')
+            .map((m) => m.textContent),
+        ).toEqual(['Hatch', 'Gradient', 'Boundary']);
+        await user.click(screen.getByRole('button', { name: 'Ellipse ▾' }));
+        expect(
+          within(screen.getByRole('menu', { name: 'Ellipse' }))
+            .getAllByRole('menuitem')
+            .map((m) => m.textContent),
+        ).toEqual(['Center', 'Axis, End', 'Elliptical Arc']);
+        await user.click(screen.getByRole('button', { name: 'More Modify tools' }));
+        const modify = screen.getByRole('group', { name: 'More Modify tools' });
+        for (const name of ['Break', 'Break at Point', 'Lengthen', 'Reverse', 'Array']) {
+          expect(within(modify).getByRole('button', { name })).toBeInTheDocument();
+        }
+        expect(
+          within(modify).getByRole('button', { name: 'Delete Duplicates' }),
+        ).toBeInTheDocument();
+        expect(within(modify).getByRole('button', { name: 'Draw Order' })).toBeInTheDocument();
+      });
+
+      it('BREAK takes out the part between two points; the rest is a new line', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'br');
+        expect(prompt()).toBe('BREAK Select object:');
+        await click(user, canvas, 60, 25);
+        expect(prompt()).toBe('BREAK Specify second break point or [First point]:');
+        await type(user, '80,25');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 25],
+              [60, 25],
+            ],
+            closed: false,
+          },
+          {
+            kind: 'add_curve',
+            layer: 'Route',
+            points: [
+              [80, 25],
+              [100, 25],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('LENGTHEN DElta makes the picked end longer; REVERSE turns a line round', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'len');
+        await type(user, 'de');
+        await type(user, '10');
+        expect(prompt()).toBe('LENGTHEN Select an object to change or [Undo]:');
+        await click(user, canvas, 95, 25);
+        await type(user, '');
+        await click(user, canvas, 75, 25);
+        await type(user, 'reverse');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 25],
+              [110, 25],
+            ],
+            closed: false,
+          },
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [110, 25],
+              [50, 25],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('ARRAYRECT COUnt makes the copies in columns and rows', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await type(user, 'ar');
+        expect(prompt()).toMatch(/^ARRAYRECT Select array option or \[COUnt/);
+        await type(user, 'cou');
+        await type(user, '3');
+        await type(user, '1');
+        await type(user, '');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'copy_item', handle: 'B', dx: 75, dy: 0 },
+          { kind: 'copy_item', handle: 'B', dx: 150, dy: 0 },
+        ]);
+      });
+
+      it('OVERKILL erases the objects that repeat another', async () => {
+        const view = testView();
+        api.getDrawingView.mockResolvedValue({
+          ...view,
+          entities: [
+            ...view.entities,
+            {
+              handle: 'B2',
+              layer: 0,
+              color: null,
+              kind: 'LINE',
+              paths: [[50, 25, 100, 25]],
+              texts: [],
+            },
+          ],
+        });
+        const { user } = await openWorkspace();
+        await type(user, 'overkill');
+        await type(user, 'all');
+        await type(user, '');
+        expect(history()).toMatch(/1 duplicate\(s\) deleted/);
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B2' }]);
+      });
+
+      it('Draw Order from the right-click menu brings the object to the front', async () => {
+        const { canvas, user } = await openWorkspace();
+        await user.pointer({ keys: '[MouseRight]', target: canvas, coords: at(75, 25) });
+        const menu = screen.getByRole('menu', { name: 'Menu of the picked objects' });
+        await user.click(within(menu).getByRole('menuitem', { name: 'Draw Order' }));
+        await user.click(
+          within(screen.getByRole('menu', { name: 'Draw Order' })).getByRole('menuitem', {
+            name: 'Bring to Front',
+          }),
+        );
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'set_order', handle: 'B', order: 1 }]);
+      });
+
+      it('POLYGON, ELLIPSE and SPLINE draw polylines on the current layer', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Route');
+        await type(user, 'pol');
+        await type(user, '4');
+        await type(user, '50,25');
+        await type(user, '');
+        await type(user, '10');
+        await type(user, 'el');
+        await type(user, '0,0');
+        await type(user, '20,0');
+        await type(user, '5');
+        await type(user, 'spl');
+        await type(user, '0,0');
+        await type(user, '10,10');
+        await type(user, '20,0');
+        await type(user, '');
+        await save(user);
+        const [square, ellipse, spline] = sent();
+        expect(square).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: true });
+        expect((square?.points as number[][]).length).toBe(4);
+        expect(square?.points).toContainEqual([50, 35]);
+        expect(ellipse).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: true });
+        expect((ellipse?.points as number[][])[0]).toEqual([20, 0]);
+        expect(spline).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: false });
+        expect((spline?.points as number[][]).length).toBeGreaterThan(10);
+        expect(spline?.points).toContainEqual([10, 10]);
+      });
+
+      it('HATCH fills the closed object around the picked point; DONUT and XLINE are screen shapes', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'h');
+        expect(history()).toMatch(/Pattern = ANSI31, Scale = 1.0000, Angle = 0.0000/);
+        await type(user, '21,21');
+        await type(user, '');
+        await type(user, 'do');
+        await type(user, '');
+        await type(user, '2');
+        await type(user, '10,10');
+        await type(user, '');
+        await type(user, 'xl');
+        await type(user, '0,0');
+        await type(user, '1,1');
+        await type(user, '');
+        await save(user);
+        const [hatch, donut, xline] = sent();
+        expect(hatch).toMatchObject({
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          pattern: 'ANSI31',
+          scale: 1,
+        });
+        expect((hatch?.points as number[][]).length).toBe(4);
+        expect(donut).toMatchObject({ kind: 'add_shape', shape: 'donut', inner: 0.5, outer: 2 });
+        expect(xline).toMatchObject({
+          kind: 'add_shape',
+          shape: 'xline',
+          points: [
+            [0, 0],
+            [1, 1],
+          ],
+        });
+      });
+
+      it('DIVIDE puts points on the current layer along the picked line', async () => {
+        const { canvas, user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'div');
+        await click(user, canvas, 75, 25);
+        await type(user, '5');
+        expect(history()).toMatch(/4 point\(s\) placed/);
+        await save(user);
+        expect(sent()).toEqual(
+          [60, 70, 80, 90].map((x) => ({ kind: 'add_item', layer: 'Sap', x, y: 25 })),
+        );
       });
     });
 
@@ -1356,8 +1603,8 @@ describe(
 
     it('says so for an unknown command, Esc cancels, Enter repeats the last command', async () => {
       const { user } = await openWorkspace();
-      await type(user, 'array');
-      expect(history()).toMatch(/Unknown command "ARRAY"/);
+      await type(user, '3dorbit');
+      expect(history()).toMatch(/Unknown command "3DORBIT"/);
       await type(user, 'circle');
       await user.keyboard('{Escape}');
       expect(history()).toMatch(/\*Cancel\*/);

@@ -39,6 +39,9 @@ drawing units.
   points, text}` (a dimension or leader) and `set_style {handle, color, linetype, lineweight}` are
   checked and then ignored: they are drawn on the screen only and change no row, quantity or
   problem.
+- the drawing screen (owner 2026-11-24): `add_shape {shape, layer, points, pattern, scale, angle,
+  color, color2, inner, outer}` (a hatch, gradient, wipeout, donut, XLINE or RAY) and
+  `set_order {handle, order}` (AutoCAD's draw order) are checked and then ignored, as notes.
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -84,6 +87,9 @@ MAX_NOTE_POINTS = 50
 MAX_LINEWEIGHT_MM = 10.0
 NOTE_KINDS = frozenset({"dimension", "leader"})
 LINETYPES = frozenset({"continuous", "dashed", "dotted", "center"})
+SHAPE_KINDS = frozenset({"hatch", "gradient", "wipeout", "donut", "xline", "ray"})
+HATCH_PATTERNS = frozenset({"SOLID", "ANSI31", "ANSI37", "DOTS"})
+MAX_DRAW_ORDER = 1_000_000_000
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 ADDED_CURVE_TYPE = "LWPOLYLINE"
 # Control characters U+0000-U+001F are refused in handles, layers and texts (as the contract).
@@ -236,6 +242,23 @@ class SetStyle:
     lineweight: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class AddShape:
+    """Screen only (owner 2026-11-24): the build ignores it."""
+
+    shape: str
+    layer: str
+    points: tuple[Xy, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SetOrder:
+    """Screen only (owner 2026-11-24): the build ignores it."""
+
+    handle: str
+    order: float
+
+
 Correction = (
     MoveLayer
     | SetText
@@ -256,6 +279,8 @@ Correction = (
     | SetCurve
     | AddNote
     | SetStyle
+    | AddShape
+    | SetOrder
 )
 
 
@@ -292,6 +317,22 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "set_curve": frozenset({"kind", "handle", "points", "closed"}),
     "add_note": frozenset({"kind", "note", "layer", "points", "text"}),
     "set_style": frozenset({"kind", "handle", "color", "linetype", "lineweight"}),
+    "add_shape": frozenset(
+        {
+            "kind",
+            "shape",
+            "layer",
+            "points",
+            "pattern",
+            "scale",
+            "angle",
+            "color",
+            "color2",
+            "inner",
+            "outer",
+        }
+    ),
+    "set_order": frozenset({"kind", "handle", "order"}),
 }
 
 
@@ -426,6 +467,15 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         return _note(cid, body)
     if kind == "set_style":
         return _style(cid, body)
+    if kind == "add_shape":
+        return _shape(cid, body)
+    if kind == "set_order":
+        order = _number(body.get("order"))
+        if order is None or abs(order) > MAX_DRAW_ORDER:
+            raise CorrectionInvalidError(
+                f"correction {cid}: `order` must be a number within ±{MAX_DRAW_ORDER}"
+            )
+        return SetOrder(_handle(cid, body.get("handle")), order)
     handles = body.get("handles")
     if not isinstance(handles, list) or not 2 <= len(handles) <= MAX_MERGE_PIECES:
         raise CorrectionInvalidError(
@@ -489,6 +539,52 @@ def _note(cid: str, body: Mapping[str, object]) -> AddNote:
     text = None if body.get("text") is None else _text(cid, body)
     points = _points(cid, body.get("points"), least=1, most=MAX_NOTE_POINTS)
     return AddNote(str(note), _layer(cid, body, "layer"), points, text)
+
+
+def _optional_colour(cid: str, body: Mapping[str, object], key: str) -> None:
+    value = body.get(key)
+    if value is not None and not (isinstance(value, str) and _COLOR.fullmatch(value)):
+        raise CorrectionInvalidError(f"correction {cid}: `{key}` must be #rrggbb or null")
+
+
+def _shape(cid: str, body: Mapping[str, object]) -> AddShape:
+    shape = body.get("shape")
+    if shape not in SHAPE_KINDS:
+        raise CorrectionInvalidError(f"correction {cid}: unknown shape {shape!r}")
+    points = _points(cid, body.get("points"), least=1)
+    count = {"donut": (1, 1), "xline": (2, 2), "ray": (2, 2)}.get(str(shape), (3, MAX_CURVE_POINTS))
+    if not count[0] <= len(points) <= count[1]:
+        raise CorrectionInvalidError(f"correction {cid}: wrong number of points for a {shape}")
+    if shape in ("xline", "ray") and points[0] == points[1]:
+        raise CorrectionInvalidError(f"correction {cid}: the direction needs two different points")
+    pattern = body.get("pattern")
+    if pattern is not None and pattern not in HATCH_PATTERNS:
+        raise CorrectionInvalidError(f"correction {cid}: unknown pattern {pattern!r}")
+    for key, low, high in (
+        ("scale", MIN_SCALE_FACTOR, MAX_SCALE_FACTOR),
+        ("angle", -MAX_ROTATION_DEG, MAX_ROTATION_DEG),
+    ):
+        if key in body:
+            number = _number(body.get(key))
+            if number is None or not low <= number <= high:
+                raise CorrectionInvalidError(f"correction {cid}: `{key}` must be {low:g}-{high:g}")
+    _optional_colour(cid, body, "color")
+    _optional_colour(cid, body, "color2")
+    sizes: dict[str, float | None] = {}
+    for key in ("inner", "outer"):
+        raw = body.get(key)
+        sizes[key] = None if raw is None else _number(raw)
+        if raw is not None and (
+            sizes[key] is None or not 0 <= (sizes[key] or 0) <= MAX_CORRECTION_COORD
+        ):
+            raise CorrectionInvalidError(f"correction {cid}: `{key}` must be a size or null")
+    if shape == "donut":
+        outer, inner = sizes["outer"], sizes["inner"] or 0.0
+        if outer is None or outer <= 0 or inner >= outer:
+            raise CorrectionInvalidError(
+                f"correction {cid}: a donut needs an outer diameter above the inner one"
+            )
+    return AddShape(str(shape), _layer(cid, body, "layer"), points)
 
 
 def _style(cid: str, body: Mapping[str, object]) -> SetStyle:
@@ -741,7 +837,7 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
         if curve is None:
             raise CorrectionInvalidError(f"{where}: no line with handle {c.handle} in the drawing")
         rows.curves[c.handle] = dataclasses.replace(curve, points=c.points, closed=c.closed)
-    elif isinstance(c, AddNote | SetStyle):
+    elif isinstance(c, AddNote | SetStyle | AddShape | SetOrder):
         return  # screen only (ADR-051): no row, quantity or problem changes
     elif isinstance(c, RenameLayer):
         _relayer(rows, c.from_layer, c.to_layer)

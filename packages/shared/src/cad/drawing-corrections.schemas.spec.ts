@@ -217,8 +217,13 @@ describe('AutoCAD-like screen corrections (ADR-051)', () => {
     expect(ok({ kind: 'set_style', handle: 'C1', lineweight: MAX_LINEWEIGHT_MM + 1 })).toBe(false);
     expect(ok({ kind: 'set_style', handle: 'C1', lineweight: -1 })).toBe(false);
   });
-  it('only notes and styles are screen-only', () => {
-    expect([...SCREEN_ONLY_CORRECTION_KINDS].sort()).toEqual(['add_note', 'set_style']);
+  it('only notes, styles, shapes and draw order are screen-only', () => {
+    expect([...SCREEN_ONLY_CORRECTION_KINDS].sort()).toEqual([
+      'add_note',
+      'add_shape',
+      'set_order',
+      'set_style',
+    ]);
   });
 });
 
@@ -241,5 +246,91 @@ describe('layers for drawing only and layer meanings (owner 2026-11-19, ADR-051)
       { kind: 'add_layer', layer: 'BG', like: 'R' },
     ]);
     expect([...targets].sort()).toEqual(['R', 'buildings']);
+  });
+});
+
+describe('screen shapes and draw order (owner 2026-11-24)', () => {
+  const parse = (input: object) => DrawingCorrectionInputSchema.safeParse(input);
+  const ok = (input: object) => parse(input).success;
+  const square = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ];
+  it('are screen only', () => {
+    expect(SCREEN_ONLY_CORRECTION_KINDS).toEqual(
+      expect.arrayContaining(['add_shape', 'set_order']),
+    );
+  });
+  it('a hatch or gradient needs a closed boundary of 3+ points; defaults are filled in', () => {
+    const hatch = parse({ kind: 'add_shape', shape: 'hatch', layer: 'L', points: square });
+    expect(hatch.success && hatch.data).toMatchObject({
+      pattern: null,
+      scale: 1,
+      angle: 0,
+      color: null,
+      color2: null,
+    });
+    expect(ok({ kind: 'add_shape', shape: 'hatch', layer: 'L', points: square.slice(0, 2) })).toBe(
+      false,
+    );
+    expect(
+      ok({
+        kind: 'add_shape',
+        shape: 'gradient',
+        layer: 'L',
+        points: square,
+        color: '#ff0000',
+        color2: '#0000ff',
+        angle: 45,
+      }),
+    ).toBe(true);
+    expect(
+      ok({ kind: 'add_shape', shape: 'hatch', layer: 'L', points: square, pattern: 'X' }),
+    ).toBe(false);
+  });
+  it('a donut is one centre with an outer diameter above the inner one', () => {
+    const donut = { kind: 'add_shape', shape: 'donut', layer: 'L', points: [[1, 1]] };
+    expect(ok({ ...donut, inner: 0, outer: 2 })).toBe(true);
+    expect(ok({ ...donut, inner: 2, outer: 2 })).toBe(false);
+    expect(ok({ ...donut, inner: 0 })).toBe(false);
+    expect(
+      ok({
+        ...donut,
+        points: [
+          [1, 1],
+          [2, 2],
+        ],
+        outer: 2,
+      }),
+    ).toBe(false);
+  });
+  it('an XLINE or RAY is a point and a different direction point', () => {
+    const line = { kind: 'add_shape', shape: 'xline', layer: 'L' };
+    expect(
+      ok({
+        ...line,
+        points: [
+          [0, 0],
+          [1, 1],
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      ok({
+        ...line,
+        points: [
+          [0, 0],
+          [0, 0],
+        ],
+      }),
+    ).toBe(false);
+    expect(ok({ ...line, shape: 'ray', points: [[0, 0]] })).toBe(false);
+  });
+  it('a draw order is a finite number on one handle', () => {
+    expect(ok({ kind: 'set_order', handle: 'C1', order: -3.5 })).toBe(true);
+    expect(ok({ kind: 'set_order', handle: 'C1', order: Number.NaN })).toBe(false);
+    expect(ok({ kind: 'set_order', handle: 'C1', order: 2e9 })).toBe(false);
   });
 });

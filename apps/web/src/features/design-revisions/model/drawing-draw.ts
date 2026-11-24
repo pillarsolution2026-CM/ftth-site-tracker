@@ -10,7 +10,12 @@ import {
 } from './affine';
 import { isCrossing, type Band } from './canvas-edit';
 import { LINETYPE_DASH, lineweightPx } from './cad-commands';
-import { effectiveLayer, type DrawingPreview, type PreviewNote } from './drawing-preview';
+import {
+  effectiveLayer,
+  type DrawingPreview,
+  type PreviewNote,
+  type PreviewShape,
+} from './drawing-preview';
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
 import { linearDimension, type Pt } from './geometry';
@@ -204,6 +209,13 @@ export function drawBase(
     if (model.objectShown && !model.objectShown(index)) continue;
     if (model.layerShown(effectiveLayer(scene, preview, index))) shown.push(index);
   }
+  // Draw order (set_order): lowest first; the file's order otherwise (a stable sort).
+  if (preview.orderOf.size > 0) {
+    const order = preview.orderOf;
+    shown.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  }
+  // Hatches, gradients, donuts and construction lines lie under the drawing, as AutoCAD's.
+  drawShapes(ctx, model, tf, vp, false);
 
   setWorldTransform(ctx, scene, tf, vp);
   ctx.lineWidth = 1 / tf.scale;
@@ -278,7 +290,151 @@ export function drawBase(
     ctx.fillStyle = layerColorOf(model, extra.layer, extra.color);
     fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
   }
+  // A wipeout hides what is under it with the background.
+  drawShapes(ctx, model, tf, vp, true);
   drawAdded(ctx, model, cache, tf, vp);
+}
+
+/** Spacing of the hatch patterns at scale 1, drawing units (AutoCAD's ANSI31: 1/8″ = 3.175). */
+const HATCH_SPACING = 3.175;
+/** Under this spacing on screen (px) a pattern is shown as a light solid fill. */
+const MIN_HATCH_PX = 3;
+
+/** Shapes of the page (add_shape; owner 2026-11-24), in screen pixels; screen only. */
+function drawShapes(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+  wipeouts: boolean,
+): void {
+  const { shapes } = model.preview;
+  if (shapes.length === 0) return;
+  setScreenTransform(ctx, vp);
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+  for (const shape of shapes) {
+    if ((shape.shape === 'wipeout') !== wipeouts || !model.layerShown(shape.layer)) continue;
+    const color = shape.color ?? layerColorOf(model, shape.layer, shape.layerColor);
+    ctx.save();
+    drawShape(ctx, model, tf, vp, shape, color);
+    ctx.restore();
+  }
+}
+
+function drawShape(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+  shape: PreviewShape,
+  color: string,
+): void {
+  const screen = shape.points.map((p) => toScreen(tf, vp, p[0], p[1]));
+  const outline = () => {
+    ctx.beginPath();
+    screen.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+  };
+  const [first, second] = screen;
+  if (!first) return;
+  switch (shape.shape) {
+    case 'wipeout':
+      outline();
+      ctx.fillStyle = model.mapBehind ? '#000000' : CANVAS_BG;
+      ctx.fill();
+      return;
+    case 'donut': {
+      const outer = ((shape.outer ?? 0) / 2) * tf.scale;
+      const inner = ((shape.inner ?? 0) / 2) * tf.scale;
+      ctx.beginPath();
+      ctx.arc(first.x, first.y, Math.max(outer, 0.5), 0, Math.PI * 2);
+      if (inner > 0) ctx.arc(first.x, first.y, inner, 0, Math.PI * 2, true);
+      ctx.fillStyle = color;
+      ctx.fill('evenodd');
+      return;
+    }
+    case 'xline':
+    case 'ray': {
+      if (!second) return;
+      const dx = second.x - first.x;
+      const dy = second.y - first.y;
+      const l = Math.hypot(dx, dy);
+      if (l === 0) return;
+      const far = (vp.width + vp.height) * 4;
+      ctx.beginPath();
+      const back = shape.shape === 'xline' ? far : 0;
+      ctx.moveTo(first.x - (dx / l) * back, first.y - (dy / l) * back);
+      ctx.lineTo(first.x + (dx / l) * far, first.y + (dy / l) * far);
+      ctx.strokeStyle = color;
+      ctx.stroke();
+      return;
+    }
+    case 'gradient': {
+      const xs = screen.map((p) => p.x);
+      const ys = screen.map((p) => p.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const half = Math.hypot(Math.max(...xs) - cx, Math.max(...ys) - cy) || 1;
+      const t = (-shape.angle * Math.PI) / 180;
+      const g = ctx.createLinearGradient(
+        cx - half * Math.cos(t),
+        cy - half * Math.sin(t),
+        cx + half * Math.cos(t),
+        cy + half * Math.sin(t),
+      );
+      g.addColorStop(0, color);
+      g.addColorStop(1, shape.color2 ?? '#ffffff');
+      outline();
+      ctx.fillStyle = g;
+      ctx.fill();
+      return;
+    }
+    case 'hatch': {
+      outline();
+      const pattern = shape.pattern ?? 'ANSI31';
+      const gap = HATCH_SPACING * shape.scale * tf.scale;
+      if (pattern === 'SOLID' || gap < MIN_HATCH_PX) {
+        ctx.globalAlpha = pattern === 'SOLID' ? 1 : 0.35;
+        ctx.fillStyle = color;
+        ctx.fill();
+        return;
+      }
+      ctx.clip();
+      const xs = screen.map((p) => p.x);
+      const ys = screen.map((p) => p.y);
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const maxX = Math.max(...xs);
+      const maxY = Math.max(...ys);
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      if (pattern === 'DOTS') {
+        for (let x = minX; x <= maxX; x += gap) {
+          for (let y = minY; y <= maxY; y += gap) ctx.fillRect(x, y, 1.2, 1.2);
+        }
+        return;
+      }
+      const reach = Math.hypot(maxX - minX, maxY - minY);
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const families = pattern === 'ANSI37' ? [45, 135] : [45];
+      ctx.beginPath();
+      for (const base of families) {
+        const a = (-(base + shape.angle) * Math.PI) / 180;
+        const ux = Math.cos(a);
+        const uy = Math.sin(a);
+        for (let k = -reach; k <= reach; k += gap) {
+          const px = cx - uy * k;
+          const py = cy + ux * k;
+          ctx.moveTo(px - ux * reach, py - uy * reach);
+          ctx.lineTo(px + ux * reach, py + uy * reach);
+        }
+      }
+      ctx.stroke();
+      return;
+    }
+  }
 }
 
 /** Copies and lines added on the page (ADR-050), in their layers' colours. */

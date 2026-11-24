@@ -245,6 +245,124 @@ const ICONS: Record<CommandId | 'undo' | 'redo' | 'markers' | 'osm', ReactNode> 
       <path d="M5 17h14M15 14l4 3-4 3" />
     </>
   ),
+  spline: (
+    <>
+      <path d="M3 17c3-9 6-9 9-3s6 6 9-5" />
+      <circle cx="3" cy="17" r="1.2" />
+      <circle cx="12" cy="14" r="1.2" />
+      <circle cx="21" cy="9" r="1.2" />
+    </>
+  ),
+  ellipse: (
+    <>
+      <ellipse cx="12" cy="12" rx="9" ry="5.5" />
+      <path d="M3 12h18" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  polygon: <path d="M12 3l8.5 6.2-3.2 10H6.7L3.5 9.2z" />,
+  xline: (
+    <>
+      <path d="M2 20 22 4" />
+      <circle cx="12" cy="12" r="1.5" />
+    </>
+  ),
+  ray: (
+    <>
+      <path d="M5 19 22 5" />
+      <circle cx="5" cy="19" r="1.6" />
+    </>
+  ),
+  divide: (
+    <>
+      <path d="M3 16c4-8 14-8 18 0" />
+      <path d="M7.5 10.5v2M12 8.5v2M16.5 10.5v2" />
+    </>
+  ),
+  measure: (
+    <>
+      <path d="M3 17h18" />
+      <path d="M5 14v3M9 15v2M13 14v3M17 15v2M21 14v3" />
+    </>
+  ),
+  region: <path d="M4 18 6 6l8-2 6 7-4 8z" fill="currentColor" fillOpacity="0.25" />,
+  hatch: (
+    <>
+      <rect x="4" y="4" width="16" height="16" />
+      <path d="M4 10l6-6M4 16 16 4M8 20 20 8M14 20l6-6" />
+    </>
+  ),
+  gradient: (
+    <>
+      <defs>
+        <linearGradient id="cad-gradient-icon" x1="0" x2="1">
+          <stop offset="0" stopColor="#7fb2ff" />
+          <stop offset="1" stopColor="#ffffff" stopOpacity="0.1" />
+        </linearGradient>
+      </defs>
+      <rect x="4" y="4" width="16" height="16" fill="url(#cad-gradient-icon)" />
+    </>
+  ),
+  boundary: (
+    <>
+      <path d="M4 18 6 6l8-2 6 7-4 8z" strokeDasharray="2 1.5" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    </>
+  ),
+  wipeout: (
+    <>
+      <path d="M3 8h18M3 13h18M3 18h18" opacity="0.5" />
+      <rect x="7" y="6" width="10" height="10" fill="#000" />
+    </>
+  ),
+  helix: <path d="M11 12a1 1 0 1 1 2 0a3 3 0 1 1-6 0a5 5 0 1 1 10 0a7 7 0 1 1-14 0" />,
+  donut: (
+    <>
+      <circle cx="12" cy="12" r="8" fill="currentColor" fillOpacity="0.85" />
+      <circle cx="12" cy="12" r="3.5" fill="#2b2f36" />
+    </>
+  ),
+  break: (
+    <>
+      <path d="M3 12h6M15 12h6" />
+      <path d="M9 9v6M15 9v6" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  breakatpoint: (
+    <>
+      <path d="M3 12h7M14 12h7" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+    </>
+  ),
+  lengthen: (
+    <>
+      <path d="M3 12h12" />
+      <path d="M15 12h6" strokeDasharray="2 1.5" />
+      <path d="M18 9l3 3-3 3" />
+    </>
+  ),
+  reverse: <path d="M4 9h14l-3-3M20 15H6l3 3" />,
+  arrayrect: (
+    <>
+      <rect x="3" y="3" width="5" height="5" />
+      <rect x="10" y="3" width="5" height="5" />
+      <rect x="17" y="3" width="4" height="5" />
+      <rect x="3" y="11" width="5" height="5" />
+      <rect x="10" y="11" width="5" height="5" />
+      <rect x="17" y="11" width="4" height="5" />
+    </>
+  ),
+  overkill: (
+    <>
+      <path d="M14 3l7 7-8 8-4-4z" />
+      <path d="M9 14l-5 7M6 12l-3 3" />
+    </>
+  ),
+  draworder: (
+    <>
+      <rect x="3" y="3" width="11" height="11" />
+      <rect x="10" y="10" width="11" height="11" fill="currentColor" fillOpacity="0.35" />
+    </>
+  ),
   undo: <path d="M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3" />,
   redo: <path d="M15 4l5 5-5 5M20 9H10a6 6 0 0 0 0 12h3" />,
   markers: (
@@ -321,20 +439,159 @@ function Tile({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId;
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+/** A tool that runs a command with an option already chosen (Spline CV, Multiple Points). */
+function Variant({
+  edit,
+  id,
+  option,
+  label,
+}: {
+  edit: CanvasEditState;
+  id: CommandId;
+  option: string;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={`${label} — ${COMMANDS[id].name}`}
+      onClick={() => edit.runWith(id, option)}
+      className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs focus-visible:outline-2 focus-visible:outline-(--color-focus) ${DARK.tile}`}
+    >
+      <Svg size="size-4">{ICONS[id]}</Svg>
+      <span dir="ltr" className="whitespace-nowrap">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function Panel({
+  title,
+  more,
+  children,
+}: {
+  title: string;
+  /** AutoCAD's slide-out: more tools under the panel, opened by the arrow next to its title. */
+  more?: ReactNode;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const moreLabel = t('design.cad.panelMore', { panel: title });
   return (
     <div
       role="group"
       aria-label={title}
-      className="flex flex-col border-e border-[#454b55] px-2 last:border-e-0"
+      className="relative flex flex-col border-e border-[#454b55] px-2 last:border-e-0"
     >
       <div className="flex flex-1 flex-wrap items-start gap-0.5">{children}</div>
-      <div
-        dir="ltr"
-        className="mt-1 rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
+      {more ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={moreLabel}
+          title={moreLabel}
+          onClick={() => setOpen(!open)}
+          dir="ltr"
+          className={`mt-1 rounded-sm text-center text-[11px] hover:bg-white/10 ${
+            open ? 'bg-[#3d6fb6] text-white' : 'bg-[#22262c] text-[#aab0b8]'
+          }`}
+        >
+          {title} <span aria-hidden="true">▾</span>
+        </button>
+      ) : (
+        <div
+          dir="ltr"
+          className="mt-1 rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
+        >
+          {title}
+        </div>
+      )}
+      {more && open ? (
+        <div
+          role="group"
+          aria-label={moreLabel}
+          className="absolute start-0 top-full z-30 mt-0.5 flex w-80 flex-wrap gap-0.5 rounded-b border border-[#454b55] bg-[#2b2f36] p-1.5 shadow-lg"
+        >
+          {more}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A tool with a drop-down of its variants (AutoCAD's split buttons: Hatch, Ellipse, Draw Order).
+ * Each item runs a command, with an option already chosen when it names one.
+ */
+function SplitTool({
+  edit,
+  label,
+  icon,
+  items,
+}: {
+  edit: CanvasEditState;
+  label: string;
+  icon: CommandId;
+  items: { label: string; icon: CommandId; id: CommandId; option?: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [first] = items;
+  const go = (item: { id: CommandId; option?: string }) => {
+    setOpen(false);
+    if (item.option) edit.runWith(item.id, item.option);
+    else edit.run(item.id);
+  };
+  return (
+    <div className="relative flex">
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={items.some((item) => edit.command === item.id)}
+        title={label}
+        onClick={() => {
+          if (first) go(first);
+        }}
+        className={`flex min-h-8 items-center gap-1.5 rounded-s px-1.5 text-xs focus-visible:outline-2 focus-visible:outline-(--color-focus) ${DARK.tile}`}
       >
-        {title}
-      </div>
+        <Svg size="size-4">{ICONS[icon]}</Svg>
+        <span dir="ltr" className="whitespace-nowrap">
+          {label}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${label} ▾`}
+        onClick={() => setOpen(!open)}
+        className={`min-h-8 rounded-e px-1 text-xs ${DARK.tile}`}
+      >
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <ul
+          role="menu"
+          aria-label={label}
+          className={`absolute start-0 top-full z-40 mt-0.5 min-w-44 rounded border border-[#4a505a] py-1 shadow-lg ${DARK.bar}`}
+        >
+          {items.map((item) => (
+            <li key={item.label} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => go(item)}
+                className="flex min-h-8 w-full items-center gap-2 px-2 text-start text-xs hover:bg-white/10"
+              >
+                <Svg size="size-4">{ICONS[item.icon]}</Svg>
+                <span dir="ltr">{item.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -406,17 +663,113 @@ export function CadRibbon({
         </StripButton>
       </div>
       <div className="flex flex-wrap items-stretch gap-y-2 py-1.5">
-        <Panel title={t('design.cad.panel.draw')}>
+        <Panel
+          title={t('design.cad.panel.draw')}
+          more={
+            <>
+              <Variant edit={edit} id="spline" option="F" label={t('design.cad.tool.splineFit')} />
+              <Variant edit={edit} id="spline" option="CV" label={t('design.cad.tool.splineCv')} />
+              <Tile edit={edit} id="ray" />
+              <Tile edit={edit} id="xline" />
+              <Variant
+                edit={edit}
+                id="point"
+                option="M"
+                label={t('design.cad.tool.multiplePoints')}
+              />
+              <Tile edit={edit} id="divide" />
+              <Tile edit={edit} id="measure" />
+              <Tile edit={edit} id="region" />
+              <Tile edit={edit} id="wipeout" />
+              <Tile edit={edit} id="helix" />
+              <Tile edit={edit} id="donut" />
+              <Tile edit={edit} id="polygon" />
+            </>
+          }
+        >
           <Tile edit={edit} id="line" big />
           <Tile edit={edit} id="pline" big />
           <Tile edit={edit} id="circle" big />
           <Tile edit={edit} id="arc" big />
           <Rows>
             <Tile edit={edit} id="rectang" />
+            <SplitTool
+              edit={edit}
+              label={t('design.cad.tool.hatch')}
+              icon="hatch"
+              items={[
+                { label: t('design.cad.tool.hatch'), icon: 'hatch', id: 'hatch' },
+                { label: t('design.cad.tool.gradient'), icon: 'gradient', id: 'gradient' },
+                { label: t('design.cad.tool.boundary'), icon: 'boundary', id: 'boundary' },
+              ]}
+            />
+            <SplitTool
+              edit={edit}
+              label={t('design.cad.tool.ellipse')}
+              icon="ellipse"
+              items={[
+                {
+                  label: t('design.cad.tool.ellipseCenter'),
+                  icon: 'ellipse',
+                  id: 'ellipse',
+                  option: 'C',
+                },
+                { label: t('design.cad.tool.ellipseAxis'), icon: 'ellipse', id: 'ellipse' },
+                {
+                  label: t('design.cad.tool.ellipseArc'),
+                  icon: 'arc',
+                  id: 'ellipse',
+                  option: 'A',
+                },
+              ]}
+            />
             <Tile edit={edit} id="point" />
           </Rows>
         </Panel>
-        <Panel title={t('design.cad.panel.modify')}>
+        <Panel
+          title={t('design.cad.panel.modify')}
+          more={
+            <>
+              <Tile edit={edit} id="break" />
+              <Tile edit={edit} id="breakatpoint" />
+              <Tile edit={edit} id="lengthen" />
+              <Tile edit={edit} id="reverse" />
+              <Tile edit={edit} id="arrayrect" />
+              <Tile edit={edit} id="overkill" />
+              <SplitTool
+                edit={edit}
+                label={t('design.cad.tool.draworder')}
+                icon="draworder"
+                items={[
+                  {
+                    label: t('design.cad.menu.bringFront'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'F',
+                  },
+                  {
+                    label: t('design.cad.menu.sendBack'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'B',
+                  },
+                  {
+                    label: t('design.cad.menu.bringAbove'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'A',
+                  },
+                  {
+                    label: t('design.cad.menu.sendUnder'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'U',
+                  },
+                ]}
+              />
+            </>
+          }
+        >
           <Rows>
             <Tile edit={edit} id="move" />
             <Tile edit={edit} id="copy" />

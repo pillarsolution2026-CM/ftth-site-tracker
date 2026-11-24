@@ -80,6 +80,26 @@ import {
   throughDistance,
 } from '../model/geometry-options';
 import type { ErrorMessage } from '../model/revision-errors';
+import {
+  DEFAULT_EXTRA_SETTINGS,
+  EXTRA_OBJECT_STEPS,
+  EXTRA_TRACKED,
+  extraAfterSelect,
+  extraBegin,
+  extraEnter,
+  extraNumber,
+  extraObject,
+  extraOption,
+  extraPoint,
+  extraPrompt,
+  extraSketch,
+  isExtra,
+  type ExtraContext,
+  type ExtraData,
+  type ExtraPromptKey,
+  type ExtraSettings,
+  type ExtraStep,
+} from './extra-commands';
 
 export type { Point } from '../model/cad-commands';
 
@@ -178,7 +198,8 @@ export type PromptKey =
   | 'dimSelect'
   | 'dimTextValue'
   | 'layerName'
-  | 'secondPointOr';
+  | 'secondPointOr'
+  | ExtraPromptKey;
 
 export interface CommandPrompt {
   key: PromptKey;
@@ -279,7 +300,8 @@ type Step =
   | 'offsetLayer'
   | 'dimSelect'
   | 'dimTextValue'
-  | 'laymchName';
+  | 'laymchName'
+  | ExtraStep;
 
 /** What a command's options set while it runs (AutoCAD's sub-options). */
 interface Flags {
@@ -304,6 +326,10 @@ interface Flags {
   dimDirection?: 'h' | 'v';
   /** «Select objects:» after R (Remove), until A (Add). */
   removing?: boolean;
+  /** POINT from «Multiple Points»: one point after another until Esc / Enter. */
+  repeat?: boolean;
+  /** What an added Draw / Modify command has taken (owner 2026-11-24). */
+  extra?: ExtraData;
 }
 
 interface Run {
@@ -397,6 +423,10 @@ const OBJECT_STEPS: readonly Step[] = [
   'dimSelect',
 ];
 
+const isTracked = (step: Step) => TRACKED.includes(step) || EXTRA_TRACKED.includes(step);
+const isObjectStep = (step: Step) =>
+  OBJECT_STEPS.includes(step) || EXTRA_OBJECT_STEPS.includes(step);
+
 const CURVE_KINDS = new Set(['LINE', 'LWPOLYLINE', 'POLYLINE']);
 /** DXF type → the command that draws one like it (ADDSELECTED). */
 const DRAW_LIKE: Readonly<Record<string, CommandId>> = {
@@ -424,6 +454,8 @@ export interface CanvasEditState {
   /** The command running, null at «Type a command». */
   command: CommandId | null;
   run: (id: CommandId) => void;
+  /** Starts a command with one of its options already chosen (ribbon drop-downs, menus). */
+  runWith: (id: CommandId, option: string) => void;
   prompt: CommandPrompt;
   /** Lines already on the command line (newest last). */
   history: readonly string[];
@@ -561,6 +593,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   }>({ chamfer: null, fillet: null, rotation: 0, length: 10, width: 10, area: 100 });
   const [previous, setPrevious] = useState<ReadonlySet<number>>(NONE);
   const [edits, setEdits] = useState<readonly CanvasEdit[]>([]);
+  const [extraSettings, setExtraSettings] = useState<ExtraSettings>(DEFAULT_EXTRA_SETTINGS);
   /** Edits taken back by Undo, the last one on top (Redo). */
   const [undone, setUndone] = useState<readonly CanvasEdit[]>([]);
   const [error, setError] = useState<ErrorMessage | null>(null);
@@ -738,6 +771,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       fallback,
     });
     if (!r) return p('command');
+    if (isExtra(r.cmd) && r.step !== 'select') {
+      const added = extraPrompt(r, extraSettings);
+      if (added) return added;
+    }
     const f = r.flags;
     switch (r.step) {
       case 'select':
@@ -992,6 +1029,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'laymchName':
         return p('layerName');
     }
+    return p('command');
   };
 
   const promptLine = (r: Run | null) =>
@@ -1012,8 +1050,34 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const flag = (r: Run, patch: Partial<Flags>, step?: Step) =>
     setRun({ ...r, step: step ?? r.step, flags: { ...r.flags, ...patch } });
 
-  const begin = (cmd: CommandId) => {
-    if (!scene) return;
+  /** The added Draw / Modify commands share this command line (owner 2026-11-24). */
+  const extraCtx = (): ExtraContext<Run> | null =>
+    scene && shown
+      ? {
+          scene,
+          shown,
+          selection,
+          handles,
+          drawLayer,
+          editCount: edits.length,
+          settings: extraSettings,
+          setSettings: (patch) => setExtraSettings((previous) => ({ ...previous, ...patch })),
+          say,
+          msg,
+          add,
+          finish,
+          setRun,
+          setSelection,
+          curveGeom,
+          pickable,
+          layerNameOf,
+          needDrawLayer,
+          geometryMessage,
+        }
+      : null;
+
+  const begin = (cmd: CommandId): Run | null | undefined => {
+    if (!scene) return null;
     setError(null);
     setLastCmd(cmd);
     setText('');
@@ -1021,7 +1085,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     setFocusNonce((n) => n + 1);
     say(msg('commandEcho', { name: COMMANDS[cmd].name }));
     const picked = handles.length > 0;
-    const next = (step: Step) => setRun(newRun(cmd, step));
+    const next = (step: Step): Run => {
+      const r = newRun(cmd, step);
+      setRun(r);
+      return r;
+    };
+    const ctx = isExtra(cmd) ? extraCtx() : null;
+    if (ctx) return extraBegin(ctx, cmd, (step) => newRun(cmd, step as Step));
     switch (cmd) {
       case 'move':
       case 'copy':
@@ -1176,6 +1246,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       finish();
       return;
     }
+    const ctx = isExtra(r.cmd) ? extraCtx() : null;
+    if (ctx) {
+      extraAfterSelect(ctx, r);
+      return;
+    }
     switch (r.cmd) {
       case 'erase':
         add(eraseEdits(handles));
@@ -1270,7 +1345,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   /** A point given for the step (clicked, typed, or by direct distance). */
+  /** The added commands take their own entries (except «Select objects:»). */
+  const extraFor = (r: Run): ExtraContext<Run> | null =>
+    isExtra(r.cmd) && r.step !== 'select' ? extraCtx() : null;
+
   const feedPoint = (r: Run, p: Point) => {
+    const ctx = extraFor(r);
+    if (ctx) {
+      extraPoint(ctx, r, p);
+      return;
+    }
     const last = r.points[r.points.length - 1] ?? null;
     const f = r.flags;
     switch (r.step) {
@@ -1500,7 +1584,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'pointAt':
         if (!needDrawLayer()) return;
         add([{ kind: 'add_item', layer: drawLayer, x: roundCoord(p.x), y: roundCoord(p.y) }]);
-        finish();
+        if (!f.repeat) finish();
         return;
       case 'offsetSide':
         offsetTo(r, p);
@@ -1649,6 +1733,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   /** An object clicked for the step (`shift`: Shift held, as AutoCAD's shift-select). */
   const feedObject = (r: Run, index: number | null, at: Point, shift = false) => {
+    const ctx = extraFor(r);
+    if (ctx) {
+      extraObject(ctx, r, index, at);
+      return;
+    }
     if (!scene) return;
     if (index === null || !pickable(index)) {
       if (r.step === 'trimPick' || r.step === 'dest' || r.step === 'trimErase') return;
@@ -1855,6 +1944,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   /** Enter (or Space, or an empty right answer) for the step: AutoCAD's default in <…>. */
   const feedEnter = (r: Run) => {
+    const ctx = extraFor(r);
+    if (ctx) {
+      extraEnter(ctx, r);
+      return;
+    }
     const f = r.flags;
     switch (r.step) {
       case 'select':
@@ -1987,6 +2081,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const feedOption = (r: Run, key: string) => {
+    const ctx = extraFor(r);
+    if (ctx) {
+      extraOption(ctx, r, key);
+      return;
+    }
+    if (r.step === 'pointAt' && key === 'M') {
+      // «Multiple Points» of the ribbon: points one after another until Esc.
+      flag(r, { repeat: true });
+      return;
+    }
     const f = r.flags;
     switch (r.step) {
       case 'base':
@@ -2189,6 +2293,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const feedNumber = (r: Run, value: number) => {
+    const ctx = extraFor(r);
+    if (ctx) {
+      extraNumber(ctx, r, value);
+      return;
+    }
     const last = r.points[r.points.length - 1] ?? r.base;
     const f = r.flags;
     const positive = (then: () => void, allowZero = false) => {
@@ -2337,7 +2446,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       default:
         // AutoCAD's direct distance entry: that far toward the pointer from the last point.
-        if (last && TRACKED.includes(r.step)) feedPoint(r, towards(last, pointer, value));
+        if (last && isTracked(r.step)) feedPoint(r, towards(last, pointer, value));
         else say(msg('badPoint'));
     }
   };
@@ -2442,7 +2551,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     say(`${promptLine(run)} ${typed}`);
     if (entry.kind === 'empty') feedEnter(run);
     else if (entry.kind === 'point') {
-      if (OBJECT_STEPS.includes(run.step) || run.step === 'select') say(msg('badSelection'));
+      if (isObjectStep(run.step) || run.step === 'select') say(msg('badSelection'));
       else feedPoint(run, entry.point);
     } else if (entry.kind === 'number') feedNumber(run, entry.value);
     else if (entry.kind === 'word') {
@@ -2480,7 +2589,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   let ghost: CanvasEditState['ghost'] = null;
   let sketch: CanvasEditState['sketch'] = null;
-  if (run && pointer) {
+  if (run && pointer && isExtra(run.cmd)) {
+    sketch = extraSketch(run, pointer, extraSettings);
+  } else if (run && pointer) {
     const { base, step } = run;
     const at = pointer;
     let affine: Affine | null = null;
@@ -2590,6 +2701,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       begin(id);
     },
+    runWith: (id, key) => {
+      if (!editing) return;
+      if (run) setRun(null);
+      const started = begin(id);
+      if (!started) return;
+      // Asked before the objects: kept until they are picked.
+      if (started.step === 'select') {
+        setRun({ ...started, flags: { ...started.flags, extra: { pending: key } } });
+      } else feedOption(started, key);
+    },
     prompt: promptOf(run),
     history,
     input: text,
@@ -2674,7 +2795,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     pick: (entity, at, additive) => {
       if (!editing || !scene) return;
       setError(null);
-      if (run && OBJECT_STEPS.includes(run.step)) {
+      if (run && isObjectStep(run.step)) {
         feedObject(run, entity, at, additive);
         return;
       }
@@ -2741,9 +2862,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       });
       if (run) say(msg('found', { count: found.length }));
     },
-    tracking: run !== null && TRACKED.includes(run.step),
+    tracking: run !== null && isTracked(run.step),
     hover: (at) => {
-      if (run && TRACKED.includes(run.step)) setPointer(at);
+      if (run && isTracked(run.step)) setPointer(at);
     },
     ghost,
     sketch,

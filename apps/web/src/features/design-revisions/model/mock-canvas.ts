@@ -27,6 +27,8 @@ export function createMockContext() {
     closePath: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
+    clip: vi.fn(),
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     translate: vi.fn(),
     rotate: vi.fn(),
     transform: vi.fn(),

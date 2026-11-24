@@ -16,6 +16,7 @@ from cad_worker.domain.corrections import (
     AddItem,
     AddLayer,
     AddNote,
+    AddShape,
     AddText,
     CopyItem,
     CorrectionInvalidError,
@@ -31,6 +32,7 @@ from cad_worker.domain.corrections import (
     RotateItem,
     ScaleItem,
     SetCurve,
+    SetOrder,
     SetStyle,
     SetText,
     apply_corrections,
@@ -881,3 +883,73 @@ def test_a_layer_for_drawing_only_and_a_layer_given_a_meaning() -> None:
         {"source": "layer", "layer": "DUCT 4", "target": "route"},
         {"source": "layer", "layer": "buildings", "target": "route"},
     ]
+
+
+# ---------- screen shapes and draw order (owner 2026-11-24) ----------
+
+
+def test_shapes_and_draw_order_are_parsed_and_change_nothing() -> None:
+    square = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    bodies: list[dict[str, Any]] = [
+        {
+            "kind": "add_shape",
+            "shape": "hatch",
+            "layer": "H",
+            "points": square,
+            "pattern": "ANSI31",
+            "scale": 2,
+            "angle": 45,
+            "color": None,
+            "color2": None,
+            "inner": None,
+            "outer": None,
+        },
+        {
+            "kind": "add_shape",
+            "shape": "gradient",
+            "layer": "H",
+            "points": square,
+            "color": "#ff0000",
+            "color2": "#0000FF",
+        },
+        {
+            "kind": "add_shape",
+            "shape": "donut",
+            "layer": "H",
+            "points": [[1, 1]],
+            "inner": 0,
+            "outer": 2,
+        },
+        {"kind": "add_shape", "shape": "xline", "layer": "H", "points": [[0, 0], [1, 1]]},
+        {"kind": "set_order", "handle": "c1", "order": -2.5},
+    ]
+    raw = [{"id": str(uuid.UUID(int=i + 1)), "correction": b} for i, b in enumerate(bodies)]
+    parsed = [p.correction for p in parse_corrections(raw)]
+    assert parsed[0] == AddShape("hatch", "H", ((0, 0), (10, 0), (10, 10), (0, 10)))
+    assert parsed[2] == AddShape("donut", "H", ((1, 1),))
+    assert parsed[4] == SetOrder("c1", -2.5)
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    for correction in parsed:
+        assert apply(drawing, correction) == apply(drawing, SetOrder("c1", 0))
+    assert apply(drawing, SetOrder("c1", 3)).curves == drawing.curves
+
+
+def test_bad_shapes_and_orders_fail_loudly() -> None:
+    shape: dict[str, Any] = {"kind": "add_shape", "shape": "hatch", "layer": "H"}
+    bad: tuple[dict[str, Any], ...] = (
+        {**shape, "points": [[0, 0], [1, 1]]},
+        {**shape, "shape": "cloud", "points": [[0, 0], [1, 0], [1, 1]]},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "pattern": "BRICK"},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "color": "red"},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "scale": 0},
+        {**shape, "shape": "donut", "points": [[0, 0]], "inner": 2, "outer": 2},
+        {**shape, "shape": "donut", "points": [[0, 0]]},
+        {**shape, "shape": "ray", "points": [[0, 0], [0, 0]]},
+        {**shape, "shape": "ray", "points": [[0, 0]]},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "extra": 1},
+        {"kind": "set_order", "handle": "c1", "order": "top"},
+        {"kind": "set_order", "handle": "c1", "order": 2e9},
+    )
+    for body in bad:
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])

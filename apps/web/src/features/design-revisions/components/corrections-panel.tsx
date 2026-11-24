@@ -317,5 +317,21 @@ function Values({ item }: { item: DrawingCorrection }) {
         </>
       );
     }
+    case 'add_shape':
+      return (
+        <>
+          {t(`design.corrections.values.shape_${c.shape}`)}
+          {c.pattern !== null ? <Ltr> {c.pattern}</Ltr> : null}{' '}
+          <Ltr className="break-all">{c.layer}</Ltr> (
+          {t('design.corrections.values.screenOnly')})
+        </>
+      );
+    case 'set_order':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr> {t('design.corrections.values.order')}{' '}
+          <Ltr>{round(c.order)}</Ltr> ({t('design.corrections.values.screenOnly')})
+        </>
+      );
   }
 }

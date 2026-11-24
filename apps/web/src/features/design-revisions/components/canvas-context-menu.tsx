@@ -224,12 +224,19 @@ export function CanvasContextMenu({
         onSelect: act(isolation.end),
       },
     ],
-    order: ['bringFront', 'sendBack', 'bringAbove', 'sendUnder'].map((key, i) => ({
+    order: (
+      [
+        ['bringFront', 'F'],
+        ['sendBack', 'B'],
+        ['bringAbove', 'A'],
+        ['sendUnder', 'U'],
+      ] as const
+    ).map(([key, option], i) => ({
       key,
       label: label(key),
       separatorBefore: i === 2,
-      disabled: true,
-      title: later('4'),
+      disabled: none,
+      onSelect: act(() => edit.runWith('draworder', option)),
     })),
     group: ['groupMake', 'ungroup', 'addToGroup', 'removeFromGroup'].map((key) => ({
       key,

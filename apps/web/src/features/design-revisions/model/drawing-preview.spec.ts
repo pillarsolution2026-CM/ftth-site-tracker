@@ -269,3 +269,45 @@ describe('AutoCAD-like screen in the preview (ADR-051)', () => {
     expect(preview.notes).toEqual([]);
   });
 });
+
+describe('screen shapes and draw order (owner 2026-11-24)', () => {
+  it('add_shape is drawn in its layer colour; set_order keeps the latest order; delete_layer drops shapes', () => {
+    const square: [number, number][] = [
+      [0, 0],
+      [5, 0],
+      [5, 5],
+    ];
+    const shape = {
+      kind: 'add_shape' as const,
+      shape: 'hatch' as const,
+      layer: 'Sap',
+      points: square,
+      pattern: 'ANSI31' as const,
+      scale: 2,
+      angle: 0,
+      color: null,
+      color2: null,
+      inner: null,
+      outer: null,
+    };
+    const preview = applyCorrections(
+      scene,
+      [
+        correction(shape),
+        correction({ kind: 'set_order', handle: 'B', order: 3 }),
+        correction({ kind: 'set_order', handle: 'B', order: -1 }),
+      ],
+      2.5,
+    );
+    expect(preview.shapes).toEqual([
+      expect.objectContaining({ shape: 'hatch', layer: 1, layerColor: '#00aa00', scale: 2 }),
+    ]);
+    expect(preview.orderOf.get(1)).toBe(-1);
+    const gone = applyCorrections(
+      scene,
+      [correction(shape), correction({ kind: 'delete_layer', layer: 'Sap' })],
+      2.5,
+    );
+    expect(gone.shapes).toEqual([]);
+  });
+});
