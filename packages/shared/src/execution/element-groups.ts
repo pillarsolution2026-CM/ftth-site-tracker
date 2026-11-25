@@ -162,9 +162,8 @@ export function groupsForElement<T extends { group: ItemGroup | null }>(
 // ---------- digging dimensions (owner 2026-11-17: the supervisor always types L, W and D) ----------
 
 /**
- * Main groups whose cubic-metre lines take length × width × depth from the supervisor. ASSUMPTION to
- * confirm with the owner: «طبقة خرسانية» m3 lines too (the 2026-11-17 rule had the concrete layer
- * typed as L × W × D).
+ * Main groups whose cubic-metre lines take length × width × depth from the supervisor (owner
+ * 2026-11-17 for digging; 2026-11-25: the concrete layer «طبقة خرسانية» the same as digging).
  */
 export const DIMENSION_MAIN_GROUPS = ['حفر', 'طبقة خرسانية'] as const;
 
