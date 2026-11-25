@@ -188,7 +188,7 @@ export class DrizzleContractorPortalRepository implements ContractorPortalReposi
       sql`SELECT w.update_id, w.line_no, w.registration_id, w.contractor_line_id, w.feature_type,
                  w.code, w.status, w.review_reason, w.work_date, w.quantity, w.unit_price, w.value
           FROM (${workLines(contractorId)}) w
-          ORDER BY w.captured_at DESC, w.update_id DESC, w.line_no DESC`,
+          ORDER BY w.work_date DESC, w.captured_at DESC, w.update_id DESC, w.line_no DESC`,
     );
     // ADR-056: a «التخطيط» update has no element (element null), and is listed like the others.
     return rows.map((row) => ({

@@ -135,7 +135,7 @@ export type PortalTotals = z.infer<typeof PortalTotalsSchema>;
 /**
  * GET /contractor/me: everything the logged-in contractor account may see, in one answer so the
  * phone can keep it offline. 403 FORBIDDEN for any user that is not an active contractor account.
- * `work` newest first.
+ * `work` newest work date first (ADR-057).
  */
 export const ContractorPortalResponseSchema = z.object({
   serverTime: z.iso.datetime({ offset: true }),
