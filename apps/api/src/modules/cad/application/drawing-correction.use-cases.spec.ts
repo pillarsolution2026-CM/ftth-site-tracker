@@ -264,7 +264,10 @@ describe('adding a correction', () => {
 
   it('checks the handles of erase, copy, mirror and scale (ADR-050)', async () => {
     await add({ correction: { kind: 'erase_item', handle: 'A2' }, problem: null });
-    await add({ correction: { kind: 'copy_item', handle: 'C1', dx: 1, dy: 1, toLayer: null }, problem: null });
+    await add({
+      correction: { kind: 'copy_item', handle: 'C1', dx: 1, dy: 1, toLayer: null },
+      problem: null,
+    });
     await add({
       correction: { kind: 'mirror_item', handle: 'A1', x1: 0, y1: 0, x2: 1, y2: 0 },
       problem: null,
