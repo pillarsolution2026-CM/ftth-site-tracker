@@ -212,11 +212,19 @@ export class DrizzleExecutionTx implements ExecutionTx {
     ids: readonly string[],
   ): Promise<ContractorLineFacts[]> {
     // Lock in id order so two pushes taking several lines cannot deadlock.
-    const locked = await rowsOf<{ id: string; work_order_item_id: string; quantity: string }>(
+    const locked = await rowsOf<{
+      id: string;
+      work_order_item_id: string;
+      quantity: string;
+      registered_on: string;
+    }>(
       this.db,
-      sql`SELECT id, work_order_item_id, quantity::text AS quantity FROM contractor_lines
-          WHERE project_id = ${projectId} AND id = ANY(${uuidArray(ids)})
-          ORDER BY id FOR UPDATE`,
+      sql`SELECT cl.id, cl.work_order_item_id, cl.quantity::text AS quantity,
+                 to_char(r.registered_on, 'YYYY-MM-DD') AS registered_on
+          FROM contractor_lines cl
+          JOIN contractor_registrations r ON r.id = cl.registration_id
+          WHERE cl.project_id = ${projectId} AND cl.id = ANY(${uuidArray(ids)})
+          ORDER BY cl.id FOR UPDATE OF cl`,
     );
     if (locked.length === 0) return [];
     const recorded = await rowsOf<{ contractor_line_id: string; recorded: string }>(
@@ -234,6 +242,7 @@ export class DrizzleExecutionTx implements ExecutionTx {
       workOrderItemId: row.work_order_item_id,
       quantity: row.quantity,
       recordedQuantity: recordedOf.get(row.id) ?? '0',
+      registeredOn: row.registered_on,
     }));
   }
 
@@ -327,12 +336,12 @@ export class DrizzleExecutionTx implements ExecutionTx {
       await this.db.execute(sql`
         INSERT INTO execution_updates (
           id, project_id, client_op_id, feature_id, feature_type, drawing_id, design_revision_id,
-          work_type, user_id, device_id, captured_at, received_at, label, note,
+          work_type, user_id, device_id, captured_at, work_date, received_at, label, note,
           gps_wgs84, gps_accuracy_m, gps_at, gps_geom, flags, acknowledged_warnings)
         SELECT ${update.id}, ${update.projectId}, ${update.clientOpId}, NULL, NULL,
                ${update.drawingId}::uuid, ${update.designRevisionId}, ${update.workType},
                ${update.userId}, ${update.deviceId}, ${update.capturedAt.toISOString()},
-               ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
+               ${update.workDate}::date, ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
                ${gpsPoint}, ${gps?.accuracyM ?? null}, ${gps ? gps.at.toISOString() : null},
                CASE WHEN ${gps !== null} THEN ST_Transform(${gpsPoint}, r.crs_epsg) END,
                ${enumArray(update.flags)}, ${enumArray(update.acknowledgedWarnings)}
@@ -342,13 +351,13 @@ export class DrizzleExecutionTx implements ExecutionTx {
       await this.db.execute(sql`
         INSERT INTO execution_updates (
           id, project_id, client_op_id, feature_id, feature_type, design_revision_id, work_type,
-          user_id, device_id, captured_at, received_at, label, note,
+          user_id, device_id, captured_at, work_date, received_at, label, note,
           gps_wgs84, gps_accuracy_m, gps_at, gps_geom, gps_distance_m,
           flags, acknowledged_warnings)
         SELECT ${update.id}, ${update.projectId}, ${update.clientOpId}, ${update.featureId},
                ${update.featureType}, ${update.designRevisionId}, ${update.workType},
                ${update.userId}, ${update.deviceId}, ${update.capturedAt.toISOString()},
-               ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
+               ${update.workDate}::date, ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
                ${gpsPoint}, ${gps?.accuracyM ?? null}, ${gps ? gps.at.toISOString() : null},
                CASE WHEN ${gps !== null} THEN ST_Transform(${gpsPoint}, ST_SRID(df.geom)) END,
                CASE WHEN ${gps !== null}

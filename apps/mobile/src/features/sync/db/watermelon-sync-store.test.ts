@@ -68,6 +68,7 @@ function op(photoId: string, size = 4): SyncOp {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }
@@ -183,6 +184,7 @@ describe('WatermelonSyncStore', () => {
       label: null,
       note: null,
       capturedAt: '2026-10-30T10:00:00Z',
+      workDate: '2026-10-30',
       receivedAt: '2026-10-30T10:00:00Z',
       gpsDistanceM: null,
       flags: [],

@@ -62,6 +62,8 @@ export interface ContractorLineFacts {
   quantity: string;
   /** Pending + approved work already recorded on it (rejected work does not count). */
   recordedQuantity: string;
+  /** ADR-057: the contractor's registration date on the work order (YYYY-MM-DD). */
+  registeredOn: string;
 }
 
 export interface ItemFacts {
@@ -92,6 +94,8 @@ export interface NewUpdate {
   userId: string;
   deviceId: string;
   capturedAt: Date;
+  /** ADR-057: the day the work was done (YYYY-MM-DD, Africa/Cairo). */
+  workDate: string;
   receivedAt: Date;
   label: string | null;
   note: string | null;

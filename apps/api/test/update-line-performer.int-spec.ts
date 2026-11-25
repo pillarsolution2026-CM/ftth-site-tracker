@@ -4,6 +4,8 @@ import {
   SyncChangesResponseSchema,
   SyncPushResponseSchema,
   type OpResult,
+  shiftDay,
+  workDayOf,
 } from '@ftth/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -30,8 +32,9 @@ interface Registered {
   lineIds: Record<string, string>;
 }
 
-// The tests share one work order: whole-line contractors on C-02 (work order 10) add up to 9 and
-// on C-01 (work order 100) to 95, within the per-scope cap of migration 0013.
+// The tests share one work order: whole-line contractors on C-02 (work order 10) add up to 10 and
+// on C-01 (work order 100) to 99, within the per-scope cap of migration 0013 (ADR-057 adds 2 + 2
+// on C-01 and 1 on C-02).
 async function register(
   name: string,
   lines: { item: string; quantity: string; scope?: string }[],
@@ -88,6 +91,7 @@ const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 function op(
   lines: { item: string; quantity: string; performer: Performer; role?: string }[],
   workType = 'civil',
+  workDate: string | null = null,
 ) {
   const photo = Buffer.alloc(3000, 1);
   photo.set([0xff, 0xd8, 0xff, 0xe0], 0);
@@ -122,6 +126,7 @@ function op(
         },
       ],
       acknowledgedWarnings: [],
+      workDate,
     },
   };
 }
@@ -351,5 +356,99 @@ describe('contractor admin conflicts', () => {
     expect(
       (await adminReq(http().delete(adminUrl(`/${reg.registrationId}/lines/${free}`)))).status,
     ).toBe(200);
+  });
+});
+
+describe('work date (ADR-057)', () => {
+  // Every test registers its contractor on 2026-11-01 (see `register`).
+  it('records an earlier day the supervisor picked, and refuses a day after today (Cairo)', async () => {
+    const operation = op(
+      [{ item: fx.items.civilMetres, quantity: '1', performer: self }],
+      'civil',
+      '2026-01-15',
+    );
+    expect((await push(operation)).outcome).toBe('applied');
+    const { rows } = await ctx.pool.query<{ work_date: string }>(
+      `SELECT to_char(work_date, 'YYYY-MM-DD') AS work_date FROM execution_updates WHERE client_op_id = $1`,
+      [operation.clientOpId],
+    );
+    expect(rows[0]?.work_date).toBe('2026-01-15');
+
+    const tomorrow = shiftDay(workDayOf(new Date()), 1);
+    const future = await push(
+      op([{ item: fx.items.civilMetres, quantity: '1', performer: self }], 'civil', tomorrow),
+    );
+    expect(future).toMatchObject({ outcome: 'rejected', code: 'WORK_DATE_IN_FUTURE' });
+  });
+
+  it('keeps the Cairo day of capturedAt when the phone sends no work date', async () => {
+    const operation = op([{ item: fx.items.civilMetres, quantity: '1', performer: self }]);
+    expect((await push(operation)).outcome).toBe('applied');
+    const { rows } = await ctx.pool.query<{ work_date: string }>(
+      `SELECT to_char(work_date, 'YYYY-MM-DD') AS work_date FROM execution_updates WHERE client_op_id = $1`,
+      [operation.clientOpId],
+    );
+    expect(rows[0]?.work_date).toBe(workDayOf(new Date(operation.capturedAt)));
+  });
+
+  it('refuses a contractor before his registration day and accepts him from that day', async () => {
+    const reg = await register('Kilo', [{ item: fx.items.civilMetres, quantity: '2' }]);
+    const line = reg.lineIds[fx.items.civilMetres] ?? '';
+    const before = await push(
+      op(
+        [{ item: fx.items.civilMetres, quantity: '1', performer: viaLine(line) }],
+        'civil',
+        '2026-10-31',
+      ),
+    );
+    expect(before).toMatchObject({
+      outcome: 'rejected',
+      code: 'CONTRACTOR_NOT_REGISTERED_ON_DATE',
+    });
+    const sameDay = await push(
+      op(
+        [{ item: fx.items.civilMetres, quantity: '1', performer: viaLine(line) }],
+        'civil',
+        '2026-11-01',
+      ),
+    );
+    expect(sameDay.outcome).toBe('applied');
+  });
+
+  it('refuses at the database a contractor line on an update dated before his registration (backstop)', async () => {
+    const reg = await register('Lima', [{ item: fx.items.civilMetres, quantity: '2' }]);
+    const line = reg.lineIds[fx.items.civilMetres] ?? '';
+    const operation = op(
+      [{ item: fx.items.civilMetres, quantity: '1', performer: self }],
+      'civil',
+      '2026-10-01',
+    );
+    expect((await push(operation)).outcome).toBe('applied');
+    const { rows } = await ctx.pool.query<{ id: string }>(
+      `SELECT id FROM execution_updates WHERE client_op_id = $1`,
+      [operation.clientOpId],
+    );
+    await expect(
+      ctx.pool.query(
+        `INSERT INTO execution_update_lines
+           (update_id, project_id, line_no, role, work_order_item_id, quantity, performer, contractor_line_id)
+         VALUES ($1, $2, 900, 'work', $3, '1', 'contractor', $4)`,
+        [rows[0]?.id, fx.projectId, fx.items.civilMetres, line],
+      ),
+    ).rejects.toThrow(/contractor not registered on the work date/);
+  });
+
+  it('gives the phone the registration date of each contractor line', async () => {
+    // C-02 (work order 10): 9 above, plus 1 here.
+    const reg = await register('Mike', [{ item: fx.items.civilPieces, quantity: '1' }]);
+    const res = await http()
+      .get(`/projects/${fx.projectId}/sync/bootstrap`)
+      .set('Authorization', `Bearer ${fx.tokens.supervisorA}`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const bundle = OfflineBundleSchema.parse(res.body);
+    const found = bundle.catalog
+      .flatMap((item) => item.contractors)
+      .find((c) => c.contractorLineId === reg.lineIds[fx.items.civilPieces]);
+    expect(found?.registeredOn).toBe('2026-11-01');
   });
 });

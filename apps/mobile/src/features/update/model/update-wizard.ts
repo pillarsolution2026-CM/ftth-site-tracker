@@ -6,6 +6,7 @@ import {
   groupsForElement,
   performerKeyOf,
   volumeOf,
+  workDayOf,
   type DrawingKind,
   type ElementKey,
   type GroupedLines,
@@ -90,6 +91,11 @@ export interface UpdateDraft {
   photos: readonly CapturedPhoto[];
   /** Warnings the supervisor has seen and accepted on the review step. */
   acknowledged: readonly ClientWarning[];
+  /**
+   * ADR-057: the day the work was done (YYYY-MM-DD, Africa/Cairo), picked on the work step: today
+   * or any earlier day. null = today (the day of saving).
+   */
+  workDate?: string | null;
 }
 
 const emptyDraft = (target: UpdateTarget): UpdateDraft => ({
@@ -103,6 +109,7 @@ const emptyDraft = (target: UpdateTarget): UpdateDraft => ({
   gps: null,
   photos: [],
   acknowledged: [],
+  workDate: null,
 });
 
 export function startDraft(feature: OfflineFeature): UpdateDraft {
@@ -315,6 +322,38 @@ export function groupBack(path: GroupPath): GroupPath {
   return path.sub !== null ? { main: path.main, sub: null } : ROOT_PATH;
 }
 
+/** ADR-057: the work date of the draft; `today` is the Cairo day of now. */
+export const workDateOf = (draft: Pick<UpdateDraft, 'workDate'>, today: string): string =>
+  draft.workDate ?? today;
+
+/** ADR-057: a contractor is offered from his registration day on (unknown date: the server decides). */
+export const registeredBy = (contractor: Pick<CatalogContractor, 'registeredOn'>, day: string) =>
+  contractor.registeredOn === null || contractor.registeredOn <= day;
+
+/**
+ * ADR-057: pick the work date — today or earlier, never later (a later day is brought back to
+ * today). Work lines of contractors not yet registered on that day are dropped, since the phone no
+ * longer offers them.
+ */
+export function setWorkDate(
+  draft: UpdateDraft,
+  day: string,
+  today: string,
+  catalog: readonly CatalogItem[],
+): UpdateDraft {
+  const picked = day >= today ? null : day;
+  const effective = picked ?? today;
+  const work = draft.work.filter((line) => {
+    if (line.performer.kind !== 'contractor') return true;
+    const lineId = line.performer.contractorLineId;
+    const contractor = catalog
+      .find((item) => item.id === line.itemId)
+      ?.contractors.find((candidate) => candidate.contractorLineId === lineId);
+    return !contractor || registeredBy(contractor, effective);
+  });
+  return { ...draft, workDate: picked, work };
+}
+
 /** Quantity left of a contractor line on this phone: bundle numbers minus the own unsent updates. */
 export function contractorLeft(
   contractor: Pick<CatalogContractor, 'quantity' | 'recordedQuantity' | 'contractorLineId'>,
@@ -425,12 +464,15 @@ export type StepProblem =
   | 'LABEL_TOO_LONG'
   | 'NOTE_TOO_LONG'
   | 'PHOTOS_MISSING'
-  | 'CONTRACTOR_QUANTITY_EXCEEDED';
+  | 'CONTRACTOR_QUANTITY_EXCEEDED'
+  | 'WORK_DATE_IN_FUTURE';
 
 /** What the phone knows about contractor quantities (for the block of ADR-052). */
 export interface ContractorContext {
   catalog: readonly CatalogItem[];
   unsyncedByContractorLine: Readonly<Record<string, string>>;
+  /** ADR-057: the Cairo day of now, to check the work date. */
+  today?: string;
 }
 
 /** What blocks leaving `step` (save stays locked until mandatory photos are complete, plan). */
@@ -443,12 +485,22 @@ export function stepProblems(
   switch (step) {
     case 'activity':
       return draft.workType ? [] : ['NO_ACTIVITY'];
-    case 'work':
-      return contractors &&
+    case 'work': {
+      const problems: StepProblem[] = [];
+      // ADR-057: a work date kept past midnight in the future cannot happen (setWorkDate clamps);
+      // this guards a draft built by other code.
+      if (contractors?.today && draft.workDate && draft.workDate > contractors.today) {
+        problems.push('WORK_DATE_IN_FUTURE');
+      }
+      if (
+        contractors &&
         contractorOverruns(draft, contractors.catalog, contractors.unsyncedByContractorLine)
           .length > 0
-        ? ['CONTRACTOR_QUANTITY_EXCEEDED']
-        : [];
+      ) {
+        problems.push('CONTRACTOR_QUANTITY_EXCEEDED');
+      }
+      return problems;
+    }
     case 'materials':
       // Either step may be empty, not both: an update records at least one line.
       return draft.work.length + Object.keys(draft.materials).length === 0 ? ['NO_LINES'] : [];
@@ -605,6 +657,8 @@ export function buildRecordOp(
         gps: photo.gps,
       })),
       acknowledgedWarnings: draft.acknowledged.filter((warning) => warnings.includes(warning)),
+      // ADR-057: always sent; "today" is the Cairo day of the moment of saving.
+      workDate: workDateOf(draft, workDayOf(new Date(input.capturedAt))),
     },
   });
 }

@@ -72,6 +72,7 @@ function op(photo: Buffer, photoId = randomUUID()) {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }

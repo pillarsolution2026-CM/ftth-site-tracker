@@ -108,6 +108,7 @@ function updateOp(fx: ExecutionFixture, featureId: string, revisionId: string) {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }

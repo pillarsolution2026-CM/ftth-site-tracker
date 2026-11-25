@@ -21,6 +21,7 @@ import {
   openSub,
   parseDimensions,
   ROOT_PATH,
+  setWorkDate,
   setWorkDimensions,
   startPlanningDraft,
   usesGroups,
@@ -35,6 +36,7 @@ import {
   stepProblems,
   stepWork,
   unsyncedTotals,
+  workDateOf,
   workQuantity,
   type CapturedPhoto,
   type UpdateDraft,
@@ -71,13 +73,19 @@ const item = (
   group: null,
   needsDimensions: false,
 });
-const contractorLine = (n: number, quantity: string, recordedQuantity = '0') => ({
+const contractorLine = (
+  n: number,
+  quantity: string,
+  recordedQuantity = '0',
+  registeredOn: string | null = null,
+) => ({
   contractorLineId: id(300 + n),
   contractorId: id(400 + n),
   contractorName: `contractor ${n}`,
   scope: null,
   quantity,
   recordedQuantity,
+  registeredOn,
 });
 const via = (n: number): LinePerformer => ({ kind: 'contractor', contractorLineId: id(300 + n) });
 const catalog = [item(1, 'civil', '10', '9'), item(2, 'civil', '5'), item(3, 'installation', '3')];
@@ -301,6 +309,7 @@ describe('update wizard', () => {
             gps: null,
             photos: [],
             acknowledgedWarnings: [],
+            workDate: null,
           },
         },
       });
@@ -571,5 +580,58 @@ describe('groups, dimensions and «التخطيط» (ADR-056)', () => {
       );
       expect(op.payload).toMatchObject({ featureId: box.id, drawingId: null });
     });
+  });
+});
+
+describe('work date (ADR-057)', () => {
+  const TODAY = '2026-11-11';
+  const registered = [
+    {
+      ...item(1, 'civil', '10'),
+      contractors: [contractorLine(1, '5', '0', '2026-11-05'), contractorLine(2, '5', '0', null)],
+    },
+  ];
+
+  it('starts at today and sends today, read in Cairo at the moment of saving', () => {
+    const draft = acknowledge(complete(), ['ITEM_OVERRUN']);
+    expect(workDateOf(draft, TODAY)).toBe(TODAY);
+    // 23:30 UTC on the 10th is the 11th in Cairo.
+    const op = buildRecordOp(
+      draft,
+      { clientOpId: id(900), capturedAt: '2026-11-10T23:30:00Z', designRevisionId: id(901) },
+      ['ITEM_OVERRUN'],
+    );
+    expect(op.payload.workDate).toBe('2026-11-11');
+  });
+
+  it('takes any earlier day, with no limit, and brings a later day back to today', () => {
+    const draft = complete();
+    const earlier = setWorkDate(draft, '2024-02-29', TODAY, catalog);
+    expect(earlier.workDate).toBe('2024-02-29');
+    const op = buildRecordOp(
+      acknowledge(earlier, ['ITEM_OVERRUN']),
+      { clientOpId: id(900), capturedAt: '2026-11-11T10:00:00Z', designRevisionId: id(901) },
+      ['ITEM_OVERRUN'],
+    );
+    expect(op.payload.workDate).toBe('2024-02-29');
+    expect(setWorkDate(earlier, '2026-11-12', TODAY, catalog).workDate).toBeNull();
+    expect(setWorkDate(earlier, TODAY, TODAY, catalog).workDate).toBeNull();
+  });
+
+  it('drops the work of a contractor not registered on the picked day, keeping the rest', () => {
+    let draft = chooseWorkType(startDraft(box), 'civil');
+    draft = stepWork(draft, id(101), via(1), 1);
+    draft = stepWork(draft, id(101), via(2), 1);
+    draft = stepWork(draft, id(101), SELF, 1);
+    const before = setWorkDate(draft, '2026-11-04', TODAY, registered);
+    expect(before.work.map((line) => line.performer)).toEqual([via(2), SELF]);
+    const sameDay = setWorkDate(draft, '2026-11-05', TODAY, registered);
+    expect(sameDay.work).toHaveLength(3);
+  });
+
+  it('blocks the work step on a future work date set by other code', () => {
+    const draft = { ...complete(), step: 'work' as const, workDate: '2026-11-12' };
+    const ctx = { catalog, unsyncedByContractorLine: {}, today: TODAY };
+    expect(stepProblems(draft, 'work', requirements, ctx)).toEqual(['WORK_DATE_IN_FUTURE']);
   });
 });

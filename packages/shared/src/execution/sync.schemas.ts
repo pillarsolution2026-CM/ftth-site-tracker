@@ -107,6 +107,11 @@ export const OP_REJECTION_CODES = [
   'DRAWING_NOT_FOUND',
   /** The drawing of a «التخطيط» update is outside the caller's sites (ADR-054). */
   'DRAWING_OUT_OF_SCOPE',
+  // ---- Work date (ADR-057) ----
+  /** The work date is after today (Africa/Cairo, server clock on receipt). */
+  'WORK_DATE_IN_FUTURE',
+  /** A contractor picked on a work line was registered on the work order after the work date. */
+  'CONTRACTOR_NOT_REGISTERED_ON_DATE',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;
@@ -204,6 +209,11 @@ export const CatalogContractorSchema = z.object({
   quantity: DecimalStringSchema,
   /** Pending + approved work on this contractor line (any user) when the bundle was built. */
   recordedQuantity: DecimalStringSchema,
+  /**
+   * ADR-057: his registration date on the work order. He is not offered on an update whose work
+   * date is earlier (`CONTRACTOR_NOT_REGISTERED_ON_DATE`). Null from a server built before it.
+   */
+  registeredOn: z.iso.date().nullable().default(null),
 });
 export type CatalogContractor = z.infer<typeof CatalogContractorSchema>;
 

@@ -2450,6 +2450,13 @@
           "joint": "Jonction",
           "planning": "Planification"
         }
+      },
+      "workDate": {
+        "label": "Date des travaux",
+        "previous": "Jour précédent",
+        "next": "Jour suivant",
+        "today": "Aujourd'hui",
+        "invalid": "Saisissez une date valide comme 2026-11-10, aujourd'hui ou avant"
       }
     },
     "warnings": {
@@ -2463,7 +2470,8 @@
       "LABEL_TOO_LONG": "Le label est trop long",
       "NOTE_TOO_LONG": "Les remarques sont trop longues",
       "PHOTOS_MISSING": "Des photos obligatoires manquent",
-      "CONTRACTOR_QUANTITY_EXCEEDED": "Une quantité de sous-traitant dépasse son reste : réduisez-la ou demandez à l’administrateur de l’augmenter"
+      "CONTRACTOR_QUANTITY_EXCEEDED": "Une quantité de sous-traitant dépasse son reste : réduisez-la ou demandez à l’administrateur de l’augmenter",
+      "WORK_DATE_IN_FUTURE": "La date des travaux est après aujourd'hui — choisissez aujourd'hui ou un jour antérieur"
     },
     "pending": {
       "title": "En attente",
@@ -2490,7 +2498,9 @@
         "DIMENSIONS_REQUIRED": "Une ligne de fouille exige longueur, largeur et profondeur",
         "DIMENSIONS_NOT_ALLOWED": "Cette ligne n’accepte pas de dimensions",
         "DRAWING_NOT_FOUND": "Le plan n’existe pas ou n’est pas publié",
-        "DRAWING_OUT_OF_SCOPE": "Le plan est hors de vos sites"
+        "DRAWING_OUT_OF_SCOPE": "Le plan est hors de vos sites",
+        "WORK_DATE_IN_FUTURE": "La date des travaux est après aujourd'hui — enregistrez-la à aujourd'hui ou avant",
+        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "Le sous-traitant n'était pas inscrit à cette date — changez la date ou choisissez «l'entreprise elle-même»"
       },
       "updateStatus": {
         "pending": "En attente de validation",

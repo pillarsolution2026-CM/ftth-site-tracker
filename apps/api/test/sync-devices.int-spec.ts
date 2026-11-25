@@ -157,6 +157,7 @@ class Device {
           },
         ],
         acknowledgedWarnings: [],
+        workDate: null,
       },
     };
     this.store.enqueue(op, new Map([[photoId, photo]]));

@@ -84,6 +84,8 @@ const bundle: OfflineBundle = {
           scope: 'حفر',
           quantity: '20',
           recordedQuantity: '15',
+          // ADR-057: offered on work dates from 25 Oct on.
+          registeredOn: '2026-10-25',
         },
         {
           contractorLineId: CONTRACTOR_B,
@@ -92,6 +94,7 @@ const bundle: OfflineBundle = {
           scope: null,
           quantity: '50',
           recordedQuantity: '0',
+          registeredOn: null,
         },
       ],
     },
@@ -462,6 +465,36 @@ describe('supervisor field flow', () => {
       });
     });
 
+    it('picks an earlier work date, hides a contractor not yet registered then, and sends the date (ADR-057)', async () => {
+      const { api, goOnline } = await openWork();
+      // Today in Cairo (the clock says 30 Oct, 10:31 in Cairo); no later day.
+      expect(screen.getByTestId('work-date-input').props.value).toBe('2026-10-30');
+      expect(disabled('work-date-next')).toBe(true);
+      await act(async () => {
+        fireEvent.changeText(screen.getByTestId('work-date-input'), '2026-11-02');
+      });
+      expect(screen.getByTestId('work-date-invalid')).toBeTruthy();
+      await act(async () => {
+        fireEvent.changeText(screen.getByTestId('work-date-input'), '2026-10-20');
+      });
+      expect(screen.queryByTestId('work-date-invalid')).toBeNull();
+      // شركة الأمل is registered from 25 Oct: not offered on the 20th. The other one and the
+      // company itself stay.
+      expect(screen.queryByTestId(`work-C-01-${CONTRACTOR_A}`)).toBeNull();
+      expect(screen.getByTestId(`work-C-01-${CONTRACTOR_B}`)).toBeTruthy();
+      await press('work-date-previous');
+      expect(screen.getByTestId('work-date-input').props.value).toBe('2026-10-19');
+      await press('work-C-01-self-+1');
+      await finish();
+      await waitFor(() => expect(screen.getAllByText(/لم يُرسل/).length).toBeGreaterThan(0));
+      api.online = true;
+      await act(async () => {
+        goOnline();
+      });
+      await waitFor(() => expect(api.pushes).toHaveLength(1));
+      expect(api.pushes[0]?.ops[0]).toMatchObject({ payload: { workDate: '2026-10-19' } });
+    });
+
     it('blocks a quantity above what is left of the contractor; the company itself has no limit', async () => {
       await openWork();
       // Bundle: 20 - 15 = 5 left. 6 is refused, naming the contractor and what is left.
@@ -817,6 +850,7 @@ describe('supervisor field flow', () => {
         workType: 'planning',
         label: null,
         acknowledgedWarnings: [],
+        workDate: '2026-10-30',
       });
     });
 

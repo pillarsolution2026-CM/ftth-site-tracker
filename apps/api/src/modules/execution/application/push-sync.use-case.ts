@@ -11,6 +11,7 @@ import {
   type RecordAsBuiltEditOp,
   type RecordUpdateOp,
   type SyncOp,
+  workDayOf,
 } from '@ftth/shared';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
@@ -83,6 +84,14 @@ export class PushSyncUseCase {
           clientOpId: op.clientOpId,
           outcome: 'rejected',
           code: 'CONTRACTOR_QUANTITY_EXCEEDED',
+        };
+      }
+      // ADR-057 backstop (migration 0031).
+      if (trigger?.startsWith('contractor not registered on the work date')) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_NOT_REGISTERED_ON_DATE',
         };
       }
       if (
@@ -182,6 +191,13 @@ export class PushSyncUseCase {
     const { projectId } = input;
     const { payload } = op;
 
+    // ADR-057: the day the work was done (Africa/Cairo). Today or earlier, by the server's clock;
+    // an op from a phone built before ADR-057 carries none and keeps the day it was saved on.
+    const workDate = payload.workDate ?? workDayOf(new Date(op.capturedAt));
+    if (payload.workDate !== null && payload.workDate > workDayOf(this.clock.now())) {
+      throw new Rejection('WORK_DATE_IN_FUTURE');
+    }
+
     // ADR-056: a «التخطيط» update (no element) is recorded on a drawing of one of his sites.
     const { featureId } = payload;
     const target =
@@ -202,7 +218,7 @@ export class PushSyncUseCase {
       throw new Rejection('ITEM_WORK_TYPE_MISMATCH');
     }
     this.checkDimensions(items, payload.lines);
-    await this.checkContractorLines(tx, projectId, payload.lines);
+    await this.checkContractorLines(tx, projectId, payload.lines, workDate);
     if (await tx.anyPhotoExists(payload.photos.map((photo) => photo.photoId))) {
       throw new Rejection('PHOTO_ID_REUSED');
     }
@@ -267,6 +283,7 @@ export class PushSyncUseCase {
       userId: input.userId,
       deviceId: input.deviceId,
       capturedAt,
+      workDate,
       receivedAt,
       label: payload.label,
       note: payload.note,
@@ -297,6 +314,7 @@ export class PushSyncUseCase {
         designRevisionId: payload.designRevisionId,
         workType: payload.workType,
         capturedAt: op.capturedAt,
+        workDate,
         lines: payload.lines,
         photoIds: payload.photos.map((photo) => photo.photoId),
         flags,
@@ -371,12 +389,14 @@ export class PushSyncUseCase {
   /**
    * ADR-052: a contractor line of a work line must be a line of that same work-order line in this
    * project, and the work on it (pending + approved, plus this op) stays within its quantity.
-   * `self` has no cap. The rows are locked until the end of the transaction.
+   * `self` has no cap. The rows are locked until the end of the transaction. ADR-057: the
+   * contractor must be registered on the work order on or before the work date.
    */
   private async checkContractorLines(
     tx: ExecutionTx,
     projectId: string,
     lines: RecordUpdateOp['payload']['lines'],
+    workDate: string,
   ): Promise<void> {
     const wanted = lines.flatMap((line) =>
       line.role === 'work' && line.performer?.kind === 'contractor'
@@ -394,6 +414,7 @@ export class PushSyncUseCase {
       if (!row || row.workOrderItemId !== line.workOrderItemId) {
         throw new Rejection('CONTRACTOR_LINE_NOT_FOUND');
       }
+      if (row.registeredOn > workDate) throw new Rejection('CONTRACTOR_NOT_REGISTERED_ON_DATE');
       adding.set(
         contractorLineId,
         (adding.get(contractorLineId) ?? Decimal.zero).add(Decimal.parse(line.quantity)),

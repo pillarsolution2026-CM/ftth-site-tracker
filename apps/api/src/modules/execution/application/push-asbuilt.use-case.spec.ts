@@ -188,6 +188,7 @@ describe('As-Built edit check order', () => {
         gps: null,
         photos: [],
         acknowledgedWarnings: [],
+        workDate: null,
       },
     } as SyncOp;
     expect(rejected(await push(update, { scope: null }))).toBe('FEATURE_OUT_OF_SCOPE');
