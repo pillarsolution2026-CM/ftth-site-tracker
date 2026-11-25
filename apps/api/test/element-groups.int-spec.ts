@@ -394,7 +394,7 @@ describe('dimensions of a digging line (ADR-056)', () => {
         ...operation.payload,
         lines: operation.payload.lines.map((line) => ({
           ...line,
-          quantity: '3.5',
+          quantity: '3.51',
           dimensions: { ...DIMS, widthM: '0.39' },
         })),
       },
