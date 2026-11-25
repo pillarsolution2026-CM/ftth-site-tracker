@@ -6,6 +6,7 @@ import type { DrawingLinetype } from '@ftth/shared';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
+import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
 import {
   ACI_COLORS,
@@ -89,7 +90,9 @@ function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string
 }
 
 /** This program's own drawings of the commands (in the spirit of a CAD ribbon). */
-const ICONS: Record<CommandId | 'undo', ReactNode> = {
+type IconKey =
+  CommandId | 'undo' | 'redo' | 'markers' | 'osm' | 'bedit' | 'attdef' | 'fade' | 'layerstate';
+const ICONS: Record<IconKey, ReactNode> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -245,12 +248,481 @@ const ICONS: Record<CommandId | 'undo', ReactNode> = {
       <path d="M5 17h14M15 14l4 3-4 3" />
     </>
   ),
-  undo: <path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3" />,
+  spline: (
+    <>
+      <path d="M3 17c3-9 6-9 9-3s6 6 9-5" />
+      <circle cx="3" cy="17" r="1.2" />
+      <circle cx="12" cy="14" r="1.2" />
+      <circle cx="21" cy="9" r="1.2" />
+    </>
+  ),
+  ellipse: (
+    <>
+      <ellipse cx="12" cy="12" rx="9" ry="5.5" />
+      <path d="M3 12h18" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  polygon: <path d="M12 3l8.5 6.2-3.2 10H6.7L3.5 9.2z" />,
+  xline: (
+    <>
+      <path d="M2 20 22 4" />
+      <circle cx="12" cy="12" r="1.5" />
+    </>
+  ),
+  ray: (
+    <>
+      <path d="M5 19 22 5" />
+      <circle cx="5" cy="19" r="1.6" />
+    </>
+  ),
+  divide: (
+    <>
+      <path d="M3 16c4-8 14-8 18 0" />
+      <path d="M7.5 10.5v2M12 8.5v2M16.5 10.5v2" />
+    </>
+  ),
+  measure: (
+    <>
+      <path d="M3 17h18" />
+      <path d="M5 14v3M9 15v2M13 14v3M17 15v2M21 14v3" />
+    </>
+  ),
+  region: <path d="M4 18 6 6l8-2 6 7-4 8z" fill="currentColor" fillOpacity="0.25" />,
+  hatch: (
+    <>
+      <rect x="4" y="4" width="16" height="16" />
+      <path d="M4 10l6-6M4 16 16 4M8 20 20 8M14 20l6-6" />
+    </>
+  ),
+  gradient: (
+    <>
+      <defs>
+        <linearGradient id="cad-gradient-icon" x1="0" x2="1">
+          <stop offset="0" stopColor="#7fb2ff" />
+          <stop offset="1" stopColor="#ffffff" stopOpacity="0.1" />
+        </linearGradient>
+      </defs>
+      <rect x="4" y="4" width="16" height="16" fill="url(#cad-gradient-icon)" />
+    </>
+  ),
+  boundary: (
+    <>
+      <path d="M4 18 6 6l8-2 6 7-4 8z" strokeDasharray="2 1.5" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    </>
+  ),
+  wipeout: (
+    <>
+      <path d="M3 8h18M3 13h18M3 18h18" opacity="0.5" />
+      <rect x="7" y="6" width="10" height="10" fill="#000" />
+    </>
+  ),
+  helix: <path d="M11 12a1 1 0 1 1 2 0a3 3 0 1 1-6 0a5 5 0 1 1 10 0a7 7 0 1 1-14 0" />,
+  donut: (
+    <>
+      <circle cx="12" cy="12" r="8" fill="currentColor" fillOpacity="0.85" />
+      <circle cx="12" cy="12" r="3.5" fill="#2b2f36" />
+    </>
+  ),
+  break: (
+    <>
+      <path d="M3 12h6M15 12h6" />
+      <path d="M9 9v6M15 9v6" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  breakatpoint: (
+    <>
+      <path d="M3 12h7M14 12h7" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+    </>
+  ),
+  lengthen: (
+    <>
+      <path d="M3 12h12" />
+      <path d="M15 12h6" strokeDasharray="2 1.5" />
+      <path d="M18 9l3 3-3 3" />
+    </>
+  ),
+  reverse: <path d="M4 9h14l-3-3M20 15H6l3 3" />,
+  arrayrect: (
+    <>
+      <rect x="3" y="3" width="5" height="5" />
+      <rect x="10" y="3" width="5" height="5" />
+      <rect x="17" y="3" width="4" height="5" />
+      <rect x="3" y="11" width="5" height="5" />
+      <rect x="10" y="11" width="5" height="5" />
+      <rect x="17" y="11" width="4" height="5" />
+    </>
+  ),
+  overkill: (
+    <>
+      <path d="M14 3l7 7-8 8-4-4z" />
+      <path d="M9 14l-5 7M6 12l-3 3" />
+    </>
+  ),
+  draworder: (
+    <>
+      <rect x="3" y="3" width="11" height="11" />
+      <rect x="10" y="10" width="11" height="11" fill="currentColor" fillOpacity="0.35" />
+    </>
+  ),
+  layoff: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M15 16l5 5M20 16l-5 5" />
+    </>
+  ),
+  layiso: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="15" width="6" height="6" />
+    </>
+  ),
+  layuniso: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="15" width="6" height="6" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  layfrz: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M18 14v8M14.5 16l7 4M14.5 20l7-4" />
+    </>
+  ),
+  laythw: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M18 13.5v1.5M18 21v1.5M13.5 18H15M21 18h1.5" />
+    </>
+  ),
+  laylck: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="17" width="7" height="5" />
+      <path d="M15.5 17v-2a2 2 0 0 1 4 0v2" />
+    </>
+  ),
+  layulk: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="14" y="17" width="7" height="5" />
+      <path d="M15.5 17v-2a2 2 0 0 1 3.8-.8" />
+    </>
+  ),
+  layon: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M16 18h5M18.5 15.5v5" />
+    </>
+  ),
+  layerp: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M20 20h-6l2-2M14 20l2 2" />
+    </>
+  ),
+  laycur: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M14 18h7M18 15l3 3-3 3" />
+    </>
+  ),
+  copytolayer: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <rect x="13" y="15" width="5" height="5" />
+      <rect x="16" y="17" width="5" height="5" />
+    </>
+  ),
+  laywalk: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M15 21l2-5 2 5M16 19h2" />
+    </>
+  ),
+  laymrg: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M14 15l3 3 3-3M17 18v4" />
+    </>
+  ),
+  laydel: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M14 16h7M15 16l.7 6h3.6l.7-6" />
+    </>
+  ),
+  find: (
+    <>
+      <circle cx="10" cy="10" r="6" />
+      <path d="M14.5 14.5 21 21" />
+    </>
+  ),
+  group: (
+    <>
+      <rect x="3" y="3" width="18" height="18" strokeDasharray="2 2" />
+      <rect x="6" y="6" width="5" height="5" />
+      <circle cx="15.5" cy="15.5" r="2.5" />
+    </>
+  ),
+  ungroup: (
+    <>
+      <rect x="3" y="3" width="8" height="8" />
+      <circle cx="17" cy="17" r="3" />
+      <path d="M14 3h7v7" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  groupedit: (
+    <>
+      <rect x="3" y="3" width="14" height="14" strokeDasharray="2 2" />
+      <path d="M13 21l1-3 6-6 2 2-6 6z" />
+    </>
+  ),
+  pickstyle: (
+    <>
+      <rect x="3" y="3" width="13" height="13" strokeDasharray="2 2" />
+      <path d="M14 14l7 3-3 1-1 3z" />
+    </>
+  ),
+  block: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4 8-4V8M12 12v8" />
+      <path d="M19 2v4M17 4h4" />
+    </>
+  ),
+  insert: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4 8-4V8M12 12v8" />
+    </>
+  ),
+  eattedit: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M13 21l1-3 6-6 2 2-6 6z" />
+    </>
+  ),
+  bedit: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4M14 21l1-3 5-5 2 2-5 5z" />
+    </>
+  ),
+  attdef: (
+    <>
+      <rect x="3" y="6" width="18" height="12" />
+      <path d="M7 15l2-6 2 6M7.7 13h2.6M14 9h4M14 12h4M14 15h3" />
+    </>
+  ),
+  fade: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" opacity="0.45" />
+      <path d="M3 14l9 5 9-5" />
+    </>
+  ),
+  layerstate: (
+    <>
+      <path d="M12 4 3 9l9 5 9-5z" />
+      <path d="M3 14l9 5 9-5" />
+      <path d="M3 19l9 5" opacity="0" />
+    </>
+  ),
+  undo: <path d="M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3" />,
+  redo: <path d="M15 4l5 5-5 5M20 9H10a6 6 0 0 0 0 12h3" />,
+  markers: (
+    <>
+      <path d="M12 3 2.5 20h19z" />
+      <path d="M12 10v4M12 17v.5" />
+    </>
+  ),
+  osm: (
+    <>
+      <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
+      <path d="M9 4v14M15 6v14" />
+    </>
+  ),
 };
+
+/** A small button on the dark tab strip next to «Home» (Undo, Redo, the error markers). */
+function StripButton({
+  label,
+  onClick,
+  disabled,
+  pressed,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  pressed?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      disabled={disabled}
+      className={`relative mb-0.5 flex min-h-7 min-w-8 items-center justify-center rounded px-1 focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-35 ${DARK.tile}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 function shortcutOf(id: CommandId): string {
   const def = COMMANDS[id];
   return def.aliases[0] ?? def.name;
+}
+
+/** A small icon-only tool, as AutoCAD's compact panel rows (the name shows on hover). */
+function IconTile({ edit, id }: { edit: CanvasEditState; id: CommandId }) {
+  const { t } = useI18n();
+  const label = t(`design.cad.tool.${id}` as MessageKey);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={edit.command === id}
+      title={`${label} — ${COMMANDS[id].name}`}
+      onClick={() => edit.run(id)}
+      className={`flex min-h-8 min-w-8 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
+        edit.command === id ? DARK.on : DARK.tile
+      }`}
+    >
+      <Svg size="size-4">{ICONS[id]}</Svg>
+    </button>
+  );
+}
+
+/**
+ * A tool of AutoCAD's panel that the web screen cannot do (it needs the block definitions of the
+ * file): shown greyed with the reason, so nothing pretends to work.
+ */
+function Unavailable({ icon, label, reason }: { icon: IconKey; label: string; reason: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-label={label}
+      title={`${label} — ${reason}`}
+      className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs opacity-40 ${DARK.tile}`}
+    >
+      <Svg size="size-4">{ICONS[icon]}</Svg>
+      <span dir="ltr" className="whitespace-nowrap">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+/** Named layer states (AutoCAD's «Unsaved Layer State» drop-down); kept in this browser. */
+function LayerStates({ screen }: { screen: LayerScreen }) {
+  const { t } = useI18n();
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const unsaved = t('design.cad.layerStateUnsaved');
+  return (
+    <div className="flex items-center gap-0.5">
+      <select
+        aria-label={t('design.cad.layerStates')}
+        title={t('design.cad.layerStates')}
+        className={`min-h-7 w-44 rounded px-1 text-xs ${DARK.field}`}
+        value={screen.current ?? ''}
+        onChange={(event) => {
+          if (event.target.value) screen.restoreState(event.target.value);
+        }}
+      >
+        <option value="">{unsaved}</option>
+        {screen.states.map((state) => (
+          <option key={state} value={state}>
+            {state}
+          </option>
+        ))}
+      </select>
+      {naming ? (
+        <form
+          className="flex items-center gap-0.5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            screen.saveState(name);
+            setName('');
+            setNaming(false);
+          }}
+        >
+          <input
+            aria-label={t('design.cad.layerStateName')}
+            value={name}
+            autoFocus
+            onChange={(event) => setName(event.target.value)}
+            className={`min-h-7 w-28 rounded px-1 text-xs ${DARK.field}`}
+          />
+          <button type="submit" className={`min-h-7 rounded px-1.5 text-xs ${DARK.tile}`}>
+            {t('design.cad.layerStateSave')}
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          aria-label={t('design.cad.layerStateNew')}
+          title={t('design.cad.layerStateNew')}
+          onClick={() => setNaming(true)}
+          className={`min-h-7 min-w-7 rounded text-xs ${DARK.tile}`}
+        >
+          +
+        </button>
+      )}
+      {screen.current ? (
+        <button
+          type="button"
+          aria-label={t('design.cad.layerStateDelete', { name: screen.current })}
+          title={t('design.cad.layerStateDelete', { name: screen.current })}
+          onClick={() => screen.current && screen.deleteState(screen.current)}
+          className={`min-h-7 min-w-7 rounded text-xs ${DARK.tile}`}
+        >
+          ✕
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Locked layer fading: on / off and how much (AutoCAD's slider, 0-90 %). */
+function LockedFading({ screen }: { screen: LayerScreen }) {
+  const { t } = useI18n();
+  const { fade } = screen;
+  return (
+    <div className="flex items-center gap-1 text-xs">
+      <button
+        type="button"
+        aria-pressed={fade.on}
+        aria-label={t('design.cad.lockedFading')}
+        title={t('design.cad.lockedFading')}
+        onClick={() => screen.setFade({ ...fade, on: !fade.on })}
+        className={`flex min-h-7 min-w-7 items-center justify-center rounded ${fade.on ? DARK.on : DARK.tile}`}
+      >
+        <Svg size="size-4">{ICONS.fade}</Svg>
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={90}
+        step={5}
+        value={fade.percent}
+        aria-label={t('design.cad.lockedFadingPercent')}
+        onChange={(event) => screen.setFade({ ...fade, percent: Number(event.target.value) })}
+        className="w-24"
+      />
+      <span dir="ltr" className="w-9 text-end">
+        {fade.percent}%
+      </span>
+    </div>
+  );
 }
 
 function Tile({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId; big?: boolean }) {
@@ -279,20 +751,159 @@ function Tile({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId;
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+/** A tool that runs a command with an option already chosen (Spline CV, Multiple Points). */
+function Variant({
+  edit,
+  id,
+  option,
+  label,
+}: {
+  edit: CanvasEditState;
+  id: CommandId;
+  option: string;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={`${label} — ${COMMANDS[id].name}`}
+      onClick={() => edit.runWith(id, option)}
+      className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs focus-visible:outline-2 focus-visible:outline-(--color-focus) ${DARK.tile}`}
+    >
+      <Svg size="size-4">{ICONS[id]}</Svg>
+      <span dir="ltr" className="whitespace-nowrap">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function Panel({
+  title,
+  more,
+  children,
+}: {
+  title: string;
+  /** AutoCAD's slide-out: more tools under the panel, opened by the arrow next to its title. */
+  more?: ReactNode;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const moreLabel = t('design.cad.panelMore', { panel: title });
   return (
     <div
       role="group"
       aria-label={title}
-      className="flex flex-col border-e border-[#454b55] px-2 last:border-e-0"
+      className="relative flex flex-col border-e border-[#454b55] px-2 last:border-e-0"
     >
       <div className="flex flex-1 flex-wrap items-start gap-0.5">{children}</div>
-      <div
-        dir="ltr"
-        className="mt-1 rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
+      {more ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={moreLabel}
+          title={moreLabel}
+          onClick={() => setOpen(!open)}
+          dir="ltr"
+          className={`mt-1 rounded-sm text-center text-[11px] hover:bg-white/10 ${
+            open ? 'bg-[#3d6fb6] text-white' : 'bg-[#22262c] text-[#aab0b8]'
+          }`}
+        >
+          {title} <span aria-hidden="true">▾</span>
+        </button>
+      ) : (
+        <div
+          dir="ltr"
+          className="mt-1 rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
+        >
+          {title}
+        </div>
+      )}
+      {more && open ? (
+        <div
+          role="group"
+          aria-label={moreLabel}
+          className="absolute start-0 top-full z-30 mt-0.5 flex w-80 flex-wrap gap-0.5 rounded-b border border-[#454b55] bg-[#2b2f36] p-1.5 shadow-lg"
+        >
+          {more}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A tool with a drop-down of its variants (AutoCAD's split buttons: Hatch, Ellipse, Draw Order).
+ * Each item runs a command, with an option already chosen when it names one.
+ */
+function SplitTool({
+  edit,
+  label,
+  icon,
+  items,
+}: {
+  edit: CanvasEditState;
+  label: string;
+  icon: CommandId;
+  items: { label: string; icon: CommandId; id: CommandId; option?: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [first] = items;
+  const go = (item: { id: CommandId; option?: string }) => {
+    setOpen(false);
+    if (item.option) edit.runWith(item.id, item.option);
+    else edit.run(item.id);
+  };
+  return (
+    <div className="relative flex">
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={items.some((item) => edit.command === item.id)}
+        title={label}
+        onClick={() => {
+          if (first) go(first);
+        }}
+        className={`flex min-h-8 items-center gap-1.5 rounded-s px-1.5 text-xs focus-visible:outline-2 focus-visible:outline-(--color-focus) ${DARK.tile}`}
       >
-        {title}
-      </div>
+        <Svg size="size-4">{ICONS[icon]}</Svg>
+        <span dir="ltr" className="whitespace-nowrap">
+          {label}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${label} ▾`}
+        onClick={() => setOpen(!open)}
+        className={`min-h-8 rounded-e px-1 text-xs ${DARK.tile}`}
+      >
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <ul
+          role="menu"
+          aria-label={label}
+          className={`absolute start-0 top-full z-40 mt-0.5 min-w-44 rounded border border-[#4a505a] py-1 shadow-lg ${DARK.bar}`}
+        >
+          {items.map((item) => (
+            <li key={item.label} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => go(item)}
+                className="flex min-h-8 w-full items-center gap-2 px-2 text-start text-xs hover:bg-white/10"
+              >
+                <Svg size="size-4">{ICONS[item.icon]}</Svg>
+                <span dir="ltr">{item.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -308,15 +919,26 @@ export function CadRibbon({
   onToggleLayer,
   onToggleFrozen,
   onToggleLocked,
+  markersShown,
+  onToggleMarkers,
+  osm,
+  layerScreen,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
   onToggleLayer: (index: number) => void;
   onToggleFrozen: (index: number) => void;
   onToggleLocked: (index: number) => void;
+  /** The error markers are drawn; the strip button hides / shows them. */
+  markersShown: boolean;
+  onToggleMarkers: () => void;
+  /** OpenStreetMap behind the drawing: needs the file's CRS; loaded only when turned on. */
+  osm: { available: boolean; shown: boolean; onToggle: () => void };
+  layerScreen: LayerScreen;
 }) {
   const { t } = useI18n();
   if (!edit.available || !edit.editing) return null;
+  const markersLabel = markersShown ? t('design.cad.markersHide') : t('design.cad.markersShow');
   const count = edit.edits.length;
   return (
     <div
@@ -329,19 +951,139 @@ export function CadRibbon({
         <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold">
           {t('design.cad.home')}
         </span>
+        <span aria-hidden="true" className="mx-1 mb-1 h-4 border-s border-[#454b55]" />
+        <StripButton
+          label={`${t('design.cad.undo')} (Ctrl+Z)`}
+          onClick={edit.undo}
+          disabled={!edit.canUndo}
+        >
+          <Svg size="size-4">{ICONS.undo}</Svg>
+        </StripButton>
+        <StripButton
+          label={`${t('design.cad.redo')} (Ctrl+Y)`}
+          onClick={edit.redo}
+          disabled={!edit.canRedo}
+        >
+          <Svg size="size-4">{ICONS.redo}</Svg>
+        </StripButton>
+        <StripButton label={markersLabel} pressed={!markersShown} onClick={onToggleMarkers}>
+          <Svg size="size-4">{ICONS.markers}</Svg>
+          {markersShown ? null : (
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-1.5 top-1/2 h-0.5 -rotate-45 bg-[#ff6b6b]"
+            />
+          )}
+        </StripButton>
       </div>
       <div className="flex flex-wrap items-stretch gap-y-2 py-1.5">
-        <Panel title={t('design.cad.panel.draw')}>
+        <Panel
+          title={t('design.cad.panel.draw')}
+          more={
+            <>
+              <Variant edit={edit} id="spline" option="F" label={t('design.cad.tool.splineFit')} />
+              <Variant edit={edit} id="spline" option="CV" label={t('design.cad.tool.splineCv')} />
+              <Tile edit={edit} id="ray" />
+              <Tile edit={edit} id="xline" />
+              <Variant
+                edit={edit}
+                id="point"
+                option="M"
+                label={t('design.cad.tool.multiplePoints')}
+              />
+              <Tile edit={edit} id="divide" />
+              <Tile edit={edit} id="measure" />
+              <Tile edit={edit} id="region" />
+              <Tile edit={edit} id="wipeout" />
+              <Tile edit={edit} id="helix" />
+              <Tile edit={edit} id="donut" />
+              <Tile edit={edit} id="polygon" />
+            </>
+          }
+        >
           <Tile edit={edit} id="line" big />
           <Tile edit={edit} id="pline" big />
           <Tile edit={edit} id="circle" big />
           <Tile edit={edit} id="arc" big />
           <Rows>
             <Tile edit={edit} id="rectang" />
+            <SplitTool
+              edit={edit}
+              label={t('design.cad.tool.hatch')}
+              icon="hatch"
+              items={[
+                { label: t('design.cad.tool.hatch'), icon: 'hatch', id: 'hatch' },
+                { label: t('design.cad.tool.gradient'), icon: 'gradient', id: 'gradient' },
+                { label: t('design.cad.tool.boundary'), icon: 'boundary', id: 'boundary' },
+              ]}
+            />
+            <SplitTool
+              edit={edit}
+              label={t('design.cad.tool.ellipse')}
+              icon="ellipse"
+              items={[
+                {
+                  label: t('design.cad.tool.ellipseCenter'),
+                  icon: 'ellipse',
+                  id: 'ellipse',
+                  option: 'C',
+                },
+                { label: t('design.cad.tool.ellipseAxis'), icon: 'ellipse', id: 'ellipse' },
+                {
+                  label: t('design.cad.tool.ellipseArc'),
+                  icon: 'arc',
+                  id: 'ellipse',
+                  option: 'A',
+                },
+              ]}
+            />
             <Tile edit={edit} id="point" />
           </Rows>
         </Panel>
-        <Panel title={t('design.cad.panel.modify')}>
+        <Panel
+          title={t('design.cad.panel.modify')}
+          more={
+            <>
+              <Tile edit={edit} id="break" />
+              <Tile edit={edit} id="breakatpoint" />
+              <Tile edit={edit} id="lengthen" />
+              <Tile edit={edit} id="reverse" />
+              <Tile edit={edit} id="arrayrect" />
+              <Tile edit={edit} id="overkill" />
+              <SplitTool
+                edit={edit}
+                label={t('design.cad.tool.draworder')}
+                icon="draworder"
+                items={[
+                  {
+                    label: t('design.cad.menu.bringFront'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'F',
+                  },
+                  {
+                    label: t('design.cad.menu.sendBack'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'B',
+                  },
+                  {
+                    label: t('design.cad.menu.bringAbove'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'A',
+                  },
+                  {
+                    label: t('design.cad.menu.sendUnder'),
+                    icon: 'draworder',
+                    id: 'draworder',
+                    option: 'U',
+                  },
+                ]}
+              />
+            </>
+          }
+        >
           <Rows>
             <Tile edit={edit} id="move" />
             <Tile edit={edit} id="copy" />
@@ -363,8 +1105,40 @@ export function CadRibbon({
             <Tile edit={edit} id="leader" />
             <Tile edit={edit} id="textedit" />
           </Rows>
+          <button
+            type="button"
+            aria-label={t('design.cad.osm')}
+            aria-pressed={osm.shown}
+            title={osm.available ? t('design.cad.osmHint') : t('design.cad.osmNoCrs')}
+            disabled={!osm.available}
+            onClick={osm.onToggle}
+            className={`flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-40 ${
+              osm.shown ? DARK.on : DARK.tile
+            }`}
+          >
+            <Svg size="size-7">{ICONS.osm}</Svg>
+            <span dir="ltr" className="whitespace-nowrap">
+              {t('design.cad.osm')}
+            </span>
+          </button>
         </Panel>
-        <Panel title={t('design.cad.panel.layers')}>
+        <Panel
+          title={t('design.cad.panel.layers')}
+          more={
+            <div className="flex flex-col gap-1">
+              <LayerStates screen={layerScreen} />
+              <div className="flex flex-wrap gap-0.5">
+                <IconTile edit={edit} id="layerp" />
+                <IconTile edit={edit} id="laycur" />
+                <IconTile edit={edit} id="copytolayer" />
+                <IconTile edit={edit} id="laywalk" />
+                <IconTile edit={edit} id="laymrg" />
+                <IconTile edit={edit} id="laydel" />
+              </div>
+              <LockedFading screen={layerScreen} />
+            </div>
+          }
+        >
           <Tile edit={edit} id="layer" big />
           <div className="flex flex-col gap-1">
             <LayerDropdown
@@ -374,27 +1148,80 @@ export function CadRibbon({
               onToggleFrozen={onToggleFrozen}
               onToggleLocked={onToggleLocked}
             />
-            <div className="flex gap-0.5">
+            <div className="flex flex-wrap items-center gap-0.5">
+              <IconTile edit={edit} id="layoff" />
+              <IconTile edit={edit} id="layiso" />
+              <IconTile edit={edit} id="layfrz" />
+              <IconTile edit={edit} id="laylck" />
               <Tile edit={edit} id="laymcur" />
+            </div>
+            <div className="flex flex-wrap items-center gap-0.5">
+              <IconTile edit={edit} id="layon" />
+              <IconTile edit={edit} id="layuniso" />
+              <IconTile edit={edit} id="laythw" />
+              <IconTile edit={edit} id="layulk" />
               <Tile edit={edit} id="laymch" />
+              <Tile edit={edit} id="find" />
             </div>
           </div>
+        </Panel>
+        <Panel title={t('design.cad.panel.groups')}>
+          <Tile edit={edit} id="group" big />
+          <Rows>
+            <IconTile edit={edit} id="ungroup" />
+            <IconTile edit={edit} id="groupedit" />
+            <button
+              type="button"
+              aria-pressed={edit.groupPick}
+              aria-label={t('design.cad.tool.pickstyle')}
+              title={`${t('design.cad.tool.pickstyle')} — PICKSTYLE`}
+              onClick={() => edit.run('pickstyle')}
+              className={`flex min-h-8 min-w-8 items-center justify-center rounded ${
+                edit.groupPick ? DARK.on : DARK.tile
+              }`}
+            >
+              <Svg size="size-4">{ICONS.pickstyle}</Svg>
+            </button>
+          </Rows>
+        </Panel>
+        <Panel
+          title={t('design.cad.panel.block')}
+          more={
+            <>
+              <Unavailable
+                icon="attdef"
+                label={t('design.cad.tool.attdef')}
+                reason={t('design.cad.blockInCad')}
+              />
+              <Unavailable
+                icon="attdef"
+                label={t('design.cad.tool.battman')}
+                reason={t('design.cad.blockInCad')}
+              />
+              <Unavailable
+                icon="attdef"
+                label={t('design.cad.tool.attsync')}
+                reason={t('design.cad.blockInCad')}
+              />
+            </>
+          }
+        >
+          <Tile edit={edit} id="insert" big />
+          <Rows>
+            <Tile edit={edit} id="block" />
+            <Unavailable
+              icon="bedit"
+              label={t('design.cad.tool.bedit')}
+              reason={t('design.cad.blockInCad')}
+            />
+            <Tile edit={edit} id="eattedit" />
+          </Rows>
         </Panel>
         <Panel title={t('design.cad.panel.properties')}>
           <Tile edit={edit} id="matchprop" big />
           <PropertiesControls edit={edit} />
         </Panel>
         <div className="ms-auto flex items-center gap-2 px-2">
-          <button
-            type="button"
-            onClick={edit.undo}
-            disabled={!edit.canUndo}
-            title={`${t('design.cad.undo')} (Ctrl+Z)`}
-            className={`flex min-h-11 min-w-12 flex-col items-center justify-center rounded px-1.5 text-xs disabled:opacity-40 ${DARK.tile}`}
-          >
-            <Svg>{ICONS.undo}</Svg>
-            <span>{t('design.cad.undo')}</span>
-          </button>
           <button
             type="button"
             onClick={edit.cancel}
@@ -740,7 +1567,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
               event.key === 'Enter' ||
               event.key === 'Escape' ||
               (event.key === ' ' && !edit.textEntry) ||
-              (ctrl && event.key.toLowerCase() === 'z' && edit.input === '')
+              (ctrl && ['z', 'y'].includes(event.key.toLowerCase()) && edit.input === '')
             ) {
               event.preventDefault();
               edit.key(event.key, ctrl);

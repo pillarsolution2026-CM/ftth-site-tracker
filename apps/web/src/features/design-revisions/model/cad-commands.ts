@@ -13,6 +13,20 @@ export type CommandId =
   | 'arc'
   | 'rectang'
   | 'point'
+  | 'spline'
+  | 'ellipse'
+  | 'polygon'
+  | 'xline'
+  | 'ray'
+  | 'divide'
+  | 'measure'
+  | 'region'
+  | 'hatch'
+  | 'gradient'
+  | 'boundary'
+  | 'wipeout'
+  | 'helix'
+  | 'donut'
   // Modify
   | 'move'
   | 'copy'
@@ -25,6 +39,13 @@ export type CommandId =
   | 'erase'
   | 'offset'
   | 'join'
+  | 'break'
+  | 'breakatpoint'
+  | 'lengthen'
+  | 'reverse'
+  | 'arrayrect'
+  | 'overkill'
+  | 'draworder'
   // Annotation
   | 'text'
   | 'textedit'
@@ -34,7 +55,30 @@ export type CommandId =
   | 'layer'
   | 'matchprop'
   | 'laymcur'
-  | 'laymch';
+  | 'laymch'
+  | 'layoff'
+  | 'layiso'
+  | 'layuniso'
+  | 'layfrz'
+  | 'laythw'
+  | 'laylck'
+  | 'layulk'
+  | 'layon'
+  | 'layerp'
+  | 'laycur'
+  | 'copytolayer'
+  | 'laymrg'
+  | 'laydel'
+  | 'laywalk'
+  | 'find'
+  // Groups and blocks
+  | 'group'
+  | 'ungroup'
+  | 'groupedit'
+  | 'pickstyle'
+  | 'block'
+  | 'insert'
+  | 'eattedit';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -49,6 +93,20 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   arc: { name: 'ARC', aliases: ['A'] },
   rectang: { name: 'RECTANG', aliases: ['REC', 'RECTANGLE'] },
   point: { name: 'POINT', aliases: ['PO'] },
+  spline: { name: 'SPLINE', aliases: ['SPL'] },
+  ellipse: { name: 'ELLIPSE', aliases: ['EL'] },
+  polygon: { name: 'POLYGON', aliases: ['POL'] },
+  xline: { name: 'XLINE', aliases: ['XL'] },
+  ray: { name: 'RAY', aliases: [] },
+  divide: { name: 'DIVIDE', aliases: ['DIV'] },
+  measure: { name: 'MEASURE', aliases: ['ME'] },
+  region: { name: 'REGION', aliases: ['REG'] },
+  hatch: { name: 'HATCH', aliases: ['H', 'BH'] },
+  gradient: { name: 'GRADIENT', aliases: ['GD'] },
+  boundary: { name: 'BOUNDARY', aliases: ['BO'] },
+  wipeout: { name: 'WIPEOUT', aliases: [] },
+  helix: { name: 'HELIX', aliases: [] },
+  donut: { name: 'DONUT', aliases: ['DO', 'DOUGHNUT'] },
   move: { name: 'MOVE', aliases: ['M'] },
   copy: { name: 'COPY', aliases: ['CO', 'CP'] },
   stretch: { name: 'STRETCH', aliases: ['S'] },
@@ -60,6 +118,13 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   erase: { name: 'ERASE', aliases: ['E'] },
   offset: { name: 'OFFSET', aliases: ['O'] },
   join: { name: 'JOIN', aliases: ['J'] },
+  break: { name: 'BREAK', aliases: ['BR'] },
+  breakatpoint: { name: 'BREAKATPOINT', aliases: [] },
+  lengthen: { name: 'LENGTHEN', aliases: ['LEN'] },
+  reverse: { name: 'REVERSE', aliases: [] },
+  arrayrect: { name: 'ARRAYRECT', aliases: ['AR', 'ARRAY'] },
+  overkill: { name: 'OVERKILL', aliases: [] },
+  draworder: { name: 'DRAWORDER', aliases: ['DR'] },
   text: { name: 'TEXT', aliases: ['T', 'DT', 'DTEXT'] },
   textedit: { name: 'TEXTEDIT', aliases: ['ED', 'DDEDIT'] },
   dimlinear: { name: 'DIMLINEAR', aliases: ['DLI'] },
@@ -68,6 +133,28 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   matchprop: { name: 'MATCHPROP', aliases: ['MA'] },
   laymcur: { name: 'LAYMCUR', aliases: [] },
   laymch: { name: 'LAYMCH', aliases: [] },
+  layoff: { name: 'LAYOFF', aliases: [] },
+  layiso: { name: 'LAYISO', aliases: [] },
+  layuniso: { name: 'LAYUNISO', aliases: [] },
+  layfrz: { name: 'LAYFRZ', aliases: [] },
+  laythw: { name: 'LAYTHW', aliases: [] },
+  laylck: { name: 'LAYLCK', aliases: [] },
+  layulk: { name: 'LAYULK', aliases: [] },
+  layon: { name: 'LAYON', aliases: [] },
+  layerp: { name: 'LAYERP', aliases: [] },
+  laycur: { name: 'LAYCUR', aliases: [] },
+  copytolayer: { name: 'COPYTOLAYER', aliases: [] },
+  laymrg: { name: 'LAYMRG', aliases: [] },
+  laydel: { name: 'LAYDEL', aliases: [] },
+  laywalk: { name: 'LAYWALK', aliases: [] },
+  find: { name: 'FIND', aliases: [] },
+  group: { name: 'GROUP', aliases: ['G'] },
+  ungroup: { name: 'UNGROUP', aliases: [] },
+  groupedit: { name: 'GROUPEDIT', aliases: [] },
+  pickstyle: { name: 'PICKSTYLE', aliases: [] },
+  block: { name: 'BLOCK', aliases: ['B'] },
+  insert: { name: 'INSERT', aliases: ['I'] },
+  eattedit: { name: 'EATTEDIT', aliases: [] },
 };
 
 const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
@@ -96,6 +183,11 @@ export const SELECTING: readonly CommandId[] = [
   'erase',
   'join',
   'laymch',
+  'reverse',
+  'arrayrect',
+  'overkill',
+  'draworder',
+  'region',
 ];
 
 export interface Point {

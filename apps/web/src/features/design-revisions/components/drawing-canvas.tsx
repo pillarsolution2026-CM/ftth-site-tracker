@@ -12,6 +12,8 @@ import { Ltr } from '@/shared/ui/ltr';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
+import { CanvasContextMenu } from './canvas-context-menu';
+import { OsmBackdrop } from './osm-backdrop';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
 /** Scenes up to this many entities are redrawn whole on every frame; bigger ones cache the base. */
@@ -39,6 +41,9 @@ const sameBase = (a: BaseState, model: DrawModel, width: number, height: number,
   a.model.scene === model.scene &&
   a.model.preview === model.preview &&
   a.model.layerShown === model.layerShown &&
+  a.model.mapBehind === model.mapBehind &&
+  a.model.objectShown === model.objectShown &&
+  a.model.lockedFade === model.lockedFade &&
   a.width === width &&
   a.height === height &&
   a.dpr === dpr;
@@ -52,10 +57,13 @@ const sameBase = (a: BaseState, model: DrawModel, width: number, height: number,
 export function DrawingCanvas({
   viewer,
   model,
+  fill = false,
   children,
 }: {
   viewer: DrawingViewer;
   model: DrawModel;
+  /** Full screen: the canvas takes the height left instead of 72 % of the window. */
+  fill?: boolean;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
@@ -76,6 +84,8 @@ export function DrawingCanvas({
   /** Edit mode, layer tool: a left drag draws a selection box instead of panning (ADR-047). */
   const bandFrom = useRef<{ x: number; y: number } | null>(null);
   const boxing = viewer.edit.boxing;
+  /** The right-click menu on picked objects (owner 2026-11-24), at canvas pixels. */
+  const [menu, setMenu] = useState<Pointer | null>(null);
 
   // Canvas size follows the (resizable) container.
   useEffect(() => {
@@ -118,8 +128,11 @@ export function DrawingCanvas({
         const dx = (base.tf.cx - transform.cx) * transform.scale;
         const dy = (transform.cy - base.tf.cy) * transform.scale;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = CANVAS_BG;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (model.mapBehind) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        else {
+          ctx.fillStyle = CANVAS_BG;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
         ctx.drawImage(base.canvas, Math.round(dx * dpr), Math.round(dy * dpr));
         drawOverlay(ctx, model, cache, transform, viewport);
         return;
@@ -144,6 +157,7 @@ export function DrawingCanvas({
       forceFull.current = false;
       if (big && baseRef.current) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(baseRef.current.canvas, 0, 0);
       }
       drawOverlay(ctx, model, cache, transform, viewport);
@@ -185,6 +199,9 @@ export function DrawingCanvas({
   };
 
   const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+    // The right button opens the menu (contextmenu); it neither pans nor picks.
+    if (event.button === 2) return;
+    setMenu(null);
     const p = local(event);
     pointers.current.set(event.pointerId, p);
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -236,6 +253,7 @@ export function DrawingCanvas({
   };
 
   const onPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.button === 2 && !pointers.current.has(event.pointerId)) return;
     const wasSingle = pointers.current.size === 1;
     const p = local(event);
     pointers.current.delete(event.pointerId);
@@ -253,7 +271,7 @@ export function DrawingCanvas({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLCanvasElement>) => {
-    // CAD keys while editing (ADR-050): Esc, Enter, Ctrl+Z, Delete and one-letter commands.
+    // CAD keys while editing (ADR-050): Esc, Enter, Ctrl+Z, Ctrl+Y, Delete and one-letter commands.
     if (viewer.edit.key(event.key, event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       return;
@@ -298,15 +316,20 @@ export function DrawingCanvas({
     <div
       ref={containerRef}
       dir="ltr"
-      className="relative h-[72vh] min-h-80 resize-y overflow-hidden border border-[#3b4048] bg-black"
+      className={`relative overflow-hidden border border-[#3b4048] bg-black ${
+        fill ? 'min-h-0 flex-1' : 'h-[72vh] min-h-80 resize-y'
+      }`}
     >
+      {model.mapBehind && viewer.osm.toLonLat ? (
+        <OsmBackdrop transform={transform} size={size} toLonLat={viewer.osm.toLonLat} />
+      ) : null}
       <canvas
         ref={canvasRef}
         role="application"
         tabIndex={0}
         aria-label={t('design.viewer.canvasLabel')}
         aria-describedby="drawing-canvas-help"
-        className="block size-full cursor-none touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
+        className="relative block size-full cursor-none touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
         style={{ width: '100%', height: '100%' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -317,6 +340,16 @@ export function DrawingCanvas({
           setHair(null);
         }}
         onKeyDown={onKeyDown}
+        onContextMenu={(event) => {
+          if (!viewer.edit.editing) return;
+          event.preventDefault();
+          if (viewer.edit.command !== null) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const p = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+          viewer.pickForMenu(p.x, p.y);
+          viewer.closePopover();
+          setMenu(p);
+        }}
       />
       {hair ? (
         <div aria-hidden="true" data-testid="crosshair" className="pointer-events-none">
@@ -338,6 +371,17 @@ export function DrawingCanvas({
         <span className="font-sans">{t('design.viewer.coords')}: </span>
         <Ltr>{cursor ? `X ${cursor.x.toFixed(2)}  Y ${cursor.y.toFixed(2)}` : '—'}</Ltr>
       </div>
+      {menu ? (
+        <CanvasContextMenu
+          viewer={viewer}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => {
+            setMenu(null);
+            canvasRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      ) : null}
       {children}
     </div>
   );

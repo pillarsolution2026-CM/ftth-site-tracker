@@ -34,11 +34,16 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
     case 'mirror_item':
     case 'scale_item':
     case 'set_style':
+    case 'set_order':
       return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
     case 'set_curve':
       return { handles: [input.handle], kinds: ['curve'] };
     case 'set_text':
       return { handles: [input.handle], kinds: ['text'] };
+    case 'set_attribute':
+      return { handles: [input.handle], kinds: ['insert'] };
+    case 'set_group':
+      return { handles: input.handles, kinds: ['insert', 'text', 'curve'] };
     case 'merge_routes':
       return { handles: input.handles, kinds: ['curve'] };
     default:
@@ -56,6 +61,8 @@ function targetLayersOf(input: DrawingCorrectionInput): string[] {
   switch (input.kind) {
     case 'move_layer':
       return [input.toLayer];
+    case 'merge_layer':
+      return [input.to];
     case 'add_layer':
       return input.like === null ? [] : [input.like];
     default:

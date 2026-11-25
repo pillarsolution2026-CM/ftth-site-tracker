@@ -146,7 +146,7 @@ describe('CAD ribbon in the preview (ADR-050)', () => {
       scene,
       [
         correction({ kind: 'erase_item', handle: 'A' }, at(1)),
-        correction({ kind: 'copy_item', handle: 'B', dx: 0, dy: 10 }, at(2)),
+        correction({ kind: 'copy_item', handle: 'B', dx: 0, dy: 10, toLayer: null }, at(2)),
         correction({ kind: 'mirror_item', handle: 'A1', x1: 0, y1: 0, x2: 0, y2: 1 }, at(3)),
         correction({ kind: 'scale_item', handle: 'T1', x: 0, y: 0, factor: 2 }, at(4)),
         correction(
@@ -267,5 +267,47 @@ describe('AutoCAD-like screen in the preview (ADR-051)', () => {
       2.5,
     );
     expect(preview.notes).toEqual([]);
+  });
+});
+
+describe('screen shapes and draw order (owner 2026-11-24)', () => {
+  it('add_shape is drawn in its layer colour; set_order keeps the latest order; delete_layer drops shapes', () => {
+    const square: [number, number][] = [
+      [0, 0],
+      [5, 0],
+      [5, 5],
+    ];
+    const shape = {
+      kind: 'add_shape' as const,
+      shape: 'hatch' as const,
+      layer: 'Sap',
+      points: square,
+      pattern: 'ANSI31' as const,
+      scale: 2,
+      angle: 0,
+      color: null,
+      color2: null,
+      inner: null,
+      outer: null,
+    };
+    const preview = applyCorrections(
+      scene,
+      [
+        correction(shape),
+        correction({ kind: 'set_order', handle: 'B', order: 3 }),
+        correction({ kind: 'set_order', handle: 'B', order: -1 }),
+      ],
+      2.5,
+    );
+    expect(preview.shapes).toEqual([
+      expect.objectContaining({ shape: 'hatch', layer: 1, layerColor: '#00aa00', scale: 2 }),
+    ]);
+    expect(preview.orderOf.get(1)).toBe(-1);
+    const gone = applyCorrections(
+      scene,
+      [correction(shape), correction({ kind: 'delete_layer', layer: 'Sap' })],
+      2.5,
+    );
+    expect(gone.shapes).toEqual([]);
   });
 });

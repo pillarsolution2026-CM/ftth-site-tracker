@@ -16,6 +16,7 @@ from cad_worker.domain.corrections import (
     AddItem,
     AddLayer,
     AddNote,
+    AddShape,
     AddText,
     CopyItem,
     CorrectionInvalidError,
@@ -23,6 +24,7 @@ from cad_worker.domain.corrections import (
     DismissProblem,
     EraseItem,
     FrozenCorrection,
+    MergeLayer,
     MergeRoutes,
     MirrorItem,
     MoveItem,
@@ -30,13 +32,17 @@ from cad_worker.domain.corrections import (
     RenameLayer,
     RotateItem,
     ScaleItem,
+    SetAttribute,
     SetCurve,
+    SetGroup,
+    SetOrder,
     SetStyle,
     SetText,
     apply_corrections,
     curve_handles,
     dismissed_places,
     layer_aliases,
+    merged_layers,
     parse_corrections,
     with_layer_aliases,
 )
@@ -881,3 +887,138 @@ def test_a_layer_for_drawing_only_and_a_layer_given_a_meaning() -> None:
         {"source": "layer", "layer": "DUCT 4", "target": "route"},
         {"source": "layer", "layer": "buildings", "target": "route"},
     ]
+
+
+# ---------- screen shapes and draw order (owner 2026-11-24) ----------
+
+
+def test_shapes_and_draw_order_are_parsed_and_change_nothing() -> None:
+    square = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    bodies: list[dict[str, Any]] = [
+        {
+            "kind": "add_shape",
+            "shape": "hatch",
+            "layer": "H",
+            "points": square,
+            "pattern": "ANSI31",
+            "scale": 2,
+            "angle": 45,
+            "color": None,
+            "color2": None,
+            "inner": None,
+            "outer": None,
+        },
+        {
+            "kind": "add_shape",
+            "shape": "gradient",
+            "layer": "H",
+            "points": square,
+            "color": "#ff0000",
+            "color2": "#0000FF",
+        },
+        {
+            "kind": "add_shape",
+            "shape": "donut",
+            "layer": "H",
+            "points": [[1, 1]],
+            "inner": 0,
+            "outer": 2,
+        },
+        {"kind": "add_shape", "shape": "xline", "layer": "H", "points": [[0, 0], [1, 1]]},
+        {"kind": "set_order", "handle": "c1", "order": -2.5},
+    ]
+    raw = [{"id": str(uuid.UUID(int=i + 1)), "correction": b} for i, b in enumerate(bodies)]
+    parsed = [p.correction for p in parse_corrections(raw)]
+    assert parsed[0] == AddShape("hatch", "H", ((0, 0), (10, 0), (10, 10), (0, 10)))
+    assert parsed[2] == AddShape("donut", "H", ((1, 1),))
+    assert parsed[4] == SetOrder("c1", -2.5)
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    for correction in parsed:
+        assert apply(drawing, correction) == apply(drawing, SetOrder("c1", 0))
+    assert apply(drawing, SetOrder("c1", 3)).curves == drawing.curves
+
+
+def test_bad_shapes_and_orders_fail_loudly() -> None:
+    shape: dict[str, Any] = {"kind": "add_shape", "shape": "hatch", "layer": "H"}
+    bad: tuple[dict[str, Any], ...] = (
+        {**shape, "points": [[0, 0], [1, 1]]},
+        {**shape, "shape": "cloud", "points": [[0, 0], [1, 0], [1, 1]]},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "pattern": "BRICK"},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "color": "red"},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "scale": 0},
+        {**shape, "shape": "donut", "points": [[0, 0]], "inner": 2, "outer": 2},
+        {**shape, "shape": "donut", "points": [[0, 0]]},
+        {**shape, "shape": "ray", "points": [[0, 0], [0, 0]]},
+        {**shape, "shape": "ray", "points": [[0, 0]]},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "extra": 1},
+        {"kind": "set_order", "handle": "c1", "order": "top"},
+        {"kind": "set_order", "handle": "c1", "order": 2e9},
+    )
+    for body in bad:
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])
+
+
+# ---------- layers, groups and attributes (owner 2026-11-24) ----------
+
+
+def test_copy_to_another_layer_keeps_the_original() -> None:
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    out = apply(drawing, CopyItem("c1", 0, 5, "NEW"))
+    layers = sorted((c.handle[:3], c.layer) for c in out.curves)
+    assert layers == [("FIX", "NEW"), ("c1", "DUCT 4")]
+    parsed = parse_corrections(
+        [
+            {
+                "id": ID1,
+                "correction": {
+                    "kind": "copy_item",
+                    "handle": "c1",
+                    "dx": 0,
+                    "dy": 0,
+                    "toLayer": "N",
+                },
+            }
+        ]
+    )
+    assert parsed[0].correction == CopyItem("c1", 0, 0, "N")
+
+
+def test_merge_layer_moves_every_row_and_needs_a_target_with_a_rule() -> None:
+    drawing = empty(curves=(line("c1", "OLD", (0, 0), (10, 0)), line("c2", "KEEP", (0, 1), (1, 1))))
+    out = apply(drawing, MergeLayer("OLD", "DUCT 4"))
+    assert {c.handle: c.layer for c in out.curves} == {"c1": "DUCT 4", "c2": "KEEP"}
+    assert merged_layers([fix(MergeLayer("OLD", "DUCT 4"))]) == frozenset({"OLD"})
+    with pytest.raises(CorrectionInvalidError, match="has no rule"):
+        apply_corrections(
+            drawing,
+            [fix(MergeLayer("OLD", "NOWHERE"))],
+            metres_per_unit=1.0,
+            move_targets=frozenset({"DUCT 4"}),
+        )
+
+
+def test_set_attribute_changes_the_first_attribute_with_that_value() -> None:
+    attrs = (SourceAttribute("A", "S1", "S1", True), SourceAttribute("B", "S1", "S1", True))
+    block = SourceInsert("i1", "L", "sym", (0, 0), attrs)
+    out = apply(empty(inserts=(block,)), SetAttribute("i1", "S1", "S2"))
+    assert [a.value for a in out.inserts[0].attributes] == ["S2", "S1"]
+    with pytest.raises(CorrectionInvalidError, match="no attribute with the value"):
+        apply(empty(inserts=(block,)), SetAttribute("i1", "X", "Y"))
+
+
+def test_groups_are_screen_only_and_parsed_strictly() -> None:
+    body: dict[str, Any] = {"kind": "set_group", "name": "G1", "handles": ["c1"], "block": True}
+    parsed = parse_corrections([{"id": ID1, "correction": body}])
+    assert parsed[0].correction == SetGroup("G1", ("c1",), True)
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    assert apply(drawing, SetGroup("G1", ("c1",), False)).curves == drawing.curves
+    for bad in ({**body, "block": "yes"}, {**body, "name": " "}, {**body, "handles": "c1"}):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": bad}])
+    for bad in (
+        {"kind": "merge_layer", "from": "A", "to": "A"},
+        {"kind": "set_attribute", "handle": "i1", "from": "A", "to": "A"},
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": bad}])

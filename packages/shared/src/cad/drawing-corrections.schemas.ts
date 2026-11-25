@@ -61,6 +61,11 @@ export const DRAWING_CORRECTION_KINDS = [
   'set_curve',
   'add_note',
   'set_style',
+  'add_shape',
+  'set_order',
+  'merge_layer',
+  'set_group',
+  'set_attribute',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
@@ -94,8 +99,36 @@ export type DrawingLinetype = z.infer<typeof DrawingLinetypeSchema>;
 export const SCREEN_ONLY_CORRECTION_KINDS: readonly DrawingCorrectionKind[] = [
   'add_note',
   'set_style',
+  'add_shape',
+  'set_order',
+  'set_group',
 ];
+/** Objects in one group or page block (`set_group`; technical cap). */
+export const MAX_GROUP_HANDLES = 2000;
+/**
+ * Shapes the drawing screen saves and draws, ignored by the build (owner 2026-11-24): a hatch or
+ * gradient inside a closed boundary, a wipeout (an area painted with the background), a donut
+ * (a ring, or a dot when `inner` is 0), and the construction lines XLINE (both ways) and RAY.
+ */
+export const DRAWING_SHAPE_KINDS = [
+  'hatch',
+  'gradient',
+  'wipeout',
+  'donut',
+  'xline',
+  'ray',
+] as const;
+export const DrawingShapeKindSchema = z.enum(DRAWING_SHAPE_KINDS);
+export type DrawingShapeKind = z.infer<typeof DrawingShapeKindSchema>;
+/** Hatch patterns of the screen (in the spirit of AutoCAD's SOLID, ANSI31, ANSI37 and DOTS). */
+export const HATCH_PATTERNS = ['SOLID', 'ANSI31', 'ANSI37', 'DOTS'] as const;
+export const HatchPatternSchema = z.enum(HATCH_PATTERNS);
+export type HatchPattern = z.infer<typeof HatchPatternSchema>;
+/** A draw order key of `set_order` (technical bound): a higher one is drawn later, on top. */
+export const MAX_DRAW_ORDER = 1_000_000_000;
+const Colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'A colour is #rrggbb');
 const Point = z.tuple([Coord, Coord]);
+const Size = z.number().refine(Number.isFinite).min(0).max(MAX_CORRECTION_COORD);
 
 export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   /** An insert, text or curve moves to another layer (its rule then decides what it is). */
@@ -189,6 +222,11 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
     handle: Handle,
     dx: Coord,
     dy: Coord,
+    /**
+     * AutoCAD's COPYTOLAYER (owner 2026-11-24): the copy goes on this layer; null keeps the
+     * original's. On a layer without a rule the copy is for drawing only (as a drawn line).
+     */
+    toLayer: LayerName.nullable().default(null),
   }),
   /** Mirrored across the line through (x1, y1) and (x2, y2) (ADR-050); the two points differ. */
   z
@@ -291,6 +329,122 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
       .nullable()
       .default(null),
   }),
+  /**
+   * A shape drawn on the screen (owner 2026-11-24): `points` is the closed boundary of a hatch,
+   * gradient or wipeout (3 or more), the centre of a donut (`inner` / `outer` diameters), or the
+   * point and the direction point of an XLINE / RAY. Saved and drawn; the build ignores it.
+   */
+  z
+    .strictObject({
+      kind: z.literal('add_shape'),
+      shape: DrawingShapeKindSchema,
+      layer: LayerName,
+      points: z.array(Point).min(1).max(MAX_CURVE_POINTS),
+      pattern: HatchPatternSchema.nullable().default(null),
+      /** Pattern spacing factor of a hatch. */
+      scale: z
+        .number()
+        .refine(Number.isFinite)
+        .min(MIN_SCALE_FACTOR)
+        .max(MAX_SCALE_FACTOR)
+        .default(1),
+      /** Pattern or gradient angle, degrees. */
+      angle: z
+        .number()
+        .refine(Number.isFinite)
+        .min(-MAX_ROTATION_DEG)
+        .max(MAX_ROTATION_DEG)
+        .default(0),
+      /** null = the layer's colour. */
+      color: Colour.nullable().default(null),
+      /** The second colour of a gradient. */
+      color2: Colour.nullable().default(null),
+      inner: Size.nullable().default(null),
+      outer: Size.nullable().default(null),
+    })
+    .superRefine((shape, ctx) => {
+      const n = shape.points.length;
+      const need =
+        shape.shape === 'donut'
+          ? n === 1
+          : shape.shape === 'xline' || shape.shape === 'ray'
+            ? n === 2
+            : n >= 3;
+      if (!need)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['points'],
+          message: 'Wrong number of points for the shape',
+        });
+      if (
+        shape.shape === 'donut' &&
+        !(shape.outer !== null && shape.outer > 0 && (shape.inner ?? 0) < shape.outer)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['outer'],
+          message: 'A donut needs an outer diameter above the inner one',
+        });
+      }
+      const [a, b] = shape.points;
+      if (
+        (shape.shape === 'xline' || shape.shape === 'ray') &&
+        a &&
+        b &&
+        a[0] === b[0] &&
+        a[1] === b[1]
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['points'],
+          message: 'The direction needs two different points',
+        });
+      }
+    }),
+  /**
+   * The draw order of an item on the screen (AutoCAD's DRAWORDER, owner 2026-11-24): items are
+   * drawn by `order`, lowest first; items without one keep the file's order at 0. Saved and drawn;
+   * the build ignores it. The latest order of an item wins.
+   */
+  z.strictObject({
+    kind: z.literal('set_order'),
+    handle: Handle,
+    order: z.number().refine(Number.isFinite).min(-MAX_DRAW_ORDER).max(MAX_DRAW_ORDER),
+  }),
+  /**
+   * AutoCAD's LAYMRG (owner 2026-11-24): every item on `from` moves to `to`, which keeps its own
+   * rule (unlike `rename_layer`, where the target takes the rule of `from`). `from` is then empty.
+   */
+  z
+    .strictObject({
+      kind: z.literal('merge_layer'),
+      from: LayerName,
+      to: LayerName,
+    })
+    .refine((m) => m.from !== m.to, 'Merge into another layer'),
+  /**
+   * A named group of items (GROUP) or a block made on the page (BLOCK) — screen only: picking one
+   * member picks them all. The latest of a name wins; no handles ungroups it.
+   */
+  z.strictObject({
+    kind: z.literal('set_group'),
+    name: Text.max(MAX_TEXT_LENGTH),
+    handles: z.array(Handle).max(MAX_GROUP_HANDLES),
+    block: z.boolean().default(false),
+  }),
+  /**
+   * AutoCAD's EATTEDIT (owner 2026-11-24): the attribute of the insert whose value is `from`
+   * (the first one, in the file's order) gets `to`. The drawing view does not carry tags, so the
+   * value names the attribute.
+   */
+  z
+    .strictObject({
+      kind: z.literal('set_attribute'),
+      handle: Handle,
+      from: Text.max(MAX_TEXT_LENGTH),
+      to: Text.max(MAX_TEXT_LENGTH),
+    })
+    .refine((a) => a.from !== a.to, 'The new value must differ'),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;
 

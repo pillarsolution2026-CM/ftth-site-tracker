@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import type { LonLat } from '@ftth/geo';
 import { ltr } from '@ftth/i18n';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -37,8 +38,14 @@ import {
   type Size,
   type ViewTransform,
 } from '../model/view-transform';
+import { useMapping } from '@/features/cad-mapping/api/queries';
+import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
+import { useLayerScreen, type LayerScreen } from './use-layer-screen';
 import { useFixTools, type FixTools } from './use-fix-tools';
+
+export type WorkspaceDialog =
+  { kind: 'find' } | { kind: 'laywalk' } | { kind: 'attributes'; index: number };
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {
@@ -130,6 +137,36 @@ export interface DrawingViewer {
   popover: ViewerPopover | null;
   closePopover: () => void;
   markerCount: number;
+  /** The Layers panel on the screen: off, isolate, freeze, lock, states, fading. */
+  layerScreen: LayerScreen;
+  /** Dialogs of the workspace: FIND, Layer Walk, Edit Attributes (owner 2026-11-24). */
+  dialog: WorkspaceDialog | null;
+  setDialog: (dialog: WorkspaceDialog | null) => void;
+  /** Centres an entity on the screen and marks it (FIND). */
+  zoomToEntity: (index: number) => void;
+  /** AutoCAD's object isolation, for the screen only (nothing is saved). */
+  isolation: {
+    active: boolean;
+    /** Only these objects stay on the screen. */
+    isolate: (indexes: ReadonlySet<number>) => void;
+    /** These objects leave the screen. */
+    hide: (indexes: ReadonlySet<number>) => void;
+    end: () => void;
+  };
+  /** A right click in the edit mode: with nothing picked it picks the object under the pointer. */
+  pickForMenu: (sx: number, sy: number) => void;
+  /** The details panel of an object (the right-click «Properties»). */
+  showProperties: (index: number) => void;
+  /** OpenStreetMap under the drawing (owner 2026-11-24): loaded only once turned on. */
+  osm: {
+    /** Drawing point → Lon/Lat; null when the file has no CRS / unit mapping yet. */
+    toLonLat: ((x: number, y: number) => LonLat) | null;
+    shown: boolean;
+    setShown: (shown: boolean) => void;
+  };
+  /** The error markers are drawn (the tab-strip toggle). */
+  markersShown: boolean;
+  setMarkersShown: (shown: boolean) => void;
 }
 
 interface Input {
@@ -148,6 +185,7 @@ interface Input {
 }
 
 const NO_ENTITIES: ReadonlySet<number> = new Set();
+const NO_MARKERS: readonly ProblemMarker[] = [];
 
 /** Where to look for a place: its own point, else the middle of the entities of its handle. */
 function focusCentre(scene: DrawingScene, focus: ShowPlace): { x: number; y: number } | null {
@@ -240,7 +278,9 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         : null,
     [scene, corrections.data, tools.metresPerUnit],
   );
-  const markers = useMemo(
+  // The error markers can be hidden from the drawing (owner 2026-11-24); nothing else changes.
+  const [markersShown, setMarkersShown] = useState(true);
+  const allMarkers = useMemo(
     () =>
       buildMarkers(
         problems.data?.items ?? [],
@@ -248,6 +288,21 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       ),
     [problems.data, corrections.data, revisionCreatedAt],
   );
+  const markers = markersShown ? allMarkers : NO_MARKERS;
+  const [isolatedTo, setIsolatedTo] = useState<ReadonlySet<number> | null>(null);
+  const [hiddenObjects, setHiddenObjects] = useState<ReadonlySet<number>>(NO_ENTITIES);
+  const objectShown = useMemo(
+    () =>
+      isolatedTo === null && hiddenObjects.size === 0
+        ? undefined
+        : (index: number) =>
+            (isolatedTo === null || isolatedTo.has(index)) && !hiddenObjects.has(index),
+    [isolatedTo, hiddenObjects],
+  );
+  const mapping = useMapping(projectId, cadFileId, enabled);
+  const toLonLat = useMemo(() => drawingToLonLat(mapping.data?.mapping), [mapping.data]);
+  const [osmShown, setOsmShown] = useState(false);
+  const mapBehind = osmShown && toLonLat !== null;
 
   // Layers: the view's `visible` is the start; the user's choices override it.
   const [overrides, setOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
@@ -308,8 +363,22 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [layers, layerQuery],
   );
 
+  const layerScreen = useLayerScreen({
+    cadFileId,
+    layerCount: layers?.length ?? 0,
+    snapshot: { overrides, frozen, locked },
+    apply: (s) => {
+      setOverrides(s.overrides);
+      setFrozen(s.frozen);
+      setLocked(s.locked);
+    },
+  });
+  const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
+
   const textHeight = defaultTextHeight(tools.metresPerUnit);
   const edit = useCanvasEdit({
+    layerScreen,
+    openDialog: setDialog,
     projectId,
     cadFileId,
     available: canFix && enabled,
@@ -318,7 +387,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     layers: tools.layers,
     // Picking asks per entity: its layer (after saved moves) must be drawn, and not locked.
     isShown: (index) =>
-      scene !== null && preview !== null && isShown(effectiveLayer(scene, preview, index)),
+      scene !== null &&
+      preview !== null &&
+      (objectShown === undefined || objectShown(index)) &&
+      isShown(effectiveLayer(scene, preview, index)),
     isLocked: (index) =>
       scene !== null && preview !== null && locked.has(effectiveLayer(scene, preview, index)),
     textHeight,
@@ -402,9 +474,20 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             sketch: edit.sketch,
             layerColor,
             noteHeight: textHeight,
+            mapBehind,
+            objectShown,
+            lockedFade:
+              layerScreen.fade.on && locked.size > 0
+                ? { layers: locked, alpha: 1 - layerScreen.fade.percent / 100 }
+                : undefined,
           }
         : null,
     [
+      layerScreen.fade.on,
+      layerScreen.fade.percent,
+      locked,
+      objectShown,
+      mapBehind,
       layerColor,
       textHeight,
       edit.chosen,
@@ -559,6 +642,60 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       setPopover(null);
       setSelected(null);
     },
-    markerCount: markers.length,
+    markerCount: allMarkers.length,
+    markersShown,
+    setMarkersShown,
+    osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
+    layerScreen,
+    dialog,
+    setDialog,
+    zoomToEntity: (index) => {
+      if (!scene) return;
+      const box = boxOf(scene, index);
+      const half = Math.max((box.maxX - box.minX) / 2, (box.maxY - box.minY) / 2, 1) * 3;
+      setCustom(windowTransform((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, half, size));
+      setSelected(index);
+    },
+    isolation: {
+      active: objectShown !== undefined,
+      isolate: (indexes) => {
+        setIsolatedTo(new Set(indexes));
+        setHiddenObjects(NO_ENTITIES);
+      },
+      hide: (indexes) => setHiddenObjects((previous) => new Set([...previous, ...indexes])),
+      end: () => {
+        setIsolatedTo(null);
+        setHiddenObjects(NO_ENTITIES);
+      },
+    },
+    pickForMenu: (sx, sy) => {
+      if (!scene || !shownPreview || !edit.editing || edit.command !== null) return;
+      if (edit.chosenCount > 0) return;
+      const world = toWorld(transform, size, sx, sy);
+      const hit = hitEntity(
+        scene,
+        world.x,
+        world.y,
+        ENTITY_HIT_PX / transform.scale,
+        (index) =>
+          !shownPreview.erased.has(index) &&
+          (objectShown === undefined || objectShown(index)) &&
+          isShown(effectiveLayer(scene, shownPreview, index)),
+        shownPreview.transformOf,
+        shownPreview.curveOf,
+      );
+      if (hit !== null) edit.pick(hit, world, false);
+    },
+    showProperties: (index) => {
+      if (!scene) return;
+      const box = boxOf(scene, index);
+      setSelected(index);
+      setPopover({
+        x: (box.minX + box.maxX) / 2,
+        y: (box.minY + box.maxY) / 2,
+        entity: index,
+        marker: null,
+      });
+    },
   };
 }

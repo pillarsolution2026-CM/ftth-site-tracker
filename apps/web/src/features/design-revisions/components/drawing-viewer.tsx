@@ -13,6 +13,7 @@ import { CadCommandLine, CadRibbon, CanvasButton, PenButton } from './cad-ribbon
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
+import { WorkspaceDialogs } from './workspace-dialogs';
 
 /**
  * «عارض الرسومات» (ADR-039): the drawing as drawn, with the layers, the problem places and the
@@ -183,6 +184,21 @@ function Workspace({
     setSeenNonce(layersNonce);
     setManagerOpen(true);
   }
+  // Full screen (owner 2026-11-24): the whole workspace takes the screen, as a desktop program.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  const [canFullScreen, setCanFullScreen] = useState(false);
+  useEffect(() => {
+    setCanFullScreen(typeof document.documentElement.requestFullscreen === 'function');
+    const onChange = () =>
+      setFull(rootRef.current !== null && document.fullscreenElement === rootRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+  const toggleFull = () => {
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
+    else void rootRef.current?.requestFullscreen?.().catch(() => undefined);
+  };
   const palettes: { key: PaletteKey; title: string; body: ReactNode }[] = [];
   if (problems) {
     palettes.push({ key: 'problems', title: t('design.cad.palette.problems'), body: problems });
@@ -197,17 +213,28 @@ function Workspace({
   if (!model) return null;
   const shownPalettes = palettes.filter((p) => open.has(p.key));
   return (
-    <div className="flex flex-col">
+    <div
+      ref={rootRef}
+      className={`flex flex-col ${full ? 'h-screen w-screen overflow-auto bg-[#1f2328]' : ''}`}
+    >
       <CadRibbon
         edit={edit}
         rows={viewer.layerRows}
         onToggleLayer={viewer.toggleLayer}
         onToggleFrozen={viewer.toggleFrozen}
         onToggleLocked={viewer.toggleLocked}
+        markersShown={viewer.markersShown}
+        onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
+        osm={{
+          available: viewer.osm.toLonLat !== null,
+          shown: viewer.osm.shown,
+          onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
+        }}
+        layerScreen={viewer.layerScreen}
       />
-      <div className="flex flex-col gap-3 lg:flex-row lg:gap-0">
-        <div className="min-w-0 flex-1">
-          <DrawingCanvas viewer={viewer} model={model}>
+      <div className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}>
+        <div className={`min-w-0 flex-1 ${full ? 'flex min-h-0 flex-col' : ''}`}>
+          <DrawingCanvas viewer={viewer} model={model} fill={full}>
             <div
               dir="ltr"
               role="group"
@@ -223,6 +250,30 @@ function Workspace({
               <CanvasButton label={t('design.viewer.fit')} onClick={viewer.fit}>
                 ⤢
               </CanvasButton>
+              {canFullScreen ? (
+                <CanvasButton
+                  label={full ? t('design.cad.fullScreenExit') : t('design.cad.fullScreen')}
+                  pressed={full}
+                  onClick={toggleFull}
+                >
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="size-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {full ? (
+                      <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
+                    ) : (
+                      <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
+                    )}
+                  </svg>
+                </CanvasButton>
+              ) : null}
               <CanvasButton
                 label={t('design.cad.palette.layers')}
                 pressed={managerOpen}
@@ -243,6 +294,7 @@ function Workspace({
               <PenButton edit={edit} />
             </div>
             <CanvasPopover viewer={viewer} />
+            <WorkspaceDialogs viewer={viewer} />
           </DrawingCanvas>
           <CadCommandLine edit={edit} />
           {managerOpen ? (

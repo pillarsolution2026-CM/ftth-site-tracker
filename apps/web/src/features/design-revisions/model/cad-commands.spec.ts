@@ -17,7 +17,8 @@ describe('command names and aliases (ADR-051)', () => {
     expect(lookupCommand('.Co')).toBe('copy');
     expect(lookupCommand('dli')).toBe('dimlinear');
     expect(lookupCommand('LAYMCUR')).toBe('laymcur');
-    expect(lookupCommand('ARRAY')).toBeNull();
+    expect(lookupCommand('ARRAY')).toBe('arrayrect');
+    expect(lookupCommand('3DORBIT')).toBeNull();
     expect(lookupCommand('TABLE')).toBeNull();
   });
   it('has the aliases the owner asked for, each once', () => {

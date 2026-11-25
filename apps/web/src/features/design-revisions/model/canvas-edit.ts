@@ -25,7 +25,12 @@ export function isTextEntity(scene: DrawingScene, index: number): boolean {
 export const stepOf = (edit: CanvasEdit): Affine | null => stepOfInput(edit);
 
 /** Edits that a later edit of the same handle replaces (the others add up, in order). */
-const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>(['move_layer', 'set_text', 'set_style']);
+const REPLACED_BY_KIND = new Set<CanvasEdit['kind']>([
+  'move_layer',
+  'set_text',
+  'set_style',
+  'set_order',
+]);
 
 export function addEdits(edits: readonly CanvasEdit[], added: readonly CanvasEdit[]): CanvasEdit[] {
   const key = (edit: CanvasEdit) =>
@@ -53,8 +58,13 @@ export function moveEdits(handles: readonly string[], dx: number, dy: number): C
   return handles.map((handle) => ({ kind: 'move_item', handle, dx: r(dx), dy: r(dy) }));
 }
 
-export function copyEdits(handles: readonly string[], dx: number, dy: number): CanvasEdit[] {
-  return handles.map((handle) => ({ kind: 'copy_item', handle, dx: r(dx), dy: r(dy) }));
+export function copyEdits(
+  handles: readonly string[],
+  dx: number,
+  dy: number,
+  toLayer: string | null = null,
+): CanvasEdit[] {
+  return handles.map((handle) => ({ kind: 'copy_item', handle, dx: r(dx), dy: r(dy), toLayer }));
 }
 
 /** One turn edit per handle, the angle brought into ±180. */

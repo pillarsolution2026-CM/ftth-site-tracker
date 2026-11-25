@@ -713,7 +713,7 @@ describe(
       for (const name of ['Line', 'Polyline', 'Circle', 'Arc', 'Rectangle', 'Trim', 'Fillet']) {
         expect(tool(name)).toBeInTheDocument();
       }
-      expect(within(ribbon).queryByRole('button', { name: /Array|Table/ })).not.toBeInTheDocument();
+      expect(within(ribbon).queryByRole('button', { name: /^Table$/ })).not.toBeInTheDocument();
       expect(tool('Move')).toHaveAttribute('title', expect.stringMatching(/MOVE \(M\)$/));
       expect(prompt()).toBe('Type a command');
       await waitFor(() => expect(fills).toContain('#000000'));
@@ -801,6 +801,622 @@ describe(
       await user.keyboard('{Delete}');
       await save(user);
       expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+    });
+
+    it('the tab strip next to Home: Undo and Redo one step, Ctrl+Y; a new edit empties Redo', async () => {
+      const { canvas, user } = await openWorkspace();
+      const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+      const undo = within(ribbon).getByRole('button', { name: 'Undo (Ctrl+Z)' });
+      const redo = within(ribbon).getByRole('button', { name: 'Redo (Ctrl+Y)' });
+      expect(undo).toBeDisabled();
+      expect(redo).toBeDisabled();
+      await click(user, canvas, 75, 25);
+      await user.keyboard('{Delete}');
+      expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      await user.click(undo);
+      expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+      expect(redo).toBeEnabled();
+      await user.click(redo);
+      expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      expect(redo).toBeDisabled();
+      await user.click(canvas);
+      await user.keyboard('{Control>}z{/Control}');
+      expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+      await user.keyboard('{Control>}y{/Control}');
+      expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      // Undo, then a new edit: nothing is left to redo (as in AutoCAD).
+      await user.click(undo);
+      await click(user, canvas, 75, 25);
+      await user.keyboard('{Delete}');
+      expect(redo).toBeDisabled();
+      await save(user);
+      expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+    });
+
+    it('the tab strip hides and shows the error markers', async () => {
+      const { user } = await openWorkspace();
+      const codes = () => ctx.fillText.mock.calls.map((call) => call[0] as string);
+      await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+      const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+      ctx.fillText.mockClear();
+      await user.click(within(ribbon).getByRole('button', { name: 'Hide the error markers' }));
+      const show = within(ribbon).getByRole('button', { name: 'Show the error markers' });
+      expect(show).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(ctx.fillText).toHaveBeenCalled());
+      expect(codes()).not.toContain('LABEL_MISSING');
+      ctx.fillText.mockClear();
+      await user.click(show);
+      await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+    });
+
+    it('OpenStreetMap needs the file CRS', async () => {
+      await openWorkspace();
+      const map = tool('OpenStreetMap');
+      expect(map).toBeDisabled();
+      expect(map).toHaveAttribute('title', expect.stringMatching(/needs the file's CRS/));
+    });
+
+    it('OpenStreetMap is shown under the drawing on demand and hidden again', async () => {
+      const mapped = await mappingApi.getMapping();
+      mappingApi.getMapping.mockResolvedValue({
+        ...mapped,
+        mapping: { ...mapped.mapping, crsEpsg: 32636, drawingUnit: 'm', placement: null },
+      });
+      const { user } = await openWorkspace();
+      const map = tool('OpenStreetMap');
+      await waitFor(() => expect(map).toBeEnabled());
+      // Nothing of the map is there before it is asked for.
+      expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
+      ctx.clearRect.mockClear();
+      await user.click(map);
+      expect(map).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('osm-backdrop')).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', { name: '© OpenStreetMap contributors' }),
+      ).toBeInTheDocument();
+      await waitFor(() => expect(ctx.clearRect).toHaveBeenCalled());
+      await user.click(map);
+      expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
+    });
+
+    it('full screen puts the whole workspace on the screen, and the same button leaves it', async () => {
+      const request = vi.fn(function (this: Element) {
+        Object.defineProperty(document, 'fullscreenElement', {
+          configurable: true,
+          value: this,
+        });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      });
+      const exit = vi.fn(() => {
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      });
+      Object.defineProperty(Element.prototype, 'requestFullscreen', {
+        configurable: true,
+        value: request,
+      });
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+      try {
+        const { user } = await openWorkspace();
+        await user.click(screen.getByRole('button', { name: 'Full screen' }));
+        expect(request).toHaveBeenCalledTimes(1);
+        const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        expect(request.mock.contexts[0]).toContainElement(ribbon);
+        expect(request.mock.contexts[0]).toContainElement(screen.getByLabelText('Command'));
+        await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
+        expect(exit).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+      } finally {
+        delete (Element.prototype as { requestFullscreen?: unknown }).requestFullscreen;
+        delete (document as { exitFullscreen?: unknown }).exitFullscreen;
+        delete (document as { fullscreenElement?: unknown }).fullscreenElement;
+      }
+    });
+
+    describe('right-click menu on picked objects (owner 2026-11-24)', () => {
+      const rightClick = async (user: User, canvas: Element, x: number, y: number) =>
+        user.pointer({ keys: '[MouseRight]', target: canvas, coords: at(x, y) });
+      const menu = () => screen.getByRole('menu', { name: 'Menu of the picked objects' });
+      const item = (name: string) => within(menu()).getByRole('menuitem', { name });
+
+      it('right-click on an object picks it and shows only the chosen items; Erase erases it', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        const names = within(menu())
+          .getAllByRole('menuitem')
+          .map((element) => element.textContent?.replace('›', '').trim());
+        expect(names).toEqual([
+          'Isolate',
+          'Erase',
+          'Move',
+          'Copy Selection',
+          'Scale',
+          'Rotate',
+          'Draw Order',
+          'Group',
+          'Add Selected',
+          'Select Similar',
+          'Deselect All',
+          'Properties',
+        ]);
+        await user.click(item('Draw Order'));
+        const order = screen.getByRole('menu', { name: 'Draw Order' });
+        expect(
+          within(order)
+            .getAllByRole('menuitem')
+            .map((element) => element.textContent?.trim()),
+        ).toEqual(['Bring to Front', 'Send to Back', 'Bring Above Objects', 'Send Under Objects']);
+        await user.click(item('Erase'));
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+      });
+
+      it('Move from the menu asks for the base point of the picked object', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Move'));
+        expect(prompt()).toMatch(/^MOVE Specify base point/);
+      });
+
+      it('Hide Objects takes them off the screen; End Object Isolation brings them back', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Isolate'));
+        await user.click(
+          within(screen.getByRole('menu', { name: 'Isolate' })).getByRole('menuitem', {
+            name: 'Hide Objects',
+          }),
+        );
+        // Hidden: a click there picks nothing, so Delete erases nothing.
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+        // With nothing picked the menu still ends the isolation.
+        await rightClick(user, canvas, 10, 45);
+        expect(item('Erase')).toBeDisabled();
+        await user.click(item('Isolate'));
+        await user.click(
+          within(screen.getByRole('menu', { name: 'Isolate' })).getByRole('menuitem', {
+            name: 'End Object Isolation',
+          }),
+        );
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      });
+
+      it('Select Similar picks the same type on the same layer; Deselect All drops them', async () => {
+        const view = testView();
+        api.getDrawingView.mockResolvedValue({
+          ...view,
+          entities: [
+            ...view.entities,
+            {
+              handle: 'B2',
+              layer: 0,
+              color: null,
+              kind: 'LINE',
+              paths: [[50, 10, 100, 10]],
+              texts: [],
+            },
+          ],
+        });
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Select Similar'));
+        expect(history()).toMatch(/2 found/);
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Deselect All'));
+        await user.keyboard('{Delete}');
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+      });
+
+      it('Add Selected starts the same command on the layer of the picked object', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Add Selected'));
+        expect(history()).toMatch(/"Route" is now the current layer/);
+        expect(prompt()).toMatch(/^LINE Specify first point/);
+      });
+
+      it('Properties shows the details of the picked object', async () => {
+        const { canvas, user } = await openWorkspace();
+        await rightClick(user, canvas, 75, 25);
+        await user.click(item('Properties'));
+        const panel = await screen.findByRole('dialog', {
+          name: 'Details of the place on the drawing',
+        });
+        expect(within(panel).getByText('B')).toBeInTheDocument();
+      });
+    });
+
+    describe('Draw and Modify commands added for the owner (2026-11-24)', () => {
+      it('the Draw and Modify panels open their slide-outs and drop-downs', async () => {
+        const { user } = await openWorkspace();
+        await user.click(screen.getByRole('button', { name: 'More Draw tools' }));
+        const more = screen.getByRole('group', { name: 'More Draw tools' });
+        for (const name of [
+          'Spline Fit',
+          'Spline CV',
+          'Ray',
+          'Construction Line',
+          'Multiple Points',
+        ]) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        for (const name of [
+          'Divide',
+          'Measure',
+          'Region',
+          'Wipeout',
+          'Helix',
+          'Donut',
+          'Polygon',
+        ]) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        await user.click(screen.getByRole('button', { name: 'Hatch ▾' }));
+        const hatch = screen.getByRole('menu', { name: 'Hatch' });
+        expect(
+          within(hatch)
+            .getAllByRole('menuitem')
+            .map((m) => m.textContent),
+        ).toEqual(['Hatch', 'Gradient', 'Boundary']);
+        await user.click(screen.getByRole('button', { name: 'Ellipse ▾' }));
+        expect(
+          within(screen.getByRole('menu', { name: 'Ellipse' }))
+            .getAllByRole('menuitem')
+            .map((m) => m.textContent),
+        ).toEqual(['Center', 'Axis, End', 'Elliptical Arc']);
+        await user.click(screen.getByRole('button', { name: 'More Modify tools' }));
+        const modify = screen.getByRole('group', { name: 'More Modify tools' });
+        for (const name of ['Break', 'Break at Point', 'Lengthen', 'Reverse', 'Array']) {
+          expect(within(modify).getByRole('button', { name })).toBeInTheDocument();
+        }
+        expect(
+          within(modify).getByRole('button', { name: 'Delete Duplicates' }),
+        ).toBeInTheDocument();
+        expect(within(modify).getByRole('button', { name: 'Draw Order' })).toBeInTheDocument();
+      });
+
+      it('BREAK takes out the part between two points; the rest is a new line', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'br');
+        expect(prompt()).toBe('BREAK Select object:');
+        await click(user, canvas, 60, 25);
+        expect(prompt()).toBe('BREAK Specify second break point or [First point]:');
+        await type(user, '80,25');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 25],
+              [60, 25],
+            ],
+            closed: false,
+          },
+          {
+            kind: 'add_curve',
+            layer: 'Route',
+            points: [
+              [80, 25],
+              [100, 25],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('LENGTHEN DElta makes the picked end longer; REVERSE turns a line round', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'len');
+        await type(user, 'de');
+        await type(user, '10');
+        expect(prompt()).toBe('LENGTHEN Select an object to change or [Undo]:');
+        await click(user, canvas, 95, 25);
+        await type(user, '');
+        await click(user, canvas, 75, 25);
+        await type(user, 'reverse');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 25],
+              [110, 25],
+            ],
+            closed: false,
+          },
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [110, 25],
+              [50, 25],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('ARRAYRECT COUnt makes the copies in columns and rows', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await type(user, 'ar');
+        expect(prompt()).toMatch(/^ARRAYRECT Select array option or \[COUnt/);
+        await type(user, 'cou');
+        await type(user, '3');
+        await type(user, '1');
+        await type(user, '');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'copy_item', handle: 'B', dx: 75, dy: 0, toLayer: null },
+          { kind: 'copy_item', handle: 'B', dx: 150, dy: 0, toLayer: null },
+        ]);
+      });
+
+      it('OVERKILL erases the objects that repeat another', async () => {
+        const view = testView();
+        api.getDrawingView.mockResolvedValue({
+          ...view,
+          entities: [
+            ...view.entities,
+            {
+              handle: 'B2',
+              layer: 0,
+              color: null,
+              kind: 'LINE',
+              paths: [[50, 25, 100, 25]],
+              texts: [],
+            },
+          ],
+        });
+        const { user } = await openWorkspace();
+        await type(user, 'overkill');
+        await type(user, 'all');
+        await type(user, '');
+        expect(history()).toMatch(/1 duplicate\(s\) deleted/);
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B2' }]);
+      });
+
+      it('Draw Order from the right-click menu brings the object to the front', async () => {
+        const { canvas, user } = await openWorkspace();
+        await user.pointer({ keys: '[MouseRight]', target: canvas, coords: at(75, 25) });
+        const menu = screen.getByRole('menu', { name: 'Menu of the picked objects' });
+        await user.click(within(menu).getByRole('menuitem', { name: 'Draw Order' }));
+        await user.click(
+          within(screen.getByRole('menu', { name: 'Draw Order' })).getByRole('menuitem', {
+            name: 'Bring to Front',
+          }),
+        );
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'set_order', handle: 'B', order: 1 }]);
+      });
+
+      it('POLYGON, ELLIPSE and SPLINE draw polylines on the current layer', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Route');
+        await type(user, 'pol');
+        await type(user, '4');
+        await type(user, '50,25');
+        await type(user, '');
+        await type(user, '10');
+        await type(user, 'el');
+        await type(user, '0,0');
+        await type(user, '20,0');
+        await type(user, '5');
+        await type(user, 'spl');
+        await type(user, '0,0');
+        await type(user, '10,10');
+        await type(user, '20,0');
+        await type(user, '');
+        await save(user);
+        const [square, ellipse, spline] = sent();
+        expect(square).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: true });
+        expect((square?.points as number[][]).length).toBe(4);
+        expect(square?.points).toContainEqual([50, 35]);
+        expect(ellipse).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: true });
+        expect((ellipse?.points as number[][])[0]).toEqual([20, 0]);
+        expect(spline).toMatchObject({ kind: 'add_curve', layer: 'Route', closed: false });
+        expect((spline?.points as number[][]).length).toBeGreaterThan(10);
+        expect(spline?.points).toContainEqual([10, 10]);
+      });
+
+      it('HATCH fills the closed object around the picked point; DONUT and XLINE are screen shapes', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'h');
+        expect(history()).toMatch(/Pattern = ANSI31, Scale = 1.0000, Angle = 0.0000/);
+        await type(user, '21,21');
+        await type(user, '');
+        await type(user, 'do');
+        await type(user, '');
+        await type(user, '2');
+        await type(user, '10,10');
+        await type(user, '');
+        await type(user, 'xl');
+        await type(user, '0,0');
+        await type(user, '1,1');
+        await type(user, '');
+        await save(user);
+        const [hatch, donut, xline] = sent();
+        expect(hatch).toMatchObject({
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          pattern: 'ANSI31',
+          scale: 1,
+        });
+        expect((hatch?.points as number[][]).length).toBe(4);
+        expect(donut).toMatchObject({ kind: 'add_shape', shape: 'donut', inner: 0.5, outer: 2 });
+        expect(xline).toMatchObject({
+          kind: 'add_shape',
+          shape: 'xline',
+          points: [
+            [0, 0],
+            [1, 1],
+          ],
+        });
+      });
+
+      it('DIVIDE puts points on the current layer along the picked line', async () => {
+        const { canvas, user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'div');
+        await click(user, canvas, 75, 25);
+        await type(user, '5');
+        expect(history()).toMatch(/4 point\(s\) placed/);
+        await save(user);
+        expect(sent()).toEqual(
+          [60, 70, 80, 90].map((x) => ({ kind: 'add_item', layer: 'Sap', x, y: 25 })),
+        );
+      });
+    });
+
+    describe('Layers, Groups and Block panels (owner 2026-11-24)', () => {
+      it('LAYOFF turns the layer of the picked object off; LAYERP brings it back', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await type(user, 'layoff');
+        expect(history()).toMatch(/Layer "Route" has been turned off/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+        await type(user, 'layerp');
+        expect(history()).toMatch(/Layers restored/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+      });
+
+      it('the Layers panel has the AutoCAD tools, layer states and locked layer fading', async () => {
+        const { user } = await openWorkspace();
+        const layers = screen.getByRole('group', { name: 'Layers' });
+        for (const name of [
+          'Off',
+          'Isolate',
+          'Freeze',
+          'Lock',
+          'Turn All Layers On',
+          'Unisolate',
+        ]) {
+          expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
+        }
+        for (const name of ['Thaw All Layers', 'Unlock', 'Find']) {
+          expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
+        }
+        await user.click(screen.getByRole('button', { name: 'More Layers tools' }));
+        const more = screen.getByRole('group', { name: 'More Layers tools' });
+        expect(within(more).getByRole('combobox', { name: 'Layer State' })).toHaveValue('');
+        for (const name of ['Previous', 'Change to Current Layer', 'Copy Objects to New Layer']) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        for (const name of ['Layer Walk', 'Merge', 'Delete']) {
+          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
+        }
+        expect(within(more).getByRole('button', { name: 'Locked layer fading' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        expect(within(more).getByText('50%')).toBeInTheDocument();
+      });
+
+      it('LAYMRG moves every object of one layer to another; COPYTOLAYER copies there', async () => {
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'laymrg');
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 20, 21);
+        expect(history()).toMatch(/Every object on layer "Route" will move to layer "Sap"/);
+        await type(user, 'y');
+        await click(user, canvas, 75, 25);
+        await type(user, 'copytolayer');
+        await click(user, canvas, 20, 21);
+        await type(user, '');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'merge_layer', from: 'Route', to: 'Sap' },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0, toLayer: 'Sap' },
+        ]);
+      });
+
+      it('FIND finds a text and Replace All changes it', async () => {
+        const { user } = await openWorkspace();
+        await type(user, 'find');
+        const dialog = screen.getByRole('dialog', { name: 'Find and Replace' });
+        await user.type(within(dialog).getByLabelText('Find what'), '36');
+        expect(within(dialog).getByText('1 found')).toBeInTheDocument();
+        await user.click(within(dialog).getByRole('button', { name: 'Find' }));
+        await user.type(within(dialog).getByLabelText('Replace with'), '48');
+        await user.click(within(dialog).getByRole('button', { name: 'Replace All' }));
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'set_text', handle: 'T1', text: 'F 48 C' }]);
+      });
+
+      it('GROUP makes a group; with group selection on, one member picks them all', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 25, 0);
+        await type(user, 'group');
+        expect(history()).toMatch(/Group "\*A1" has been created with 2 object\(s\)/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        await type(user, 'block');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'set_group', name: '*A1', handles: ['B', 'A'], block: false },
+          { kind: 'erase_item', handle: 'B' },
+          { kind: 'erase_item', handle: 'A' },
+        ]);
+      });
+
+      it('INSERT places a copy of a block reference; EATTEDIT changes its value', async () => {
+        const view = testView();
+        api.getDrawingView.mockResolvedValue({
+          ...view,
+          entities: view.entities.map((e) =>
+            e.handle === 'A1'
+              ? { ...e, texts: [{ x: 21, y: 21, height: 1, rotation: 0, text: 'S1' }] }
+              : e,
+          ),
+        });
+        const { canvas, user } = await openWorkspace();
+        await type(user, 'insert');
+        await click(user, canvas, 21, 21);
+        await type(user, '50,50');
+        await type(user, '');
+        await type(user, 'eattedit');
+        await click(user, canvas, 21, 21);
+        const dialog = screen.getByRole('dialog', { name: 'Enhanced Attribute Editor - A1' });
+        const value = within(dialog).getByLabelText('Value 1');
+        await user.clear(value);
+        await user.type(value, 'S2');
+        await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'copy_item', handle: 'A1', dx: 29, dy: 29, toLayer: null },
+          { kind: 'set_attribute', handle: 'A1', from: 'S1', to: 'S2' },
+        ]);
+      });
+
+      it('the Block panel says which block tools need AutoCAD', async () => {
+        await openWorkspace();
+        const block = screen.getByRole('group', { name: 'Block' });
+        expect(within(block).getByRole('button', { name: 'Insert' })).toBeEnabled();
+        expect(within(block).getByRole('button', { name: 'Edit' })).toBeDisabled();
+        expect(within(block).getByRole('button', { name: 'Edit' })).toHaveAttribute(
+          'title',
+          expect.stringMatching(/edited in AutoCAD/),
+        );
+      });
     });
 
     it('LINE needs a current layer; then draws segments, typed or clicked; PLINE closes', async () => {
@@ -1124,8 +1740,8 @@ describe(
 
     it('says so for an unknown command, Esc cancels, Enter repeats the last command', async () => {
       const { user } = await openWorkspace();
-      await type(user, 'array');
-      expect(history()).toMatch(/Unknown command "ARRAY"/);
+      await type(user, '3dorbit');
+      expect(history()).toMatch(/Unknown command "3DORBIT"/);
       await type(user, 'circle');
       await user.keyboard('{Escape}');
       expect(history()).toMatch(/\*Cancel\*/);
@@ -1168,7 +1784,7 @@ describe(
         expect(sent()).toEqual([
           { kind: 'move_item', handle: 'B', dx: 5, dy: 0 },
           { kind: 'move_item', handle: 'A', dx: 3, dy: 4 },
-          { kind: 'copy_item', handle: 'B', dx: 0, dy: 5 },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 5, toLayer: null },
         ]);
       });
 
@@ -1206,11 +1822,11 @@ describe(
         await type(user, '');
         await save(user);
         expect(sent()).toEqual([
-          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0 },
+          { kind: 'copy_item', handle: 'B', dx: 0, dy: 0, toLayer: null },
           expect.objectContaining({ kind: 'rotate_item', handle: 'B', angle: 90 }),
           expect.objectContaining({ kind: 'rotate_item', handle: 'A', angle: 60 }),
           expect.objectContaining({ kind: 'scale_item', handle: 'A1', factor: 3 }),
-          { kind: 'copy_item', handle: 'T1', dx: 0, dy: 0 },
+          { kind: 'copy_item', handle: 'T1', dx: 0, dy: 0, toLayer: null },
           expect.objectContaining({ kind: 'mirror_item', handle: 'T1' }),
         ]);
       });

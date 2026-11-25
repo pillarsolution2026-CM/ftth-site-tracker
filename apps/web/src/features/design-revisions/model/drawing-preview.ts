@@ -3,6 +3,8 @@ import type {
   DrawingCorrectionInput,
   DrawingLinetype,
   DrawingNoteKind,
+  DrawingShapeKind,
+  HatchPattern,
 } from '@ftth/shared';
 import {
   compose,
@@ -57,6 +59,24 @@ export interface PreviewNote {
   layerName: string;
 }
 
+/** A hatch, gradient, wipeout, donut, XLINE or RAY drawn on the page (add_shape): screen only. */
+export interface PreviewShape {
+  shape: DrawingShapeKind;
+  points: readonly (readonly [number, number])[];
+  pattern: HatchPattern | null;
+  scale: number;
+  angle: number;
+  /** Its own colour, null = the layer's. */
+  color: string | null;
+  color2: string | null;
+  inner: number | null;
+  outer: number | null;
+  layer: number;
+  /** The layer's colour (`color` null). */
+  layerColor: string;
+  layerName: string;
+}
+
 /** How an entity is drawn (set_style, ADR-051); null = by layer. Screen only. */
 export interface PreviewStyle {
   color: string | null;
@@ -83,8 +103,8 @@ export interface DrawingPreview {
   transformOf: ReadonlyMap<number, Affine>;
   /** Entities erased (erase_item, delete_layer; ADR-050): not drawn, not picked. */
   erased: ReadonlySet<number>;
-  /** Copies of entities (copy_item; ADR-050), drawn with their own transform. */
-  copies: readonly { index: number; transform: Affine }[];
+  /** Copies of entities (copy_item; ADR-050), drawn with their own transform (and layer). */
+  copies: readonly { index: number; transform: Affine; layer?: number }[];
   /** Lines and polylines drawn on the page (add_curve; ADR-050). */
   extraCurves: readonly PreviewCurve[];
   /** Layer added or renamed on the page → the view layer whose colour it takes (ADR-050). */
@@ -98,6 +118,14 @@ export interface DrawingPreview {
   notes: readonly PreviewNote[];
   /** Entity → its latest style (set_style; ADR-051). */
   styleOf: ReadonlyMap<number, PreviewStyle>;
+  /** Shapes drawn on the page (add_shape; owner 2026-11-24). */
+  shapes: readonly PreviewShape[];
+  /** Entity → its draw order (set_order): drawn lowest first, 0 when unset. */
+  orderOf: ReadonlyMap<number, number>;
+  /** Groups and page blocks by name (set_group; owner 2026-11-24): their members' handles. */
+  groups: ReadonlyMap<string, { handles: readonly string[]; block: boolean }>;
+  /** Insert → its attribute values changed (set_attribute): old value → new value. */
+  attrOf: ReadonlyMap<number, ReadonlyMap<string, string>>;
 }
 
 export const EMPTY_PREVIEW: DrawingPreview = {
@@ -114,6 +142,10 @@ export const EMPTY_PREVIEW: DrawingPreview = {
   curveOf: new Map(),
   notes: [],
   styleOf: new Map(),
+  shapes: [],
+  orderOf: new Map(),
+  groups: new Map(),
+  attrOf: new Map(),
 };
 
 /** Text height of an added label that has none: 0.25 m, or 2.5 drawing units without a scale. */
@@ -175,6 +207,10 @@ export function applyInputs(
   const curveOf = new Map(base.curveOf);
   let notes = [...base.notes];
   const styleOf = new Map(base.styleOf);
+  let shapes = [...base.shapes];
+  const orderOf = new Map(base.orderOf);
+  const groups = new Map(base.groups);
+  const attrOf = new Map(base.attrOf);
   const layers = scene.view.layers;
   const layerIndex = (name: string) =>
     scene.layerByName.get(name) ?? scene.layerByName.get(aliases.get(name) ?? '') ?? -1;
@@ -243,11 +279,46 @@ export function applyInputs(
         break;
       case 'copy_item': {
         const shift = translation(correction.dx, correction.dy);
+        const layer = correction.toLayer === null ? undefined : layerIndex(correction.toLayer);
         for (const index of indexes(correction.handle)) {
-          copies.push({ index, transform: compose(transformOf.get(index) ?? IDENTITY, shift) });
+          copies.push({
+            index,
+            transform: compose(transformOf.get(index) ?? IDENTITY, shift),
+            ...(layer === undefined ? {} : { layer }),
+          });
         }
         break;
       }
+      case 'merge_layer': {
+        // Every item of `from` goes to `to`; the target keeps its own colour and rule.
+        const target = layerIndex(correction.to);
+        for (const index of onLayer(correction.from)) layerOf.set(index, target);
+        const move = <T extends { layerName: string; layer: number }>(item: T): T =>
+          item.layerName === correction.from
+            ? { ...item, layerName: correction.to, layer: target }
+            : item;
+        extraTexts = extraTexts.map(move);
+        extraItems = extraItems.map(move);
+        extraCurves = extraCurves.map(move);
+        notes = notes.map(move);
+        shapes = shapes.map(move);
+        break;
+      }
+      case 'set_group':
+        if (correction.handles.length === 0) groups.delete(correction.name);
+        else {
+          groups.set(correction.name, { handles: correction.handles, block: correction.block });
+        }
+        break;
+      case 'set_attribute':
+        for (const index of indexes(correction.handle)) {
+          const changed = new Map(attrOf.get(index));
+          // A value changed again keeps pointing at the file's value.
+          const original = [...changed].find(([, to]) => to === correction.from)?.[0];
+          changed.set(original ?? correction.from, correction.to);
+          attrOf.set(index, changed);
+        }
+        break;
       case 'add_curve': {
         const layer = layerIndex(correction.layer);
         extraCurves.push({
@@ -279,6 +350,7 @@ export function applyInputs(
         extraItems = extraItems.map(rename);
         extraCurves = extraCurves.map(rename);
         notes = notes.map(rename);
+        shapes = shapes.map(rename);
         break;
       }
       case 'delete_layer': {
@@ -288,6 +360,7 @@ export function applyInputs(
         extraItems = extraItems.filter(keep);
         extraCurves = extraCurves.filter(keep);
         notes = notes.filter(keep);
+        shapes = shapes.filter(keep);
         break;
       }
       case 'set_curve':
@@ -318,6 +391,27 @@ export function applyInputs(
           });
         }
         break;
+      case 'add_shape': {
+        const layer = layerIndex(correction.layer);
+        shapes.push({
+          shape: correction.shape,
+          points: correction.points,
+          pattern: correction.pattern,
+          scale: correction.scale,
+          angle: correction.angle,
+          color: correction.color,
+          color2: correction.color2,
+          inner: correction.inner,
+          outer: correction.outer,
+          layer,
+          layerColor: colorOf(layer),
+          layerName: correction.layer,
+        });
+        break;
+      }
+      case 'set_order':
+        for (const index of indexes(correction.handle)) orderOf.set(index, correction.order);
+        break;
       case 'dismiss_problem':
         break; // changes nothing on the drawing (ADR-046)
     }
@@ -336,6 +430,10 @@ export function applyInputs(
     curveOf,
     notes,
     styleOf,
+    shapes,
+    orderOf,
+    groups,
+    attrOf,
   };
 }
 
