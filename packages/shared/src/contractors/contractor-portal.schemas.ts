@@ -107,8 +107,11 @@ export const PortalWorkSchema = z.object({
   key: z.string(),
   registrationId: z.uuid(),
   contractorLineId: z.uuid(),
-  /** The drawn element: its type and code (code null when the drawing gives none). */
-  element: z.object({ featureType: FeatureTypeSchema, code: z.string().nullable() }),
+  /**
+   * The drawn element: its type and code (code null when the drawing gives none). Null on a
+   * «التخطيط» update recorded on the drawing itself (ADR-056).
+   */
+  element: z.object({ featureType: FeatureTypeSchema, code: z.string().nullable() }).nullable(),
   /** Day recorded on site (`capturedAt` in CONTRACTOR_PRICE_DAY_TIME_ZONE). */
   workDate: z.iso.date(),
   quantity: DecimalStringSchema,

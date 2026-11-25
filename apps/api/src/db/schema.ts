@@ -32,6 +32,7 @@ import type {
   DrawingKind,
   DrawingProblemCode,
   DrawingUnit,
+  ElementKey,
   FeatureType,
   FrozenDrawingCorrection,
   BoxShapeGallery,
@@ -1181,6 +1182,18 @@ export const contractorAccounts = pgTable(
   (table) => [index('contractor_accounts_contractor_idx').on(table.contractorId)],
 );
 
+/**
+ * Element -> main group names the supervisor sees under it (migration 0030, ADR-056). One system
+ * map, seeded by the migration; the admin replaces a row (version + 1, an event).
+ */
+export const elementGroupMap = pgTable('element_group_map', {
+  element: text('element').$type<ElementKey>().primaryKey(),
+  mains: text('mains').array().notNull(),
+  version: integer('version').notNull().default(1),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const schema = {
   users,
   refreshTokens,
@@ -1201,6 +1214,7 @@ export const schema = {
   contractorLinePrices,
   contractorImportFiles,
   contractorAccounts,
+  elementGroupMap,
   cadFiles,
   cadLayers,
   cadInserts,

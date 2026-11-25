@@ -87,7 +87,8 @@ interface WorkRow {
   line_no: number;
   registration_id: string;
   contractor_line_id: string;
-  feature_type: string;
+  /** NULL on a planning update recorded on a drawing (ADR-056): it has no element. */
+  feature_type: string | null;
   code: string | null;
   status: string;
   review_reason: string | null;
@@ -191,11 +192,15 @@ export class DrizzleContractorPortalRepository implements ContractorPortalReposi
           FROM (${workLines(contractorId)}) w
           ORDER BY w.captured_at DESC, w.update_id DESC, w.line_no DESC`,
     );
+    // ADR-056: a «التخطيط» update has no element (element null), and is listed like the others.
     return rows.map((row) => ({
       key: `${row.update_id}:${row.line_no}`,
       registrationId: row.registration_id,
       contractorLineId: row.contractor_line_id,
-      element: { featureType: FeatureTypeSchema.parse(row.feature_type), code: row.code },
+      element:
+        row.feature_type === null
+          ? null
+          : { featureType: FeatureTypeSchema.parse(row.feature_type), code: row.code },
       workDate: row.work_date,
       quantity: toDecimalText(row.quantity),
       status: UpdateStatusSchema.parse(row.status),

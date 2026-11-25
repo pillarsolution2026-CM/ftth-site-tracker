@@ -169,13 +169,19 @@ function WorkRow({
         <Ltr>{entry.workDate}</Ltr>
       </Td>
       <Td>
-        {t(`featureType.${entry.element.featureType}`)}
-        {entry.element.code ? (
+        {entry.element === null ? (
+          t('qc.planning')
+        ) : (
           <>
-            {' '}
-            <Ltr>{entry.element.code}</Ltr>
+            {t(`featureType.${entry.element.featureType}`)}
+            {entry.element.code ? (
+              <>
+                {' '}
+                <Ltr>{entry.element.code}</Ltr>
+              </>
+            ) : null}
           </>
-        ) : null}
+        )}
       </Td>
       <Td>
         {line ? (

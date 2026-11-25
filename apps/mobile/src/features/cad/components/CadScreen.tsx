@@ -35,12 +35,20 @@ interface CadScreenProps {
   onOpenPending: () => void;
   /** «ابعت نقطتي» (ADR-037); offered for cabinets, handholes, manholes, joints and boxes. */
   onProposePoint?: (featureId: string) => void;
+  /** «التخطيط» (ADR-056): an update on the open drawing itself, with no element. */
+  onPlanning?: (drawingId: string) => void;
   /** Device services of the As-Built tools; without them the mode is not offered. */
   asBuilt?: AsBuiltDeps;
 }
 
 /** Main screen of the supervisor app (plan): the drawing, crosshair, E/N, layers, day/night. */
-export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: CadScreenProps) {
+export function CadScreen({
+  onUpdate,
+  onOpenPending,
+  onProposePoint,
+  onPlanning,
+  asBuilt,
+}: CadScreenProps) {
   const { t } = useI18n();
   const theme = useTheme();
   const {
@@ -78,7 +86,7 @@ export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: 
       new Set(
         entries
           .filter((e) => e.state !== 'rejected' && e.op.kind === 'execution_update.record')
-          .map((e) => e.op.payload.featureId),
+          .flatMap((e) => (e.op.payload.featureId === null ? [] : [e.op.payload.featureId])),
       ),
     [entries],
   );
@@ -276,6 +284,14 @@ export function CadScreen({ onUpdate, onOpenPending, onProposePoint, asBuilt }: 
               disabled={!picked}
               testID="update-button"
             />
+            {onPlanning && bundle.revision?.drawingId ? (
+              <Button
+                variant="secondary"
+                label={t('field.update.groups.planning')}
+                onPress={() => bundle.revision?.drawingId && onPlanning(bundle.revision.drawingId)}
+                testID="planning-button"
+              />
+            ) : null}
             {picked && onProposePoint && canProposePoint(picked.type) ? (
               <Button
                 variant="secondary"

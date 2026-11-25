@@ -81,7 +81,7 @@ describe('migration 0026 backfill', () => {
     await db.connect();
     try {
       const files = readdirSync(MIGRATIONS_DIR)
-        .filter((f) => f.endsWith('.sql') && !f.startsWith('0026'))
+        .filter((f) => f.endsWith('.sql') && f < '0026')
         .sort();
       for (const file of files) await db.query(readFileSync(`${MIGRATIONS_DIR}${file}`, 'utf8'));
 

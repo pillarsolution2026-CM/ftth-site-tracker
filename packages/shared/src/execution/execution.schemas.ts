@@ -3,6 +3,7 @@ import { Decimal4StringSchema, DecimalStringSchema } from '../common/decimal.js'
 import { FeatureTypeSchema } from '../design/feature-types.js';
 import { WorkTypeSchema } from '../work-orders/work-order.schemas.js';
 import { EXECUTION_LIMITS } from './execution.constants.js';
+import { LineDimensionsSchema, sameQuantity, volumeOf } from './element-groups.js';
 
 /**
  * Execution updates recorded by supervisors on the mobile app (Phase 3, ADR-024).
@@ -51,6 +52,11 @@ export const UpdateLineInputSchema = z.object({
    * several work lines of the same update, once per performer (split between contractors).
    */
   performer: LinePerformerSchema.nullable().default(null),
+  /**
+   * ADR-056: length × width × depth typed by the supervisor on a digging m3 line (the catalog says
+   * which lines: `needsDimensions`). `quantity` must equal `volumeOf(dimensions)`. Null elsewhere.
+   */
+  dimensions: LineDimensionsSchema.nullable().default(null),
 });
 export type UpdateLineInput = z.infer<typeof UpdateLineInputSchema>;
 
@@ -91,7 +97,13 @@ export type ClientWarning = z.infer<typeof ClientWarningSchema>;
 
 export const RecordUpdatePayloadSchema = z
   .object({
-    featureId: z.uuid(),
+    /**
+     * The tapped element. ADR-056: null for the «التخطيط» button of a drawing, which records on
+     * the drawing itself (`drawingId`), not on an element.
+     */
+    featureId: z.uuid().nullable(),
+    /** Required when `featureId` is null: the published drawing whose «التخطيط» button was used. */
+    drawingId: z.uuid().nullable().default(null),
     /** The published revision the supervisor was looking at. */
     designRevisionId: z.uuid(),
     /** Step 1, activity: the work type of ADR-016 until Phase 2 adds activity categories. */
@@ -108,7 +120,36 @@ export const RecordUpdatePayloadSchema = z
     if (photoIds.size !== payload.photos.length) {
       ctx.addIssue({ code: 'custom', path: ['photos'], message: 'Duplicate photoId' });
     }
+    if (payload.featureId === null && payload.drawingId === null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['drawingId'],
+        message: 'An update without an element needs its drawing',
+      });
+    }
+    if (payload.featureId !== null && payload.drawingId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['drawingId'],
+        message: 'An element update carries no drawing',
+      });
+    }
     payload.lines.forEach((line, index) => {
+      if (line.dimensions !== null) {
+        if (line.role !== 'work') {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['lines', index, 'dimensions'],
+            message: 'Only a work line carries dimensions',
+          });
+        } else if (!sameQuantity(line.quantity, volumeOf(line.dimensions))) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['lines', index, 'quantity'],
+            message: 'The quantity must be length × width × depth',
+          });
+        }
+      }
       if (line.role === 'work' && line.performer === null) {
         ctx.addIssue({
           code: 'custom',
@@ -170,6 +211,8 @@ export const UpdateLineSchema = z.object({
   role: UpdateLineRoleSchema,
   /** null on material lines and on work lines recorded before ADR-052 (trial data). */
   performer: LinePerformerSchema.nullable().default(null),
+  /** ADR-056: the typed dimensions of a digging m3 line; null elsewhere. */
+  dimensions: LineDimensionsSchema.nullable().default(null),
 });
 
 export const UpdatePhotoStateSchema = z.object({
@@ -183,8 +226,11 @@ export const UpdatePhotoStateSchema = z.object({
 export const ExecutionUpdateSchema = z.object({
   id: z.uuid(),
   clientOpId: z.uuid(),
-  featureId: z.uuid(),
-  featureType: FeatureTypeSchema,
+  /** Null for a «التخطيط» update recorded on the drawing (ADR-056). */
+  featureId: z.uuid().nullable(),
+  featureType: FeatureTypeSchema.nullable(),
+  /** Set on a «التخطيط» update (ADR-056); null on an element update. */
+  drawingId: z.uuid().nullable().default(null),
   designRevisionId: z.uuid(),
   userId: z.uuid(),
   deviceId: z.uuid(),

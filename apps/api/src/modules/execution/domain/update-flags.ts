@@ -12,6 +12,12 @@ export interface FlagFacts {
   itemOverrun: boolean;
   revisionIsLatest: boolean;
   featureInLatestRevision: boolean;
+  /**
+   * ADR-056: a «التخطيط» update is recorded on a drawing, not on an element. There is no element to
+   * measure the fix against and none to be removed: no GPS flag (GPS_MISSING stays off by decision)
+   * and no FEATURE_REMOVED.
+   */
+  onDrawing?: boolean;
 }
 
 /**
@@ -24,10 +30,12 @@ export function computeUpdateFlags(facts: FlagFacts): UpdateFlag[] {
     flags.push('CLOCK_AHEAD');
   }
   if (facts.capturedAt.getTime() < facts.revisionPublishedAt.getTime()) flags.push('CLOCK_BEHIND');
-  if (facts.gpsDistanceM === null) flags.push('GPS_MISSING');
-  else if (facts.gpsDistanceM > facts.gpsWarningDistanceM) flags.push('GPS_FAR');
+  if (!facts.onDrawing) {
+    if (facts.gpsDistanceM === null) flags.push('GPS_MISSING');
+    else if (facts.gpsDistanceM > facts.gpsWarningDistanceM) flags.push('GPS_FAR');
+  }
   if (facts.itemOverrun) flags.push('ITEM_OVERRUN');
   if (!facts.revisionIsLatest) flags.push('REVISION_OUTDATED');
-  if (!facts.featureInLatestRevision) flags.push('FEATURE_REMOVED');
+  if (!facts.onDrawing && !facts.featureInLatestRevision) flags.push('FEATURE_REMOVED');
   return flags;
 }

@@ -29,7 +29,7 @@ export default function UpdateFeature() {
   return (
     <View style={{ flex: 1 }}>
       <UpdateWizardScreen
-        feature={feature}
+        target={{ kind: 'feature', feature }}
         deps={deps}
         onDone={() => router.back()}
         onCancel={() => router.back()}
