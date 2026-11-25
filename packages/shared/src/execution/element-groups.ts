@@ -86,7 +86,13 @@ export const DEFAULT_ELEMENT_GROUPS: Readonly<Record<ElementKey, readonly string
   planning: ['As Built', 'GIS', 'AS PLAN'],
 };
 
-const MainGroupNameSchema = z.string().trim().min(1).max(GROUP_NAME_MAX);
+// Security review L3: no control or bidi-override characters (they would scramble the RTL display).
+const MainGroupNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(GROUP_NAME_MAX)
+  .refine((name) => !/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u.test(name), 'Invalid character');
 
 export const ElementGroupsSchema = z.object({
   element: ElementKeySchema,

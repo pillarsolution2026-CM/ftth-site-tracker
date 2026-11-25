@@ -149,7 +149,11 @@ export interface ExecutionTx {
    */
   latestPublishedRevision(projectId: string, ofRevisionId?: string): Promise<LatestRevision | null>;
   featureInRevision(projectId: string, revisionId: string, featureId: string): Promise<boolean>;
-  findItems(projectId: string, itemIds: readonly string[]): Promise<ItemFacts[]>;
+  findItems(
+    projectId: string,
+    itemIds: readonly string[],
+    scope: ExecutionScope,
+  ): Promise<ItemFacts[]>;
   /**
    * The contractor lines of the project among `ids`, row-locked (`FOR UPDATE`) until the end of
    * the transaction so the cap check and the insert cannot race an admin quantity edit.

@@ -127,6 +127,13 @@ export const RecordUpdatePayloadSchema = z
         message: 'An update without an element needs its drawing',
       });
     }
+    if (payload.featureId !== null && payload.drawingId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['drawingId'],
+        message: 'An element update carries no drawing',
+      });
+    }
     payload.lines.forEach((line, index) => {
       if (line.dimensions !== null) {
         if (line.role !== 'work') {

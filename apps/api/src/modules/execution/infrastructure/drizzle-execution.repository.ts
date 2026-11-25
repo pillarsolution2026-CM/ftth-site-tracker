@@ -172,7 +172,19 @@ export class DrizzleExecutionTx implements ExecutionTx {
     return rows.length > 0;
   }
 
-  async findItems(projectId: string, itemIds: readonly string[]): Promise<ItemFacts[]> {
+  async findItems(
+    projectId: string,
+    itemIds: readonly string[],
+    scope: ExecutionScope,
+  ): Promise<ItemFacts[]> {
+    // ADR-056 security review M1: like the catalog (ADR-054), a supervisor records only on lines of
+    // the work orders his sites belong to; a line of another work order is ITEM_NOT_FOUND.
+    if (scope.kind === 'sites' && scope.siteIds.length === 0) return [];
+    const inScope =
+      scope.kind === 'project'
+        ? sql`true`
+        : sql`work_order_id IN (SELECT s.work_order_id FROM work_order_sites s
+                              WHERE s.project_id = ${projectId} AND s.id = ANY(${uuidArray(scope.siteIds)}))`;
     const rows = await rowsOf<{
       id: string;
       work_type: ItemFacts['workType'];
@@ -181,7 +193,7 @@ export class DrizzleExecutionTx implements ExecutionTx {
     }>(
       this.db,
       sql`SELECT id, work_type, unit, contract_item_id FROM work_order_items
-          WHERE project_id = ${projectId} AND id = ANY(${uuidArray(itemIds)})`,
+          WHERE project_id = ${projectId} AND id = ANY(${uuidArray(itemIds)}) AND ${inScope}`,
     );
     // ADR-056: the effective ADR-048 group of the contract line decides who takes dimensions.
     const groups = await new DrizzleContractItemGroups(this.db).groupsOf(

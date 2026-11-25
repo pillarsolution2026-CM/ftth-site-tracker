@@ -162,7 +162,50 @@ describe('RecordUpdatePayloadSchema (ADR-056)', () => {
   });
 });
 
+describe('RecordUpdatePayloadSchema: one target only (security review L1)', () => {
+  it('refuses an element update that also names a drawing', () => {
+    const parsed = RecordUpdatePayloadSchema.safeParse({
+      featureId: '00000000-0000-4000-8000-000000000001',
+      drawingId: '00000000-0000-4000-8000-000000000005',
+      designRevisionId: '00000000-0000-4000-8000-000000000002',
+      workType: 'civil',
+      lines: [
+        {
+          workOrderItemId: '00000000-0000-4000-8000-000000000004',
+          quantity: '1',
+          role: 'work',
+          performer: { kind: 'self' },
+        },
+      ],
+      label: null,
+      note: null,
+      gps: null,
+      photos: [
+        {
+          photoId: '00000000-0000-4000-8000-000000000003',
+          requirementKey: 'general',
+          sha256: 'a'.repeat(64),
+          sizeBytes: 10,
+          contentType: 'image/jpeg',
+          takenAt: '2026-11-25T10:00:00+02:00',
+          gps: null,
+        },
+      ],
+      acknowledgedWarnings: [],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
+
 describe('ReplaceElementGroupsRequestSchema', () => {
+  it('refuses control and bidi-override characters in a name (security review L3)', () => {
+    for (const name of ['حفر‮', 'ab', '⁦GIS']) {
+      expect(
+        ReplaceElementGroupsRequestSchema.safeParse({ mains: [name], expectedVersion: 1 }).success,
+      ).toBe(false);
+    }
+  });
+
   it('refuses a duplicate main group', () => {
     expect(
       ReplaceElementGroupsRequestSchema.safeParse({ mains: ['حفر', 'حفر'], expectedVersion: 1 })

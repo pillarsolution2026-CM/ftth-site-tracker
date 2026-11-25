@@ -196,7 +196,7 @@ export class PushSyncUseCase {
         : await this.elementTarget(tx, projectId, scope, featureId, payload.designRevisionId);
 
     const itemIds = [...new Set(payload.lines.map((line) => line.workOrderItemId))];
-    const items = await tx.findItems(projectId, itemIds);
+    const items = await tx.findItems(projectId, itemIds, scope);
     if (items.length !== itemIds.length) throw new Rejection('ITEM_NOT_FOUND');
     if (items.some((item) => item.workType !== payload.workType)) {
       throw new Rejection('ITEM_WORK_TYPE_MISMATCH');

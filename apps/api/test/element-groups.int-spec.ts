@@ -43,7 +43,14 @@ interface World {
   revisionSecondaryA: string;
   revisionB: string;
   boxA: string;
-  items: { digging: string; diggingMetres: string; planning: string; fresh: string };
+  items: {
+    digging: string;
+    diggingMetres: string;
+    planning: string;
+    fresh: string;
+    /** D-02 on the other work order (site C only). */
+    otherOrderMetres: string;
+  };
   tokens: { supervisorA: string; supervisorB: string; pm: string; admin: string };
 }
 let world: World;
@@ -60,7 +67,7 @@ async function buildWorld(): Promise<World> {
   const { pool } = ctx;
   const contract = await createApprovedContract(pool, [
     { code: 'D-01', unit: 'م3', quantity: '1000', unitPrice: '0', workType: 'civil' },
-    { code: 'D-02', unit: 'م', quantity: '1000', unitPrice: '0', workType: 'civil' },
+    { code: 'D-02', unit: 'م', quantity: '2000', unitPrice: '0', workType: 'civil' },
     { code: 'P-01', unit: 'عدد', quantity: '1000', unitPrice: '0', workType: 'planning' },
     { code: 'N-01', unit: 'عدد', quantity: '1000', unitPrice: '0', workType: 'civil' },
   ]);
@@ -94,6 +101,13 @@ async function buildWorld(): Promise<World> {
   };
   const siteA = await site(`Site A ${tag}`, 1);
   const siteB = await site(`Site B ${tag}`, 2);
+  // Another work order of the same project, with its own site: its lines are not site A's.
+  const otherOrder = await createWorkOrderFrom(pool, projectId, contract, { 'D-02': '500' });
+  await pool.query(
+    `INSERT INTO work_order_sites (id, project_id, work_order_id, name, name_key, position)
+     VALUES ($1, $2, $3, $4, $4, 1)`,
+    [randomUUID(), projectId, otherOrder.workOrderId, `Site C ${tag}`],
+  );
 
   const boxA = randomUUID();
   const revisionB = await publishRevision(
@@ -159,6 +173,7 @@ async function buildWorld(): Promise<World> {
       diggingMetres: order.itemIdsByCode['D-02'] ?? '',
       planning: order.itemIdsByCode['P-01'] ?? '',
       fresh: order.itemIdsByCode['N-01'] ?? '',
+      otherOrderMetres: otherOrder.itemIdsByCode['D-02'] ?? '',
     },
     tokens: {
       supervisorA: await member('supa', 'supervisor', [siteA]),
@@ -431,6 +446,27 @@ describe('dimensions of a digging line (ADR-056)', () => {
         ops: [boxOp([{ item: world.items.digging, quantity: '4', dimensions: DIMS }])],
       });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('lines of a work order outside the supervisor sites (ADR-056 security review M1)', () => {
+  it('answers ITEM_NOT_FOUND on an element and on a «التخطيط» update; the PM may record them', async () => {
+    const line = [{ item: world.items.otherOrderMetres, quantity: '1' }];
+    expect(await push(world.tokens.supervisorA, boxOp(line))).toMatchObject({
+      outcome: 'rejected',
+      code: 'ITEM_NOT_FOUND',
+    });
+    const planning = op({
+      featureId: null,
+      drawingId: world.drawingGeneralA,
+      revisionId: world.revisionGeneralA,
+      lines: line,
+    });
+    expect(await push(world.tokens.supervisorA, planning)).toMatchObject({
+      outcome: 'rejected',
+      code: 'ITEM_NOT_FOUND',
+    });
+    expect((await push(world.tokens.pm, boxOp(line))).outcome).toBe('applied');
   });
 });
 
