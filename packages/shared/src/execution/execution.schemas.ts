@@ -246,8 +246,11 @@ export const ExecutionUpdateSchema = z.object({
   note: z.string().nullable(),
   /** Device clock (may be wrong; see flags). */
   capturedAt: z.iso.datetime({ offset: true }),
-  /** ADR-057: the day the work was done (Africa/Cairo); the contractor price follows it. */
-  workDate: z.iso.date(),
+  /**
+   * ADR-057: the day the work was done (Africa/Cairo); the contractor price follows it. The server
+   * always sends it; null only in updates a phone stored before ADR-057.
+   */
+  workDate: z.iso.date().nullable().default(null),
   /** Server clock; the only time used for ordering. */
   receivedAt: z.iso.datetime({ offset: true }),
   gpsDistanceM: DecimalStringSchema.nullable(),

@@ -92,6 +92,10 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
   const feature = featureOf(draft);
   const [locating, setLocating] = useState(false);
   const [busy, setBusy] = useState(false);
+  // ADR-057: a typed work date that is not valid yet blocks the work step; a date change that
+  // drops contractor lines says so.
+  const [dateInvalid, setDateInvalid] = useState(false);
+  const [droppedLines, setDroppedLines] = useState(false);
 
   const locate = () => {
     setLocating(true);
@@ -278,8 +282,16 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
               <WorkDateBar
                 workDate={workDate}
                 today={today}
-                onPick={(day) => setDraft((d) => setWorkDate(d, day, today, bundle.catalog))}
+                onInvalid={setDateInvalid}
+                onPick={(day) => {
+                  const next = setWorkDate(draft, day, today, bundle.catalog);
+                  setDroppedLines(next.work.length < draft.work.length);
+                  setDraft(next);
+                }}
               />
+            ) : null}
+            {draft.step === 'work' && droppedLines ? (
+              <Notice text={t('field.update.workDate.dropped')} />
             ) : null}
             <Notice text={t('field.update.phase2Items')} />
             <Notice text={t('field.update.suggestedUnavailable')} />
@@ -440,7 +452,7 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
           <Button
             label={t('field.update.next')}
             onPress={() => setDraft((d) => goNext(d, requirements, contractorContext))}
-            disabled={problems.length > 0 || busy}
+            disabled={problems.length > 0 || busy || (draft.step === 'work' && dateInvalid)}
             testID="wizard-next"
           />
         )}
@@ -823,10 +835,12 @@ function WorkDateBar({
   workDate,
   today,
   onPick,
+  onInvalid,
 }: {
   workDate: string;
   today: string;
   onPick: (day: string) => void;
+  onInvalid: (invalid: boolean) => void;
 }) {
   const { t } = useI18n();
   const theme = useTheme();
@@ -835,12 +849,15 @@ function WorkDateBar({
   useEffect(() => {
     setText(workDate);
     setInvalid(false);
+    onInvalid(false);
   }, [workDate]);
   const typed = (value: string) => {
     setText(value);
     const valid = /^\d{4}-\d{2}-\d{2}$/.test(value) && shiftDay(value, 0) === value;
-    setInvalid(!valid || value > today);
-    if (valid && value <= today) onPick(value);
+    const bad = !valid || value > today;
+    setInvalid(bad);
+    onInvalid(bad);
+    if (!bad && value !== workDate) onPick(value);
   };
   return (
     <View style={[styles.item, { borderColor: theme.border }]} testID="work-date">

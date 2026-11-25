@@ -345,7 +345,8 @@ Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_
   - The supervisor picks «تاريخ العمل» on the work step: today or any earlier day, no limit; a later day is refused (`WORK_DATE_IN_FUTURE`, server clock, Cairo day). The contractor price follows the work date.
   - A contractor picked for a work date before his registration on the work order is refused (`CONTRACTOR_NOT_REGISTERED_ON_DATE`; the phone does not offer him on that day); «الشركة نفسها» is accepted. DB trigger backstop.
   - Existing updates keep the Cairo day of `capturedAt`; ops from older phones (no work date) too.
-  - Tests: shared work-date unit tests, API unit 722, mobile 181 pass locally; integration tests (`update-line-performer`, `contractor-portal`) run in CI only. Not tried on staging or a real phone.
+  - Security review: no High; the Medium (phone clock a few minutes fast at midnight) and the Lows on the phone fixed; open points in ADR-057 (old phones must update; year typo accepted as an earlier day).
+  - Tests: shared work-date unit tests, API unit, mobile pass locally; CI green on PR #74 before the review fixes. Not tried on staging or a real phone.
 
 ### Phase 4 — As-Built editing (rest of the phase, started 2026-11-01, owner request; ADR-029, ADR-030)
 Started with Phases 1b and 3 merged but **not approved** and Phase 2 still in progress (account `sabahyafro-sys`; PRs #20, #21). No phase is marked approved by this work. Contracts: `docs/phase-4-contracts.md`. Migration `0009_asbuilt.sql`. Built on `main` at `460b4aa`, delivered as one PR (not merged by the session).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shiftDay, workDayOf } from './work-date.js';
+import { cairoDayByRule, shiftDay, workDayOf } from './work-date.js';
 
 describe('workDayOf (ADR-057, Africa/Cairo)', () => {
   it('reads the day in Cairo, not in UTC', () => {
@@ -10,6 +10,17 @@ describe('workDayOf (ADR-057, Africa/Cairo)', () => {
 
   it('keeps 1 a.m. Cairo on the new day', () => {
     expect(workDayOf(new Date('2026-11-11T01:00:00+02:00'))).toBe('2026-11-11');
+  });
+});
+
+describe('cairoDayByRule (phones without Intl time zones)', () => {
+  it('matches Intl for every hour of 2024 to 2027, summer time included', () => {
+    const misses: string[] = [];
+    for (let t = Date.UTC(2024, 0, 1); t < Date.UTC(2028, 0, 1); t += 3_600_000) {
+      const instant = new Date(t);
+      if (cairoDayByRule(instant) !== workDayOf(instant)) misses.push(instant.toISOString());
+    }
+    expect(misses).toEqual([]);
   });
 });
 

@@ -470,14 +470,23 @@ describe('supervisor field flow', () => {
       // Today in Cairo (the clock says 30 Oct, 10:31 in Cairo); no later day.
       expect(screen.getByTestId('work-date-input').props.value).toBe('2026-10-30');
       expect(disabled('work-date-next')).toBe(true);
+      // A contractor line on today, then a day before his registration: the line goes, with a notice.
+      await press(`work-C-01-${CONTRACTOR_A}-+1`);
       await act(async () => {
         fireEvent.changeText(screen.getByTestId('work-date-input'), '2026-11-02');
       });
       expect(screen.getByTestId('work-date-invalid')).toBeTruthy();
+      // An invalid or future date blocks the step until it is fixed.
+      expect(disabled('wizard-next')).toBe(true);
+      await act(async () => {
+        fireEvent.changeText(screen.getByTestId('work-date-input'), '2026-10-3');
+      });
+      expect(disabled('wizard-next')).toBe(true);
       await act(async () => {
         fireEvent.changeText(screen.getByTestId('work-date-input'), '2026-10-20');
       });
       expect(screen.queryByTestId('work-date-invalid')).toBeNull();
+      expect(screen.getByText(t('field.update.workDate.dropped'))).toBeTruthy();
       // شركة الأمل is registered from 25 Oct: not offered on the 20th. The other one and the
       // company itself stay.
       expect(screen.queryByTestId(`work-C-01-${CONTRACTOR_A}`)).toBeNull();

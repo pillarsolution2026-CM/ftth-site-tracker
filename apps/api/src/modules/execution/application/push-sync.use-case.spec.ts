@@ -516,7 +516,7 @@ describe('PushSyncUseCase work date (ADR-057)', () => {
   // 2026-11-11 00:30 in Cairo is still 2026-11-10 in UTC: "today" must be read in Cairo.
   const NOW = new Date('2026-11-10T22:30:00Z');
 
-  function setup(registeredOn = '2026-11-05') {
+  function setup(registeredOn = '2026-11-05', now = NOW) {
     const inserted: NewUpdate[] = [];
     const events: { payload: Record<string, unknown> }[] = [];
     const tx = {
@@ -565,7 +565,7 @@ describe('PushSyncUseCase work date (ADR-057)', () => {
     const useCase = new PushSyncUseCase(
       { run: (work) => work(tx) },
       new Phase2UnavailableCapabilities(),
-      { now: () => NOW },
+      { now: () => now },
       { next: () => id(9) },
     );
     const push = (
@@ -610,6 +610,18 @@ describe('PushSyncUseCase work date (ADR-057)', () => {
     const [result] = await tomorrow.push('2026-11-12');
     expect(result).toMatchObject({ outcome: 'rejected', code: 'WORK_DATE_IN_FUTURE' });
     expect(tomorrow.inserted).toHaveLength(0);
+  });
+
+  it('accepts the next day from a phone a few minutes fast at midnight (clock tolerance)', async () => {
+    // 23:56 on the 11th in Cairo: a phone 4 minutes fast already says the 12th.
+    const late = setup('2026-11-05', new Date('2026-11-11T21:56:00Z'));
+    expect((await late.push('2026-11-12'))[0]?.outcome).toBe('applied');
+    // 23:50: more than the 5-minute tolerance before midnight, so the 12th is still the future.
+    const early = setup('2026-11-05', new Date('2026-11-11T21:50:00Z'));
+    expect((await early.push('2026-11-12'))[0]).toMatchObject({
+      outcome: 'rejected',
+      code: 'WORK_DATE_IN_FUTURE',
+    });
   });
 
   it('keeps the Cairo day of capturedAt for an op from a phone built before ADR-057', async () => {

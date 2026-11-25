@@ -2456,7 +2456,8 @@
         "previous": "Jour précédent",
         "next": "Jour suivant",
         "today": "Aujourd'hui",
-        "invalid": "Saisissez une date valide comme 2026-11-10, aujourd'hui ou avant"
+        "invalid": "Saisissez une date valide comme 2026-11-10, aujourd'hui ou avant",
+        "dropped": "Les quantités des sous-traitants non inscrits à cette date ont été retirées"
       }
     },
     "warnings": {

@@ -12,6 +12,7 @@ import {
   type RecordUpdateOp,
   type SyncOp,
   workDayOf,
+  CLOCK_SKEW_TOLERANCE_MS,
 } from '@ftth/shared';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
@@ -191,10 +192,12 @@ export class PushSyncUseCase {
     const { projectId } = input;
     const { payload } = op;
 
-    // ADR-057: the day the work was done (Africa/Cairo). Today or earlier, by the server's clock;
-    // an op from a phone built before ADR-057 carries none and keeps the day it was saved on.
+    // ADR-057: the day the work was done (Africa/Cairo). Today or earlier, by the server's clock
+    // with the usual clock tolerance (a phone a few minutes fast at midnight is not refused for
+    // good); an op from a phone built before ADR-057 carries none and keeps the day it was saved on.
     const workDate = payload.workDate ?? workDayOf(new Date(op.capturedAt));
-    if (payload.workDate !== null && payload.workDate > workDayOf(this.clock.now())) {
+    const latestDay = workDayOf(new Date(this.clock.now().getTime() + CLOCK_SKEW_TOLERANCE_MS));
+    if (payload.workDate !== null && payload.workDate > latestDay) {
       throw new Rejection('WORK_DATE_IN_FUTURE');
     }
 
