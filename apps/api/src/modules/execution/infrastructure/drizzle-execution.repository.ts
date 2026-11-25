@@ -3,6 +3,7 @@ import { toDecimalTextOrNull } from '../../../common/decimal-text.js';
 import type { ApprovedVersions } from '../../asbuilt/domain/review.js';
 import { lockProjectForSync } from '../../../common/project-sync-lock.js';
 import { sql, type SQL } from 'drizzle-orm';
+import { DrizzleContractItemGroups } from '../../work-orders/infrastructure/drizzle-contract-item-groups.js';
 import type { Database, DbHandle } from '../../../db/db.module.js';
 import { DrizzleEventLog } from '../../../db/drizzle-event-log.js';
 import { rowsOf, uuidArray } from '../../../db/sql.js';
@@ -18,6 +19,7 @@ import type {
   NewAsBuiltEdit,
   NewGpsProposal,
   NewUpdate,
+  PlanningDrawing,
   ProposalTarget,
   StoredOperation,
 } from '../application/ports.js';
@@ -171,12 +173,26 @@ export class DrizzleExecutionTx implements ExecutionTx {
   }
 
   async findItems(projectId: string, itemIds: readonly string[]): Promise<ItemFacts[]> {
-    const rows = await rowsOf<{ id: string; work_type: ItemFacts['workType'] }>(
+    const rows = await rowsOf<{
+      id: string;
+      work_type: ItemFacts['workType'];
+      unit: string;
+      contract_item_id: string | null;
+    }>(
       this.db,
-      sql`SELECT id, work_type FROM work_order_items
+      sql`SELECT id, work_type, unit, contract_item_id FROM work_order_items
           WHERE project_id = ${projectId} AND id = ANY(${uuidArray(itemIds)})`,
     );
-    return rows.map((row) => ({ id: row.id, workType: row.work_type }));
+    // ADR-056: the effective ADR-048 group of the contract line decides who takes dimensions.
+    const groups = await new DrizzleContractItemGroups(this.db).groupsOf(
+      rows.flatMap((row) => (row.contract_item_id === null ? [] : [row.contract_item_id])),
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      workType: row.work_type,
+      unit: row.unit,
+      group: row.contract_item_id === null ? null : (groups.get(row.contract_item_id) ?? null),
+    }));
   }
 
   async lockContractorLines(
@@ -262,40 +278,88 @@ export class DrizzleExecutionTx implements ExecutionTx {
     return rows.length > 0;
   }
 
+  async planningDrawing(projectId: string, drawingId: string): Promise<PlanningDrawing | null> {
+    const [row] = await rowsOf<{ id: string; site_id: string | null }>(
+      this.db,
+      sql`SELECT d.id, d.site_id FROM site_drawings d
+          WHERE d.project_id = ${projectId} AND d.id = ${drawingId}
+            AND EXISTS (SELECT 1 FROM design_revisions r
+                        WHERE r.project_id = d.project_id AND r.drawing_id = d.id
+                          AND r.status = 'published')`,
+    );
+    return row ? { drawingId: row.id, siteId: row.site_id } : null;
+  }
+
+  async publishedRevisionOfDrawing(
+    projectId: string,
+    drawingId: string,
+    revisionId: string,
+  ): Promise<{ publishedAt: Date; crsEpsg: number } | null> {
+    const [row] = await rowsOf<{ published_at: Date; crs_epsg: number }>(
+      this.db,
+      sql`SELECT published_at, crs_epsg FROM design_revisions
+          WHERE project_id = ${projectId} AND id = ${revisionId} AND drawing_id = ${drawingId}
+            AND status = 'published'`,
+    );
+    return row ? { publishedAt: new Date(row.published_at), crsEpsg: row.crs_epsg } : null;
+  }
+
   async insertUpdate(update: NewUpdate): Promise<void> {
     const gps = update.gps;
     const gpsPoint = gps
       ? sql`ST_SetSRID(ST_MakePoint(${gps.lon}, ${gps.lat}), 4326)`
       : sql`NULL::geometry`;
-    await this.db.execute(sql`
-      INSERT INTO execution_updates (
-        id, project_id, client_op_id, feature_id, feature_type, design_revision_id, work_type,
-        user_id, device_id, captured_at, received_at, label, note,
-        gps_wgs84, gps_accuracy_m, gps_at, gps_geom, gps_distance_m,
-        flags, acknowledged_warnings)
-      SELECT ${update.id}, ${update.projectId}, ${update.clientOpId}, ${update.featureId},
-             ${update.featureType}, ${update.designRevisionId}, ${update.workType},
-             ${update.userId}, ${update.deviceId}, ${update.capturedAt.toISOString()},
-             ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
-             ${gpsPoint}, ${gps?.accuracyM ?? null}, ${gps ? gps.at.toISOString() : null},
-             CASE WHEN ${gps !== null} THEN ST_Transform(${gpsPoint}, ST_SRID(df.geom)) END,
-             CASE WHEN ${gps !== null}
-               THEN round(ST_Distance(ST_Transform(${gpsPoint}, ST_SRID(df.geom)), df.geom)::numeric, 3)
-             END,
-             ${enumArray(update.flags)},
-             ${enumArray(update.acknowledgedWarnings)}
-      FROM design_features df
-      WHERE df.project_id = ${update.projectId} AND df.revision_id = ${update.designRevisionId}
-        AND df.feature_id = ${update.featureId}`);
+    if (update.featureId === null) {
+      // ADR-056: a planning update. The fix is kept in the project CRS of the revision, with no
+      // distance (there is no element to measure it against).
+      await this.db.execute(sql`
+        INSERT INTO execution_updates (
+          id, project_id, client_op_id, feature_id, feature_type, drawing_id, design_revision_id,
+          work_type, user_id, device_id, captured_at, received_at, label, note,
+          gps_wgs84, gps_accuracy_m, gps_at, gps_geom, flags, acknowledged_warnings)
+        SELECT ${update.id}, ${update.projectId}, ${update.clientOpId}, NULL, NULL,
+               ${update.drawingId}::uuid, ${update.designRevisionId}, ${update.workType},
+               ${update.userId}, ${update.deviceId}, ${update.capturedAt.toISOString()},
+               ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
+               ${gpsPoint}, ${gps?.accuracyM ?? null}, ${gps ? gps.at.toISOString() : null},
+               CASE WHEN ${gps !== null} THEN ST_Transform(${gpsPoint}, r.crs_epsg) END,
+               ${enumArray(update.flags)}, ${enumArray(update.acknowledgedWarnings)}
+        FROM design_revisions r
+        WHERE r.project_id = ${update.projectId} AND r.id = ${update.designRevisionId}`);
+    } else {
+      await this.db.execute(sql`
+        INSERT INTO execution_updates (
+          id, project_id, client_op_id, feature_id, feature_type, design_revision_id, work_type,
+          user_id, device_id, captured_at, received_at, label, note,
+          gps_wgs84, gps_accuracy_m, gps_at, gps_geom, gps_distance_m,
+          flags, acknowledged_warnings)
+        SELECT ${update.id}, ${update.projectId}, ${update.clientOpId}, ${update.featureId},
+               ${update.featureType}, ${update.designRevisionId}, ${update.workType},
+               ${update.userId}, ${update.deviceId}, ${update.capturedAt.toISOString()},
+               ${update.receivedAt.toISOString()}, ${update.label}, ${update.note},
+               ${gpsPoint}, ${gps?.accuracyM ?? null}, ${gps ? gps.at.toISOString() : null},
+               CASE WHEN ${gps !== null} THEN ST_Transform(${gpsPoint}, ST_SRID(df.geom)) END,
+               CASE WHEN ${gps !== null}
+                 THEN round(ST_Distance(ST_Transform(${gpsPoint}, ST_SRID(df.geom)), df.geom)::numeric, 3)
+               END,
+               ${enumArray(update.flags)},
+               ${enumArray(update.acknowledgedWarnings)}
+        FROM design_features df
+        WHERE df.project_id = ${update.projectId} AND df.revision_id = ${update.designRevisionId}
+          AND df.feature_id = ${update.featureId}`);
+    }
     for (const [index, line] of update.lines.entries()) {
       await this.db.execute(sql`
         INSERT INTO execution_update_lines
           (update_id, project_id, line_no, role, work_order_item_id, quantity,
-           performer, contractor_line_id)
+           performer, contractor_line_id, length_m, width_m, depth_m)
         VALUES (${update.id}, ${update.projectId}, ${index + 1}, ${line.role},
                 ${line.workOrderItemId}, ${line.quantity}::numeric,
                 ${line.performer?.kind ?? null},
-                ${line.performer?.kind === 'contractor' ? line.performer.contractorLineId : null})`);
+                ${line.performer?.kind === 'contractor' ? line.performer.contractorLineId : null},
+                ${line.dimensions?.lengthM ?? null}::numeric,
+                ${line.dimensions?.widthM ?? null}::numeric,
+                ${line.dimensions?.depthM ?? null}::numeric)`);
     }
     for (const photo of update.photos) {
       await this.db.execute(sql`

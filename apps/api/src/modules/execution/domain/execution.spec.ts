@@ -27,6 +27,37 @@ describe('canonicalJson / operationHash', () => {
     );
   });
 
+  it('hashes a payload without dimensions and drawing as before ADR-056 (old resend stays a duplicate)', () => {
+    const line = { workOrderItemId: 'i', quantity: '1', role: 'work', performer: { kind: 'self' } };
+    const before = operationHash({
+      kind: 'k',
+      capturedAt: 't',
+      payload: { featureId: 'f', lines: [line] },
+    });
+    const now = operationHash({
+      kind: 'k',
+      capturedAt: 't',
+      payload: { featureId: 'f', drawingId: null, lines: [{ ...line, dimensions: null }] },
+    });
+    expect(now).toBe(before);
+  });
+
+  it('hashes different dimensions or a different drawing differently (OP_ID_REUSED on resend)', () => {
+    const dims = { lengthM: '10', widthM: '0.35', depthM: '0.9' };
+    const line = { workOrderItemId: 'i', quantity: '3.15', role: 'work', performer: null };
+    const hash = (lineDims: unknown, drawingId: unknown) =>
+      operationHash({
+        kind: 'k',
+        capturedAt: 't',
+        payload: { featureId: null, drawingId, lines: [{ ...line, dimensions: lineDims }] },
+      });
+    const base = hash(dims, 'd1');
+    expect(hash({ ...dims, depthM: '0.91' }, 'd1')).not.toBe(base);
+    expect(hash(null, 'd1')).not.toBe(base);
+    expect(hash(dims, 'd2')).not.toBe(base);
+    expect(hash(dims, 'd1')).toBe(base);
+  });
+
   it('ignores key order and undefined fields', () => {
     expect(canonicalJson({ b: 1, a: [{ e: null, c: undefined, d: 2 }] })).toBe(
       '{"a":[{"d":2,"e":null}],"b":1}',
@@ -74,6 +105,15 @@ describe('computeUpdateFlags', () => {
     expect(computeUpdateFlags({ ...base, gpsDistanceM: 50 })).toEqual([]);
     expect(computeUpdateFlags({ ...base, gpsDistanceM: 50.001 })).toEqual(['GPS_FAR']);
     expect(computeUpdateFlags({ ...base, gpsDistanceM: null })).toEqual(['GPS_MISSING']);
+  });
+
+  it('a planning update on a drawing has no GPS flags and no removed feature (ADR-056)', () => {
+    const planning = { ...base, onDrawing: true, featureInLatestRevision: false };
+    expect(computeUpdateFlags({ ...planning, gpsDistanceM: null })).toEqual([]);
+    expect(computeUpdateFlags({ ...planning, gpsDistanceM: 500 })).toEqual([]);
+    expect(computeUpdateFlags({ ...planning, itemOverrun: true, revisionIsLatest: false })).toEqual(
+      ['ITEM_OVERRUN', 'REVISION_OUTDATED'],
+    );
   });
 
   it('flags overrun, outdated revision and removed feature', () => {

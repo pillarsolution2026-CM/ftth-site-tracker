@@ -152,7 +152,8 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
           record._setRaw('seq', seq);
           record._setRaw('project_id', this.projectId);
           record._setRaw('user_id', this.userId);
-          record._setRaw('feature_id', valid.payload.featureId);
+          // A «التخطيط» update (ADR-056) has no element: the column keeps the empty string.
+          record._setRaw('feature_id', valid.payload.featureId ?? '');
           record._setRaw('op_json', sealedOp);
           record._setRaw('state', 'pending');
           record._setRaw('attempts', 0);
@@ -375,7 +376,7 @@ export class WatermelonSyncStore implements SyncStore, PhotoSource {
             r._setRaw('client_op_id', update.clientOpId);
             r._setRaw('project_id', this.projectId);
             r._setRaw('user_id', this.userId);
-            r._setRaw('feature_id', update.featureId);
+            r._setRaw('feature_id', update.featureId ?? '');
             r._setRaw('status', update.status);
             r._setRaw('json', json);
           });

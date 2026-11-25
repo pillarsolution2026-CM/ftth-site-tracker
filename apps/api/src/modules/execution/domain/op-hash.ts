@@ -13,19 +13,27 @@ export function canonicalJson(value: unknown): string {
 }
 
 /**
- * A line without a performer hashes as before ADR-052, when the field did not exist: an op
- * applied then and resent now (its lines parsed with `performer: null`) is still a duplicate.
+ * Fields added after the first ops were stored hash only when they carry a value: a line without a
+ * performer hashes as before ADR-052, a line without dimensions and a payload without `drawingId`
+ * as before ADR-056. An op applied then and resent now (parsed with those fields as `null`) is
+ * still a duplicate; an op resent with different dimensions or drawing hashes differently
+ * (OP_ID_REUSED).
  */
-function withoutNullPerformers(payload: unknown): unknown {
+function withoutNullNewFields(payload: unknown): unknown {
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
-  const record = payload as Record<string, unknown>;
-  if (!Array.isArray(record.lines)) return payload;
+  const { drawingId, ...record } = payload as Record<string, unknown>;
+  const base = drawingId === null ? record : { ...record, drawingId };
+  if (!Array.isArray(base.lines)) return base;
   return {
-    ...record,
-    lines: record.lines.map((line: unknown) => {
+    ...base,
+    lines: base.lines.map((line: unknown) => {
       if (line === null || typeof line !== 'object') return line;
-      const { performer, ...rest } = line as Record<string, unknown>;
-      return performer === null ? rest : line;
+      const { performer, dimensions, ...rest } = line as Record<string, unknown>;
+      return {
+        ...rest,
+        ...(performer === null ? {} : { performer }),
+        ...(dimensions === null ? {} : { dimensions }),
+      };
     }),
   };
 }
@@ -37,7 +45,7 @@ export function operationHash(op: { kind: string; capturedAt: string; payload: u
       canonicalJson({
         kind: op.kind,
         capturedAt: op.capturedAt,
-        payload: withoutNullPerformers(op.payload),
+        payload: withoutNullNewFields(op.payload),
       }),
     )
     .digest('hex');

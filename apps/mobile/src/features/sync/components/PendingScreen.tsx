@@ -32,7 +32,8 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
     void (async () => {
       const byOp = new Map<string, ExecutionUpdate>();
       const updateRows = rows.flatMap((row) => (row.type === 'update' ? [row] : []));
-      for (const featureId of new Set(updateRows.map((row) => row.op.payload.featureId))) {
+      // A «التخطيط» update has no element: it is stored under the empty id.
+      for (const featureId of new Set(updateRows.map((row) => row.op.payload.featureId ?? ''))) {
         for (const update of await store.remoteUpdatesFor(featureId))
           byOp.set(update.clientOpId, update);
       }
@@ -43,8 +44,10 @@ export function PendingScreen({ onBack }: { onBack: () => void }) {
     };
   }, [rows, store]);
 
-  const codeOf = (featureId: string) =>
-    bundle?.features.find((f) => f.id === featureId)?.code ?? '';
+  const codeOf = (featureId: string | null) =>
+    featureId === null
+      ? t('field.update.groups.planning')
+      : (bundle?.features.find((f) => f.id === featureId)?.code ?? '');
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>

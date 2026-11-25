@@ -64,6 +64,7 @@ function bundleOf(d: OfflineDrawing, all: OfflineDrawing[] = ALL): OfflineBundle
     features: [],
     asBuilt: [],
     catalog: [],
+    elementGroups: [],
     settings: {
       gpsWarningDistanceM: 50,
       suggestedQuantity: 'unavailable',

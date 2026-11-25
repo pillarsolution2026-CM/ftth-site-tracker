@@ -9,6 +9,21 @@ import {
   computeWarnings,
   contractorLeft,
   contractorOverruns,
+  currentDrawingKind,
+  dimensionsOf,
+  elementOfDraft,
+  enteredQuantity,
+  featureOf,
+  groupBack,
+  groupedLinesFor,
+  groupView,
+  openMain,
+  openSub,
+  parseDimensions,
+  ROOT_PATH,
+  setWorkDimensions,
+  startPlanningDraft,
+  usesGroups,
   goBack,
   goNext,
   itemsForActivity,
@@ -53,6 +68,8 @@ const item = (
   workType,
   recordedQuantity: recorded,
   contractors: [],
+  group: null,
+  needsDimensions: false,
 });
 const contractorLine = (n: number, quantity: string, recordedQuantity = '0') => ({
   contractorLineId: id(300 + n),
@@ -166,9 +183,21 @@ describe('update wizard', () => {
       [],
     );
     expect(op.payload.lines).toEqual([
-      { workOrderItemId: id(101), quantity: '2', role: 'work', performer: via(1) },
-      { workOrderItemId: id(101), quantity: '3', role: 'work', performer: SELF },
-      { workOrderItemId: id(102), quantity: '4', role: 'material', performer: null },
+      {
+        workOrderItemId: id(101),
+        quantity: '2',
+        role: 'work',
+        performer: via(1),
+        dimensions: null,
+      },
+      { workOrderItemId: id(101), quantity: '3', role: 'work', performer: SELF, dimensions: null },
+      {
+        workOrderItemId: id(102),
+        quantity: '4',
+        role: 'material',
+        performer: null,
+        dimensions: null,
+      },
     ]);
   });
 
@@ -241,12 +270,31 @@ describe('update wizard', () => {
           capturedAt,
           payload: {
             featureId: id(1),
+            drawingId: null,
             designRevisionId: id(2),
             workType: 'civil',
             lines: [
-              { workOrderItemId: id(101), quantity, role: 'work', performer: via(1) },
-              { workOrderItemId: id(101), quantity: '1', role: 'work', performer: SELF },
-              { workOrderItemId: id(102), quantity: '1', role: 'material', performer: null },
+              {
+                workOrderItemId: id(101),
+                quantity,
+                role: 'work',
+                performer: via(1),
+                dimensions: null,
+              },
+              {
+                workOrderItemId: id(101),
+                quantity: '1',
+                role: 'work',
+                performer: SELF,
+                dimensions: null,
+              },
+              {
+                workOrderItemId: id(102),
+                quantity: '1',
+                role: 'material',
+                performer: null,
+                dimensions: null,
+              },
             ],
             label: null,
             note: null,
@@ -338,8 +386,14 @@ describe('update wizard', () => {
       warnings,
     );
     expect(op.payload.lines).toEqual([
-      { workOrderItemId: id(101), quantity: '1', role: 'work', performer: SELF },
-      { workOrderItemId: id(102), quantity: '10', role: 'material', performer: null },
+      { workOrderItemId: id(101), quantity: '1', role: 'work', performer: SELF, dimensions: null },
+      {
+        workOrderItemId: id(102),
+        quantity: '10',
+        role: 'material',
+        performer: null,
+        dimensions: null,
+      },
     ]);
     expect(op.payload.note).toBe('حفر يدوي');
     expect(op.payload.label).toBeNull();
@@ -351,5 +405,171 @@ describe('update wizard', () => {
         [],
       ),
     ).toThrow('No activity chosen');
+  });
+});
+
+describe('groups, dimensions and «التخطيط» (ADR-056)', () => {
+  const grouped = (
+    n: number,
+    main: string,
+    sub: string | null,
+    extra: Partial<CatalogItem> = {},
+  ): CatalogItem => ({
+    ...item(n, 'civil', '100'),
+    group: { main, sub },
+    ...extra,
+  });
+  const lines = [
+    grouped(1, 'حفر', 'يدوي', { unit: 'م3', needsDimensions: true }),
+    grouped(2, 'حفر', null),
+    grouped(3, 'حفر', 'آلي'),
+    grouped(4, 'مواسير', 'قطر 110'),
+    grouped(5, 'ODF', null),
+  ];
+  const map = [
+    { element: 'route_secondary' as const, mains: ['حفر', 'مواسير', 'غير موجود'] },
+    { element: 'planning' as const, mains: ['As Built'] },
+  ];
+  const groups = groupedLinesFor({ elementGroups: map }, 'route_secondary', lines);
+
+  it('keeps the flat list when the server sends no map', () => {
+    expect(usesGroups({ elementGroups: [] })).toBe(false);
+    expect(usesGroups({ elementGroups: map })).toBe(true);
+  });
+
+  it('shows only the main groups of the element that have lines, in map order', () => {
+    const view = groupView(groups, ROOT_PATH);
+    expect(view.level).toBe('main');
+    expect(view.level === 'main' && view.mains.map((m) => [m.name, m.lines.length])).toEqual([
+      ['حفر', 3],
+      ['مواسير', 1],
+    ]);
+  });
+
+  it('goes main, sub, lines with lines without a sub group shown directly, and back', () => {
+    let path = openMain('حفر');
+    const sub = groupView(groups, path);
+    expect(sub.level === 'sub' && sub.subs.map((s) => s.name)).toEqual(['يدوي', 'آلي']);
+    expect(sub.level === 'sub' && sub.direct.map((l) => l.code)).toEqual(['C-2']);
+    path = openSub(path, 'يدوي');
+    const lineView = groupView(groups, path);
+    expect(lineView.level === 'lines' && lineView.lines.map((l) => l.code)).toEqual(['C-1']);
+    path = groupBack(path);
+    expect(path).toEqual({ main: 'حفر', sub: null });
+    expect(groupBack(path)).toEqual(ROOT_PATH);
+    expect(groupBack(ROOT_PATH)).toEqual(ROOT_PATH);
+  });
+
+  it('takes the element from the tapped feature and the kind of the open drawing', () => {
+    const drawing = (kind: 'general' | 'secondary') => ({
+      drawings: [{ drawingId: id(800), kind }] as OfflineBundle['drawings'],
+      revision: { drawingId: id(800) } as OfflineBundle['revision'],
+    });
+    const route = { ...box, type: 'route' as const };
+    const draft = startDraft(route);
+    expect(elementOfDraft(draft, currentDrawingKind(drawing('secondary')))).toBe('route_secondary');
+    expect(elementOfDraft(draft, currentDrawingKind(drawing('general')))).toBe('route_general');
+    // unknown drawing: General
+    expect(currentDrawingKind({ drawings: [], revision: null })).toBe('general');
+    expect(elementOfDraft(startDraft(box), 'general')).toBe('box');
+    expect(elementOfDraft(startPlanningDraft(id(800)), 'secondary')).toBe('planning');
+  });
+
+  describe('dimensions', () => {
+    const dig = id(101);
+    const dims = { lengthM: '10', widthM: '0.35', depthM: '0.9' };
+    const base = chooseWorkType(startDraft(box), 'civil');
+
+    it('computes the quantity as L x W x D and carries the dimensions on the line', () => {
+      const draft = setWorkDimensions(base, dig, SELF, dims);
+      expect(workQuantity(draft, dig, SELF)).toBe('3.15');
+      expect(dimensionsOf(draft, dig, SELF)).toEqual(dims);
+      const op = buildRecordOp(
+        { ...draft, photos: [photo], step: 'review' },
+        { clientOpId: id(900), capturedAt: '2026-10-30T10:00:00Z', designRevisionId: id(901) },
+        [],
+      );
+      expect(op.payload.lines).toEqual([
+        { workOrderItemId: dig, quantity: '3.15', role: 'work', performer: SELF, dimensions: dims },
+      ]);
+    });
+
+    it('replaces the dimensions of the same line and performer, and keeps other performers', () => {
+      let draft = setWorkDimensions(base, dig, SELF, dims);
+      draft = setWorkDimensions(draft, dig, via(1), { ...dims, depthM: '1' });
+      draft = setWorkDimensions(draft, dig, SELF, { lengthM: '2', widthM: '2', depthM: '2' });
+      expect(draft.work).toHaveLength(2);
+      expect(workQuantity(draft, dig, SELF)).toBe('8');
+      expect(workQuantity(draft, dig, via(1))).toBe('3.5');
+      expect(setWorkDimensions(draft, dig, SELF, null).work).toHaveLength(1);
+    });
+
+    it('does not let the stepper change a dimensioned quantity', () => {
+      const draft = setWorkDimensions(base, dig, SELF, dims);
+      expect(stepWork(draft, dig, SELF, 10)).toBe(draft);
+    });
+
+    it('accepts only positive decimals with at most 4 decimals, Arabic digits and marks included', () => {
+      expect(parseDimensions({ lengthM: '10', widthM: '0,35', depthM: '٠٫٩' })).toEqual(dims);
+      for (const bad of ['', '0', '0.0', '1.', '1.23456', 'abc', '-1']) {
+        expect(parseDimensions({ lengthM: bad, widthM: '1', depthM: '1' })).toBeNull();
+      }
+      // a volume that rounds to zero records nothing
+      const tiny = { lengthM: '0.0001', widthM: '0.0001', depthM: '0.0001' };
+      expect(setWorkDimensions(base, dig, SELF, tiny).work).toEqual([]);
+    });
+
+    it('counts the typed total of a line for the group totals', () => {
+      let draft = setWorkDimensions(base, dig, SELF, dims);
+      draft = setWorkDimensions(draft, dig, via(1), dims);
+      expect(enteredQuantity(draft, dig)).toBe('6.3');
+      expect(enteredQuantity(draft, id(102))).toBe('0');
+    });
+  });
+
+  describe('planning update', () => {
+    const drawingId = id(800);
+    const draft = startPlanningDraft(drawingId);
+
+    it('starts with no element, planning as the activity and an empty label', () => {
+      expect(featureOf(draft)).toBeNull();
+      expect(draft).toMatchObject({ workType: 'planning', label: '', step: 'work' });
+    });
+
+    it('builds a payload with featureId null and the drawing', () => {
+      const withLine = {
+        ...draft,
+        photos: [photo],
+        work: [{ itemId: id(101), performer: SELF, quantity: '2' }],
+      };
+      const op = buildRecordOp(
+        withLine,
+        { clientOpId: id(900), capturedAt: '2026-10-30T10:00:00Z', designRevisionId: id(901) },
+        [],
+      );
+      expect(op.payload).toMatchObject({
+        featureId: null,
+        drawingId,
+        workType: 'planning',
+        label: null,
+      });
+    });
+
+    it('never warns GPS_FAR, whatever the distance; only a missing fix is reported', () => {
+      const ctx = { crsEpsg: 32636, gpsWarningDistanceM: 50, catalog, unsyncedByItem: {} };
+      const far = computeWarnings({ ...draft, gps: gpsAt(E + 5000, N) }, ctx);
+      expect(far.warnings).toEqual([]);
+      expect(far.gpsDistanceM).toBeNull();
+      expect(computeWarnings(draft, ctx).warnings).toEqual(['GPS_UNAVAILABLE']);
+    });
+
+    it('an element draft still carries drawingId null', () => {
+      const op = buildRecordOp(
+        { ...complete(), step: 'review' },
+        { clientOpId: id(900), capturedAt: '2026-10-30T10:00:00Z', designRevisionId: id(901) },
+        [],
+      );
+      expect(op.payload).toMatchObject({ featureId: box.id, drawingId: null });
+    });
   });
 });

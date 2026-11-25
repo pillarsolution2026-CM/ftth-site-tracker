@@ -74,6 +74,7 @@ export class GetOfflineBundleUseCase {
         : null,
       features,
       catalog: await this.queries.catalog(input.projectId, input.scope),
+      elementGroups: await this.queries.elementGroups(),
       asBuilt: input.asBuiltScope
         ? await this.asBuilt.stateInScope(input.projectId, input.asBuiltScope)
         : [],

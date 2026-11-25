@@ -4,7 +4,11 @@ import type {
   AsBuiltGeometry,
   CatalogItem,
   ExecutionUpdate,
+  ElementGroups,
+  ElementKey,
   GpsProposalFeatureType,
+  ItemGroup,
+  LineDimensions,
   LinePerformer,
   OfflineFeature,
   OpResult,
@@ -63,14 +67,26 @@ export interface ContractorLineFacts {
 export interface ItemFacts {
   id: string;
   workType: WorkType | null;
+  unit: string;
+  /** Effective ADR-048 group of the contract line behind it (rule or admin choice); null = none. */
+  group: ItemGroup | null;
+}
+
+/** A published drawing of the project as a «التخطيط» update sees it (ADR-056). */
+export interface PlanningDrawing {
+  drawingId: string;
+  /** Null for a drawing not linked to a site yet (never in a site scope). */
+  siteId: string | null;
 }
 
 export interface NewUpdate {
   id: string;
   projectId: string;
   clientOpId: string;
-  featureId: string;
+  /** Null for a «التخطيط» update (ADR-056): then `drawingId` is set. */
+  featureId: string | null;
   featureType: ExecutionUpdate['featureType'];
+  drawingId: string | null;
   designRevisionId: string;
   workType: WorkType;
   userId: string;
@@ -87,6 +103,7 @@ export interface NewUpdate {
     quantity: string;
     role: UpdateLineRole;
     performer: LinePerformer | null;
+    dimensions: LineDimensions | null;
   }[];
   photos: readonly {
     photoId: string;
@@ -152,6 +169,14 @@ export interface ExecutionTx {
     gps: { lon: number; lat: number },
   ): Promise<number>;
   anyPhotoExists(photoIds: readonly string[]): Promise<boolean>;
+  /** ADR-056: the drawing when it is a drawing of the project with a published revision. */
+  planningDrawing(projectId: string, drawingId: string): Promise<PlanningDrawing | null>;
+  /** ADR-056: the revision only if it is a published revision of `drawingId` (either kind). */
+  publishedRevisionOfDrawing(
+    projectId: string,
+    drawingId: string,
+    revisionId: string,
+  ): Promise<{ publishedAt: Date; crsEpsg: number } | null>;
   insertUpdate(update: NewUpdate): Promise<void>;
   appendEvent(event: DomainEventInput): Promise<void>;
 
@@ -283,6 +308,8 @@ export interface ExecutionReadQueries {
   ): Promise<OfflineFeature[]>;
   /** Work-order lines; for a site scope only the lines of work orders that have one of his sites. */
   catalog(projectId: string, scope: ExecutionScope): Promise<CatalogItem[]>;
+  /** ADR-056: the system map element → main groups (every element, map order). */
+  elementGroups(): Promise<ElementGroups[]>;
   changes(
     projectId: string,
     scope: ExecutionScope,
@@ -343,4 +370,43 @@ export interface PhotoUploadUnitOfWork {
   find(projectId: string, photoId: string): Promise<PhotoUploadRow | null>;
   /** Drops the chunks of unfinished uploads idle since `before`; returns how many photos. */
   discardIdleUploads(before: Date): Promise<number>;
+}
+
+// ---- element -> main groups map (ADR-056) ------------------------------------------------------
+
+export interface ElementGroupRow {
+  element: ElementKey;
+  mains: string[];
+  version: number;
+}
+
+/** A main group used by contract lines, with how many lines carry it (all contracts). */
+export interface UsedMainGroup {
+  main: string;
+  lineCount: number;
+}
+
+export interface ElementGroupAdminTx {
+  /** The element's row, locked until the end of the transaction; null when absent. */
+  lockElement(element: ElementKey): Promise<ElementGroupRow | null>;
+  /** Replaces the list and takes the version to `version`. */
+  replace(input: {
+    element: ElementKey;
+    mains: readonly string[];
+    version: number;
+    actorId: string;
+    at: Date;
+  }): Promise<void>;
+  appendEvent(event: DomainEventInput): Promise<void>;
+}
+
+export interface ElementGroupAdmin {
+  /** Every element row, in ELEMENT_KEYS order. */
+  list(): Promise<ElementGroupRow[]>;
+  /**
+   * Main groups of the effective ADR-048 group (rule or admin choice) of every priced line of every
+   * contract, draft or approved.
+   */
+  usedMainGroups(): Promise<UsedMainGroup[]>;
+  run<T>(work: (tx: ElementGroupAdminTx) => Promise<T>): Promise<T>;
 }

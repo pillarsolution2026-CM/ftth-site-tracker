@@ -2427,7 +2427,30 @@
       "performerWholeLine": "Whole line",
       "performerScope": "Scope: {scope}",
       "performerLeft": "Left {left} {unit}",
-      "performerExceeded": "The quantity is above what is left of contractor {name}: {left} {unit} left. The admin must raise the contractor quantity first."
+      "performerExceeded": "The quantity is above what is left of contractor {name}: {left} {unit} left. The admin must raise the contractor quantity first.",
+      "groups": {
+        "planning": "Planning",
+        "up": "Back",
+        "noGroups": "No item groups for this element in the work orders.",
+        "lineCount": "{count} items",
+        "enteredLines": "{count} entered",
+        "entered": "Entered {quantity} {unit}",
+        "length": "Length (m)",
+        "width": "Width (m)",
+        "depth": "Depth (m)",
+        "dimensionsHint": "Type length, width and depth in metres (up to 4 decimals)",
+        "dimensionsInvalid": "Type a number above zero (up to 4 decimals)",
+        "volume": "Quantity in {unit} = length × width × depth",
+        "elements": {
+          "route_general": "Route (General drawing)",
+          "route_secondary": "Route (Secondary drawing)",
+          "cabinet": "Cabinet",
+          "box": "Box",
+          "room": "Room",
+          "joint": "Joint",
+          "planning": "Planning"
+        }
+      }
     },
     "warnings": {
       "GPS_FAR": "You are more than {distance} m from the feature",
@@ -2463,7 +2486,11 @@
         "FEATURE_TYPE_NOT_ALLOWED": "This item is not a cabinet, manhole, joint or box",
         "GPS_ACCURACY_TOO_LOW": "GPS accuracy is worse than allowed; send again from open ground",
         "CONTRACTOR_LINE_NOT_FOUND": "The contractor is not registered on this item",
-        "CONTRACTOR_QUANTITY_EXCEEDED": "The quantity is above what is left of the contractor: the admin must raise it, then send again"
+        "CONTRACTOR_QUANTITY_EXCEEDED": "The quantity is above what is left of the contractor: the admin must raise it, then send again",
+        "DIMENSIONS_REQUIRED": "A digging line needs length, width and depth",
+        "DIMENSIONS_NOT_ALLOWED": "This line takes no dimensions",
+        "DRAWING_NOT_FOUND": "The drawing does not exist or is not published",
+        "DRAWING_OUT_OF_SCOPE": "The drawing is outside your sites"
       },
       "updateStatus": {
         "pending": "Awaiting review",
@@ -2804,6 +2831,44 @@
     "logout": "Log out",
     "loadFailed": "Your data could not be loaded",
     "redirecting": "Opening your page…"
+  },
+  "elementGroups": {
+    "title": "Elements and groups",
+    "intro": "For each element of the drawing, the main groups the supervisor sees when he taps it. The change applies to all contracts.",
+    "navWarning": "{count} unlinked",
+    "element": {
+      "route_general": "Route on the General drawing",
+      "route_secondary": "Route on the Secondary drawing",
+      "cabinet": "Cabinet",
+      "box": "Box",
+      "room": "Room",
+      "joint": "Joint",
+      "planning": "Planning button"
+    },
+    "unlinked": {
+      "title": "Groups not linked to any element",
+      "body": "The supervisor cannot reach the lines of these groups. Add each one to an element below.",
+      "lines": "{count} lines"
+    },
+    "groupsOf": "Main groups of {element}",
+    "none": "No group",
+    "add": "Add a group",
+    "addPlaceholder": "Pick or type a group name",
+    "addButton": "Add",
+    "remove": "Remove {name}",
+    "moveUp": "Move {name} up",
+    "moveDown": "Move {name} down",
+    "save": "Save",
+    "saved": "Saved",
+    "reset": "Undo changes",
+    "stale": "The list was changed by another user. Reload the page and try again.",
+    "reload": "Reload",
+    "version": "Version {version}"
+  },
+  "qc": {
+    "planning": "Planning",
+    "dimensions": "Dimensions (length × width × depth)",
+    "cubicUnit": "m3"
   },
   "drawingKind": {
     "general": "General (main)",

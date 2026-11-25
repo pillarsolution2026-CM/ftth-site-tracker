@@ -301,8 +301,10 @@ function RegistrationView({
               </Text>
             </View>
             <Text style={{ color: theme.text }}>
-              {t(`featureType.${item.element.featureType}`)}
-              {item.element.code ? <Ltr>{` ${item.element.code}`}</Ltr> : null}
+              {item.element === null
+                ? t('qc.planning')
+                : t(`featureType.${item.element.featureType}`)}
+              {item.element?.code ? <Ltr>{` ${item.element.code}`}</Ltr> : null}
               {line ? <Ltr>{`  ${line.code}`}</Ltr> : null}
             </Text>
             <View style={styles.row}>

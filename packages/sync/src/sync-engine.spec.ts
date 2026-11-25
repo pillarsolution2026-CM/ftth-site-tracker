@@ -32,10 +32,17 @@ function makeOp(photo: Uint8Array, photoId = randomUUID()): SyncOp {
     capturedAt: at,
     payload: {
       featureId: randomUUID(),
+      drawingId: null,
       designRevisionId: randomUUID(),
       workType: 'civil',
       lines: [
-        { workOrderItemId: randomUUID(), quantity: '1', role: 'work', performer: { kind: 'self' } },
+        {
+          workOrderItemId: randomUUID(),
+          quantity: '1',
+          role: 'work',
+          performer: { kind: 'self' },
+          dimensions: null,
+        },
       ],
       label: null,
       note: null,
@@ -167,6 +174,7 @@ class FakeServer implements SyncTransport {
         clientOpId: op.clientOpId,
         featureId: op.payload.featureId,
         featureType: 'box',
+        drawingId: op.payload.drawingId,
         designRevisionId: op.payload.designRevisionId,
         userId: randomUUID(),
         deviceId: request.deviceId,
