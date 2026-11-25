@@ -195,10 +195,12 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       scope: string | null;
       quantity: string;
       recorded: string;
+      registered_on: string;
     }>(
       this.db,
       sql`SELECT cl.id, cl.work_order_item_id, c.id AS contractor_id, c.name AS contractor_name,
                  cl.scope, cl.quantity::text AS quantity,
+                 to_char(r.registered_on, 'YYYY-MM-DD') AS registered_on,
                  COALESCE((
                    SELECT sum(l.quantity) FROM execution_update_lines l
                    JOIN execution_updates u ON u.project_id = l.project_id AND u.id = l.update_id
@@ -219,6 +221,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
         scope: row.scope,
         quantity: toDecimalText(row.quantity),
         recordedQuantity: toDecimalText(row.recorded),
+        registeredOn: row.registered_on,
       });
       contractorsOf.set(row.work_order_item_id, list);
     }
@@ -279,6 +282,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       label: string | null;
       note: string | null;
       captured_at: Date;
+      work_date: string;
       received_at: Date;
       gps_distance_m: string | null;
       flags: UpdateFlag[];
@@ -296,7 +300,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       this.db,
       sql`SELECT u.id, u.client_op_id, u.feature_id, u.feature_type, u.drawing_id, u.design_revision_id,
                  u.user_id, u.device_id, u.work_type, u.status, u.label, u.note, u.captured_at,
-                 u.received_at, u.gps_distance_m::text AS gps_distance_m, u.flags,
+                 to_char(u.work_date, 'YYYY-MM-DD') AS work_date, u.received_at, u.gps_distance_m::text AS gps_distance_m, u.flags,
                  u.review_reason, u.sync_seq::text AS sync_seq,
                  (SELECT COALESCE(json_agg(json_build_object(
                      'workOrderItemId', l.work_order_item_id,
@@ -350,6 +354,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
         label: row.label,
         note: row.note,
         capturedAt: iso(row.captured_at),
+        workDate: row.work_date,
         receivedAt: iso(row.received_at),
         gpsDistanceM: toDecimalTextOrNull(row.gps_distance_m),
         flags: row.flags,

@@ -2450,6 +2450,14 @@
           "joint": "Joint",
           "planning": "Planning"
         }
+      },
+      "workDate": {
+        "label": "Work date",
+        "previous": "Previous day",
+        "next": "Next day",
+        "today": "Today",
+        "invalid": "Type a valid date such as 2026-11-10, today or earlier",
+        "dropped": "Quantities of contractors not registered on that date were removed"
       }
     },
     "warnings": {
@@ -2463,7 +2471,8 @@
       "LABEL_TOO_LONG": "The label is too long",
       "NOTE_TOO_LONG": "The notes are too long",
       "PHOTOS_MISSING": "Mandatory photos are missing",
-      "CONTRACTOR_QUANTITY_EXCEEDED": "A contractor quantity is above what is left for them: lower it or ask the admin to raise the contractor quantity"
+      "CONTRACTOR_QUANTITY_EXCEEDED": "A contractor quantity is above what is left for them: lower it or ask the admin to raise the contractor quantity",
+      "WORK_DATE_IN_FUTURE": "The work date is after today — pick today or an earlier day"
     },
     "pending": {
       "title": "Pending",
@@ -2490,7 +2499,9 @@
         "DIMENSIONS_REQUIRED": "A digging line needs length, width and depth",
         "DIMENSIONS_NOT_ALLOWED": "This line takes no dimensions",
         "DRAWING_NOT_FOUND": "The drawing does not exist or is not published",
-        "DRAWING_OUT_OF_SCOPE": "The drawing is outside your sites"
+        "DRAWING_OUT_OF_SCOPE": "The drawing is outside your sites",
+        "WORK_DATE_IN_FUTURE": "The work date is after today — record it on today or an earlier day",
+        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "The contractor was not registered on that date — change the date or pick «own company»"
       },
       "updateStatus": {
         "pending": "Awaiting review",

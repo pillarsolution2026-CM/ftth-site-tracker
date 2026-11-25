@@ -15,14 +15,18 @@ export function canonicalJson(value: unknown): string {
 /**
  * Fields added after the first ops were stored hash only when they carry a value: a line without a
  * performer hashes as before ADR-052, a line without dimensions and a payload without `drawingId`
- * as before ADR-056. An op applied then and resent now (parsed with those fields as `null`) is
- * still a duplicate; an op resent with different dimensions or drawing hashes differently
- * (OP_ID_REUSED).
+ * as before ADR-056, a payload without `workDate` as before ADR-057. An op applied then and resent
+ * now (parsed with those fields as `null`) is still a duplicate; an op resent with different
+ * dimensions, drawing or work date hashes differently (OP_ID_REUSED).
  */
 function withoutNullNewFields(payload: unknown): unknown {
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
-  const { drawingId, ...record } = payload as Record<string, unknown>;
-  const base = drawingId === null ? record : { ...record, drawingId };
+  const { drawingId, workDate, ...record } = payload as Record<string, unknown>;
+  const base: Record<string, unknown> = {
+    ...record,
+    ...(drawingId === null ? {} : { drawingId }),
+    ...(workDate === null ? {} : { workDate }),
+  };
   if (!Array.isArray(base.lines)) return base;
   return {
     ...base,

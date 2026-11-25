@@ -73,6 +73,7 @@ const op: RecordUpdateOp = {
       },
     ],
     acknowledgedWarnings: [],
+    workDate: null,
   },
 };
 
@@ -197,9 +198,27 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
   const CL_OTHER_ITEM = id(53);
 
   const contractorLines = (): ContractorLineFacts[] => [
-    { id: CL_A, workOrderItemId: ITEM, quantity: '50', recordedQuantity: '10' },
-    { id: CL_B, workOrderItemId: ITEM, quantity: '100', recordedQuantity: '0' },
-    { id: CL_OTHER_ITEM, workOrderItemId: OTHER_ITEM, quantity: '100', recordedQuantity: '0' },
+    {
+      id: CL_A,
+      workOrderItemId: ITEM,
+      quantity: '50',
+      recordedQuantity: '10',
+      registeredOn: '2026-10-01',
+    },
+    {
+      id: CL_B,
+      workOrderItemId: ITEM,
+      quantity: '100',
+      recordedQuantity: '0',
+      registeredOn: '2026-10-01',
+    },
+    {
+      id: CL_OTHER_ITEM,
+      workOrderItemId: OTHER_ITEM,
+      quantity: '100',
+      recordedQuantity: '0',
+      registeredOn: '2026-10-01',
+    },
   ];
 
   function setup(lines = contractorLines()) {
@@ -306,7 +325,13 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
   it('lets rejected work free its quantity (the server counts pending and approved only)', async () => {
     // recordedQuantity is what the repository computes without rejected updates: 0 after a rejection.
     const { push } = setup([
-      { id: CL_A, workOrderItemId: ITEM, quantity: '50', recordedQuantity: '0' },
+      {
+        id: CL_A,
+        workOrderItemId: ITEM,
+        quantity: '50',
+        recordedQuantity: '0',
+        registeredOn: '2026-10-01',
+      },
     ]);
     const [result] = await push([work('50', { kind: 'contractor', contractorLineId: CL_A })]);
     expect(result?.outcome).toBe('applied');
@@ -482,5 +507,150 @@ describe('PushSyncUseCase dimensions and planning updates (ADR-056)', () => {
     const { push } = setup({ publishedRevisionOfDrawing: async () => null });
     const [result] = await push({ ...planning, lines: [line(ITEM, '1', null)] });
     expect(result).toMatchObject({ outcome: 'rejected', code: 'REVISION_NOT_PUBLISHED' });
+  });
+});
+
+describe('PushSyncUseCase work date (ADR-057)', () => {
+  const ITEM = id(4);
+  const CL = id(51);
+  // 2026-11-11 00:30 in Cairo is still 2026-11-10 in UTC: "today" must be read in Cairo.
+  const NOW = new Date('2026-11-10T22:30:00Z');
+
+  function setup(registeredOn = '2026-11-05', now = NOW) {
+    const inserted: NewUpdate[] = [];
+    const events: { payload: Record<string, unknown> }[] = [];
+    const tx = {
+      lockProject: async () => undefined,
+      findOperation: async () => null,
+      insertOperation: async () => undefined,
+      featureExists: async () => true,
+      featureInPublishedRevision: async () => ({
+        featureType: 'box' as const,
+        revisionPublishedAt: new Date(0),
+      }),
+      featureInScope: async () => true,
+      latestPublishedRevision: async () => ({
+        id: id(3),
+        revNo: 1,
+        publishedAt: new Date(0),
+        hasTiles: false,
+      }),
+      featureInRevision: async () => true,
+      findItems: async () => [{ id: ITEM, workType: 'civil' as const, unit: 'م', group: null }],
+      lockContractorLines: async (_project: string, ids: readonly string[]) =>
+        ids.includes(CL)
+          ? [
+              {
+                id: CL,
+                workOrderItemId: ITEM,
+                quantity: '100',
+                recordedQuantity: '0',
+                registeredOn,
+              },
+            ]
+          : [],
+      wouldOverrun: async () => false,
+      gpsDistanceM: async () => 0,
+      anyPhotoExists: async () => false,
+      planningDrawing: async () => null,
+      publishedRevisionOfDrawing: async () => null,
+      insertUpdate: async (update: NewUpdate) => {
+        inserted.push(update);
+      },
+      appendEvent: async (event: { payload: Record<string, unknown> }) => {
+        events.push(event);
+      },
+      ...asBuiltStubs,
+    } as ExecutionTx;
+    const useCase = new PushSyncUseCase(
+      { run: (work) => work(tx) },
+      new Phase2UnavailableCapabilities(),
+      { now: () => now },
+      { next: () => id(9) },
+    );
+    const push = (
+      workDate: string | null,
+      performer: RecordUpdateOp['payload']['lines'][number]['performer'] = { kind: 'self' },
+      capturedAt = '2026-11-10T22:00:00Z',
+    ) =>
+      useCase.execute({
+        projectId: id(10),
+        userId: id(11),
+        deviceId: id(12),
+        scope: { kind: 'project' },
+        ops: [
+          {
+            ...op,
+            capturedAt,
+            payload: {
+              ...op.payload,
+              workDate,
+              lines: [
+                { workOrderItemId: ITEM, quantity: '1', role: 'work', performer, dimensions: null },
+              ],
+            },
+          },
+        ],
+      });
+    return { push, inserted, events };
+  }
+
+  it('records the earlier day the supervisor picked, with no limit on how far back', async () => {
+    const { push, inserted, events } = setup();
+    const [result] = await push('2025-01-15');
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.workDate).toBe('2025-01-15');
+    expect(events[0]?.payload.workDate).toBe('2025-01-15');
+  });
+
+  it('accepts today read in Cairo, and refuses tomorrow', async () => {
+    const today = setup();
+    expect((await today.push('2026-11-11'))[0]?.outcome).toBe('applied');
+    const tomorrow = setup();
+    const [result] = await tomorrow.push('2026-11-12');
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'WORK_DATE_IN_FUTURE' });
+    expect(tomorrow.inserted).toHaveLength(0);
+  });
+
+  it('accepts the next day from a phone a few minutes fast at midnight (clock tolerance)', async () => {
+    // 23:56 on the 11th in Cairo: a phone 4 minutes fast already says the 12th.
+    const late = setup('2026-11-05', new Date('2026-11-11T21:56:00Z'));
+    expect((await late.push('2026-11-12'))[0]?.outcome).toBe('applied');
+    // 23:50: more than the 5-minute tolerance before midnight, so the 12th is still the future.
+    const early = setup('2026-11-05', new Date('2026-11-11T21:50:00Z'));
+    expect((await early.push('2026-11-12'))[0]).toMatchObject({
+      outcome: 'rejected',
+      code: 'WORK_DATE_IN_FUTURE',
+    });
+  });
+
+  it('keeps the Cairo day of capturedAt for an op from a phone built before ADR-057', async () => {
+    const { push, inserted } = setup();
+    // 22:00 UTC on the 10th = 00:00 on the 11th in Cairo.
+    const [result] = await push(null);
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.workDate).toBe('2026-11-11');
+  });
+
+  it('refuses a contractor registered after the work date', async () => {
+    const { push, inserted } = setup('2026-11-05');
+    const [result] = await push('2026-11-04', { kind: 'contractor', contractorLineId: CL });
+    expect(result).toMatchObject({
+      outcome: 'rejected',
+      code: 'CONTRACTOR_NOT_REGISTERED_ON_DATE',
+    });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('accepts the contractor from his registration day on', async () => {
+    const { push } = setup('2026-11-05');
+    const [result] = await push('2026-11-05', { kind: 'contractor', contractorLineId: CL });
+    expect(result?.outcome).toBe('applied');
+  });
+
+  it('accepts the own crew on a day before any contractor registration', async () => {
+    const { push } = setup('2026-11-05');
+    const [result] = await push('2026-11-01', { kind: 'self' });
+    expect(result?.outcome).toBe('applied');
   });
 });

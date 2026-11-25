@@ -235,6 +235,7 @@ function op(input: {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }
@@ -305,8 +306,8 @@ describe('the element -> main groups map (migration 0030)', () => {
       ctx.pool.query(
         `INSERT INTO execution_updates
            (id, project_id, client_op_id, feature_id, feature_type, drawing_id, design_revision_id,
-            work_type, user_id, device_id, captured_at)
-         SELECT $1, $2, $3, $4, $5, $6, $7, 'civil', id, $8, now() FROM users ORDER BY created_at LIMIT 1`,
+            work_type, user_id, device_id, captured_at, work_date)
+         SELECT $1, $2, $3, $4, $5, $6, $7, 'civil', id, $8, now(), current_date FROM users ORDER BY created_at LIMIT 1`,
         [
           randomUUID(),
           world.projectId,

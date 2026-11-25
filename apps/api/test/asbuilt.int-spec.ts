@@ -884,6 +884,7 @@ describe('pull and bootstrap', () => {
             },
           ],
           acknowledgedWarnings: [],
+          workDate: null,
         },
       });
       expect(update.outcome).toBe('applied');

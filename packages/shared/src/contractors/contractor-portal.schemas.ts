@@ -3,6 +3,7 @@ import { CurrencyCodeSchema, DecimalStringSchema } from '../common/decimal.js';
 import { CreateUserRequestSchema, LocaleSchema } from '../admin/admin.schemas.js';
 import { FeatureTypeSchema } from '../design/feature-types.js';
 import { UpdateStatusSchema } from '../execution/execution.schemas.js';
+import { WORK_DAY_TIME_ZONE } from '../execution/work-date.js';
 
 /**
  * Read-only contractor login, subcontractors part 3, ADR-053. Owner decisions, 2026-11-21:
@@ -15,16 +16,13 @@ import { UpdateStatusSchema } from '../execution/execution.schemas.js';
  *   work recorded on him as a LIST (no drawing): element, date, quantity, review status and
  *   reason, and its VALUE (quantity × his price). Never photos, supervisor name or GPS; never the
  *   client (contract) prices, other contractors, or own-crew work. Enforced on the server.
- * - The price of a work line is his price in force on the day the supervisor RECORDED it on site
- *   (device time, `capturedAt`), read in `CONTRACTOR_PRICE_DAY_TIME_ZONE`.
+ * - The price of a work line is his price in force on the WORK DATE of the update (ADR-057: the
+ *   day the work was done, chosen by the supervisor, read in Africa/Cairo).
  * - Values are totalled separately: approved, pending (under review), rejected.
  */
 
-/**
- * ASSUMPTION (ADR-053): the calendar day of `capturedAt` is read in Egypt's time zone; no project
- * stores a time zone yet.
- */
-export const CONTRACTOR_PRICE_DAY_TIME_ZONE = 'Africa/Cairo';
+/** ADR-057 (owner confirmed 2026-11-25): the work day is read in Egypt's time zone. */
+export const CONTRACTOR_PRICE_DAY_TIME_ZONE = WORK_DAY_TIME_ZONE;
 
 // ---------- accounts (platform admin only) ----------
 
@@ -112,13 +110,13 @@ export const PortalWorkSchema = z.object({
    * «التخطيط» update recorded on the drawing itself (ADR-056).
    */
   element: z.object({ featureType: FeatureTypeSchema, code: z.string().nullable() }).nullable(),
-  /** Day recorded on site (`capturedAt` in CONTRACTOR_PRICE_DAY_TIME_ZONE). */
+  /** The work date of the update (ADR-057: chosen by the supervisor, Africa/Cairo). */
   workDate: z.iso.date(),
   quantity: DecimalStringSchema,
   status: UpdateStatusSchema,
   /** The reviewer's reason (rejections); null otherwise. */
   reviewReason: z.string().nullable(),
-  /** His price in force on `workDate` (the first price when the day is before it). */
+  /** His price in force on `workDate` (ADR-057: never before his registration). */
   unitPrice: DecimalStringSchema,
   /** quantity × unitPrice, exact (not rounded). */
   value: DecimalStringSchema,
@@ -137,7 +135,7 @@ export type PortalTotals = z.infer<typeof PortalTotalsSchema>;
 /**
  * GET /contractor/me: everything the logged-in contractor account may see, in one answer so the
  * phone can keep it offline. 403 FORBIDDEN for any user that is not an active contractor account.
- * `work` newest first.
+ * `work` newest work date first (ADR-057).
  */
 export const ContractorPortalResponseSchema = z.object({
   serverTime: z.iso.datetime({ offset: true }),

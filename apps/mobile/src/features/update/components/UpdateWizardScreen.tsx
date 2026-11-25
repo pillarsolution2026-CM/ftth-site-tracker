@@ -4,6 +4,8 @@ import { ltr } from '@ftth/i18n';
 import {
   WORK_TYPES,
   performerKeyOf,
+  shiftDay,
+  workDayOf,
   type CatalogItem,
   type GpsFix,
   type ElementKey,
@@ -41,6 +43,8 @@ import {
   openMain,
   openSub,
   parseDimensions,
+  registeredBy,
+  setWorkDate,
   photoRequirementsFor,
   ROOT_PATH,
   setWorkDimensions,
@@ -53,6 +57,7 @@ import {
   unsyncedTotals,
   UPDATE_STEPS,
   usesGroups,
+  workDateOf,
   workQuantity,
   type CapturedPhoto,
   type GroupPath,
@@ -87,6 +92,10 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
   const feature = featureOf(draft);
   const [locating, setLocating] = useState(false);
   const [busy, setBusy] = useState(false);
+  // ADR-057: a typed work date that is not valid yet blocks the work step; a date change that
+  // drops contractor lines says so.
+  const [dateInvalid, setDateInvalid] = useState(false);
+  const [droppedLines, setDroppedLines] = useState(false);
 
   const locate = () => {
     setLocating(true);
@@ -117,9 +126,13 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
     unsyncedByItem,
   });
   const stepIndex = UPDATE_STEPS.indexOf(draft.step);
+  // ADR-057: today in Cairo; the work date is today or earlier.
+  const today = workDayOf(deps.now());
+  const workDate = workDateOf(draft, today);
   const contractorContext = {
     catalog: bundle.catalog,
     unsyncedByContractorLine: unsynced.byContractorLine,
+    today,
   };
   const problems = stepProblems(draft, draft.step, requirements, contractorContext);
   const overruns = contractorOverruns(draft, bundle.catalog, unsynced.byContractorLine);
@@ -196,6 +209,7 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
         key={`work-${item.id}`}
         item={item}
         draft={draft}
+        workDate={workDate}
         unsyncedByContractorLine={unsynced.byContractorLine}
         overrun={warnings.overrunItemIds.includes(item.id)}
         draftTotal={enteredQuantity(draft, item.id)}
@@ -264,6 +278,21 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
           : null}
         {draft.step === 'work' || draft.step === 'materials' ? (
           <>
+            {draft.step === 'work' ? (
+              <WorkDateBar
+                workDate={workDate}
+                today={today}
+                onInvalid={setDateInvalid}
+                onPick={(day) => {
+                  const next = setWorkDate(draft, day, today, bundle.catalog);
+                  setDroppedLines(next.work.length < draft.work.length);
+                  setDraft(next);
+                }}
+              />
+            ) : null}
+            {draft.step === 'work' && droppedLines ? (
+              <Notice text={t('field.update.workDate.dropped')} />
+            ) : null}
             <Notice text={t('field.update.phase2Items')} />
             <Notice text={t('field.update.suggestedUnavailable')} />
             {draft.step === 'work' ? workList() : materialList()}
@@ -356,6 +385,9 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
               })}{' '}
               · {t('field.update.summaryPhotos', { count: ltr(draft.photos.length) })}
             </Text>
+            <Text style={{ color: theme.text }} testID="review-work-date">
+              {t('field.update.workDate.label')}: {ltr(workDate)}
+            </Text>
             {warnings.warnings.map((warning) => (
               <View
                 key={warning}
@@ -420,7 +452,7 @@ export function UpdateWizardScreen({ target, deps, onDone, onCancel }: UpdateWiz
           <Button
             label={t('field.update.next')}
             onPress={() => setDraft((d) => goNext(d, requirements, contractorContext))}
-            disabled={problems.length > 0 || busy}
+            disabled={problems.length > 0 || busy || (draft.step === 'work' && dateInvalid)}
             testID="wizard-next"
           />
         )}
@@ -475,6 +507,7 @@ function ItemCard({
 function WorkItemCard({
   item,
   draft,
+  workDate,
   unsyncedByContractorLine,
   overrun,
   draftTotal,
@@ -483,6 +516,7 @@ function WorkItemCard({
 }: {
   item: CatalogItem;
   draft: UpdateDraft;
+  workDate: string;
   unsyncedByContractorLine: Readonly<Record<string, string>>;
   overrun: boolean;
   draftTotal: string;
@@ -492,18 +526,21 @@ function WorkItemCard({
   const { t } = useI18n();
   const theme = useTheme();
   const performers: { performer: LinePerformer; title: string; detail: string | null }[] = [
-    ...item.contractors.map((contractor) => ({
-      performer: { kind: 'contractor', contractorLineId: contractor.contractorLineId } as const,
-      title: contractor.contractorName,
-      detail: `${
-        contractor.scope === null
-          ? t('field.update.performerWholeLine')
-          : t('field.update.performerScope', { scope: contractor.scope })
-      } · ${t('field.update.performerLeft', {
-        left: ltr(contractorLeft(contractor, unsyncedByContractorLine)),
-        unit: item.unit,
-      })}`,
-    })),
+    // ADR-057: a contractor is offered from his registration day on.
+    ...item.contractors
+      .filter((contractor) => registeredBy(contractor, workDate))
+      .map((contractor) => ({
+        performer: { kind: 'contractor', contractorLineId: contractor.contractorLineId } as const,
+        title: contractor.contractorName,
+        detail: `${
+          contractor.scope === null
+            ? t('field.update.performerWholeLine')
+            : t('field.update.performerScope', { scope: contractor.scope })
+        } · ${t('field.update.performerLeft', {
+          left: ltr(contractorLeft(contractor, unsyncedByContractorLine)),
+          unit: item.unit,
+        })}`,
+      })),
     { performer: SELF_PERFORMER, title: t('field.update.performerSelf'), detail: null },
   ];
   return (
@@ -790,6 +827,82 @@ function Notice({ text }: { text: string }) {
   );
 }
 
+/**
+ * ADR-057: «تاريخ الشغل» — today or any earlier day, typed (YYYY-MM-DD) or stepped a day at a time.
+ * No later day: the next-day button stops at today.
+ */
+function WorkDateBar({
+  workDate,
+  today,
+  onPick,
+  onInvalid,
+}: {
+  workDate: string;
+  today: string;
+  onPick: (day: string) => void;
+  onInvalid: (invalid: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const theme = useTheme();
+  const [text, setText] = useState(workDate);
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => {
+    setText(workDate);
+    setInvalid(false);
+    onInvalid(false);
+  }, [workDate]);
+  const typed = (value: string) => {
+    setText(value);
+    const valid = /^\d{4}-\d{2}-\d{2}$/.test(value) && shiftDay(value, 0) === value;
+    const bad = !valid || value > today;
+    setInvalid(bad);
+    onInvalid(bad);
+    if (!bad && value !== workDate) onPick(value);
+  };
+  return (
+    <View style={[styles.item, { borderColor: theme.border }]} testID="work-date">
+      <Text style={[styles.label, { color: theme.text }]}>{t('field.update.workDate.label')}</Text>
+      <View style={styles.stepperRow}>
+        <Button
+          variant="secondary"
+          label={t('field.update.workDate.previous')}
+          onPress={() => onPick(shiftDay(workDate, -1))}
+          testID="work-date-previous"
+        />
+        <TextInput
+          value={text}
+          onChangeText={typed}
+          autoCorrect={false}
+          keyboardType="numbers-and-punctuation"
+          maxLength={10}
+          style={[styles.input, styles.dateInput, { color: theme.text, borderColor: theme.border }]}
+          testID="work-date-input"
+        />
+        <Button
+          variant="secondary"
+          label={t('field.update.workDate.next')}
+          onPress={() => onPick(shiftDay(workDate, 1))}
+          disabled={workDate >= today}
+          testID="work-date-next"
+        />
+      </View>
+      {workDate !== today ? (
+        <Button
+          variant="secondary"
+          label={t('field.update.workDate.today')}
+          onPress={() => onPick(today)}
+          testID="work-date-today"
+        />
+      ) : null}
+      {invalid ? (
+        <Text style={{ color: theme.text }} testID="work-date-invalid">
+          {t('field.update.workDate.invalid')}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { padding: spacing.lg, gap: spacing.xs },
@@ -826,6 +939,8 @@ const styles = StyleSheet.create({
   dimensionRow: { flexDirection: 'row', gap: spacing.sm },
   dimensionCell: { flex: 1, gap: spacing.xs },
   dimensionInput: { textAlign: 'center', writingDirection: 'ltr' },
+  stepperRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  dateInput: { flex: 1, textAlign: 'center', writingDirection: 'ltr' },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, writingDirection: 'ltr' },
   stepButton: {
     minWidth: minTouchTarget,

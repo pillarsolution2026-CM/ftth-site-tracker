@@ -59,6 +59,7 @@ function makeOp(photo: Uint8Array, photoId = randomUUID()): SyncOp {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }
@@ -184,6 +185,7 @@ class FakeServer implements SyncTransport {
         label: null,
         note: null,
         capturedAt: op.capturedAt,
+        workDate: op.payload.workDate ?? op.capturedAt.slice(0, 10),
         receivedAt: op.capturedAt,
         gpsDistanceM: null,
         flags: [],

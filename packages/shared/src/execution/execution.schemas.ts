@@ -114,6 +114,11 @@ export const RecordUpdatePayloadSchema = z
     gps: GpsFixSchema.nullable(),
     photos: z.array(PhotoMetaSchema).min(1).max(EXECUTION_LIMITS.maxPhotosPerUpdate),
     acknowledgedWarnings: z.array(ClientWarningSchema).max(CLIENT_WARNINGS.length),
+    /**
+     * ADR-057: the day the work was done (Africa/Cairo), chosen by the supervisor: today or any
+     * earlier day. Null only from phones built before ADR-057 (then the Cairo day of `capturedAt`).
+     */
+    workDate: z.iso.date().nullable().default(null),
   })
   .superRefine((payload, ctx) => {
     const photoIds = new Set(payload.photos.map((photo) => photo.photoId));
@@ -241,6 +246,11 @@ export const ExecutionUpdateSchema = z.object({
   note: z.string().nullable(),
   /** Device clock (may be wrong; see flags). */
   capturedAt: z.iso.datetime({ offset: true }),
+  /**
+   * ADR-057: the day the work was done (Africa/Cairo); the contractor price follows it. The server
+   * always sends it; null only in updates a phone stored before ADR-057.
+   */
+  workDate: z.iso.date().nullable().default(null),
   /** Server clock; the only time used for ordering. */
   receivedAt: z.iso.datetime({ offset: true }),
   gpsDistanceM: DecimalStringSchema.nullable(),
