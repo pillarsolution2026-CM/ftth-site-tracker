@@ -8,7 +8,9 @@ import { ProposePlacementPointOpSchema } from '../cad/gps-proposal.schemas.js';
 import { DecimalStringSchema } from '../common/decimal.js';
 import { FeatureTypeSchema } from '../design/feature-types.js';
 import { WorkTypeSchema } from '../work-orders/work-order.schemas.js';
+import { ItemGroupSchema } from '../contracts/item-groups.js';
 import { EXECUTION_LIMITS } from './execution.constants.js';
+import { ElementGroupsSchema } from './element-groups.js';
 import { ExecutionUpdateSchema, RecordUpdatePayloadSchema } from './execution.schemas.js';
 
 /**
@@ -96,6 +98,15 @@ export const OP_REJECTION_CODES = [
    * and approved work on it; rejected work does not count). The admin raises the quantity first.
    */
   'CONTRACTOR_QUANTITY_EXCEEDED',
+  // ---- Groups and dimensions (ADR-056) ----
+  /** A digging m3 line (catalog `needsDimensions`) without its length × width × depth. */
+  'DIMENSIONS_REQUIRED',
+  /** Dimensions on a line that takes none. */
+  'DIMENSIONS_NOT_ALLOWED',
+  /** `drawingId` of a «التخطيط» update is not a published drawing of the project. */
+  'DRAWING_NOT_FOUND',
+  /** The drawing of a «التخطيط» update is outside the caller's sites (ADR-054). */
+  'DRAWING_OUT_OF_SCOPE',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;
@@ -212,6 +223,10 @@ export const CatalogItemSchema = z.object({
   recordedQuantity: DecimalStringSchema,
   /** Contractors on this line (ADR-052); «self» is always offered besides them. */
   contractors: z.array(CatalogContractorSchema).default([]),
+  /** ADR-048 groups of the contract line (rule or admin choice); null when ungrouped. ADR-056. */
+  group: ItemGroupSchema.nullable().default(null),
+  /** ADR-056: the supervisor types length × width × depth and the quantity is their product. */
+  needsDimensions: z.boolean().default(false),
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 
@@ -284,6 +299,11 @@ export const OfflineBundleSchema = z.object({
   /** Features of `revision` inside the caller's scope. */
   features: z.array(OfflineFeatureSchema),
   catalog: z.array(CatalogItemSchema),
+  /**
+   * ADR-056: element → main groups (system map). The device shows under an element only the groups
+   * of this list that have catalog lines. Empty from an older server → the flat list as before.
+   */
+  elementGroups: z.array(ElementGroupsSchema).default([]),
   /**
    * Approved As-Built state of features in scope that differ from the design or were added
    * (ADR-030). The device draws these over the design and uses their versions as `baseVersion`.

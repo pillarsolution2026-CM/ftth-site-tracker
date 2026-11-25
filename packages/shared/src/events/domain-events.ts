@@ -105,6 +105,8 @@ export const EVENT_TYPES = {
   contractItemRemoved: 'contract_item.removed',
   /** ADR-048. Payload: itemId, code, before {main, sub} | null, after {main, sub} | null (null = back to the rule). */
   contractItemGroupSet: 'contract_item.group_set',
+  /** ADR-056: the admin replaced an element's main groups. */
+  elementGroupsChanged: 'element_groups.changed',
   contractAttachmentAdded: 'contract_attachment.added',
   contractAttachmentRemoved: 'contract_attachment.removed',
   /** Phase 4 (ADR-030). Payload: clientOpId, deviceId, featureId, kind, baseVersion, geometry, label, lengthM, flags. */

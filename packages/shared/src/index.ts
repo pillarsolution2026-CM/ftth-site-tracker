@@ -37,6 +37,7 @@ export * from './design/drawing-problems.js';
 export * from './design/text-link.js';
 export * from './design/feature-reading.schemas.js';
 export * from './design/design-revision.schemas.js';
+export * from './execution/element-groups.js';
 export * from './execution/execution.constants.js';
 export * from './execution/execution.schemas.js';
 export * from './execution/sync.schemas.js';
