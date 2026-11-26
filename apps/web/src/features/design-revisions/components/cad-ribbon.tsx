@@ -1,6 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { ltr, type MessageKey } from '@ftth/i18n';
 import type { DrawingLinetype } from '@ftth/shared';
 import { Notice } from '@/shared/ui/notice';
@@ -8,12 +18,15 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
 import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
+import { TableTile, TextPanel } from './text-panel';
+import { HatchCreationTab } from './hatch-tab';
 import {
   ACI_COLORS,
   COMMANDS,
   LINETYPE_NAMES,
   LINETYPES,
   LINEWEIGHTS,
+  PROMPTS_WITHOUT_OR,
   type CommandId,
 } from '../model/cad-commands';
 
@@ -30,46 +43,21 @@ const DARK = {
   field: 'bg-[#1d2127] text-[#e8eaed] border border-[#4a505a]',
 };
 
-/** The pen on the canvas toolbar: opens the workspace. */
-export function PenButton({ edit }: { edit: CanvasEditState }) {
-  const { t } = useI18n();
-  if (!edit.available || edit.editing) return null;
-  return (
-    <CanvasButton label={t('design.edit.start')} onClick={edit.start}>
-      <Svg>
-        <path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" />
-        <path d="M14 6l3 3" />
-      </Svg>
-    </CanvasButton>
-  );
-}
-
-/** A dark square button on the canvas (zoom, palettes, pen). */
-export function CanvasButton({
-  label,
-  onClick,
-  pressed,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  pressed?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={`flex min-h-10 min-w-10 items-center justify-center rounded border border-[#4a505a] px-2 text-lg focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
-        pressed ? DARK.on : 'bg-[#2b2f36]/95 text-[#e8eaed] hover:bg-[#3a3f47]'
-      }`}
-    >
-      {children}
-    </button>
-  );
+/** The view buttons that sit on the tab strip (owner 2026-11-26: moved from the canvas corner). */
+export interface StripView {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fit: () => void;
+  /** The in-page full-window mode: Esc never leaves it, only its button. */
+  full: boolean;
+  onToggleFull: () => void;
+  layersOpen: boolean;
+  onToggleLayers: () => void;
+  /** The palettes beside the drawing (errors, corrections). */
+  palettes: readonly { key: string; title: string; open: boolean; onToggle: () => void }[];
+  /** AutoCAD's CURSORSIZE: small (5, with the pick box) or across the drawing (100). */
+  crosshair: 'small' | 'full';
+  onToggleCrosshair: () => void;
 }
 
 function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string }) {
@@ -91,8 +79,23 @@ function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string
 
 /** This program's own drawings of the commands (in the spirit of a CAD ribbon). */
 type IconKey =
-  CommandId | 'undo' | 'redo' | 'markers' | 'osm' | 'bedit' | 'attdef' | 'fade' | 'layerstate';
-const ICONS: Record<IconKey, ReactNode> = {
+  | CommandId
+  | 'undo'
+  | 'redo'
+  | 'markers'
+  | 'osm'
+  | 'bedit'
+  | 'attdef'
+  | 'fade'
+  | 'layerstate'
+  | 'pen'
+  | 'fit'
+  | 'fullOn'
+  | 'fullOff'
+  | 'crossFull'
+  | 'crossSmall'
+  | 'save';
+const ICONS: Partial<Record<IconKey, ReactNode>> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -544,34 +547,210 @@ const ICONS: Record<IconKey, ReactNode> = {
       <path d="M9 4v14M15 6v14" />
     </>
   ),
+  pen: (
+    <>
+      <path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" />
+      <path d="M14 6l3 3" />
+    </>
+  ),
+  fit: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M9 12h6M12 9v6" />,
+  fullOn: <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />,
+  fullOff: <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />,
+  crossFull: <path d="M12 2v20M2 12h20M10 10h4v4h-4z" />,
+  crossSmall: <path d="M12 7v10M7 12h10M10 10h4v4h-4z" />,
+  save: <path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" />,
 };
 
-/** A small button on the dark tab strip next to «Home» (Undo, Redo, the error markers). */
+/** A small button on the dark tab strip next to «Home» (Undo, Redo, the view buttons). */
 function StripButton({
   label,
   onClick,
   disabled,
   pressed,
+  title,
+  className = '',
   children,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
   pressed?: boolean;
+  /** The tooltip when it says more than the name. */
+  title?: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={title ?? label}
       aria-pressed={pressed}
       onClick={onClick}
       disabled={disabled}
-      className={`relative mb-0.5 flex min-h-7 min-w-8 items-center justify-center rounded px-1 focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-35 ${DARK.tile}`}
+      className={`relative mb-0.5 flex min-h-7 min-w-8 items-center justify-center gap-1 rounded px-1 focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-35 ${
+        pressed ? DARK.on : DARK.tile
+      } ${className}`}
     >
       {children}
     </button>
+  );
+}
+
+const StripSeparator = () => (
+  <span aria-hidden="true" className="mx-1 mb-1 h-4 border-s border-[#454b55]" />
+);
+
+/**
+ * The tab strip (owner 2026-11-26): always shown, also before editing. «Home», the pen that opens
+ * the workspace (in it «حفظ» and «إلغاء»), Undo / Redo, the error markers, the view buttons moved
+ * from the canvas corner, the palettes and the crosshair size.
+ */
+function TabStrip({
+  edit,
+  markersShown,
+  onToggleMarkers,
+  view,
+}: {
+  edit: CanvasEditState;
+  markersShown: boolean;
+  onToggleMarkers: () => void;
+  view: StripView;
+}) {
+  const { t } = useI18n();
+  const markersLabel = markersShown ? t('design.cad.markersHide') : t('design.cad.markersShow');
+  const count = edit.edits.length;
+  const editing = edit.available && edit.editing;
+  const crossLabel =
+    view.crosshair === 'full' ? t('design.cad.crosshairSmall') : t('design.cad.crosshairFull');
+  return (
+    <div
+      role="group"
+      aria-label={t('design.cad.quickAccess')}
+      className="flex flex-wrap items-end gap-1 bg-[#1f2328] px-2 pt-1 text-xs"
+    >
+      <span
+        className={`rounded-t px-3 py-1 font-semibold ${edit.hatch ? 'text-[#aab0b8]' : 'bg-[#2b2f36]'}`}
+      >
+        {t('design.cad.home')}
+      </span>
+      {edit.hatch ? (
+        <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold text-[#9fd17a]">
+          {t('design.cad.hatch.tab')}
+        </span>
+      ) : null}
+      <StripSeparator />
+      {edit.available && !edit.editing ? (
+        <StripButton label={t('design.edit.start')} onClick={edit.start}>
+          <Svg size="size-4">{ICONS.pen}</Svg>
+        </StripButton>
+      ) : null}
+      {editing && edit.hatch === null ? (
+        <>
+          <StripButton
+            label={
+              edit.saving
+                ? t('design.edit.saving')
+                : count > 0
+                  ? t('design.edit.saveCount', { count: ltr(count) })
+                  : t('design.edit.save')
+            }
+            title={t('design.edit.saveHint')}
+            onClick={edit.save}
+            disabled={edit.saving}
+            className="bg-[#3d6fb6] px-2 font-semibold text-white hover:bg-[#4a7fca]"
+          >
+            <Svg size="size-4">{ICONS.save}</Svg>
+            <span>
+              {edit.saving
+                ? t('design.edit.saving')
+                : count > 0
+                  ? t('design.edit.saveCount', { count: ltr(count) })
+                  : t('design.edit.save')}
+            </span>
+          </StripButton>
+          <StripButton
+            label={t('design.edit.cancel')}
+            title={t('design.edit.cancelHint')}
+            onClick={edit.cancel}
+            disabled={edit.saving}
+            className="px-2"
+          >
+            <span aria-hidden="true">✕</span>
+            <span>{t('design.edit.cancel')}</span>
+          </StripButton>
+        </>
+      ) : null}
+      <StripButton
+        label={`${t('design.cad.undo')} (Ctrl+Z)`}
+        onClick={edit.undo}
+        disabled={!editing || !edit.canUndo}
+      >
+        <Svg size="size-4">{ICONS.undo}</Svg>
+      </StripButton>
+      <StripButton
+        label={`${t('design.cad.redo')} (Ctrl+Y)`}
+        onClick={edit.redo}
+        disabled={!editing || !edit.canRedo}
+      >
+        <Svg size="size-4">{ICONS.redo}</Svg>
+      </StripButton>
+      <StripButton label={markersLabel} pressed={!markersShown} onClick={onToggleMarkers}>
+        <Svg size="size-4">{ICONS.markers}</Svg>
+        {markersShown ? null : (
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-1.5 top-1/2 h-0.5 -rotate-45 bg-[#ff6b6b]"
+          />
+        )}
+      </StripButton>
+      <StripSeparator />
+      <StripButton label={t('design.viewer.zoomIn')} onClick={view.zoomIn}>
+        <span className="text-base leading-none">+</span>
+      </StripButton>
+      <StripButton label={t('design.viewer.zoomOut')} onClick={view.zoomOut}>
+        <span className="text-base leading-none">−</span>
+      </StripButton>
+      <StripButton label={t('design.viewer.fit')} onClick={view.fit}>
+        <Svg size="size-4">{ICONS.fit}</Svg>
+      </StripButton>
+      <StripButton
+        label={view.full ? t('design.cad.fullScreenExit') : t('design.cad.fullScreen')}
+        title={`${view.full ? t('design.cad.fullScreenExit') : t('design.cad.fullScreen')} — ${t('design.cad.fullScreenHint')}`}
+        pressed={view.full}
+        onClick={view.onToggleFull}
+      >
+        <Svg size="size-4">{view.full ? ICONS.fullOff : ICONS.fullOn}</Svg>
+      </StripButton>
+      <StripButton
+        label={crossLabel}
+        pressed={view.crosshair === 'small'}
+        onClick={view.onToggleCrosshair}
+      >
+        <Svg size="size-4">{view.crosshair === 'full' ? ICONS.crossFull : ICONS.crossSmall}</Svg>
+      </StripButton>
+      <StripSeparator />
+      <StripButton
+        label={t('design.cad.palette.layers')}
+        pressed={view.layersOpen}
+        onClick={view.onToggleLayers}
+        className="px-2"
+      >
+        {t('design.cad.palette.layers')}
+      </StripButton>
+      {view.palettes.map((p) => (
+        <StripButton
+          key={p.key}
+          label={p.title}
+          title={t('design.cad.paletteToggle', { name: p.title })}
+          pressed={p.open}
+          onClick={p.onToggle}
+          className="px-2"
+        >
+          {p.title}
+        </StripButton>
+      ))}
+    </div>
   );
 }
 
@@ -779,26 +958,105 @@ function Variant({
   );
 }
 
+/** Width of a panel shrunk to its title button (AutoCAD's collapsed ribbon panel), px. */
+const COLLAPSED_PANEL_PX = 84;
+
+/**
+ * Which panels are shrunk to a button so the ribbon stays ONE row (AutoCAD): from the last panel
+ * back, until the panels' widths (as last measured open) fit the row.
+ */
+export function collapsedPanels(
+  order: readonly string[],
+  widths: ReadonlyMap<string, number>,
+  available: number,
+): Set<string> {
+  const out = new Set<string>();
+  let total = order.reduce((sum, id) => sum + (widths.get(id) ?? 0), 0);
+  for (let i = order.length - 1; i >= 0 && total > available; i--) {
+    const id = order[i] as string;
+    const width = widths.get(id) ?? 0;
+    if (width <= COLLAPSED_PANEL_PX) continue;
+    out.add(id);
+    total += COLLAPSED_PANEL_PX - width;
+  }
+  return out;
+}
+
+/** The panels left to right; the last ones shrink first. */
+const PANEL_ORDER = [
+  'draw',
+  'modify',
+  'annotation',
+  'map',
+  'layers',
+  'groups',
+  'block',
+  'properties',
+] as const satisfies readonly string[];
+
+const RibbonFit = createContext<{
+  collapsed: ReadonlySet<string>;
+  measure: (id: string, element: HTMLElement | null) => void;
+}>({ collapsed: new Set(), measure: () => undefined });
+
 function Panel({
+  id,
   title,
   more,
   children,
 }: {
+  /** Key of the panel in the ribbon's order (which ones shrink first). */
+  id: string;
   title: string;
   /** AutoCAD's slide-out: more tools under the panel, opened by the arrow next to its title. */
   more?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
+  const fit = useContext(RibbonFit);
   const [open, setOpen] = useState(false);
+  const [flyout, setFlyout] = useState(false);
   const moreLabel = t('design.cad.panelMore', { panel: title });
+  if (fit.collapsed.has(id)) {
+    const openLabel = t('design.cad.panelOpen', { panel: title });
+    return (
+      <div role="group" aria-label={title} className="relative flex border-e border-[#454b55] px-1">
+        <button
+          type="button"
+          aria-expanded={flyout}
+          aria-label={openLabel}
+          title={openLabel}
+          onClick={() => setFlyout(!flyout)}
+          className={`flex min-h-16 min-w-16 flex-col items-center justify-center gap-1 rounded px-1.5 text-[11px] ${
+            flyout ? DARK.on : DARK.tile
+          }`}
+        >
+          <span dir="ltr" className="whitespace-nowrap">
+            {title}
+          </span>
+          <span aria-hidden="true">▾</span>
+        </button>
+        {flyout ? (
+          <div
+            role="group"
+            aria-label={openLabel}
+            className="absolute start-0 top-full z-30 mt-0.5 flex flex-col gap-1 rounded-b border border-[#454b55] bg-[#2b2f36] p-1.5 shadow-lg"
+          >
+            <div className="flex flex-nowrap items-start gap-0.5">{children}</div>
+            {more ? <div className="flex w-80 flex-wrap gap-0.5">{more}</div> : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
+      ref={(element) => fit.measure(id, element)}
       role="group"
       aria-label={title}
-      className="relative flex flex-col border-e border-[#454b55] px-2 last:border-e-0"
+      className="relative flex shrink-0 flex-col border-e border-[#454b55] px-2 last:border-e-0"
     >
-      <div className="flex flex-1 flex-wrap items-start gap-0.5">{children}</div>
+      <div className="flex flex-1 flex-nowrap items-start gap-0.5">{children}</div>
       {more ? (
         <button
           type="button"
@@ -923,6 +1181,7 @@ export function CadRibbon({
   onToggleMarkers,
   osm,
   layerScreen,
+  view,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
@@ -935,11 +1194,37 @@ export function CadRibbon({
   /** OpenStreetMap behind the drawing: needs the file's CRS; loaded only when turned on. */
   osm: { available: boolean; shown: boolean; onToggle: () => void };
   layerScreen: LayerScreen;
+  /** The view buttons and palettes on the tab strip. */
+  view: StripView;
 }) {
   const { t } = useI18n();
-  if (!edit.available || !edit.editing) return null;
-  const markersLabel = markersShown ? t('design.cad.markersHide') : t('design.cad.markersShow');
-  const count = edit.edits.length;
+  const editing = edit.available && edit.editing;
+  // ONE row as AutoCAD: panels that do not fit shrink to a button, the last ones first.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const widths = useRef(new Map<string, number>());
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const refit = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const next = collapsedPanels(PANEL_ORDER, widths.current, row.clientWidth);
+    setCollapsed((previous) =>
+      previous.size === next.size && [...next].every((id) => previous.has(id)) ? previous : next,
+    );
+  }, []);
+  const measure = useCallback((id: string, element: HTMLElement | null) => {
+    if (element && element.offsetWidth > 0) widths.current.set(id, element.offsetWidth);
+  }, []);
+  useLayoutEffect(() => {
+    refit();
+  });
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(refit);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [refit, editing]);
+  const fit = useMemo(() => ({ collapsed, measure }), [collapsed, measure]);
   return (
     <div
       role="toolbar"
@@ -947,306 +1232,285 @@ export function CadRibbon({
       dir="ltr"
       className={`flex flex-col border ${DARK.bar}`}
     >
-      <div className="flex items-end gap-1 bg-[#1f2328] px-2 pt-1 text-xs">
-        <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold">
-          {t('design.cad.home')}
-        </span>
-        <span aria-hidden="true" className="mx-1 mb-1 h-4 border-s border-[#454b55]" />
-        <StripButton
-          label={`${t('design.cad.undo')} (Ctrl+Z)`}
-          onClick={edit.undo}
-          disabled={!edit.canUndo}
-        >
-          <Svg size="size-4">{ICONS.undo}</Svg>
-        </StripButton>
-        <StripButton
-          label={`${t('design.cad.redo')} (Ctrl+Y)`}
-          onClick={edit.redo}
-          disabled={!edit.canRedo}
-        >
-          <Svg size="size-4">{ICONS.redo}</Svg>
-        </StripButton>
-        <StripButton label={markersLabel} pressed={!markersShown} onClick={onToggleMarkers}>
-          <Svg size="size-4">{ICONS.markers}</Svg>
-          {markersShown ? null : (
-            <span
-              aria-hidden="true"
-              className="absolute inset-x-1.5 top-1/2 h-0.5 -rotate-45 bg-[#ff6b6b]"
-            />
-          )}
-        </StripButton>
-      </div>
-      <div className="flex flex-wrap items-stretch gap-y-2 py-1.5">
-        <Panel
-          title={t('design.cad.panel.draw')}
-          more={
-            <>
-              <Variant edit={edit} id="spline" option="F" label={t('design.cad.tool.splineFit')} />
-              <Variant edit={edit} id="spline" option="CV" label={t('design.cad.tool.splineCv')} />
-              <Tile edit={edit} id="ray" />
-              <Tile edit={edit} id="xline" />
-              <Variant
-                edit={edit}
-                id="point"
-                option="M"
-                label={t('design.cad.tool.multiplePoints')}
-              />
-              <Tile edit={edit} id="divide" />
-              <Tile edit={edit} id="measure" />
-              <Tile edit={edit} id="region" />
-              <Tile edit={edit} id="wipeout" />
-              <Tile edit={edit} id="helix" />
-              <Tile edit={edit} id="donut" />
-              <Tile edit={edit} id="polygon" />
-            </>
-          }
-        >
-          <Tile edit={edit} id="line" big />
-          <Tile edit={edit} id="pline" big />
-          <Tile edit={edit} id="circle" big />
-          <Tile edit={edit} id="arc" big />
-          <Rows>
-            <Tile edit={edit} id="rectang" />
-            <SplitTool
-              edit={edit}
-              label={t('design.cad.tool.hatch')}
-              icon="hatch"
-              items={[
-                { label: t('design.cad.tool.hatch'), icon: 'hatch', id: 'hatch' },
-                { label: t('design.cad.tool.gradient'), icon: 'gradient', id: 'gradient' },
-                { label: t('design.cad.tool.boundary'), icon: 'boundary', id: 'boundary' },
-              ]}
-            />
-            <SplitTool
-              edit={edit}
-              label={t('design.cad.tool.ellipse')}
-              icon="ellipse"
-              items={[
-                {
-                  label: t('design.cad.tool.ellipseCenter'),
-                  icon: 'ellipse',
-                  id: 'ellipse',
-                  option: 'C',
-                },
-                { label: t('design.cad.tool.ellipseAxis'), icon: 'ellipse', id: 'ellipse' },
-                {
-                  label: t('design.cad.tool.ellipseArc'),
-                  icon: 'arc',
-                  id: 'ellipse',
-                  option: 'A',
-                },
-              ]}
-            />
-            <Tile edit={edit} id="point" />
-          </Rows>
-        </Panel>
-        <Panel
-          title={t('design.cad.panel.modify')}
-          more={
-            <>
-              <Tile edit={edit} id="break" />
-              <Tile edit={edit} id="breakatpoint" />
-              <Tile edit={edit} id="lengthen" />
-              <Tile edit={edit} id="reverse" />
-              <Tile edit={edit} id="arrayrect" />
-              <Tile edit={edit} id="overkill" />
-              <SplitTool
-                edit={edit}
-                label={t('design.cad.tool.draworder')}
-                icon="draworder"
-                items={[
-                  {
-                    label: t('design.cad.menu.bringFront'),
-                    icon: 'draworder',
-                    id: 'draworder',
-                    option: 'F',
-                  },
-                  {
-                    label: t('design.cad.menu.sendBack'),
-                    icon: 'draworder',
-                    id: 'draworder',
-                    option: 'B',
-                  },
-                  {
-                    label: t('design.cad.menu.bringAbove'),
-                    icon: 'draworder',
-                    id: 'draworder',
-                    option: 'A',
-                  },
-                  {
-                    label: t('design.cad.menu.sendUnder'),
-                    icon: 'draworder',
-                    id: 'draworder',
-                    option: 'U',
-                  },
-                ]}
-              />
-            </>
-          }
-        >
-          <Rows>
-            <Tile edit={edit} id="move" />
-            <Tile edit={edit} id="copy" />
-            <Tile edit={edit} id="stretch" />
-            <Tile edit={edit} id="rotate" />
-            <Tile edit={edit} id="mirror" />
-            <Tile edit={edit} id="scale" />
-            <Tile edit={edit} id="trim" />
-            <Tile edit={edit} id="fillet" />
-            <Tile edit={edit} id="join" />
-            <Tile edit={edit} id="erase" />
-            <Tile edit={edit} id="offset" />
-          </Rows>
-        </Panel>
-        <Panel title={t('design.cad.panel.annotation')}>
-          <Tile edit={edit} id="text" big />
-          <Tile edit={edit} id="dimlinear" big />
-          <Rows>
-            <Tile edit={edit} id="leader" />
-            <Tile edit={edit} id="textedit" />
-          </Rows>
-          <button
-            type="button"
-            aria-label={t('design.cad.osm')}
-            aria-pressed={osm.shown}
-            title={osm.available ? t('design.cad.osmHint') : t('design.cad.osmNoCrs')}
-            disabled={!osm.available}
-            onClick={osm.onToggle}
-            className={`flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-40 ${
-              osm.shown ? DARK.on : DARK.tile
-            }`}
+      <TabStrip
+        edit={edit}
+        markersShown={markersShown}
+        onToggleMarkers={onToggleMarkers}
+        view={view}
+      />
+      {editing ? (
+        <RibbonFit.Provider value={fit}>
+          <HatchCreationTab edit={edit} />
+          <div
+            ref={rowRef}
+            hidden={edit.hatch !== null}
+            className="flex flex-nowrap items-stretch py-1.5"
           >
-            <Svg size="size-7">{ICONS.osm}</Svg>
-            <span dir="ltr" className="whitespace-nowrap">
-              {t('design.cad.osm')}
-            </span>
-          </button>
-        </Panel>
-        <Panel
-          title={t('design.cad.panel.layers')}
-          more={
-            <div className="flex flex-col gap-1">
-              <LayerStates screen={layerScreen} />
-              <div className="flex flex-wrap gap-0.5">
-                <IconTile edit={edit} id="layerp" />
-                <IconTile edit={edit} id="laycur" />
-                <IconTile edit={edit} id="copytolayer" />
-                <IconTile edit={edit} id="laywalk" />
-                <IconTile edit={edit} id="laymrg" />
-                <IconTile edit={edit} id="laydel" />
-              </div>
-              <LockedFading screen={layerScreen} />
-            </div>
-          }
-        >
-          <Tile edit={edit} id="layer" big />
-          <div className="flex flex-col gap-1">
-            <LayerDropdown
-              edit={edit}
-              rows={rows}
-              onToggleLayer={onToggleLayer}
-              onToggleFrozen={onToggleFrozen}
-              onToggleLocked={onToggleLocked}
-            />
-            <div className="flex flex-wrap items-center gap-0.5">
-              <IconTile edit={edit} id="layoff" />
-              <IconTile edit={edit} id="layiso" />
-              <IconTile edit={edit} id="layfrz" />
-              <IconTile edit={edit} id="laylck" />
-              <Tile edit={edit} id="laymcur" />
-            </div>
-            <div className="flex flex-wrap items-center gap-0.5">
-              <IconTile edit={edit} id="layon" />
-              <IconTile edit={edit} id="layuniso" />
-              <IconTile edit={edit} id="laythw" />
-              <IconTile edit={edit} id="layulk" />
-              <Tile edit={edit} id="laymch" />
-              <Tile edit={edit} id="find" />
-            </div>
-          </div>
-        </Panel>
-        <Panel title={t('design.cad.panel.groups')}>
-          <Tile edit={edit} id="group" big />
-          <Rows>
-            <IconTile edit={edit} id="ungroup" />
-            <IconTile edit={edit} id="groupedit" />
-            <button
-              type="button"
-              aria-pressed={edit.groupPick}
-              aria-label={t('design.cad.tool.pickstyle')}
-              title={`${t('design.cad.tool.pickstyle')} — PICKSTYLE`}
-              onClick={() => edit.run('pickstyle')}
-              className={`flex min-h-8 min-w-8 items-center justify-center rounded ${
-                edit.groupPick ? DARK.on : DARK.tile
-              }`}
+            <Panel
+              id="draw"
+              title={t('design.cad.panel.draw')}
+              more={
+                <>
+                  <Variant
+                    edit={edit}
+                    id="spline"
+                    option="F"
+                    label={t('design.cad.tool.splineFit')}
+                  />
+                  <Variant
+                    edit={edit}
+                    id="spline"
+                    option="CV"
+                    label={t('design.cad.tool.splineCv')}
+                  />
+                  <Tile edit={edit} id="ray" />
+                  <Tile edit={edit} id="xline" />
+                  <Variant
+                    edit={edit}
+                    id="point"
+                    option="M"
+                    label={t('design.cad.tool.multiplePoints')}
+                  />
+                  <Tile edit={edit} id="divide" />
+                  <Tile edit={edit} id="measure" />
+                  <Tile edit={edit} id="region" />
+                  <Tile edit={edit} id="wipeout" />
+                  <Tile edit={edit} id="helix" />
+                  <Tile edit={edit} id="donut" />
+                  <Tile edit={edit} id="polygon" />
+                </>
+              }
             >
-              <Svg size="size-4">{ICONS.pickstyle}</Svg>
-            </button>
-          </Rows>
-        </Panel>
-        <Panel
-          title={t('design.cad.panel.block')}
-          more={
-            <>
-              <Unavailable
-                icon="attdef"
-                label={t('design.cad.tool.attdef')}
-                reason={t('design.cad.blockInCad')}
-              />
-              <Unavailable
-                icon="attdef"
-                label={t('design.cad.tool.battman')}
-                reason={t('design.cad.blockInCad')}
-              />
-              <Unavailable
-                icon="attdef"
-                label={t('design.cad.tool.attsync')}
-                reason={t('design.cad.blockInCad')}
-              />
-            </>
-          }
-        >
-          <Tile edit={edit} id="insert" big />
-          <Rows>
-            <Tile edit={edit} id="block" />
-            <Unavailable
-              icon="bedit"
-              label={t('design.cad.tool.bedit')}
-              reason={t('design.cad.blockInCad')}
-            />
-            <Tile edit={edit} id="eattedit" />
-          </Rows>
-        </Panel>
-        <Panel title={t('design.cad.panel.properties')}>
-          <Tile edit={edit} id="matchprop" big />
-          <PropertiesControls edit={edit} />
-        </Panel>
-        <div className="ms-auto flex items-center gap-2 px-2">
-          <button
-            type="button"
-            onClick={edit.cancel}
-            disabled={edit.saving}
-            title={t('design.edit.cancelHint')}
-            className="min-h-11 rounded border border-[#5a606a] px-3 text-sm hover:bg-white/10 disabled:opacity-40"
-          >
-            <span aria-hidden="true">✕ </span>
-            {t('design.edit.cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={edit.save}
-            disabled={edit.saving}
-            title={t('design.edit.saveHint')}
-            className="min-h-11 rounded bg-[#3d6fb6] px-3 text-sm font-semibold text-white hover:bg-[#4a7fca] disabled:opacity-40"
-          >
-            {edit.saving
-              ? t('design.edit.saving')
-              : count > 0
-                ? t('design.edit.saveCount', { count: ltr(count) })
-                : t('design.edit.done')}
-          </button>
-        </div>
-      </div>
+              <Tile edit={edit} id="line" big />
+              <Tile edit={edit} id="pline" big />
+              <Tile edit={edit} id="circle" big />
+              <Tile edit={edit} id="arc" big />
+              <Rows>
+                <Tile edit={edit} id="rectang" />
+                <SplitTool
+                  edit={edit}
+                  label={t('design.cad.tool.hatch')}
+                  icon="hatch"
+                  items={[
+                    { label: t('design.cad.tool.hatch'), icon: 'hatch', id: 'hatch' },
+                    { label: t('design.cad.tool.gradient'), icon: 'gradient', id: 'gradient' },
+                    { label: t('design.cad.tool.boundary'), icon: 'boundary', id: 'boundary' },
+                  ]}
+                />
+                <SplitTool
+                  edit={edit}
+                  label={t('design.cad.tool.ellipse')}
+                  icon="ellipse"
+                  items={[
+                    {
+                      label: t('design.cad.tool.ellipseCenter'),
+                      icon: 'ellipse',
+                      id: 'ellipse',
+                      option: 'C',
+                    },
+                    { label: t('design.cad.tool.ellipseAxis'), icon: 'ellipse', id: 'ellipse' },
+                    {
+                      label: t('design.cad.tool.ellipseArc'),
+                      icon: 'arc',
+                      id: 'ellipse',
+                      option: 'A',
+                    },
+                  ]}
+                />
+                <Tile edit={edit} id="point" />
+              </Rows>
+            </Panel>
+            <Panel
+              id="modify"
+              title={t('design.cad.panel.modify')}
+              more={
+                <>
+                  <Tile edit={edit} id="break" />
+                  <Tile edit={edit} id="breakatpoint" />
+                  <Tile edit={edit} id="lengthen" />
+                  <Tile edit={edit} id="reverse" />
+                  <Tile edit={edit} id="arrayrect" />
+                  <Tile edit={edit} id="overkill" />
+                  <SplitTool
+                    edit={edit}
+                    label={t('design.cad.tool.draworder')}
+                    icon="draworder"
+                    items={[
+                      {
+                        label: t('design.cad.menu.bringFront'),
+                        icon: 'draworder',
+                        id: 'draworder',
+                        option: 'F',
+                      },
+                      {
+                        label: t('design.cad.menu.sendBack'),
+                        icon: 'draworder',
+                        id: 'draworder',
+                        option: 'B',
+                      },
+                      {
+                        label: t('design.cad.menu.bringAbove'),
+                        icon: 'draworder',
+                        id: 'draworder',
+                        option: 'A',
+                      },
+                      {
+                        label: t('design.cad.menu.sendUnder'),
+                        icon: 'draworder',
+                        id: 'draworder',
+                        option: 'U',
+                      },
+                    ]}
+                  />
+                </>
+              }
+            >
+              <Rows>
+                <Tile edit={edit} id="move" />
+                <Tile edit={edit} id="copy" />
+                <Tile edit={edit} id="stretch" />
+                <Tile edit={edit} id="rotate" />
+                <Tile edit={edit} id="mirror" />
+                <Tile edit={edit} id="scale" />
+                <Tile edit={edit} id="trim" />
+                <Tile edit={edit} id="fillet" />
+                <Tile edit={edit} id="join" />
+                <Tile edit={edit} id="erase" />
+                <Tile edit={edit} id="offset" />
+              </Rows>
+            </Panel>
+            <Panel id="annotation" title={t('design.cad.panel.annotation')}>
+              <Tile edit={edit} id="text" big />
+              <Tile edit={edit} id="dimlinear" big />
+              <Rows>
+                <Tile edit={edit} id="leader" />
+                <Tile edit={edit} id="textedit" />
+                <TableTile edit={edit} />
+              </Rows>
+            </Panel>
+            <TextPanel edit={edit} />
+            <Panel id="map" title={t('design.cad.panel.map')}>
+              <button
+                type="button"
+                aria-label={t('design.cad.osm')}
+                aria-pressed={osm.shown}
+                title={osm.available ? t('design.cad.osmHint') : t('design.cad.osmNoCrs')}
+                disabled={!osm.available}
+                onClick={osm.onToggle}
+                className={`flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-40 ${
+                  osm.shown ? DARK.on : DARK.tile
+                }`}
+              >
+                <Svg size="size-7">{ICONS.osm}</Svg>
+                <span dir="ltr" className="whitespace-nowrap">
+                  {t('design.cad.osm')}
+                </span>
+              </button>
+            </Panel>
+            <Panel
+              id="layers"
+              title={t('design.cad.panel.layers')}
+              more={
+                <div className="flex flex-col gap-1">
+                  <LayerStates screen={layerScreen} />
+                  <div className="flex flex-wrap gap-0.5">
+                    <IconTile edit={edit} id="layerp" />
+                    <IconTile edit={edit} id="laycur" />
+                    <IconTile edit={edit} id="copytolayer" />
+                    <IconTile edit={edit} id="laywalk" />
+                    <IconTile edit={edit} id="laymrg" />
+                    <IconTile edit={edit} id="laydel" />
+                  </div>
+                  <LockedFading screen={layerScreen} />
+                </div>
+              }
+            >
+              <Tile edit={edit} id="layer" big />
+              <div className="flex flex-col gap-1">
+                <LayerDropdown
+                  edit={edit}
+                  rows={rows}
+                  onToggleLayer={onToggleLayer}
+                  onToggleFrozen={onToggleFrozen}
+                  onToggleLocked={onToggleLocked}
+                />
+                <div className="flex flex-wrap items-center gap-0.5">
+                  <IconTile edit={edit} id="layoff" />
+                  <IconTile edit={edit} id="layiso" />
+                  <IconTile edit={edit} id="layfrz" />
+                  <IconTile edit={edit} id="laylck" />
+                  <Tile edit={edit} id="laymcur" />
+                </div>
+                <div className="flex flex-wrap items-center gap-0.5">
+                  <IconTile edit={edit} id="layon" />
+                  <IconTile edit={edit} id="layuniso" />
+                  <IconTile edit={edit} id="laythw" />
+                  <IconTile edit={edit} id="layulk" />
+                  <Tile edit={edit} id="laymch" />
+                  <Tile edit={edit} id="find" />
+                </div>
+              </div>
+            </Panel>
+            <Panel id="groups" title={t('design.cad.panel.groups')}>
+              <Tile edit={edit} id="group" big />
+              <Rows>
+                <IconTile edit={edit} id="ungroup" />
+                <IconTile edit={edit} id="groupedit" />
+                <button
+                  type="button"
+                  aria-pressed={edit.groupPick}
+                  aria-label={t('design.cad.tool.pickstyle')}
+                  title={`${t('design.cad.tool.pickstyle')} — PICKSTYLE`}
+                  onClick={() => edit.run('pickstyle')}
+                  className={`flex min-h-8 min-w-8 items-center justify-center rounded ${
+                    edit.groupPick ? DARK.on : DARK.tile
+                  }`}
+                >
+                  <Svg size="size-4">{ICONS.pickstyle}</Svg>
+                </button>
+              </Rows>
+            </Panel>
+            <Panel
+              id="block"
+              title={t('design.cad.panel.block')}
+              more={
+                <>
+                  <Unavailable
+                    icon="attdef"
+                    label={t('design.cad.tool.attdef')}
+                    reason={t('design.cad.blockInCad')}
+                  />
+                  <Unavailable
+                    icon="attdef"
+                    label={t('design.cad.tool.battman')}
+                    reason={t('design.cad.blockInCad')}
+                  />
+                  <Unavailable
+                    icon="attdef"
+                    label={t('design.cad.tool.attsync')}
+                    reason={t('design.cad.blockInCad')}
+                  />
+                </>
+              }
+            >
+              <Tile edit={edit} id="insert" big />
+              <Rows>
+                <Tile edit={edit} id="block" />
+                <Unavailable
+                  icon="bedit"
+                  label={t('design.cad.tool.bedit')}
+                  reason={t('design.cad.blockInCad')}
+                />
+                <Tile edit={edit} id="eattedit" />
+              </Rows>
+            </Panel>
+            <Panel id="properties" title={t('design.cad.panel.properties')}>
+              <Tile edit={edit} id="matchprop" big />
+              <PropertiesControls edit={edit} />
+            </Panel>
+          </div>
+        </RibbonFit.Provider>
+      ) : null}
     </div>
   );
 }
@@ -1503,7 +1767,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
     if (focusNonce > 0) inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
   if (!edit.available || !edit.editing) return null;
-  const name = edit.command ? COMMANDS[edit.command].name : null;
+  const name = edit.commandLabel ?? (edit.command ? COMMANDS[edit.command].name : null);
   const { prompt } = edit;
   const text = t(`design.cad.cmd.${prompt.key}` as MessageKey);
   return (
@@ -1533,7 +1797,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
               {prompt.options.length > 0 ? (
                 <>
                   {' '}
-                  {t('design.cad.or')} [
+                  {PROMPTS_WITHOUT_OR.has(prompt.key) ? '' : `${t('design.cad.or')} `}[
                   {prompt.options.map((o, i) => (
                     <span key={o.key}>
                       {i > 0 ? '/' : ''}

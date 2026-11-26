@@ -39,6 +39,7 @@ function references(input: DrawingCorrectionInput): { handles: string[]; kinds: 
     case 'set_curve':
       return { handles: [input.handle], kinds: ['curve'] };
     case 'set_text':
+    case 'set_text_format':
       return { handles: [input.handle], kinds: ['text'] };
     case 'set_attribute':
       return { handles: [input.handle], kinds: ['insert'] };

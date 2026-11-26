@@ -36,6 +36,8 @@ DRAWING_VIEW_MAX_TEXT_LENGTH = 2000
 DRAWING_VIEW_MAX_JSON_BYTES = 96 * 1024 * 1024
 HANDLE_MAX_LENGTH = 64
 LAYER_NAME_MAX_LENGTH = 255
+# Block names, as the contract's `insert.name` (DRAWING_VIEW_MAX_BLOCK_NAME).
+BLOCK_NAME_MAX_LENGTH = 255
 KIND_MAX_LENGTH = 32
 # Worker-only cap: decomposed parts (block contents) read per drawing, drawn or not, so a block
 # bomb of empty parts ends too.
@@ -92,6 +94,18 @@ class ViewText:
 
 
 @dataclass(frozen=True, slots=True)
+class ViewInsert:
+    """An INSERT's own placement (AutoCAD's block grip and Properties)."""
+
+    x: float
+    y: float
+    rotation: float  # degrees, counter-clockwise
+    scale_x: float
+    scale_y: float
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class ViewEntity:
     handle: str
     layer: int
@@ -99,6 +113,7 @@ class ViewEntity:
     kind: str
     paths: tuple[tuple[float, ...], ...]  # flat [x0, y0, x1, y1, …], ≥ 2 points each
     texts: tuple[ViewText, ...]
+    insert: ViewInsert | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,7 +334,13 @@ class DrawingViewBuilder:
         self._max_y = max(self._max_y, y)
 
     def add(
-        self, handle: str, layer: str, color: str | None, kind: str, shapes: EntityShapes
+        self,
+        handle: str,
+        layer: str,
+        color: str | None,
+        kind: str,
+        shapes: EntityShapes,
+        insert: ViewInsert | None = None,
     ) -> bool:
         """Add an entity's shapes (collected within `shapes()` budgets). False when nothing of
         it was kept."""
@@ -355,6 +376,7 @@ class DrawingViewBuilder:
                 kind=kind[:KIND_MAX_LENGTH],
                 paths=tuple(paths),
                 texts=tuple(texts),
+                insert=insert,
             )
         )
         return True
@@ -427,6 +449,21 @@ def _dumps(value: object) -> str:
 
 
 def _entity_json(e: ViewEntity) -> dict[str, object]:
+    out = _entity_base_json(e)
+    if e.insert is not None:
+        i = e.insert
+        out["insert"] = {
+            "x": i.x,
+            "y": i.y,
+            "rotation": i.rotation,
+            "scaleX": i.scale_x,
+            "scaleY": i.scale_y,
+            "name": i.name,
+        }
+    return out
+
+
+def _entity_base_json(e: ViewEntity) -> dict[str, object]:
     return {
         "handle": e.handle,
         "layer": e.layer,

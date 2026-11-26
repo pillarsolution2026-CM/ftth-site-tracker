@@ -47,6 +47,10 @@ drawing units.
   `from` are read even when it has no rule, `merged_layers`); `set_attribute {handle, from, to}`
   (EATTEDIT) gives the insert's first attribute whose value is `from` the value `to`; `set_group
   {name, handles, block}` (GROUP / BLOCK made on the page) is screen only.
+- the Text panel, TABLE and HATCH (ADR-055 parts 7-8): `set_text_format {handle, widthFactor,
+  mtext, wrap, mask}` (TEXTFIT, TXT2MTXT, TEXTMASK) and `add_table {layer, x, y, columns, rows,
+  height, styles, cells}` are checked and then ignored; `add_shape` gains `loops`, `island`,
+  `background`, `transparency`, `origin`, `double` and `drawOrder` (checked, ignored).
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -93,7 +97,67 @@ MAX_LINEWEIGHT_MM = 10.0
 NOTE_KINDS = frozenset({"dimension", "leader"})
 LINETYPES = frozenset({"continuous", "dashed", "dotted", "center"})
 SHAPE_KINDS = frozenset({"hatch", "gradient", "wipeout", "donut", "xline", "ray"})
-HATCH_PATTERNS = frozenset({"SOLID", "ANSI31", "ANSI37", "DOTS"})
+GRADIENT_PATTERNS = frozenset(
+    {
+        "GR_LINEAR",
+        "GR_CYLIN",
+        "GR_INVCYL",
+        "GR_SPHER",
+        "GR_INVSPH",
+        "GR_HEMISP",
+        "GR_INVHEM",
+        "GR_CURVED",
+        "GR_INVCUR",
+    }
+)
+HATCH_PATTERNS = (
+    frozenset(
+        {
+            "SOLID",
+            "ANGLE",
+            "ANSI31",
+            "ANSI32",
+            "ANSI33",
+            "ANSI34",
+            "ANSI35",
+            "ANSI36",
+            "ANSI37",
+            "ANSI38",
+            "AR-B816",
+            "AR-B88",
+            "AR-BRSTD",
+            "AR-HBONE",
+            "BRICK",
+            "CROSS",
+            "DASH",
+            "DOTS",
+            "EARTH",
+            "GRASS",
+            "HEX",
+            "HONEY",
+            "LINE",
+            "NET",
+            "NET3",
+            "SQUARE",
+            "STARS",
+            "TRIANG",
+            "ZIGZAG",
+            "USER",
+        }
+    )
+    | GRADIENT_PATTERNS
+)
+HATCH_ISLAND_STYLES = frozenset({"normal", "outer", "ignore"})
+HATCH_DRAW_ORDERS = frozenset({"none", "back", "front", "behind", "above"})
+MAX_HATCH_LOOPS = 100
+MAX_HATCH_TRANSPARENCY = 90
+MAX_TEXT_MASK_OFFSET = 5.0
+MIN_TEXT_WIDTH_FACTOR = 0.01
+MAX_TEXT_WIDTH_FACTOR = 100.0
+MAX_TABLE_COLUMNS = 100
+MAX_TABLE_ROWS = 500
+MAX_TABLE_CELLS = 10_000
+TABLE_CELL_STYLES = frozenset({"title", "header", "data"})
 MAX_DRAW_ORDER = 1_000_000_000
 MAX_GROUP_HANDLES = 2000
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
@@ -259,6 +323,22 @@ class AddShape:
 
 
 @dataclass(frozen=True, slots=True)
+class SetTextFormat:
+    """Screen only (ADR-055 part 7: TEXTFIT, TXT2MTXT, TEXTMASK): the build ignores it."""
+
+    handle: str
+
+
+@dataclass(frozen=True, slots=True)
+class AddTable:
+    """Screen only (owner 2026-11-26: TABLE): the build ignores it."""
+
+    layer: str
+    rows: int
+    columns: int
+
+
+@dataclass(frozen=True, slots=True)
 class MergeLayer:
     from_layer: str
     to_layer: str
@@ -313,6 +393,8 @@ Correction = (
     | MergeLayer
     | SetAttribute
     | SetGroup
+    | SetTextFormat
+    | AddTable
 )
 
 
@@ -362,12 +444,23 @@ _KEYS: Mapping[str, frozenset[str]] = {
             "color2",
             "inner",
             "outer",
+            "loops",
+            "island",
+            "background",
+            "transparency",
+            "origin",
+            "double",
+            "drawOrder",
         }
     ),
     "set_order": frozenset({"kind", "handle", "order"}),
     "merge_layer": frozenset({"kind", "from", "to"}),
     "set_attribute": frozenset({"kind", "handle", "from", "to"}),
     "set_group": frozenset({"kind", "name", "handles", "block"}),
+    "set_text_format": frozenset({"kind", "handle", "widthFactor", "mtext", "wrap", "mask"}),
+    "add_table": frozenset(
+        {"kind", "layer", "x", "y", "columns", "rows", "height", "styles", "cells"}
+    ),
 }
 
 
@@ -529,6 +622,10 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         if not isinstance(block, bool):
             raise CorrectionInvalidError(f"correction {cid}: `block` must be true or false")
         return SetGroup(_text(cid, body, "name"), tuple(_handle(cid, h) for h in handles), block)
+    if kind == "set_text_format":
+        return _text_format(cid, body)
+    if kind == "add_table":
+        return _table(cid, body)
     if kind == "set_order":
         order = _number(body.get("order"))
         if order is None or abs(order) > MAX_DRAW_ORDER:
@@ -644,7 +741,115 @@ def _shape(cid: str, body: Mapping[str, object]) -> AddShape:
             raise CorrectionInvalidError(
                 f"correction {cid}: a donut needs an outer diameter above the inner one"
             )
+    _hatch_fields(cid, body, str(shape))
     return AddShape(str(shape), _layer(cid, body, "layer"), points)
+
+
+def _hatch_fields(cid: str, body: Mapping[str, object], shape: str) -> None:
+    """The HATCH fields of `add_shape` (ADR-055 part 8): checked as the contract, then ignored."""
+    filled = shape in ("hatch", "gradient")
+    pattern = body.get("pattern")
+    if filled and pattern is not None and (pattern in GRADIENT_PATTERNS) != (shape == "gradient"):
+        raise CorrectionInvalidError(
+            f"correction {cid}: GR_ patterns are for a gradient, the others for a hatch"
+        )
+    loops = body.get("loops", [])
+    if not isinstance(loops, list) or len(loops) > MAX_HATCH_LOOPS:
+        raise CorrectionInvalidError(
+            f"correction {cid}: `loops` must be an array of at most {MAX_HATCH_LOOPS} loops"
+        )
+    if loops and not filled:
+        raise CorrectionInvalidError(f"correction {cid}: only a hatch or gradient has more loops")
+    for loop in loops:
+        _points(cid, loop, least=3)
+    if body.get("island", "normal") not in HATCH_ISLAND_STYLES:
+        raise CorrectionInvalidError(f"correction {cid}: unknown island detection")
+    if body.get("drawOrder", "behind") not in HATCH_DRAW_ORDERS:
+        raise CorrectionInvalidError(f"correction {cid}: unknown hatch draw order")
+    _optional_colour(cid, body, "background")
+    transparency = body.get("transparency", 0)
+    if (
+        isinstance(transparency, bool)
+        or not isinstance(transparency, int)
+        or not 0 <= transparency <= MAX_HATCH_TRANSPARENCY
+    ):
+        raise CorrectionInvalidError(
+            f"correction {cid}: `transparency` must be a whole 0-{MAX_HATCH_TRANSPARENCY}"
+        )
+    origin = body.get("origin")
+    if origin is not None:
+        _points(cid, [origin], least=1, most=1)
+    if not isinstance(body.get("double", False), bool):
+        raise CorrectionInvalidError(f"correction {cid}: `double` must be true or false")
+
+
+def _text_format(cid: str, body: Mapping[str, object]) -> SetTextFormat:
+    raw = body.get("widthFactor")
+    factor = None if raw is None else _number(raw)
+    if raw is not None and (
+        factor is None or not MIN_TEXT_WIDTH_FACTOR <= factor <= MAX_TEXT_WIDTH_FACTOR
+    ):
+        raise CorrectionInvalidError(
+            f"correction {cid}: `widthFactor` must be "
+            f"{MIN_TEXT_WIDTH_FACTOR:g}-{MAX_TEXT_WIDTH_FACTOR:g} or null"
+        )
+    if not isinstance(body.get("mtext", False), bool):
+        raise CorrectionInvalidError(f"correction {cid}: `mtext` must be true or false")
+    wrap = body.get("wrap")
+    if wrap is not None:
+        _positive(cid, wrap, "wrap")
+    mask = body.get("mask")
+    if mask is not None:
+        if not isinstance(mask, dict) or set(mask) - {"offset", "color"}:
+            raise CorrectionInvalidError(f"correction {cid}: `mask` must be {{offset, color}}")
+        fields = cast(Mapping[str, object], mask)
+        offset = _number(fields.get("offset"))
+        if offset is None or not 0 <= offset <= MAX_TEXT_MASK_OFFSET:
+            raise CorrectionInvalidError(
+                f"correction {cid}: a mask offset must be 0-{MAX_TEXT_MASK_OFFSET:g}"
+            )
+        _optional_colour(cid, fields, "color")
+    return SetTextFormat(_handle(cid, body.get("handle")))
+
+
+def _positive(cid: str, value: object, key: str) -> float:
+    number = _number(value)
+    if number is None or not 0 < number <= MAX_CORRECTION_COORD:
+        raise CorrectionInvalidError(f"correction {cid}: `{key}` must be a positive size")
+    return number
+
+
+def _table(cid: str, body: Mapping[str, object]) -> AddTable:
+    _finite(cid, body, "x")
+    _finite(cid, body, "y")
+    _positive(cid, body.get("height"), "height")
+    sizes: dict[str, int] = {}
+    for key, most in (("columns", MAX_TABLE_COLUMNS), ("rows", MAX_TABLE_ROWS)):
+        value = body.get(key)
+        if not isinstance(value, list) or not 1 <= len(value) <= most:
+            raise CorrectionInvalidError(f"correction {cid}: `{key}` must be 1-{most} sizes")
+        for size in value:
+            _positive(cid, size, key)
+        sizes[key] = len(value)
+    if sizes["rows"] * sizes["columns"] > MAX_TABLE_CELLS:
+        raise CorrectionInvalidError(f"correction {cid}: too many cells")
+    styles = body.get("styles", ["title", "header", "data"])
+    if (
+        not isinstance(styles, list)
+        or len(styles) != 3
+        or any(style not in TABLE_CELL_STYLES for style in styles)
+    ):
+        raise CorrectionInvalidError(f"correction {cid}: `styles` must be three cell styles")
+    cells = body.get("cells")
+    if not isinstance(cells, list) or len(cells) != sizes["rows"]:
+        raise CorrectionInvalidError(f"correction {cid}: one cell per row and column")
+    for row in cells:
+        if not isinstance(row, list) or len(row) != sizes["columns"]:
+            raise CorrectionInvalidError(f"correction {cid}: one cell per row and column")
+        for cell in row:
+            if not isinstance(cell, str) or len(cell) > MAX_TEXT_LENGTH or _CONTROL.search(cell):
+                raise CorrectionInvalidError(f"correction {cid}: a cell must be one line of text")
+    return AddTable(_layer(cid, body, "layer"), sizes["rows"], sizes["columns"])
 
 
 def _style(cid: str, body: Mapping[str, object]) -> SetStyle:
@@ -906,7 +1111,9 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
         if curve is None:
             raise CorrectionInvalidError(f"{where}: no line with handle {c.handle} in the drawing")
         rows.curves[c.handle] = dataclasses.replace(curve, points=c.points, closed=c.closed)
-    elif isinstance(c, AddNote | SetStyle | AddShape | SetOrder | SetGroup):
+    elif isinstance(
+        c, AddNote | SetStyle | AddShape | SetOrder | SetGroup | SetTextFormat | AddTable
+    ):
         return  # screen only (ADR-051): no row, quantity or problem changes
     elif isinstance(c, MergeLayer):
         _relayer(rows, c.from_layer, c.to_layer)

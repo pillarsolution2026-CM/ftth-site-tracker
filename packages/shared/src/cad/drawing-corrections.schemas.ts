@@ -66,6 +66,8 @@ export const DRAWING_CORRECTION_KINDS = [
   'merge_layer',
   'set_group',
   'set_attribute',
+  'set_text_format',
+  'add_table',
 ] as const;
 export const DrawingCorrectionKindSchema = z.enum(DRAWING_CORRECTION_KINDS);
 export type DrawingCorrectionKind = z.infer<typeof DrawingCorrectionKindSchema>;
@@ -102,6 +104,8 @@ export const SCREEN_ONLY_CORRECTION_KINDS: readonly DrawingCorrectionKind[] = [
   'add_shape',
   'set_order',
   'set_group',
+  'set_text_format',
+  'add_table',
 ];
 /** Objects in one group or page block (`set_group`; technical cap). */
 export const MAX_GROUP_HANDLES = 2000;
@@ -120,15 +124,93 @@ export const DRAWING_SHAPE_KINDS = [
 ] as const;
 export const DrawingShapeKindSchema = z.enum(DRAWING_SHAPE_KINDS);
 export type DrawingShapeKind = z.infer<typeof DrawingShapeKindSchema>;
-/** Hatch patterns of the screen (in the spirit of AutoCAD's SOLID, ANSI31, ANSI37 and DOTS). */
-export const HATCH_PATTERNS = ['SOLID', 'ANSI31', 'ANSI37', 'DOTS'] as const;
+/**
+ * Hatch patterns of the screen: AutoCAD's names (acadiso.pat) the screen can draw, `USER` (AutoCAD's
+ * user-defined lines: spacing = `scale` drawing units, `double` crosses them) and the gradients
+ * (`GR_*`, only for a gradient). ADR-055 part 8.
+ */
+export const HATCH_LINE_PATTERNS = [
+  'SOLID',
+  'ANGLE',
+  'ANSI31',
+  'ANSI32',
+  'ANSI33',
+  'ANSI34',
+  'ANSI35',
+  'ANSI36',
+  'ANSI37',
+  'ANSI38',
+  'AR-B816',
+  'AR-B88',
+  'AR-BRSTD',
+  'AR-HBONE',
+  'BRICK',
+  'CROSS',
+  'DASH',
+  'DOTS',
+  'EARTH',
+  'GRASS',
+  'HEX',
+  'HONEY',
+  'LINE',
+  'NET',
+  'NET3',
+  'SQUARE',
+  'STARS',
+  'TRIANG',
+  'ZIGZAG',
+  'USER',
+] as const;
+export const GRADIENT_PATTERNS = [
+  'GR_LINEAR',
+  'GR_CYLIN',
+  'GR_INVCYL',
+  'GR_SPHER',
+  'GR_INVSPH',
+  'GR_HEMISP',
+  'GR_INVHEM',
+  'GR_CURVED',
+  'GR_INVCUR',
+] as const;
+export const HATCH_PATTERNS = [...HATCH_LINE_PATTERNS, ...GRADIENT_PATTERNS] as const;
 export const HatchPatternSchema = z.enum(HATCH_PATTERNS);
 export type HatchPattern = z.infer<typeof HatchPatternSchema>;
+export type HatchLinePattern = (typeof HATCH_LINE_PATTERNS)[number];
+export type GradientPattern = (typeof GRADIENT_PATTERNS)[number];
+/** AutoCAD's island detection (HPISLANDDETECTION): Normal, Outer, Ignore. */
+export const HATCH_ISLAND_STYLES = ['normal', 'outer', 'ignore'] as const;
+export type HatchIslandStyle = (typeof HATCH_ISLAND_STYLES)[number];
+/** AutoCAD's HPDRAWORDER: where the hatch is drawn against the other objects. */
+export const HATCH_DRAW_ORDERS = ['none', 'back', 'front', 'behind', 'above'] as const;
+export type HatchDrawOrder = (typeof HATCH_DRAW_ORDERS)[number];
+/** Boundary loops of one hatch besides its first (`loops`; technical cap). */
+export const MAX_HATCH_LOOPS = 100;
+/** AutoCAD's HPTRANSPARENCY: 0-90 %. */
+export const MAX_HATCH_TRANSPARENCY = 90;
+/** A text mask's offset factor x text height (TEXTMASK; technical bound). */
+export const MAX_TEXT_MASK_OFFSET = 5;
+/** A text's width factor (TEXTFIT; technical bounds). */
+export const MIN_TEXT_WIDTH_FACTOR = 0.01;
+export const MAX_TEXT_WIDTH_FACTOR = 100;
+/** Rows and columns of one table (TABLE; technical caps). */
+export const MAX_TABLE_COLUMNS = 100;
+export const MAX_TABLE_ROWS = 500;
+export const MAX_TABLE_CELLS = 10_000;
+/** The cell styles of AutoCAD's Insert Table dialog. */
+export const TABLE_CELL_STYLES = ['title', 'header', 'data'] as const;
+export const TableCellStyleSchema = z.enum(TABLE_CELL_STYLES);
+export type TableCellStyle = z.infer<typeof TableCellStyleSchema>;
 /** A draw order key of `set_order` (technical bound): a higher one is drawn later, on top. */
 export const MAX_DRAW_ORDER = 1_000_000_000;
 const Colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'A colour is #rrggbb');
 const Point = z.tuple([Coord, Coord]);
 const Size = z.number().refine(Number.isFinite).min(0).max(MAX_CORRECTION_COORD);
+const Positive = z.number().refine(Number.isFinite).positive().max(MAX_CORRECTION_COORD);
+/** A table cell: empty or a text of one line. */
+const CellText = z
+  .string()
+  .max(MAX_TEXT_LENGTH)
+  .refine(noControl, 'Control characters are not allowed');
 
 export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
   /** An insert, text or curve moves to another layer (its rule then decides what it is). */
@@ -361,8 +443,43 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
       color2: Colour.nullable().default(null),
       inner: Size.nullable().default(null),
       outer: Size.nullable().default(null),
+      /**
+       * More boundary loops of the same hatch or gradient (several picks, islands; ADR-055 part 8).
+       * `points` is the first loop.
+       */
+      loops: z.array(z.array(Point).min(3).max(MAX_CURVE_POINTS)).max(MAX_HATCH_LOOPS).default([]),
+      /** Island detection: Normal (alternate), Outer (outermost level only), Ignore (all filled). */
+      island: z.enum(HATCH_ISLAND_STYLES).default('normal'),
+      /** Background colour of a pattern hatch; null = none. */
+      background: Colour.nullable().default(null),
+      /** Hatch transparency, % (0 = opaque). */
+      transparency: z.number().int().min(0).max(MAX_HATCH_TRANSPARENCY).default(0),
+      /** Hatch origin; null = the drawing's 0,0 (AutoCAD's default). */
+      origin: Point.nullable().default(null),
+      /** User-defined pattern: a second set of lines at 90 degrees. */
+      double: z.boolean().default(false),
+      /** Where it is drawn against the other objects (AutoCAD's default: behind the boundary). */
+      drawOrder: z.enum(HATCH_DRAW_ORDERS).default('behind'),
     })
     .superRefine((shape, ctx) => {
+      const filled = shape.shape === 'hatch' || shape.shape === 'gradient';
+      if (!filled && shape.loops.length > 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['loops'],
+          message: 'Only a hatch or gradient has more loops',
+        });
+      }
+      if (shape.pattern !== null && filled) {
+        const gradient = (GRADIENT_PATTERNS as readonly string[]).includes(shape.pattern);
+        if (gradient !== (shape.shape === 'gradient')) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['pattern'],
+            message: 'GR_ patterns are for a gradient, the others for a hatch',
+          });
+        }
+      }
       const n = shape.points.length;
       const need =
         shape.shape === 'donut'
@@ -445,6 +562,64 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
       to: Text.max(MAX_TEXT_LENGTH),
     })
     .refine((a) => a.from !== a.to, 'The new value must differ'),
+  /**
+   * How a text of the drawing looks on the screen (ADR-055 part 7): TEXTFIT's width factor (null =
+   * 1), TXT2MTXT (`mtext`, wrapped at `wrap` drawing units; null = one line), TEXTMASK (`mask`: a
+   * frame `offset` x height around the text painted with `color`, null = the background; null = no
+   * mask). The latest of a text wins. Saved and drawn; the build ignores it.
+   */
+  z.strictObject({
+    kind: z.literal('set_text_format'),
+    handle: Handle,
+    widthFactor: z
+      .number()
+      .refine(Number.isFinite)
+      .min(MIN_TEXT_WIDTH_FACTOR)
+      .max(MAX_TEXT_WIDTH_FACTOR)
+      .nullable()
+      .default(null),
+    mtext: z.boolean().default(false),
+    wrap: Positive.nullable().default(null),
+    mask: z
+      .strictObject({
+        offset: z.number().refine(Number.isFinite).min(0).max(MAX_TEXT_MASK_OFFSET),
+        color: Colour.nullable().default(null),
+      })
+      .nullable()
+      .default(null),
+  }),
+  /**
+   * AutoCAD's TABLE (owner 2026-11-26 lifts ADR-051's «no Table»): a table whose top-left corner
+   * is (x, y), column widths and row heights in drawing units, the cell text height, the cell
+   * styles of row 1, row 2 and the other rows (Insert Table dialog), and the cells (rows x
+   * columns; '' = empty; a title row shows its first cell across the table). Saved and drawn; the
+   * build ignores it.
+   */
+  z
+    .strictObject({
+      kind: z.literal('add_table'),
+      layer: LayerName,
+      x: Coord,
+      y: Coord,
+      columns: z.array(Positive).min(1).max(MAX_TABLE_COLUMNS),
+      rows: z.array(Positive).min(1).max(MAX_TABLE_ROWS),
+      height: Positive,
+      styles: z
+        .tuple([TableCellStyleSchema, TableCellStyleSchema, TableCellStyleSchema])
+        .default(['title', 'header', 'data']),
+      cells: z.array(z.array(CellText)),
+    })
+    .superRefine((table, ctx) => {
+      if (table.columns.length * table.rows.length > MAX_TABLE_CELLS) {
+        ctx.addIssue({ code: 'custom', path: ['rows'], message: 'Too many cells' });
+      }
+      if (
+        table.cells.length !== table.rows.length ||
+        table.cells.some((row) => row.length !== table.columns.length)
+      ) {
+        ctx.addIssue({ code: 'custom', path: ['cells'], message: 'One cell per row and column' });
+      }
+    }),
 ]);
 export type DrawingCorrectionInput = z.infer<typeof DrawingCorrectionInputSchema>;
 

@@ -78,7 +78,17 @@ export type CommandId =
   | 'pickstyle'
   | 'block'
   | 'insert'
-  | 'eattedit';
+  | 'eattedit'
+  // Text panel (Express Tools) and TABLE (ADR-055 part 7)
+  | 'tcase'
+  | 'torient'
+  | 'textfit'
+  | 'txt2mtxt'
+  | 'tcount'
+  | 'tcircle'
+  | 'textmask'
+  | 'textunmask'
+  | 'table';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -103,7 +113,7 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   region: { name: 'REGION', aliases: ['REG'] },
   hatch: { name: 'HATCH', aliases: ['H', 'BH'] },
   gradient: { name: 'GRADIENT', aliases: ['GD'] },
-  boundary: { name: 'BOUNDARY', aliases: ['BO'] },
+  boundary: { name: 'BOUNDARY', aliases: ['BO', 'BPOLY'] },
   wipeout: { name: 'WIPEOUT', aliases: [] },
   helix: { name: 'HELIX', aliases: [] },
   donut: { name: 'DONUT', aliases: ['DO', 'DOUGHNUT'] },
@@ -127,10 +137,10 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   draworder: { name: 'DRAWORDER', aliases: ['DR'] },
   text: { name: 'TEXT', aliases: ['T', 'DT', 'DTEXT'] },
   textedit: { name: 'TEXTEDIT', aliases: ['ED', 'DDEDIT'] },
-  dimlinear: { name: 'DIMLINEAR', aliases: ['DLI'] },
+  dimlinear: { name: 'DIMLINEAR', aliases: ['DLI', 'DIMLIN'] },
   leader: { name: 'LEADER', aliases: ['LE', 'LEAD'] },
   layer: { name: 'LAYER', aliases: ['LA'] },
-  matchprop: { name: 'MATCHPROP', aliases: ['MA'] },
+  matchprop: { name: 'MATCHPROP', aliases: ['MA', 'PAINTER'] },
   laymcur: { name: 'LAYMCUR', aliases: [] },
   laymch: { name: 'LAYMCH', aliases: [] },
   layoff: { name: 'LAYOFF', aliases: [] },
@@ -155,6 +165,15 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   block: { name: 'BLOCK', aliases: ['B'] },
   insert: { name: 'INSERT', aliases: ['I'] },
   eattedit: { name: 'EATTEDIT', aliases: [] },
+  tcase: { name: 'TCASE', aliases: [] },
+  torient: { name: 'TORIENT', aliases: [] },
+  textfit: { name: 'TEXTFIT', aliases: [] },
+  txt2mtxt: { name: 'TXT2MTXT', aliases: [] },
+  tcount: { name: 'TCOUNT', aliases: [] },
+  tcircle: { name: 'TCIRCLE', aliases: [] },
+  textmask: { name: 'TEXTMASK', aliases: [] },
+  textunmask: { name: 'TEXTUNMASK', aliases: [] },
+  table: { name: 'TABLE', aliases: ['TB'] },
 };
 
 const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
@@ -267,6 +286,27 @@ export function matchOption(options: readonly CommandOption[], word: string): st
   );
   return hit ? hit.key : null;
 }
+
+/**
+ * Prompts that are a question or «Enter … option»: AutoCAD writes their options without «or»
+ * (`Erase source objects? [Yes/No] <No>:`), unlike «Specify … or [..]».
+ */
+export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
+  'mirrorErase',
+  'copyMode',
+  'filletTrim',
+  'offsetErase',
+  'offsetLayer',
+  'rectAreaBy',
+  'layerConfirm',
+  'groupOptions',
+  'splineMethod',
+  'polygonMode',
+  'orderOption',
+]);
+
+/** An angle as AutoCAD prints it in a default (AUPREC 0: whole degrees). */
+export const acadAngle = (degrees: number) => String(Math.round(degrees) + 0);
 
 /** A number as AutoCAD prints it (4 decimals). */
 export const acadNumber = (value: number) => value.toFixed(4);

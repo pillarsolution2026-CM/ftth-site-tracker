@@ -42,6 +42,19 @@ export const DrawingViewTextSchema = z.object({
 });
 export type DrawingViewText = z.infer<typeof DrawingViewTextSchema>;
 
+/** Block names are DXF names (at most 255 characters). */
+export const DRAWING_VIEW_MAX_BLOCK_NAME = 255;
+
+export const DrawingViewInsertSchema = z.object({
+  x: Finite,
+  y: Finite,
+  rotation: Finite,
+  scaleX: Finite,
+  scaleY: Finite,
+  name: z.string().max(DRAWING_VIEW_MAX_BLOCK_NAME),
+});
+export type DrawingViewInsert = z.infer<typeof DrawingViewInsertSchema>;
+
 export const DrawingViewEntitySchema = z.object({
   /** Top-level handle in model space (an INSERT keeps its own handle for all its block shapes). */
   handle: z.string().min(1).max(64),
@@ -55,6 +68,12 @@ export const DrawingViewEntitySchema = z.object({
   paths: z.array(z.array(Finite).min(4)),
   /** Texts of the entity (a TEXT / MTEXT, or attributes and texts inside a block). */
   texts: z.array(DrawingViewTextSchema),
+  /**
+   * An INSERT's own placement (AutoCAD's grip and Properties, owner 2026-11-26): the insertion
+   * point, rotation (degrees, counter-clockwise), X / Y scale and the block name. Absent in views
+   * rendered before it was added, and for other entities.
+   */
+  insert: DrawingViewInsertSchema.optional(),
 });
 export type DrawingViewEntity = z.infer<typeof DrawingViewEntitySchema>;
 

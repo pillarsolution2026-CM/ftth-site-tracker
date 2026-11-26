@@ -9,6 +9,7 @@ import {
   type DrawModel,
 } from './drawing-draw';
 import { buildMarkers } from './drawing-hit';
+import { HATCH_FIELD_DEFAULTS } from './hatch-patterns';
 import { applyCorrections, EMPTY_PREVIEW } from './drawing-preview';
 import { buildScene, screenColor } from './drawing-scene';
 import { testView } from './drawing-test-view';
@@ -457,5 +458,60 @@ describe('the AutoCAD-like screen (ADR-051)', () => {
     // A follows its layer: cyan now; B has its own colour.
     expect(strokes).toContain('#00ffff');
     expect(strokes).toContain('#123456');
+  });
+});
+
+describe('TRANSPARENCYDISPLAY (status bar Show/Hide Transparency)', () => {
+  const tf = { cx: 50, cy: 25, scale: 4 };
+  const hatch = applyCorrections(
+    scene,
+    [
+      {
+        id: '44444444-4444-4444-8444-444444444449',
+        cadFileId: scene.view.cadFileId,
+        correction: {
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          points: [
+            [40, 20],
+            [60, 20],
+            [60, 30],
+          ],
+          pattern: 'SOLID',
+          scale: 1,
+          angle: 0,
+          color: '#ff0000',
+          color2: null,
+          inner: null,
+          outer: null,
+          ...HATCH_FIELD_DEFAULTS,
+          transparency: 50,
+        },
+        problem: null,
+        createdBy: null,
+        createdAt: '2026-11-26T10:00:00+00:00',
+        withdrawnBy: null,
+        withdrawnAt: null,
+      },
+    ],
+    2.5,
+  );
+  const alphaOfFill = (transparency: boolean | undefined) => {
+    const ctx = createMockContext();
+    const alphas: number[] = [];
+    ctx.fill.mockImplementation(() => {
+      alphas.push(ctx.globalAlpha);
+    });
+    drawBase(asCtx(ctx), model({ preview: hatch, transparency }), new PathCache(scene), tf, vp);
+    return alphas;
+  };
+
+  it('draws a hatch at its transparency when shown, and opaque when hidden', () => {
+    expect(alphaOfFill(true)).toContain(0.5);
+    expect(alphaOfFill(undefined)).toContain(0.5);
+    const hidden = alphaOfFill(false);
+    expect(hidden.length).toBeGreaterThan(0);
+    expect(hidden).not.toContain(0.5);
   });
 });

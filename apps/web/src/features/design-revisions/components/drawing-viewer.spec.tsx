@@ -713,7 +713,7 @@ describe(
       for (const name of ['Line', 'Polyline', 'Circle', 'Arc', 'Rectangle', 'Trim', 'Fillet']) {
         expect(tool(name)).toBeInTheDocument();
       }
-      expect(within(ribbon).queryByRole('button', { name: /^Table$/ })).not.toBeInTheDocument();
+      expect(within(ribbon).getByRole('button', { name: /^Table$/ })).toBeInTheDocument();
       expect(tool('Move')).toHaveAttribute('title', expect.stringMatching(/MOVE \(M\)$/));
       expect(prompt()).toBe('Type a command');
       await waitFor(() => expect(fills).toContain('#000000'));
@@ -879,40 +879,167 @@ describe(
       expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
     });
 
-    it('full screen puts the whole workspace on the screen, and the same button leaves it', async () => {
-      const request = vi.fn(function (this: Element) {
-        Object.defineProperty(document, 'fullscreenElement', {
-          configurable: true,
-          value: this,
-        });
-        document.dispatchEvent(new Event('fullscreenchange'));
-        return Promise.resolve();
+    it('full screen is a full window that Esc never leaves; the same button leaves it', async () => {
+      const { canvas, user } = await openWorkspace();
+      const workspace = screen.getByTestId('cad-workspace');
+      expect(workspace).not.toHaveAttribute('data-full');
+      await user.click(screen.getByRole('button', { name: 'Full screen' }));
+      expect(workspace).toHaveAttribute('data-full', 'true');
+      expect(workspace).toHaveClass('fixed', 'inset-0');
+      expect(workspace).toContainElement(screen.getByRole('toolbar', { name: 'Drawing tools' }));
+      expect(workspace).toContainElement(screen.getByLabelText('Command'));
+      // Esc cancels the running command, as in AutoCAD, and the window stays full.
+      await user.click(tool('Line'));
+      expect(prompt()).toMatch(/^LINE/);
+      await user.click(canvas);
+      await user.keyboard('{Escape}');
+      expect(prompt()).toBe('Type a command');
+      expect(history()).toMatch(/\*Cancel\*/);
+      expect(workspace).toHaveAttribute('data-full', 'true');
+      await user.type(command(), '{Escape}');
+      expect(workspace).toHaveAttribute('data-full', 'true');
+      await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
+      expect(workspace).not.toHaveAttribute('data-full');
+      expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+    });
+
+    describe('tab strip and layout (owner 2026-11-26)', () => {
+      it('shows the tab strip before editing: pen, view buttons, palettes; none on the canvas', async () => {
+        renderViewer();
+        await screen.findByLabelText(/The drawing: drag to pan/);
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        for (const name of [
+          'Edit the drawing',
+          'Zoom in',
+          'Zoom out',
+          'Show the whole drawing',
+          'Full screen',
+          'Layers',
+          'Hide the error markers',
+        ]) {
+          expect(within(strip).getByRole('button', { name })).toBeInTheDocument();
+        }
+        expect(within(strip).getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeDisabled();
+        expect(within(strip).getByRole('button', { name: 'Redo (Ctrl+Y)' })).toBeDisabled();
+        // The canvas corner has no buttons any more, and no ribbon panels show before editing.
+        expect(screen.queryByRole('group', { name: 'View tools' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Draw' })).not.toBeInTheDocument();
       });
-      const exit = vi.fn(() => {
-        Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
-        document.dispatchEvent(new Event('fullscreenchange'));
-        return Promise.resolve();
+
+      it('the pen turns into Save and Cancel on the strip; the ribbon has no buttons at its end', async () => {
+        const { canvas, user } = await openWorkspace();
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        expect(within(strip).queryByRole('button', { name: 'Edit the drawing' })).toBeNull();
+        expect(within(strip).getByRole('button', { name: 'Save' })).toBeInTheDocument();
+        expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(within(strip).getByRole('button', { name: /^Save \(.?1.?\)$/ })).toBeInTheDocument();
+        await user.click(within(strip).getByRole('button', { name: 'Cancel' }));
+        expect(await screen.findByRole('button', { name: 'Edit the drawing' })).toBeInTheDocument();
+        expect(api.createCorrections).not.toHaveBeenCalled();
       });
-      Object.defineProperty(Element.prototype, 'requestFullscreen', {
-        configurable: true,
-        value: request,
-      });
-      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
-      try {
-        const { user } = await openWorkspace();
-        await user.click(screen.getByRole('button', { name: 'Full screen' }));
-        expect(request).toHaveBeenCalledTimes(1);
+
+      it('OpenStreetMap has its own Map panel among the panels', async () => {
+        await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
-        expect(request.mock.contexts[0]).toContainElement(ribbon);
-        expect(request.mock.contexts[0]).toContainElement(screen.getByLabelText('Command'));
-        await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
-        expect(exit).toHaveBeenCalledTimes(1);
-        expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
-      } finally {
-        delete (Element.prototype as { requestFullscreen?: unknown }).requestFullscreen;
-        delete (document as { exitFullscreen?: unknown }).exitFullscreen;
-        delete (document as { fullscreenElement?: unknown }).fullscreenElement;
-      }
+        const map = within(ribbon).getByRole('group', { name: 'Map' });
+        expect(within(map).getByRole('button', { name: 'OpenStreetMap' })).toBeInTheDocument();
+        const annotation = within(ribbon).getByRole('group', { name: 'Annotation' });
+        expect(within(annotation).queryByRole('button', { name: 'OpenStreetMap' })).toBeNull();
+      });
+
+      it('the crosshair switches small ⇄ full and the browser keeps the choice', async () => {
+        window.localStorage.removeItem('ftth.cad.crosshair');
+        const { canvas, user } = await openWorkspace();
+        await user.pointer({ target: canvas, coords: at(40, 20) });
+        expect(screen.getByTestId('crosshair')).toHaveAttribute('data-size', 'full');
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        await user.click(within(strip).getByRole('button', { name: /^Small crosshair/ }));
+        expect(window.localStorage.getItem('ftth.cad.crosshair')).toBe('small');
+        await user.pointer({ target: canvas, coords: at(40, 21) });
+        expect(screen.getByTestId('crosshair')).toHaveAttribute('data-size', 'small');
+        const back = within(strip).getByRole('button', { name: /^Crosshair across/ });
+        expect(back).toHaveAttribute('aria-pressed', 'true');
+        await user.click(back);
+        expect(window.localStorage.getItem('ftth.cad.crosshair')).toBe('full');
+      });
+
+      it('remembers the small crosshair when the page opens again', async () => {
+        window.localStorage.setItem('ftth.cad.crosshair', 'small');
+        try {
+          const { canvas, user } = await openWorkspace();
+          await user.pointer({ target: canvas, coords: at(40, 20) });
+          expect(screen.getByTestId('crosshair')).toHaveAttribute('data-size', 'small');
+        } finally {
+          window.localStorage.removeItem('ftth.cad.crosshair');
+        }
+      });
+
+      it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
+        // Each panel is 200 px wide open; the row is 800 px: the last ones shrink.
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
+          this: HTMLElement,
+        ) {
+          return this.getAttribute('role') === 'group' ? 200 : 0;
+        });
+        const { user } = await openWorkspace();
+        const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        await waitFor(() =>
+          expect(
+            within(ribbon).getByRole('button', { name: 'Open the Properties panel' }),
+          ).toBeInTheDocument(),
+        );
+        expect(within(ribbon).getByRole('group', { name: 'Draw' })).toBeInTheDocument();
+        expect(tool('Line')).toBeInTheDocument();
+        expect(within(ribbon).queryByRole('button', { name: 'Open the Draw panel' })).toBeNull();
+        // A shrunk panel opens its tools under it.
+        expect(within(ribbon).queryByRole('button', { name: 'Match Properties' })).toBeNull();
+        await user.click(within(ribbon).getByRole('button', { name: 'Open the Properties panel' }));
+        expect(
+          within(ribbon).getByRole('button', { name: 'Match Properties' }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    describe('errors palette in full screen (owner 2026-11-25)', () => {
+      const withErrors = async () => {
+        renderScreen(
+          <DrawingViewer
+            projectId={PROJECT}
+            revisionId={REVISION}
+            cadFileId={FILE_ID}
+            enabled
+            canWrite
+            canFix
+            sidePanel={<p>The errors list</p>}
+            focus={null}
+          />,
+        );
+        const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
+        return { canvas, user };
+      };
+
+      it('starts hidden in full screen while editing; the strip button shows it, readable', async () => {
+        const { user } = await withErrors();
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        const errors = within(strip).getByRole('button', { name: 'Errors' });
+        expect(errors).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('complementary', { name: 'Errors' })).toBeInTheDocument();
+        await user.click(within(strip).getByRole('button', { name: 'Full screen' }));
+        expect(screen.queryByRole('complementary', { name: 'Errors' })).not.toBeInTheDocument();
+        expect(errors).toHaveAttribute('aria-pressed', 'false');
+        await user.click(errors);
+        const palette = screen.getByRole('complementary', { name: 'Errors' });
+        // Readable on the dark full window: the palette has the page's own surface and text.
+        expect(palette).toHaveClass('bg-(--color-surface)', 'text-(--color-text)');
+        expect(within(palette).getByText('The errors list')).toBeInTheDocument();
+        await user.click(errors);
+        expect(screen.queryByRole('complementary', { name: 'Errors' })).not.toBeInTheDocument();
+      });
     });
 
     describe('right-click menu on picked objects (owner 2026-11-24)', () => {
@@ -1023,15 +1150,118 @@ describe(
         expect(history()).toMatch(/"Route" is now the current layer/);
         expect(prompt()).toMatch(/^LINE Specify first point/);
       });
+    });
 
-      it('Properties shows the details of the picked object', async () => {
-        const { canvas, user } = await openWorkspace();
-        await rightClick(user, canvas, 75, 25);
-        await user.click(item('Properties'));
-        const panel = await screen.findByRole('dialog', {
-          name: 'Details of the place on the drawing',
+    describe('selection, grips and Properties as AutoCAD (owner 2026-11-26)', () => {
+      const fillsOf = () => {
+        const fills: string[] = [];
+        ctx.fillRect.mockImplementation(() => {
+          fills.push(ctx.fillStyle);
         });
-        expect(within(panel).getByText('B')).toBeInTheDocument();
+        return fills;
+      };
+
+      it('a picked line shows its grips; a click on an end grip STRETCHes that end', async () => {
+        const fills = fillsOf();
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await waitFor(() => expect(fills).toContain('#007fff'));
+        await click(user, canvas, 100, 25);
+        expect(prompt()).toBe(
+          '** STRETCH ** Specify stretch point or [Base point/Copy/Undo/eXit]:',
+        );
+        await type(user, '110,30');
+        expect(prompt()).toBe('Type a command');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 25],
+              [110, 30],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('Esc cancels the hot grip; the middle grip of a line moves it', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 75, 25);
+        expect(prompt()).toMatch(/^\*\* STRETCH \*\*/);
+        await user.keyboard('{Escape}');
+        expect(history()).toMatch(/\*Cancel\*/);
+        expect(prompt()).toBe('Type a command');
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 75, 35);
+        await save(user);
+        const [move] = sent();
+        expect(move).toMatchObject({ kind: 'move_item', handle: 'B', dx: 0 });
+        expect(move?.dy as number).toBeCloseTo(10, 0);
+      });
+
+      it('a window adds to the picked objects; Shift + window takes them off', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await drag(user, canvas, [19, 23], [23, 19]);
+        await user.keyboard('{Shift>}');
+        await drag(user, canvas, [19, 23], [23, 19]);
+        await user.keyboard('{/Shift}');
+        await drag(user, canvas, [40, 28], [29, 33]);
+        await user.click(canvas);
+        await user.keyboard('{Delete}');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'erase_item', handle: 'B' },
+          { kind: 'erase_item', handle: 'T1' },
+        ]);
+      });
+
+      it('right-click Properties opens the palette; a changed cell is an unsaved edit', async () => {
+        const { canvas, user } = await openWorkspace();
+        await user.pointer({ keys: '[MouseRight]', target: canvas, coords: at(75, 25) });
+        await user.click(screen.getByRole('menuitem', { name: 'Properties' }));
+        const palette = screen.getByRole('complementary', { name: 'Properties' });
+        expect(within(palette).getByLabelText('Object type')).toHaveDisplayValue('Line');
+        expect(within(palette).getByLabelText('Layer')).toHaveDisplayValue('Route');
+        expect(within(palette).getByLabelText('Length')).toHaveTextContent('50.0000');
+        expect(within(palette).getByLabelText('Linetype scale')).toHaveAttribute(
+          'title',
+          expect.stringMatching(/does not carry this value/),
+        );
+        const startX = within(palette).getByLabelText('Start X');
+        await user.clear(startX);
+        await user.type(startX, '40{Enter}');
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+        expect(within(palette).getByLabelText('Length')).toHaveTextContent('60.0000');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [40, 25],
+              [100, 25],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('Ctrl+1 opens Properties; several objects show All (n) and *VARIES*', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 31, 31);
+        canvas.focus();
+        await user.keyboard('{Control>}1{/Control}');
+        const palette = screen.getByRole('complementary', { name: 'Properties' });
+        const types = within(palette).getByLabelText('Object type');
+        expect(types).toHaveDisplayValue(/^All \(.?2.?\)$/);
+        expect(within(palette).getByLabelText('Layer')).toHaveDisplayValue('*VARIES*');
+        await user.selectOptions(types, 'Text (1)');
+        expect(within(palette).getByLabelText('Contents')).toHaveValue('F 36 C');
       });
     });
 
@@ -1266,6 +1496,124 @@ describe(
             [1, 1],
           ],
         });
+      });
+
+      it('TCASE and TCOUNT change the picked text as AutoCAD (ADR-055 part 7)', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 32, 31);
+        await type(user, 'tcase');
+        expect(prompt()).toMatch(
+          /Select case (or )?\[Sentence\/lower\/UPPER\/Title\/toGGLE\] <UPPER>/,
+        );
+        await type(user, 'l');
+        await click(user, canvas, 32, 31);
+        await type(user, 'tcount');
+        expect(prompt()).toMatch(/Sort selected objects by (or )?\[X\/Y\/Select-order\] <Y>/);
+        await type(user, '');
+        expect(prompt()).toMatch(/\(Start,increment\) <1,1>/);
+        await type(user, '7,1');
+        expect(prompt()).toMatch(/(or )?\[Overwrite\/Prefix\/Suffix\/Find&replace..\] <Prefix>/);
+        await type(user, '');
+        await save(user);
+        // The later set_text of the same text replaces the earlier one (latest wins).
+        expect(sent()).toEqual([{ kind: 'set_text', handle: 'T1', text: '7 f 36 c' }]);
+      });
+
+      it('TEXTMASK masks the picked text; TORIENT keeps a readable text', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 32, 31);
+        await type(user, 'textmask');
+        expect(history()).toMatch(/Offset factor = 0.35000, Mask type = Wipeout/);
+        await click(user, canvas, 32, 31);
+        await type(user, 'torient');
+        await type(user, '');
+        expect(history()).toMatch(/0 text object\(s\) changed/);
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_text_format',
+            handle: 'T1',
+            widthFactor: null,
+            mtext: false,
+            wrap: null,
+            mask: { offset: 0.35, color: null },
+          },
+        ]);
+      });
+
+      it('TABLE opens the Insert Table dialog, places the table and fills its cells', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'table');
+        const dialog = screen.getByRole('dialog', { name: 'Insert Table' });
+        const columns = within(dialog).getByRole('spinbutton', { name: 'Columns' });
+        await user.clear(columns);
+        await user.type(columns, '2');
+        await user.click(within(dialog).getByRole('button', { name: 'OK' }));
+        expect(prompt()).toMatch(/Specify insertion point/);
+        await type(user, '0,100');
+        await type(user, 'Title');
+        await type(user, 'A');
+        await type(user, 'B');
+        await user.type(command(), '{Escape}');
+        await save(user);
+        const [table] = sent();
+        expect(table).toMatchObject({
+          kind: 'add_table',
+          layer: 'Sap',
+          x: 0,
+          y: 100,
+          columns: [63.5, 63.5],
+          styles: ['title', 'header', 'data'],
+          cells: [
+            ['Title', ''],
+            ['A', 'B'],
+            ['', ''],
+          ],
+        });
+      });
+
+      it('HATCH as AutoCAD: the Hatch Creation tab, several boundaries with islands in ONE hatch (ADR-055 part 8)', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'rec');
+        await type(user, '0,50');
+        await type(user, '30,80');
+        await type(user, 'rec');
+        await type(user, '10,60');
+        await type(user, '20,70');
+        await type(user, 'h');
+        const tab = screen.getByRole('tabpanel', { name: 'Hatch Creation' });
+        // The Home panels give way to the contextual tab while HATCH runs.
+        expect(screen.queryByRole('group', { name: 'Draw' })).not.toBeInTheDocument();
+        await user.click(within(tab).getByRole('option', { name: 'AR-B816' }));
+        await type(user, '5,55');
+        expect(history()).toMatch(/2 boundary loop\(s\) in the hatch/);
+        await type(user, '21,21');
+        expect(within(tab).getByText('3 boundaries')).toBeInTheDocument();
+        await type(user, 'u');
+        await type(user, '21,21');
+        await user.click(within(tab).getByRole('button', { name: 'Close Hatch Creation' }));
+        expect(screen.queryByRole('tabpanel', { name: 'Hatch Creation' })).not.toBeInTheDocument();
+        await save(user);
+        const hatch = sent().find((c) => c.kind === 'add_shape');
+        expect(hatch).toMatchObject({
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          pattern: 'AR-B816',
+          island: 'normal',
+          drawOrder: 'behind',
+          transparency: 0,
+        });
+        expect((hatch?.points as number[][]).length).toBe(4);
+        expect((hatch?.loops as number[][][]).length).toBe(2);
+        expect(hatch?.loops).toContainEqual([
+          [10, 60],
+          [20, 60],
+          [20, 70],
+          [10, 70],
+        ]);
       });
 
       it('DIVIDE puts points on the current layer along the picked line', async () => {
@@ -1556,7 +1904,7 @@ describe(
       await click(user, canvas, 90, 25);
       await type(user, '');
       await type(user, 'o');
-      expect(prompt()).toBe('OFFSET Specify offset distance or [Through/Erase/Layer] <1.0000>:');
+      expect(prompt()).toBe('OFFSET Specify offset distance or [Through/Erase/Layer] <Through>:');
       await type(user, '2');
       await click(user, canvas, 60, 25);
       await click(user, canvas, 60, 30);
@@ -1775,7 +2123,7 @@ describe(
         await click(user, canvas, 75, 25);
         await type(user, '');
         await type(user, 'o');
-        expect(prompt()).toBe('COPY Enter a copy mode option or [Single/Multiple] <Multiple>:');
+        expect(prompt()).toBe('COPY Enter a copy mode option [Single/Multiple] <Multiple>:');
         await type(user, 's');
         await type(user, '0,0');
         await type(user, '@0,5');
@@ -1818,7 +2166,7 @@ describe(
         await type(user, '');
         await type(user, '0,0');
         await type(user, '0,10');
-        expect(prompt()).toBe('MIRROR Erase source objects? or [Yes/No] <No>:');
+        expect(prompt()).toBe('MIRROR Erase source objects? [Yes/No] <No>:');
         await type(user, '');
         await save(user);
         expect(sent()).toEqual([
@@ -1912,11 +2260,13 @@ describe(
         await type(user, '');
         await type(user, 'tr');
         expect(prompt()).toBe(
-          'TRIM Select object to trim or shift-select to extend or [cuTting edges/eRase/Undo]:',
+          'TRIM Select object to trim or shift-select to extend or [cuTting edges/eRase]:',
         );
         await user.keyboard('{Shift>}');
         await click(user, canvas, 95, 25);
         await user.keyboard('{/Shift}');
+        // Undo is offered once something was trimmed or extended (AutoCAD).
+        expect(prompt()).toMatch(/\[cuTting edges\/eRase\/Undo\]:$/);
         await type(user, 't');
         expect(prompt()).toBe('TRIM Select cutting edges ... Select objects or <select all>:');
         await type(user, '');
@@ -1948,7 +2298,7 @@ describe(
         expect(history()).toMatch(/1 lines were filleted/);
         await type(user, 'f');
         await type(user, 't');
-        expect(prompt()).toBe('FILLET Enter Trim mode option or [Trim/No trim] <Trim>:');
+        expect(prompt()).toBe('FILLET Enter Trim mode option [Trim/No trim] <Trim>:');
         await type(user, 'n');
         await type(user, 'r');
         await type(user, '5');

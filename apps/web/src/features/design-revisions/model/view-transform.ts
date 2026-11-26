@@ -80,8 +80,11 @@ export function windowTransform(
   return { cx: centerX, cy: centerY, scale: side / (2 * Math.max(halfSize, Number.EPSILON)) };
 }
 
+/** Zoom out to 1 / this of the fit scale: no practical limit, as AutoCAD (owner 2026-11-26). */
+export const ZOOM_OUT_LIMIT = 100_000;
+
 export function scaleLimits(fit: ViewTransform): ScaleLimits {
-  return { min: fit.scale / 20, max: fit.scale * 1_000_000 };
+  return { min: fit.scale / ZOOM_OUT_LIMIT, max: fit.scale * 1_000_000 };
 }
 
 export const clampScale = (scale: number, limits: ScaleLimits) =>
