@@ -2,8 +2,10 @@
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -18,7 +20,9 @@ import { OsmBackdrop } from './osm-backdrop';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
 /** Scenes up to this many entities are redrawn whole on every frame; bigger ones cache the base. */
-export const CACHE_FROM_ENTITIES = 4000;
+export const CACHE_FROM_ENTITIES = 300;
+/** The pointer's work (snaps, rubber band, grips) runs at most once per this many ms. */
+const POINTER_FRAME_MS = 16;
 /** After a pan of a cached base the exact picture is redrawn when the pointer rests this long. */
 const SETTLE_MS = 120;
 const CLICK_SLOP_PX = 4;
@@ -38,15 +42,20 @@ interface BaseState {
   dpr: number;
 }
 
+const sameFade = (a: DrawModel['lockedFade'], b: DrawModel['lockedFade']) =>
+  a === b || (a !== undefined && b !== undefined && a.layers === b.layers && a.alpha === b.alpha);
+
 const sameBase = (a: BaseState, model: DrawModel, width: number, height: number, dpr: number) =>
   a.model.scene === model.scene &&
   a.model.preview === model.preview &&
   a.model.layerShown === model.layerShown &&
   a.model.mapBehind === model.mapBehind &&
   a.model.objectShown === model.objectShown &&
-  a.model.lockedFade === model.lockedFade &&
   a.model.lineweights === model.lineweights &&
   a.model.transparency === model.transparency &&
+  a.model.layerColor === model.layerColor &&
+  a.model.noteHeight === model.noteHeight &&
+  sameFade(a.model.lockedFade, model.lockedFade) &&
   a.width === width &&
   a.height === height &&
   a.dpr === dpr;
@@ -81,6 +90,19 @@ export function DrawingCanvas({
   /** The pointer on screen: AutoCAD's crosshair is drawn there (ADR-051). */
   const [hair, setHair] = useState<Pointer | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
+  // The pointer a running command follows (ghost, rubber band): the canvas alone listens to it.
+  const livePointer = useSyncExternalStore(
+    viewer.edit.pointerStore.subscribe,
+    viewer.edit.pointerStore.get,
+    () => null,
+  );
+  const liveDraw = viewer.edit.liveDraw;
+  const drawModel = useMemo<DrawModel>(() => {
+    const drawn = liveDraw(livePointer);
+    return drawn.ghost === null && drawn.sketch === null
+      ? model
+      : { ...model, ghost: drawn.ghost, sketch: drawn.sketch };
+  }, [model, liveDraw, livePointer]);
   const pointers = useRef(new Map<number, Pointer>());
   const downAt = useRef<Pointer | null>(null);
   const moved = useRef(false);
@@ -140,7 +162,7 @@ export function DrawingCanvas({
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
         ctx.drawImage(base.canvas, Math.round(dx * dpr), Math.round(dy * dpr));
-        drawOverlay(ctx, model, cache, transform, viewport);
+        drawOverlay(ctx, drawModel, cache, transform, viewport);
         return;
       }
       const reuse =
@@ -166,7 +188,7 @@ export function DrawingCanvas({
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(baseRef.current.canvas, 0, 0);
       }
-      drawOverlay(ctx, model, cache, transform, viewport);
+      drawOverlay(ctx, drawModel, cache, transform, viewport);
     });
     // A pan of a big drawing is settled by a full redraw when the pointer rests.
     const settle = window.setTimeout(() => {
@@ -180,7 +202,7 @@ export function DrawingCanvas({
       cancelAnimationFrame(frame);
       window.clearTimeout(settle);
     };
-  }, [model, transform, size, viewer.cache, redrawTick]);
+  }, [model, drawModel, transform, size, viewer.cache, redrawTick]);
 
   // Wheel needs a non-passive listener to stop the page scrolling.
   useEffect(() => {
@@ -224,13 +246,51 @@ export function DrawingCanvas({
     }
   };
 
+  // The pointer's heavy work (grip hover, object snaps, the command's rubber band) runs once per
+  // frame with the latest position, not once per event (round 2, items 26 / 30).
+  const viewerRef = useRef(viewer);
+  const transformRef = useRef(transform);
+  const sizeRef = useRef(size);
+  useEffect(() => {
+    viewerRef.current = viewer;
+    transformRef.current = transform;
+    sizeRef.current = size;
+  });
+  const pendingHover = useRef<Pointer | null>(null);
+  const hoverFrame = useRef<number | null>(null);
+  const lastHover = useRef(0);
+  const flushHover = () => {
+    if (hoverFrame.current !== null) cancelAnimationFrame(hoverFrame.current);
+    hoverFrame.current = null;
+    const p = pendingHover.current;
+    pendingHover.current = null;
+    if (!p) return;
+    lastHover.current = performance.now();
+    const current = viewerRef.current;
+    current.hoverAt(p.x, p.y);
+    if (current.edit.tracking) {
+      current.edit.hover(toWorld(transformRef.current, sizeRef.current, p.x, p.y));
+    }
+  };
+  const queueHover = (p: Pointer) => {
+    pendingHover.current = p;
+    if (hoverFrame.current !== null) return;
+    if (performance.now() - lastHover.current >= POINTER_FRAME_MS) flushHover();
+    else hoverFrame.current = requestAnimationFrame(flushHover);
+  };
+  useEffect(
+    () => () => {
+      if (hoverFrame.current !== null) cancelAnimationFrame(hoverFrame.current);
+    },
+    [],
+  );
+
   const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
     const p = local(event);
     const world = toWorld(transform, size, p.x, p.y);
     setCursor({ x: world.x, y: world.y });
     setHair(p);
-    viewer.hoverAt(p.x, p.y);
-    if (viewer.edit.tracking) viewer.edit.hover(world);
+    queueHover(p);
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
     pointers.current.set(event.pointerId, p);
@@ -352,6 +412,7 @@ export function DrawingCanvas({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={() => {
+          pendingHover.current = null;
           setCursor(null);
           setHair(null);
         }}

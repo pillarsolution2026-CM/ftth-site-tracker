@@ -1199,7 +1199,16 @@ function strokeWith(
   ctx.restore();
 }
 
-/** The picked entities, dashed, where the move / turn in progress would put them. */
+/** The most ghost entities stroked per frame (a bigger selection shows its nearest part). */
+const GHOST_MAX_STROKES = 3000;
+/** Under this many ghost entities each shows its own dashed box; over it, one box for all. */
+const GHOST_MAX_BOXES = 150;
+
+/**
+ * The picked entities, dashed, where the move / turn in progress would put them. The step is set
+ * once for all the untouched entities and those off the screen are skipped, so a big selection
+ * stays smooth (round 2, items 26 / 30).
+ */
 function drawGhost(
   ctx: CanvasRenderingContext2D,
   model: DrawModel,
@@ -1208,24 +1217,66 @@ function drawGhost(
   vp: Viewport,
   ghost: { indexes: readonly number[]; step: Affine },
 ): void {
-  const { scene } = model;
+  const { scene, preview } = model;
+  const view = visibleBounds(tf, vp);
+  const inView: number[] = [];
+  const special: number[] = [];
+  for (const index of ghost.indexes) {
+    if (!scene.view.entities[index]?.paths.length) continue;
+    const box = boxThrough(ghost.step, shownBox(model, index));
+    if (box.minX > view.maxX || box.maxX < view.minX || box.minY > view.maxY || box.maxY < view.minY)
+      continue;
+    if (preview.transformOf.has(index) || preview.curveOf.has(index)) special.push(index);
+    else if (inView.length < GHOST_MAX_STROKES) inView.push(index);
+  }
   setWorldTransform(ctx, scene, tf, vp);
   ctx.strokeStyle = CHOSEN_COLOR;
   ctx.lineWidth = 2 / tf.scale;
   ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
-  for (const index of ghost.indexes) {
-    if (scene.view.entities[index]?.paths.length)
-      strokeEntity(ctx, model, cache, index, ghost.step);
+  if (inView.length > 0) {
+    // Paths are relative to the scene origin o: local' = A·(local + o) + t − o.
+    const t = ghost.step;
+    const { x: ox, y: oy } = scene.origin;
+    ctx.save();
+    ctx.transform(
+      t[0],
+      t[1],
+      t[2],
+      t[3],
+      t[0] * ox + t[2] * oy + t[4] - ox,
+      t[1] * ox + t[3] * oy + t[5] - oy,
+    );
+    for (const index of inView) ctx.stroke(cache.get(index));
+    ctx.restore();
   }
+  for (const index of special) strokeEntity(ctx, model, cache, index, ghost.step);
   ctx.setLineDash([]);
   setScreenTransform(ctx, vp);
-  for (const index of ghost.indexes) {
-    const box = boxThrough(ghost.step, shownBox(model, index));
-    const a = toScreen(tf, vp, box.minX, box.maxY);
-    const b = toScreen(tf, vp, box.maxX, box.minY);
-    ctx.strokeStyle = CHOSEN_COLOR;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  const boxed = [...inView, ...special];
+  if (boxed.length <= GHOST_MAX_BOXES) {
+    for (const index of boxed) {
+      const box = boxThrough(ghost.step, shownBox(model, index));
+      const a = toScreen(tf, vp, box.minX, box.maxY);
+      const b = toScreen(tf, vp, box.maxX, box.minY);
+      ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
+    }
+  } else {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const index of boxed) {
+      const box = boxThrough(ghost.step, shownBox(model, index));
+      minX = Math.min(minX, box.minX);
+      minY = Math.min(minY, box.minY);
+      maxX = Math.max(maxX, box.maxX);
+      maxY = Math.max(maxY, box.maxY);
+    }
+    const a = toScreen(tf, vp, minX, maxY);
+    const b = toScreen(tf, vp, maxX, minY);
     ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
   }
   ctx.setLineDash([]);

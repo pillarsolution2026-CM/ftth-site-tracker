@@ -1754,6 +1754,7 @@
         "cleanScreen": "Clean Screen (Ctrl+0)",
         "customize": "Customization",
         "orthoTip": "Ortho",
+        "gridTooDense": "Grid too dense to display",
         "polarTip": "Polar",
         "trackTip": "Object Snap Tracking",
         "cycleTitle": "Selection",

@@ -1754,6 +1754,7 @@
         "cleanScreen": "Nettoyer l'écran (Ctrl+0)",
         "customize": "Personnalisation",
         "orthoTip": "Ortho",
+        "gridTooDense": "Grille trop dense pour être affichée",
         "polarTip": "Polaire",
         "trackTip": "Repérage par accrochage aux objets",
         "cycleTitle": "Sélection",

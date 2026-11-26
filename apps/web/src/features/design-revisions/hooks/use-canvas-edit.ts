@@ -572,6 +572,10 @@ export interface CanvasEditState {
   anchor: Point | null;
   ghost: { indexes: readonly number[]; step: Affine } | null;
   sketch: { points: readonly Point[]; closed: boolean } | null;
+  /** The pointer a running command follows; the canvas subscribes, the workspace does not. */
+  pointerStore: PointStore;
+  /** The ghost and rubber band of the running command for a pointer position. */
+  liveDraw: (pointer: Point | null) => LiveDraw;
   // Layers
   /** Layers items may be drawn on or moved to (they have a usable rule; added ones too). */
   layers: string[];
@@ -665,6 +669,36 @@ const directionOf = (base: Point, at: Point) =>
 const pt = (p: Point): Pt => [p.x, p.y];
 const xy = (p: Pt): Point => ({ x: p[0], y: p[1] });
 
+/** What a running command draws under the pointer. */
+export interface LiveDraw {
+  ghost: { indexes: readonly number[]; step: Affine } | null;
+  sketch: { points: readonly Point[]; closed: boolean } | null;
+}
+
+/** A value outside React that the canvas subscribes to (the pointer on the drawing). */
+export interface PointStore {
+  get: () => Point | null;
+  set: (next: Point | null) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+export function createPointStore(): PointStore {
+  let value: Point | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      if (next === value || (next && value && next.x === value.x && next.y === value.y)) return;
+      value = next;
+      listeners.forEach((l) => l());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 export function useCanvasEdit(input: Input): CanvasEditState {
   const { projectId, cadFileId, available, scene, preview: saved, layers: mapped, isShown } = input;
   const isLocked = input.isLocked ?? (() => false);
@@ -676,7 +710,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const [lastCmd, setLastCmd] = useState<CommandId | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<number>>(NONE);
   const [band, setBand] = useState<Band | null>(null);
-  const [pointer, setPointer] = useState<Point | null>(null);
+  // The pointer lives in a small store, not in React state: a move redraws only the canvas'
+  // overlay (rubber band, ghost), never the whole workspace (round 2, items 26 / 30).
+  const [pointerStore] = useState(createPointStore);
+  const setPointer = pointerStore.set;
   const [text, setText] = useState('');
   const [history, setHistory] = useState<readonly string[]>([]);
   const [focusNonce, setFocusNonce] = useState(0);
@@ -2681,7 +2718,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       default:
         // AutoCAD's direct distance entry: that far toward the pointer from the last point.
-        if (last && isTracked(r.step)) feedPoint(r, towards(last, pointer, value));
+        if (last && isTracked(r.step)) feedPoint(r, towards(last, pointerStore.get(), value));
         else say(msg('badPoint'));
     }
   };
@@ -2852,94 +2889,114 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   // ---------- what is drawn while a command runs ----------
 
-  let ghost: CanvasEditState['ghost'] = null;
-  let sketch: CanvasEditState['sketch'] = null;
-  if (run && pointer && isExtra(run.cmd)) {
-    sketch = extraSketch(run, pointer, extraSettings);
-  } else if (run && pointer) {
-    const { base, step } = run;
-    const at = pointer;
-    let affine: Affine | null = null;
-    if (base && step === 'second' && run.cmd !== 'stretch')
-      affine = translation(at.x - base.x, at.y - base.y);
-    else if (base && step === 'angle')
-      affine = rotationAbout(base.x, base.y, directionOf(base, at));
-    else if (base && step === 'factor') {
-      const f = distance(pt(base), pt(at));
-      if (f > 0) affine = scaleAbout(base.x, base.y, f);
-    } else if (base && step === 'mirror2' && (at.x !== base.x || at.y !== base.y)) {
-      affine = mirrorAcross(base.x, base.y, at.x, at.y);
-      sketch = { points: [base, at], closed: false };
-    }
-    if (affine && selection.size > 0) ghost = { indexes: [...selection], step: affine };
-    if (base && (step === 'second' || step === 'angle' || step === 'factor') && !sketch) {
-      sketch = { points: [base, at], closed: false };
-    }
-    if (step === 'next' && run.cmd === 'pline' && run.flags.arcMode && run.points.length > 0) {
-      // PLINE Arc: the tangent arc to the pointer.
-      const lastPoint = run.points[run.points.length - 1] as Point;
-      const dir = run.flags.direction ?? endDirection(run.points.map(pt));
-      sketch = {
-        points: [...run.points, ...tangentArc(pt(lastPoint), dir, pt(at)).map(xy)],
-        closed: false,
-      };
-    } else if (step === 'next' || step === 'leaderNext' || step === 'dim2') {
-      sketch = { points: [...run.points, at], closed: false };
-    } else if (step === 'dim3' && run.points.length === 2) {
-      sketch = { points: [...run.points, at], closed: false };
-    } else if (base && (step === 'radius' || step === 'diameter')) {
-      const radius = distance(pt(base), pt(at)) / (step === 'diameter' ? 2 : 1);
-      if (radius > 0) sketch = { points: circlePoints(pt(base), radius).map(xy), closed: true };
-    } else if (step === 'arc3' && run.points.length === 2) {
-      try {
-        const [a, b] = run.points as [Point, Point];
-        sketch = { points: arcThrough(pt(a), pt(b), pt(at)).map(xy), closed: false };
-      } catch {
-        sketch = { points: [...run.points, at], closed: false };
+  /** What the running command draws for the pointer where it is: the ghost and the rubber band. */
+  const liveDraw = (pointer: Point | null): LiveDraw => {
+    let ghost: CanvasEditState['ghost'] = null;
+    let sketch: CanvasEditState['sketch'] = null;
+    if (run && pointer && isExtra(run.cmd)) {
+      sketch = extraSketch(run, pointer, extraSettings);
+    } else if (run && pointer) {
+      const { base, step } = run;
+      const at = pointer;
+      let affine: Affine | null = null;
+      if (base && step === 'second' && run.cmd !== 'stretch')
+        affine = translation(at.x - base.x, at.y - base.y);
+      else if (base && step === 'angle')
+        affine = rotationAbout(base.x, base.y, directionOf(base, at));
+      else if (base && step === 'factor') {
+        const f = distance(pt(base), pt(at));
+        if (f > 0) affine = scaleAbout(base.x, base.y, f);
+      } else if (base && step === 'mirror2' && (at.x !== base.x || at.y !== base.y)) {
+        affine = mirrorAcross(base.x, base.y, at.x, at.y);
+        sketch = { points: [base, at], closed: false };
       }
-    } else if (step === 'arc2' || step === 'c3p3' || step === 'c2p2') {
-      sketch = { points: [...run.points, at], closed: false };
-    } else if (base && step === 'corner2' && at.x !== base.x && at.y !== base.y) {
-      try {
-        const corners = rect.rotation
-          ? rotatedRectangle(pt(base), pt(at), rect.rotation)
-          : rectanglePoints(pt(base), pt(at));
-        sketch = { points: corners.map(xy), closed: true };
-      } catch {
-        sketch = null;
+      if (affine && selection.size > 0) ghost = { indexes: [...selection], step: affine };
+      if (base && (step === 'second' || step === 'angle' || step === 'factor') && !sketch) {
+        sketch = { points: [base, at], closed: false };
       }
-    } else if (base && step === 'rectSide') {
-      sketch = {
-        points: rectangleFrom(pt(base), rect.length, rect.width, rect.rotation, pt(at)).map(xy),
-        closed: true,
-      };
-    } else if (step === 'plineArc3' && run.base && run.points.length > 0) {
-      try {
+      if (step === 'next' && run.cmd === 'pline' && run.flags.arcMode && run.points.length > 0) {
+        // PLINE Arc: the tangent arc to the pointer.
         const lastPoint = run.points[run.points.length - 1] as Point;
+        const dir = run.flags.direction ?? endDirection(run.points.map(pt));
         sketch = {
-          points: [
-            ...run.points,
-            ...arcThrough(pt(lastPoint), pt(run.base), pt(at)).slice(1).map(xy),
-          ],
+          points: [...run.points, ...tangentArc(pt(lastPoint), dir, pt(at)).map(xy)],
           closed: false,
         };
-      } catch {
-        sketch = null;
-      }
-    } else if (step === 'offsetSide' && run.target !== null) {
-      const geom = curveGeom(run.target);
-      if (geom) {
+      } else if (step === 'next' || step === 'leaderNext' || step === 'dim2') {
+        sketch = { points: [...run.points, at], closed: false };
+      } else if (step === 'dim3' && run.points.length === 2) {
+        sketch = { points: [...run.points, at], closed: false };
+      } else if (base && (step === 'radius' || step === 'diameter')) {
+        const radius = distance(pt(base), pt(at)) / (step === 'diameter' ? 2 : 1);
+        if (radius > 0) sketch = { points: circlePoints(pt(base), radius).map(xy), closed: true };
+      } else if (step === 'arc3' && run.points.length === 2) {
         try {
+          const [a, b] = run.points as [Point, Point];
+          sketch = { points: arcThrough(pt(a), pt(b), pt(at)).map(xy), closed: false };
+        } catch {
+          sketch = { points: [...run.points, at], closed: false };
+        }
+      } else if (step === 'arc2' || step === 'c3p3' || step === 'c2p2') {
+        sketch = { points: [...run.points, at], closed: false };
+      } else if (base && step === 'corner2' && at.x !== base.x && at.y !== base.y) {
+        try {
+          const corners = rect.rotation
+            ? rotatedRectangle(pt(base), pt(at), rect.rotation)
+            : rectanglePoints(pt(base), pt(at));
+          sketch = { points: corners.map(xy), closed: true };
+        } catch {
+          sketch = null;
+        }
+      } else if (base && step === 'rectSide') {
+        sketch = {
+          points: rectangleFrom(pt(base), rect.length, rect.width, rect.rotation, pt(at)).map(xy),
+          closed: true,
+        };
+      } else if (step === 'plineArc3' && run.base && run.points.length > 0) {
+        try {
+          const lastPoint = run.points[run.points.length - 1] as Point;
           sketch = {
-            points: offsetCurve(geom.points, geom.closed, offsetDist, pt(at)).map(xy),
-            closed: geom.closed,
+            points: [
+              ...run.points,
+              ...arcThrough(pt(lastPoint), pt(run.base), pt(at)).slice(1).map(xy),
+            ],
+            closed: false,
           };
         } catch {
           sketch = null;
         }
+      } else if (step === 'offsetSide' && run.target !== null) {
+        const geom = curveGeom(run.target);
+        if (geom) {
+          try {
+            sketch = {
+              points: offsetCurve(geom.points, geom.closed, offsetDist, pt(at)).map(xy),
+              closed: geom.closed,
+            };
+          } catch {
+            sketch = null;
+          }
+        }
       }
     }
-  }
+
+    if (gripRun && pointer && scene && shown && gripRun.step === 'stretch') {
+      const g = gripRun.grip;
+      const moving =
+        g.kind === 'group' ||
+        g.kind === 'insert' ||
+        g.kind === 'center' ||
+        (g.kind === 'mid' && scene.view.entities[g.index]?.kind === 'LINE');
+      if (moving) {
+        ghost = {
+          indexes: g.handles.flatMap((h) => [...(scene.byHandle.get(h) ?? [])]),
+          step: translation(pointer.x - gripRun.base.x, pointer.y - gripRun.base.y),
+        };
+      } else sketch = gripSketch(scene, shown, g, gripRun.base, pointer);
+    }
+    return { ghost, sketch };
+  };
+  const { ghost, sketch } = liveDraw(pointerStore.get());
 
   const selectStyle = (): PreviewStyle | null => {
     const [first] = [...selection];
@@ -2951,10 +3008,14 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   // ---------- grips (AutoCAD, owner 2026-11-26) ----------
 
-  const gripSet =
-    scene && shown && editing && run === null
-      ? gripsOf(scene, shown, selection, extraSettings.groupPick)
-      : { grips: [], groupBoxes: [] };
+  const gripsOn = run === null;
+  const gripSet = useMemo(
+    () =>
+      scene && shown && editing && gripsOn
+        ? gripsOf(scene, shown, selection, extraSettings.groupPick)
+        : { grips: [], groupBoxes: [] },
+    [scene, shown, editing, gripsOn, selection, extraSettings.groupPick],
+  );
   const endGrip = (cancelled: boolean) => {
     if (cancelled) say(msg('cancel'));
     setGripRun(null);
@@ -3004,21 +3065,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     } else say(msg('badPoint'));
   };
   const submitAll = () => (gripRun ? gripSubmit(gripRun) : submit());
-  if (gripRun && pointer && scene && shown && gripRun.step === 'stretch') {
-    const g = gripRun.grip;
-    const moving =
-      g.kind === 'group' ||
-      g.kind === 'insert' ||
-      g.kind === 'center' ||
-      (g.kind === 'mid' && scene.view.entities[g.index]?.kind === 'LINE');
-    if (moving) {
-      ghost = {
-        indexes: g.handles.flatMap((h) => [...(scene.byHandle.get(h) ?? [])]),
-        step: translation(pointer.x - gripRun.base.x, pointer.y - gripRun.base.y),
-      };
-    } else sketch = gripSketch(scene, shown, g, gripRun.base, pointer);
-  }
-
   const state: CanvasEditState = {
     available,
     editing,
@@ -3285,6 +3331,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     anchor: run ? (run.points[run.points.length - 1] ?? run.base) : null,
     ghost,
     sketch,
+    pointerStore,
+    liveDraw,
     layers,
     allLayers,
     currentLayer: current,
