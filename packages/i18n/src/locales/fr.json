@@ -2796,7 +2796,38 @@
       "performerWholeLine": "Toute la ligne",
       "performerScope": "Périmètre : {scope}",
       "performerLeft": "Reste {left} {unit}",
-      "performerExceeded": "La quantité dépasse le reste du sous-traitant {name} : {left} {unit}. L’administrateur doit d’abord augmenter sa quantité."
+      "performerExceeded": "La quantité dépasse le reste du sous-traitant {name} : {left} {unit}. L’administrateur doit d’abord augmenter sa quantité.",
+      "groups": {
+        "planning": "Planification",
+        "up": "Retour",
+        "noGroups": "Aucun groupe de lignes pour cet élément dans les ordres de travail.",
+        "lineCount": "{count} lignes",
+        "enteredLines": "{count} saisies",
+        "entered": "Saisi {quantity} {unit}",
+        "length": "Longueur (m)",
+        "width": "Largeur (m)",
+        "depth": "Profondeur (m)",
+        "dimensionsHint": "Saisissez longueur, largeur et profondeur en mètres (4 décimales max)",
+        "dimensionsInvalid": "Saisissez un nombre supérieur à zéro (4 décimales max)",
+        "volume": "Quantité en {unit} = longueur × largeur × profondeur",
+        "elements": {
+          "route_general": "Tracé (plan général)",
+          "route_secondary": "Tracé (plan secondaire)",
+          "cabinet": "Armoire",
+          "box": "Boîtier",
+          "room": "Chambre",
+          "joint": "Jonction",
+          "planning": "Planification"
+        }
+      },
+      "workDate": {
+        "label": "Date des travaux",
+        "previous": "Jour précédent",
+        "next": "Jour suivant",
+        "today": "Aujourd'hui",
+        "invalid": "Saisissez une date valide comme 2026-11-10, aujourd'hui ou avant",
+        "dropped": "Les quantités des sous-traitants non inscrits à cette date ont été retirées"
+      }
     },
     "warnings": {
       "GPS_FAR": "Vous êtes à plus de {distance} m de l'élément",
@@ -2809,7 +2840,8 @@
       "LABEL_TOO_LONG": "Le label est trop long",
       "NOTE_TOO_LONG": "Les remarques sont trop longues",
       "PHOTOS_MISSING": "Des photos obligatoires manquent",
-      "CONTRACTOR_QUANTITY_EXCEEDED": "Une quantité de sous-traitant dépasse son reste : réduisez-la ou demandez à l’administrateur de l’augmenter"
+      "CONTRACTOR_QUANTITY_EXCEEDED": "Une quantité de sous-traitant dépasse son reste : réduisez-la ou demandez à l’administrateur de l’augmenter",
+      "WORK_DATE_IN_FUTURE": "La date des travaux est après aujourd'hui — choisissez aujourd'hui ou un jour antérieur"
     },
     "pending": {
       "title": "En attente",
@@ -2832,7 +2864,13 @@
         "FEATURE_TYPE_NOT_ALLOWED": "Cet élément n'est pas une armoire, une chambre, une jonction ou un boîtier",
         "GPS_ACCURACY_TOO_LOW": "La précision GPS est insuffisante ; renvoyez depuis un endroit dégagé",
         "CONTRACTOR_LINE_NOT_FOUND": "Le sous-traitant n’est pas enregistré sur cet article",
-        "CONTRACTOR_QUANTITY_EXCEEDED": "La quantité dépasse le reste du sous-traitant : l’administrateur doit l’augmenter, puis renvoyez"
+        "CONTRACTOR_QUANTITY_EXCEEDED": "La quantité dépasse le reste du sous-traitant : l’administrateur doit l’augmenter, puis renvoyez",
+        "DIMENSIONS_REQUIRED": "Une ligne de fouille exige longueur, largeur et profondeur",
+        "DIMENSIONS_NOT_ALLOWED": "Cette ligne n’accepte pas de dimensions",
+        "DRAWING_NOT_FOUND": "Le plan n’existe pas ou n’est pas publié",
+        "DRAWING_OUT_OF_SCOPE": "Le plan est hors de vos sites",
+        "WORK_DATE_IN_FUTURE": "La date des travaux est après aujourd'hui — enregistrez-la à aujourd'hui ou avant",
+        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "Le sous-traitant n'était pas inscrit à cette date — changez la date ou choisissez «l'entreprise elle-même»"
       },
       "updateStatus": {
         "pending": "En attente de validation",
@@ -3173,6 +3211,44 @@
     "logout": "Se déconnecter",
     "loadFailed": "Vos données n’ont pas pu être chargées",
     "redirecting": "Ouverture de votre page…"
+  },
+  "elementGroups": {
+    "title": "Éléments et groupes",
+    "intro": "Pour chaque élément du plan, les groupes principaux que le superviseur voit en le touchant. Le changement s'applique à tous les contrats.",
+    "navWarning": "{count} non liés",
+    "element": {
+      "route_general": "Tracé sur le plan principal",
+      "route_secondary": "Tracé sur le plan secondaire",
+      "cabinet": "Armoire",
+      "box": "Boîtier",
+      "room": "Chambre",
+      "joint": "Soudure (Joint)",
+      "planning": "Bouton « Planification »"
+    },
+    "unlinked": {
+      "title": "Groupes non liés à un élément",
+      "body": "Le superviseur ne peut pas atteindre les lignes de ces groupes. Ajoutez chacun à un élément ci-dessous.",
+      "lines": "{count} lignes"
+    },
+    "groupsOf": "Groupes principaux de {element}",
+    "none": "Aucun groupe",
+    "add": "Ajouter un groupe",
+    "addPlaceholder": "Choisir ou saisir un nom de groupe",
+    "addButton": "Ajouter",
+    "remove": "Retirer {name}",
+    "moveUp": "Monter {name}",
+    "moveDown": "Descendre {name}",
+    "save": "Enregistrer",
+    "saved": "Enregistré",
+    "reset": "Annuler les changements",
+    "stale": "La liste a été modifiée par un autre utilisateur. Rechargez la page et réessayez.",
+    "reload": "Recharger",
+    "version": "Version {version}"
+  },
+  "qc": {
+    "planning": "Planification",
+    "dimensions": "Dimensions (longueur × largeur × profondeur)",
+    "cubicUnit": "m3"
   },
   "drawingKind": {
     "general": "Général (principal)",

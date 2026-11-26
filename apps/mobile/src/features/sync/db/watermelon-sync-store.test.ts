@@ -41,10 +41,17 @@ function op(photoId: string, size = 4): SyncOp {
     capturedAt: '2026-10-30T10:00:00Z',
     payload: {
       featureId: uuid(),
+      drawingId: null,
       designRevisionId: uuid(),
       workType: 'civil',
       lines: [
-        { workOrderItemId: uuid(), quantity: '2', role: 'work', performer: { kind: 'self' } },
+        {
+          workOrderItemId: uuid(),
+          quantity: '2',
+          role: 'work',
+          performer: { kind: 'self' },
+          dimensions: null,
+        },
       ],
       label: null,
       note: null,
@@ -61,6 +68,7 @@ function op(photoId: string, size = 4): SyncOp {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }
@@ -166,6 +174,7 @@ describe('WatermelonSyncStore', () => {
       clientOpId: uuid(),
       featureId,
       featureType: 'box',
+      drawingId: null,
       designRevisionId: uuid(),
       userId: uuid(),
       deviceId: uuid(),
@@ -175,6 +184,7 @@ describe('WatermelonSyncStore', () => {
       label: null,
       note: null,
       capturedAt: '2026-10-30T10:00:00Z',
+      workDate: '2026-10-30',
       receivedAt: '2026-10-30T10:00:00Z',
       gpsDistanceM: null,
       flags: [],

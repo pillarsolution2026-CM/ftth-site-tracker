@@ -3,6 +3,7 @@ import {
   EVENT_TYPES,
   GPS_PROPOSAL_MAX_ACCURACY_M,
   isGpsProposalFeatureType,
+  lineNeedsDimensions,
   type OpRejectionCode,
   type OpResult,
   type AsBuiltEdit,
@@ -10,6 +11,8 @@ import {
   type RecordAsBuiltEditOp,
   type RecordUpdateOp,
   type SyncOp,
+  workDayOf,
+  CLOCK_SKEW_TOLERANCE_MS,
 } from '@ftth/shared';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import { Decimal } from '../../work-orders/domain/decimal.js';
@@ -26,6 +29,8 @@ import type {
   ExecutionScope,
   ExecutionTx,
   ExecutionUnitOfWork,
+  FeatureInRevision,
+  ItemFacts,
   StoredOperation,
 } from './ports.js';
 
@@ -80,6 +85,14 @@ export class PushSyncUseCase {
           clientOpId: op.clientOpId,
           outcome: 'rejected',
           code: 'CONTRACTOR_QUANTITY_EXCEEDED',
+        };
+      }
+      // ADR-057 backstop (migration 0031).
+      if (trigger?.startsWith('contractor not registered on the work date')) {
+        return {
+          clientOpId: op.clientOpId,
+          outcome: 'rejected',
+          code: 'CONTRACTOR_NOT_REGISTERED_ON_DATE',
         };
       }
       if (
@@ -154,7 +167,11 @@ export class PushSyncUseCase {
         return await this.proposePoint(tx, input, op, hash);
       }
       // No assignment grants `execution:write`: nothing is in reach (fail closed).
-      if (!input.scope) throw new Rejection('FEATURE_OUT_OF_SCOPE');
+      if (!input.scope) {
+        throw new Rejection(
+          op.payload.featureId === null ? 'DRAWING_OUT_OF_SCOPE' : 'FEATURE_OUT_OF_SCOPE',
+        );
+      }
       return await this.record(tx, input, input.scope, op, hash);
     } catch (error) {
       if (error instanceof Rejection) {
@@ -175,63 +192,74 @@ export class PushSyncUseCase {
     const { projectId } = input;
     const { payload } = op;
 
-    const feature = await tx.featureInPublishedRevision(
-      projectId,
-      payload.designRevisionId,
-      payload.featureId,
-    );
-    if (!feature) {
-      const exists = await tx.featureExists(projectId, payload.featureId);
-      throw new Rejection(exists ? 'REVISION_NOT_PUBLISHED' : 'FEATURE_NOT_FOUND');
+    // ADR-057: the day the work was done (Africa/Cairo). Today or earlier, by the server's clock
+    // with the usual clock tolerance (a phone a few minutes fast at midnight is not refused for
+    // good); an op from a phone built before ADR-057 carries none and keeps the day it was saved on.
+    const workDate = payload.workDate ?? workDayOf(new Date(op.capturedAt));
+    const latestDay = workDayOf(new Date(this.clock.now().getTime() + CLOCK_SKEW_TOLERANCE_MS));
+    if (payload.workDate !== null && payload.workDate > latestDay) {
+      throw new Rejection('WORK_DATE_IN_FUTURE');
     }
-    const inScope = await tx.featureInScope(
-      projectId,
-      payload.designRevisionId,
-      payload.featureId,
-      scope,
-    );
-    if (!inScope) throw new Rejection('FEATURE_OUT_OF_SCOPE');
+
+    // ADR-056: a «التخطيط» update (no element) is recorded on a drawing of one of his sites.
+    const { featureId } = payload;
+    const target =
+      featureId === null
+        ? await this.planningTarget(
+            tx,
+            projectId,
+            scope,
+            payload.drawingId,
+            payload.designRevisionId,
+          )
+        : await this.elementTarget(tx, projectId, scope, featureId, payload.designRevisionId);
 
     const itemIds = [...new Set(payload.lines.map((line) => line.workOrderItemId))];
-    const items = await tx.findItems(projectId, itemIds);
+    const items = await tx.findItems(projectId, itemIds, scope);
     if (items.length !== itemIds.length) throw new Rejection('ITEM_NOT_FOUND');
     if (items.some((item) => item.workType !== payload.workType)) {
       throw new Rejection('ITEM_WORK_TYPE_MISMATCH');
     }
-    await this.checkContractorLines(tx, projectId, payload.lines);
+    this.checkDimensions(items, payload.lines);
+    await this.checkContractorLines(tx, projectId, payload.lines, workDate);
     if (await tx.anyPhotoExists(payload.photos.map((photo) => photo.photoId))) {
       throw new Rejection('PHOTO_ID_REUSED');
     }
 
     const latest = await tx.latestPublishedRevision(projectId, payload.designRevisionId);
     const revisionIsLatest = latest?.id === payload.designRevisionId;
-    const featureInLatestRevision = revisionIsLatest
-      ? true
-      : latest !== null && (await tx.featureInRevision(projectId, latest.id, payload.featureId));
-    // An older revision must not widen the supervisor's reach: when the feature is still in the
-    // latest revision, it must be in scope there too (security review, Phase 3).
-    if (
-      latest &&
-      !revisionIsLatest &&
-      featureInLatestRevision &&
-      !(await tx.featureInScope(projectId, latest.id, payload.featureId, scope))
-    ) {
-      throw new Rejection('FEATURE_OUT_OF_SCOPE');
+    let featureInLatestRevision = true;
+    if (featureId !== null) {
+      featureInLatestRevision = revisionIsLatest
+        ? true
+        : latest !== null && (await tx.featureInRevision(projectId, latest.id, featureId));
+      // An older revision must not widen the supervisor's reach: when the feature is still in the
+      // latest revision, it must be in scope there too (security review, Phase 3).
+      if (
+        latest &&
+        !revisionIsLatest &&
+        featureInLatestRevision &&
+        !(await tx.featureInScope(projectId, latest.id, featureId, scope))
+      ) {
+        throw new Rejection('FEATURE_OUT_OF_SCOPE');
+      }
     }
-    const gpsDistanceM = payload.gps
-      ? await tx.gpsDistanceM(projectId, payload.designRevisionId, payload.featureId, payload.gps)
-      : null;
+    const gpsDistanceM =
+      payload.gps && featureId !== null
+        ? await tx.gpsDistanceM(projectId, payload.designRevisionId, featureId, payload.gps)
+        : null;
     const receivedAt = this.clock.now();
     const capturedAt = new Date(op.capturedAt);
     const flags = computeUpdateFlags({
       capturedAt,
       receivedAt,
-      revisionPublishedAt: feature.revisionPublishedAt,
+      revisionPublishedAt: target.revisionPublishedAt,
       gpsDistanceM,
       gpsWarningDistanceM: this.capabilities.gpsWarningDistanceM(),
       itemOverrun: await tx.wouldOverrun(projectId, payload.lines),
       revisionIsLatest,
       featureInLatestRevision,
+      onDrawing: featureId === null,
     });
 
     const updateId = this.ids.next();
@@ -250,13 +278,15 @@ export class PushSyncUseCase {
       id: updateId,
       projectId,
       clientOpId: op.clientOpId,
-      featureId: payload.featureId,
-      featureType: feature.featureType,
+      featureId,
+      featureType: target.featureType,
+      drawingId: featureId === null ? payload.drawingId : null,
       designRevisionId: payload.designRevisionId,
       workType: payload.workType,
       userId: input.userId,
       deviceId: input.deviceId,
       capturedAt,
+      workDate,
       receivedAt,
       label: payload.label,
       note: payload.note,
@@ -282,10 +312,12 @@ export class PushSyncUseCase {
       payload: {
         clientOpId: op.clientOpId,
         deviceId: input.deviceId,
-        featureId: payload.featureId,
+        featureId,
+        drawingId: featureId === null ? payload.drawingId : null,
         designRevisionId: payload.designRevisionId,
         workType: payload.workType,
         capturedAt: op.capturedAt,
+        workDate,
         lines: payload.lines,
         photoIds: payload.photos.map((photo) => photo.photoId),
         flags,
@@ -294,15 +326,80 @@ export class PushSyncUseCase {
     return result;
   }
 
+  /** The tapped element: drawn in a published revision and in the caller's sites. */
+  private async elementTarget(
+    tx: ExecutionTx,
+    projectId: string,
+    scope: ExecutionScope,
+    featureId: string,
+    designRevisionId: string,
+  ): Promise<FeatureInRevision> {
+    const feature = await tx.featureInPublishedRevision(projectId, designRevisionId, featureId);
+    if (!feature) {
+      const exists = await tx.featureExists(projectId, featureId);
+      throw new Rejection(exists ? 'REVISION_NOT_PUBLISHED' : 'FEATURE_NOT_FOUND');
+    }
+    if (!(await tx.featureInScope(projectId, designRevisionId, featureId, scope))) {
+      throw new Rejection('FEATURE_OUT_OF_SCOPE');
+    }
+    return feature;
+  }
+
+  /**
+   * ADR-056: the «التخطيط» button records on a published drawing of the project, inside the
+   * caller's sites (ADR-054; a drawing without a site is never in a site scope), on a published
+   * revision of that very drawing. Check order: drawing, scope, revision.
+   */
+  private async planningTarget(
+    tx: ExecutionTx,
+    projectId: string,
+    scope: ExecutionScope,
+    drawingId: string | null,
+    designRevisionId: string,
+  ): Promise<FeatureInRevision> {
+    const drawing = drawingId === null ? null : await tx.planningDrawing(projectId, drawingId);
+    if (!drawing || drawingId === null) throw new Rejection('DRAWING_NOT_FOUND');
+    if (
+      scope.kind === 'sites' &&
+      (drawing.siteId === null || !scope.siteIds.includes(drawing.siteId))
+    ) {
+      throw new Rejection('DRAWING_OUT_OF_SCOPE');
+    }
+    const revision = await tx.publishedRevisionOfDrawing(projectId, drawingId, designRevisionId);
+    if (!revision) throw new Rejection('REVISION_NOT_PUBLISHED');
+    return { featureType: null, revisionPublishedAt: revision.publishedAt };
+  }
+
+  /**
+   * ADR-056: a work line of a digging m3 line carries length, width and depth; no other line does.
+   * (That the quantity equals their product is checked by the schema.)
+   */
+  private checkDimensions(
+    items: readonly ItemFacts[],
+    lines: RecordUpdateOp['payload']['lines'],
+  ): void {
+    const byId = new Map(items.map((item) => [item.id, item]));
+    for (const line of lines) {
+      if (line.role !== 'work') continue;
+      const item = byId.get(line.workOrderItemId);
+      if (!item) continue;
+      const needs = lineNeedsDimensions(item.unit, item.group);
+      if (needs && line.dimensions === null) throw new Rejection('DIMENSIONS_REQUIRED');
+      if (!needs && line.dimensions !== null) throw new Rejection('DIMENSIONS_NOT_ALLOWED');
+    }
+  }
+
   /**
    * ADR-052: a contractor line of a work line must be a line of that same work-order line in this
    * project, and the work on it (pending + approved, plus this op) stays within its quantity.
-   * `self` has no cap. The rows are locked until the end of the transaction.
+   * `self` has no cap. The rows are locked until the end of the transaction. ADR-057: the
+   * contractor must be registered on the work order on or before the work date.
    */
   private async checkContractorLines(
     tx: ExecutionTx,
     projectId: string,
     lines: RecordUpdateOp['payload']['lines'],
+    workDate: string,
   ): Promise<void> {
     const wanted = lines.flatMap((line) =>
       line.role === 'work' && line.performer?.kind === 'contractor'
@@ -320,6 +417,7 @@ export class PushSyncUseCase {
       if (!row || row.workOrderItemId !== line.workOrderItemId) {
         throw new Rejection('CONTRACTOR_LINE_NOT_FOUND');
       }
+      if (row.registeredOn > workDate) throw new Rejection('CONTRACTOR_NOT_REGISTERED_ON_DATE');
       adding.set(
         contractorLineId,
         (adding.get(contractorLineId) ?? Decimal.zero).add(Decimal.parse(line.quantity)),

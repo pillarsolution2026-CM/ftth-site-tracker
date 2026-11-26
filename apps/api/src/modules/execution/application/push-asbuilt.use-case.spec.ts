@@ -171,16 +171,24 @@ describe('As-Built edit check order', () => {
       capturedAt: '2026-11-01T09:59:00Z',
       payload: {
         featureId: FEATURE,
+        drawingId: null,
         designRevisionId: REVISION,
         workType: 'civil',
         lines: [
-          { workOrderItemId: id(4), quantity: '1', role: 'work', performer: { kind: 'self' } },
+          {
+            workOrderItemId: id(4),
+            quantity: '1',
+            role: 'work',
+            performer: { kind: 'self' },
+            dimensions: null,
+          },
         ],
         label: null,
         note: null,
         gps: null,
         photos: [],
         acknowledgedWarnings: [],
+        workDate: null,
       },
     } as SyncOp;
     expect(rejected(await push(update, { scope: null }))).toBe('FEATURE_OUT_OF_SCOPE');

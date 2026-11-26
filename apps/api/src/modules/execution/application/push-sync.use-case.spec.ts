@@ -1,6 +1,12 @@
 import type { RecordUpdateOp } from '@ftth/shared';
 import { describe, expect, it } from 'vitest';
-import type { ContractorLineFacts, ExecutionTx, ExecutionUnitOfWork, NewUpdate } from './ports.js';
+import type {
+  ContractorLineFacts,
+  ExecutionScope,
+  ExecutionTx,
+  ExecutionUnitOfWork,
+  NewUpdate,
+} from './ports.js';
 import { Phase2UnavailableCapabilities } from './phase2-capabilities.js';
 import { PushSyncUseCase } from './push-sync.use-case.js';
 
@@ -40,9 +46,18 @@ const op: RecordUpdateOp = {
   capturedAt: '2026-10-30T10:00:00Z',
   payload: {
     featureId: id(2),
+    drawingId: null,
     designRevisionId: id(3),
     workType: 'civil',
-    lines: [{ workOrderItemId: id(4), quantity: '1', role: 'work', performer: { kind: 'self' } }],
+    lines: [
+      {
+        workOrderItemId: id(4),
+        quantity: '1',
+        role: 'work',
+        performer: { kind: 'self' },
+        dimensions: null,
+      },
+    ],
     label: null,
     note: null,
     gps: null,
@@ -58,6 +73,7 @@ const op: RecordUpdateOp = {
       },
     ],
     acknowledgedWarnings: [],
+    workDate: null,
   },
 };
 
@@ -85,11 +101,13 @@ function uowFailingOn(
       hasTiles: false,
     }),
     featureInRevision: async () => true,
-    findItems: async () => [{ id: id(4), workType: 'civil' }],
+    findItems: async () => [{ id: id(4), workType: 'civil', unit: 'م', group: null }],
     lockContractorLines: async () => [],
     wouldOverrun: async () => false,
     gpsDistanceM: async () => 0,
     anyPhotoExists: async () => false,
+    planningDrawing: async () => null,
+    publishedRevisionOfDrawing: async () => null,
     insertUpdate: async () => {
       throw new Error('Failed query', { cause: pgError });
     },
@@ -180,9 +198,27 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
   const CL_OTHER_ITEM = id(53);
 
   const contractorLines = (): ContractorLineFacts[] => [
-    { id: CL_A, workOrderItemId: ITEM, quantity: '50', recordedQuantity: '10' },
-    { id: CL_B, workOrderItemId: ITEM, quantity: '100', recordedQuantity: '0' },
-    { id: CL_OTHER_ITEM, workOrderItemId: OTHER_ITEM, quantity: '100', recordedQuantity: '0' },
+    {
+      id: CL_A,
+      workOrderItemId: ITEM,
+      quantity: '50',
+      recordedQuantity: '10',
+      registeredOn: '2026-10-01',
+    },
+    {
+      id: CL_B,
+      workOrderItemId: ITEM,
+      quantity: '100',
+      recordedQuantity: '0',
+      registeredOn: '2026-10-01',
+    },
+    {
+      id: CL_OTHER_ITEM,
+      workOrderItemId: OTHER_ITEM,
+      quantity: '100',
+      recordedQuantity: '0',
+      registeredOn: '2026-10-01',
+    },
   ];
 
   function setup(lines = contractorLines()) {
@@ -205,13 +241,15 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
         hasTiles: false,
       }),
       featureInRevision: async () => true,
-      findItems: async () => [{ id: ITEM, workType: 'civil' as const }],
+      findItems: async () => [{ id: ITEM, workType: 'civil' as const, unit: 'م', group: null }],
       // Only the known contractor lines of this project are found, like the real query.
       lockContractorLines: async (_project: string, ids: readonly string[]) =>
         lines.filter((line) => ids.includes(line.id)),
       wouldOverrun: async () => false,
       gpsDistanceM: async () => 0,
       anyPhotoExists: async () => false,
+      planningDrawing: async () => null,
+      publishedRevisionOfDrawing: async () => null,
       insertUpdate: async (update: NewUpdate) => {
         inserted.push(update);
       },
@@ -241,7 +279,7 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
     quantity: string,
     performer: RecordUpdateOp['payload']['lines'][number]['performer'],
     workOrderItemId = ITEM,
-  ) => ({ workOrderItemId, quantity, role: 'work' as const, performer });
+  ) => ({ workOrderItemId, quantity, role: 'work' as const, performer, dimensions: null });
 
   it('accepts a work line of the own crew, with no cap', async () => {
     const { push, inserted } = setup();
@@ -287,7 +325,13 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
   it('lets rejected work free its quantity (the server counts pending and approved only)', async () => {
     // recordedQuantity is what the repository computes without rejected updates: 0 after a rejection.
     const { push } = setup([
-      { id: CL_A, workOrderItemId: ITEM, quantity: '50', recordedQuantity: '0' },
+      {
+        id: CL_A,
+        workOrderItemId: ITEM,
+        quantity: '50',
+        recordedQuantity: '0',
+        registeredOn: '2026-10-01',
+      },
     ]);
     const [result] = await push([work('50', { kind: 'contractor', contractorLineId: CL_A })]);
     expect(result?.outcome).toBe('applied');
@@ -316,5 +360,297 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
     ];
     const [result] = await push(lines);
     expect(result).toMatchObject({ outcome: 'rejected', code: 'CONTRACTOR_QUANTITY_EXCEEDED' });
+  });
+});
+
+describe('PushSyncUseCase dimensions and planning updates (ADR-056)', () => {
+  const ITEM = id(4);
+  const DIGGING = id(41);
+  const DRAWING = id(60);
+  const SITE = id(61);
+  const dims = { lengthM: '10', widthM: '0.35', depthM: '0.9' };
+
+  function setup(overrides: Partial<ExecutionTx> = {}) {
+    const inserted: NewUpdate[] = [];
+    const tx = {
+      lockProject: async () => undefined,
+      findOperation: async () => null,
+      insertOperation: async () => undefined,
+      featureExists: async () => true,
+      featureInPublishedRevision: async () => ({
+        featureType: 'box' as const,
+        revisionPublishedAt: new Date(0),
+      }),
+      featureInScope: async () => true,
+      latestPublishedRevision: async () => ({
+        id: id(3),
+        revNo: 1,
+        publishedAt: new Date(0),
+        hasTiles: false,
+      }),
+      featureInRevision: async () => true,
+      findItems: async (_project: string, ids: readonly string[]) =>
+        [
+          { id: ITEM, workType: 'civil' as const, unit: 'م', group: null },
+          {
+            id: DIGGING,
+            workType: 'civil' as const,
+            unit: 'م3',
+            group: { main: 'حفر', sub: null },
+          },
+        ].filter((item) => ids.includes(item.id)),
+      lockContractorLines: async () => [],
+      wouldOverrun: async () => false,
+      gpsDistanceM: async () => 0,
+      anyPhotoExists: async () => false,
+      planningDrawing: async () => ({ drawingId: DRAWING, siteId: SITE }),
+      publishedRevisionOfDrawing: async () => ({ publishedAt: new Date(0), crsEpsg: 32636 }),
+      insertUpdate: async (update: NewUpdate) => {
+        inserted.push(update);
+      },
+      appendEvent: async () => undefined,
+      ...asBuiltStubs,
+      ...overrides,
+    } as ExecutionTx;
+    const useCase = new PushSyncUseCase(
+      { run: (work) => work(tx) },
+      new Phase2UnavailableCapabilities(),
+      { now: () => new Date() },
+      { next: () => id(9) },
+    );
+    const push = (
+      payload: Partial<RecordUpdateOp['payload']>,
+      scope: ExecutionScope | null = { kind: 'project' },
+    ) =>
+      useCase.execute({
+        projectId: id(10),
+        userId: id(11),
+        deviceId: id(12),
+        scope,
+        ops: [{ ...op, payload: { ...op.payload, ...payload } }],
+      });
+    return { push, inserted };
+  }
+
+  const line = (workOrderItemId: string, quantity: string, dimensions: typeof dims | null) => ({
+    workOrderItemId,
+    quantity,
+    role: 'work' as const,
+    performer: { kind: 'self' as const },
+    dimensions,
+  });
+  const planning = { featureId: null, drawingId: DRAWING };
+
+  it('requires the dimensions of a digging m3 line', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push({ lines: [line(DIGGING, '3.15', null)] });
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'DIMENSIONS_REQUIRED' });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('refuses dimensions on a line that takes none', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push({ lines: [line(ITEM, '3.15', dims)] });
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'DIMENSIONS_NOT_ALLOWED' });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('stores the dimensions of a digging line', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push({ lines: [line(DIGGING, '3.15', dims)] });
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.lines[0]?.dimensions).toEqual(dims);
+  });
+
+  it('records a planning update on the drawing, with no element and no GPS flag', async () => {
+    const { push, inserted } = setup();
+    const [result] = await push({ ...planning, lines: [line(ITEM, '1', null)] });
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]).toMatchObject({ featureId: null, featureType: null, drawingId: DRAWING });
+    expect(inserted[0]?.flags).toEqual([]);
+  });
+
+  it('keeps the element update free of a drawing id', async () => {
+    const { push, inserted } = setup();
+    await push({ lines: [line(ITEM, '1', null)] });
+    expect(inserted[0]).toMatchObject({ featureId: id(2), drawingId: null });
+  });
+
+  it('answers DRAWING_NOT_FOUND for an unknown or unpublished drawing', async () => {
+    const { push, inserted } = setup({ planningDrawing: async () => null });
+    const [result] = await push({ ...planning, lines: [line(ITEM, '1', null)] });
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'DRAWING_NOT_FOUND' });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('answers DRAWING_OUT_OF_SCOPE for a drawing of another site or without a site', async () => {
+    const { push } = setup();
+    const lines = [line(ITEM, '1', null)];
+    const other = await push({ ...planning, lines }, { kind: 'sites', siteIds: [id(99)] });
+    expect(other[0]).toMatchObject({ outcome: 'rejected', code: 'DRAWING_OUT_OF_SCOPE' });
+    const none = await push({ ...planning, lines }, { kind: 'sites', siteIds: [] });
+    expect(none[0]).toMatchObject({ outcome: 'rejected', code: 'DRAWING_OUT_OF_SCOPE' });
+    const noSite = setup({ planningDrawing: async () => ({ drawingId: DRAWING, siteId: null }) });
+    const unlinked = await noSite.push({ ...planning, lines }, { kind: 'sites', siteIds: [SITE] });
+    expect(unlinked[0]).toMatchObject({ outcome: 'rejected', code: 'DRAWING_OUT_OF_SCOPE' });
+    const ok = await push({ ...planning, lines }, { kind: 'sites', siteIds: [SITE] });
+    expect(ok[0]?.outcome).toBe('applied');
+  });
+
+  it('answers DRAWING_OUT_OF_SCOPE when no assignment grants execution:write', async () => {
+    const { push } = setup();
+    const [result] = await push({ ...planning, lines: [line(ITEM, '1', null)] }, null);
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'DRAWING_OUT_OF_SCOPE' });
+  });
+
+  it('answers REVISION_NOT_PUBLISHED when the revision is not a published one of the drawing', async () => {
+    const { push } = setup({ publishedRevisionOfDrawing: async () => null });
+    const [result] = await push({ ...planning, lines: [line(ITEM, '1', null)] });
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'REVISION_NOT_PUBLISHED' });
+  });
+});
+
+describe('PushSyncUseCase work date (ADR-057)', () => {
+  const ITEM = id(4);
+  const CL = id(51);
+  // 2026-11-11 00:30 in Cairo is still 2026-11-10 in UTC: "today" must be read in Cairo.
+  const NOW = new Date('2026-11-10T22:30:00Z');
+
+  function setup(registeredOn = '2026-11-05', now = NOW) {
+    const inserted: NewUpdate[] = [];
+    const events: { payload: Record<string, unknown> }[] = [];
+    const tx = {
+      lockProject: async () => undefined,
+      findOperation: async () => null,
+      insertOperation: async () => undefined,
+      featureExists: async () => true,
+      featureInPublishedRevision: async () => ({
+        featureType: 'box' as const,
+        revisionPublishedAt: new Date(0),
+      }),
+      featureInScope: async () => true,
+      latestPublishedRevision: async () => ({
+        id: id(3),
+        revNo: 1,
+        publishedAt: new Date(0),
+        hasTiles: false,
+      }),
+      featureInRevision: async () => true,
+      findItems: async () => [{ id: ITEM, workType: 'civil' as const, unit: 'م', group: null }],
+      lockContractorLines: async (_project: string, ids: readonly string[]) =>
+        ids.includes(CL)
+          ? [
+              {
+                id: CL,
+                workOrderItemId: ITEM,
+                quantity: '100',
+                recordedQuantity: '0',
+                registeredOn,
+              },
+            ]
+          : [],
+      wouldOverrun: async () => false,
+      gpsDistanceM: async () => 0,
+      anyPhotoExists: async () => false,
+      planningDrawing: async () => null,
+      publishedRevisionOfDrawing: async () => null,
+      insertUpdate: async (update: NewUpdate) => {
+        inserted.push(update);
+      },
+      appendEvent: async (event: { payload: Record<string, unknown> }) => {
+        events.push(event);
+      },
+      ...asBuiltStubs,
+    } as ExecutionTx;
+    const useCase = new PushSyncUseCase(
+      { run: (work) => work(tx) },
+      new Phase2UnavailableCapabilities(),
+      { now: () => now },
+      { next: () => id(9) },
+    );
+    const push = (
+      workDate: string | null,
+      performer: RecordUpdateOp['payload']['lines'][number]['performer'] = { kind: 'self' },
+      capturedAt = '2026-11-10T22:00:00Z',
+    ) =>
+      useCase.execute({
+        projectId: id(10),
+        userId: id(11),
+        deviceId: id(12),
+        scope: { kind: 'project' },
+        ops: [
+          {
+            ...op,
+            capturedAt,
+            payload: {
+              ...op.payload,
+              workDate,
+              lines: [
+                { workOrderItemId: ITEM, quantity: '1', role: 'work', performer, dimensions: null },
+              ],
+            },
+          },
+        ],
+      });
+    return { push, inserted, events };
+  }
+
+  it('records the earlier day the supervisor picked, with no limit on how far back', async () => {
+    const { push, inserted, events } = setup();
+    const [result] = await push('2025-01-15');
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.workDate).toBe('2025-01-15');
+    expect(events[0]?.payload.workDate).toBe('2025-01-15');
+  });
+
+  it('accepts today read in Cairo, and refuses tomorrow', async () => {
+    const today = setup();
+    expect((await today.push('2026-11-11'))[0]?.outcome).toBe('applied');
+    const tomorrow = setup();
+    const [result] = await tomorrow.push('2026-11-12');
+    expect(result).toMatchObject({ outcome: 'rejected', code: 'WORK_DATE_IN_FUTURE' });
+    expect(tomorrow.inserted).toHaveLength(0);
+  });
+
+  it('accepts the next day from a phone a few minutes fast at midnight (clock tolerance)', async () => {
+    // 23:56 on the 11th in Cairo: a phone 4 minutes fast already says the 12th.
+    const late = setup('2026-11-05', new Date('2026-11-11T21:56:00Z'));
+    expect((await late.push('2026-11-12'))[0]?.outcome).toBe('applied');
+    // 23:50: more than the 5-minute tolerance before midnight, so the 12th is still the future.
+    const early = setup('2026-11-05', new Date('2026-11-11T21:50:00Z'));
+    expect((await early.push('2026-11-12'))[0]).toMatchObject({
+      outcome: 'rejected',
+      code: 'WORK_DATE_IN_FUTURE',
+    });
+  });
+
+  it('keeps the Cairo day of capturedAt for an op from a phone built before ADR-057', async () => {
+    const { push, inserted } = setup();
+    // 22:00 UTC on the 10th = 00:00 on the 11th in Cairo.
+    const [result] = await push(null);
+    expect(result?.outcome).toBe('applied');
+    expect(inserted[0]?.workDate).toBe('2026-11-11');
+  });
+
+  it('refuses a contractor registered after the work date', async () => {
+    const { push, inserted } = setup('2026-11-05');
+    const [result] = await push('2026-11-04', { kind: 'contractor', contractorLineId: CL });
+    expect(result).toMatchObject({
+      outcome: 'rejected',
+      code: 'CONTRACTOR_NOT_REGISTERED_ON_DATE',
+    });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('accepts the contractor from his registration day on', async () => {
+    const { push } = setup('2026-11-05');
+    const [result] = await push('2026-11-05', { kind: 'contractor', contractorLineId: CL });
+    expect(result?.outcome).toBe('applied');
+  });
+
+  it('accepts the own crew on a day before any contractor registration', async () => {
+    const { push } = setup('2026-11-05');
+    const [result] = await push('2026-11-01', { kind: 'self' });
+    expect(result?.outcome).toBe('applied');
   });
 });

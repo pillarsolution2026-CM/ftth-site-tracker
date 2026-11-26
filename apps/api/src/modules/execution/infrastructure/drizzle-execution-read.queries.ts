@@ -1,13 +1,18 @@
-import type {
-  CatalogItem,
-  ExecutionUpdate,
-  LinePerformer,
-  OfflineFeature,
-  OfflineFeatureGeometry,
-  UpdateFlag,
+import {
+  ELEMENT_KEYS,
+  lineNeedsDimensions,
+  type CatalogItem,
+  type ElementGroups,
+  type ExecutionUpdate,
+  type LineDimensions,
+  type LinePerformer,
+  type OfflineFeature,
+  type OfflineFeatureGeometry,
+  type UpdateFlag,
 } from '@ftth/shared';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { toDecimalText, toDecimalTextOrNull } from '../../../common/decimal-text.js';
+import { DrizzleContractItemGroups } from '../../work-orders/infrastructure/drizzle-contract-item-groups.js';
 import type { DbHandle } from '../../../db/db.module.js';
 import type {
   ExecutionReadQueries,
@@ -23,6 +28,22 @@ import {
 } from './drizzle-execution.repository.js';
 
 const iso = (value: Date | string): string => new Date(value).toISOString();
+
+/**
+ * An update is in a site scope through its element (ADR-054) or, for a planning update recorded on
+ * a drawing instead of an element (ADR-056, `feature_id` NULL), through the site of its drawing.
+ * Never an inner join on the feature: planning updates have none.
+ */
+function updateInScope(projectId: string, scope: ExecutionScope): SQL {
+  if (scope.kind === 'project') return sql`true`;
+  if (scope.siteIds.length === 0) return sql`false`;
+  return sql`(
+    (u.feature_id IS NOT NULL AND ${siteCondition(projectId, sql`u.design_revision_id`, sql`u.feature_id`, scope)})
+    OR (u.drawing_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM site_drawings pd
+      WHERE pd.project_id = u.project_id AND pd.id = u.drawing_id
+        AND pd.site_id = ANY(${uuidArray(scope.siteIds)}))))`;
+}
 
 /** Read side of the sync endpoints. Every query is bound to `project_id` and the caller's scope. */
 export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
@@ -150,10 +171,11 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       quantity: string;
       work_type: CatalogItem['workType'];
       recorded: string;
+      contract_item_id: string | null;
     }>(
       this.db,
       sql`SELECT i.id, i.work_order_id, o.number, i.line_no, i.code, i.description, i.unit,
-                 i.quantity::text AS quantity, i.work_type,
+                 i.quantity::text AS quantity, i.work_type, i.contract_item_id,
                  COALESCE((
                    SELECT sum(l.quantity) FROM execution_update_lines l
                    JOIN execution_updates u ON u.project_id = l.project_id AND u.id = l.update_id
@@ -173,10 +195,12 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       scope: string | null;
       quantity: string;
       recorded: string;
+      registered_on: string;
     }>(
       this.db,
       sql`SELECT cl.id, cl.work_order_item_id, c.id AS contractor_id, c.name AS contractor_name,
                  cl.scope, cl.quantity::text AS quantity,
+                 to_char(r.registered_on, 'YYYY-MM-DD') AS registered_on,
                  COALESCE((
                    SELECT sum(l.quantity) FROM execution_update_lines l
                    JOIN execution_updates u ON u.project_id = l.project_id AND u.id = l.update_id
@@ -197,22 +221,45 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
         scope: row.scope,
         quantity: toDecimalText(row.quantity),
         recordedQuantity: toDecimalText(row.recorded),
+        registeredOn: row.registered_on,
       });
       contractorsOf.set(row.work_order_item_id, list);
     }
-    return rows.map((row) => ({
-      id: row.id,
-      workOrderId: row.work_order_id,
-      workOrderNumber: row.number,
-      lineNo: row.line_no,
-      code: row.code,
-      description: row.description,
-      unit: row.unit,
-      quantity: toDecimalText(row.quantity),
-      workType: row.work_type,
-      recordedQuantity: toDecimalText(row.recorded),
-      contractors: contractorsOf.get(row.id) ?? [],
-    }));
+    // ADR-056: the effective ADR-048 group of each line (rule or admin choice) and whether the
+    // supervisor types length x width x depth on it.
+    const groups = await new DrizzleContractItemGroups(this.db).groupsOf(
+      rows.flatMap((row) => (row.contract_item_id === null ? [] : [row.contract_item_id])),
+    );
+    return rows.map((row) => {
+      const group =
+        row.contract_item_id === null ? null : (groups.get(row.contract_item_id) ?? null);
+      return {
+        id: row.id,
+        workOrderId: row.work_order_id,
+        workOrderNumber: row.number,
+        lineNo: row.line_no,
+        code: row.code,
+        description: row.description,
+        unit: row.unit,
+        quantity: toDecimalText(row.quantity),
+        workType: row.work_type,
+        recordedQuantity: toDecimalText(row.recorded),
+        contractors: contractorsOf.get(row.id) ?? [],
+        group,
+        needsDimensions: lineNeedsDimensions(row.unit, group),
+      };
+    });
+  }
+
+  async elementGroups(): Promise<ElementGroups[]> {
+    const rows = await rowsOf<{ element: ElementGroups['element']; mains: string[] }>(
+      this.db,
+      sql`SELECT element, mains FROM element_group_map`,
+    );
+    // Stable order: the order of ELEMENT_KEYS, not of the table.
+    return rows
+      .map((row) => ({ element: row.element, mains: row.mains }))
+      .sort((a, b) => ELEMENT_KEYS.indexOf(a.element) - ELEMENT_KEYS.indexOf(b.element));
   }
 
   async changes(
@@ -224,8 +271,9 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
     const rows = await rowsOf<{
       id: string;
       client_op_id: string;
-      feature_id: string;
+      feature_id: string | null;
       feature_type: ExecutionUpdate['featureType'];
+      drawing_id: string | null;
       design_revision_id: string;
       user_id: string;
       device_id: string;
@@ -234,6 +282,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
       label: string | null;
       note: string | null;
       captured_at: Date;
+      work_date: string;
       received_at: Date;
       gps_distance_m: string | null;
       flags: UpdateFlag[];
@@ -244,13 +293,14 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
         quantity: string;
         role: 'work' | 'material';
         performer: LinePerformer | null;
+        dimensions: LineDimensions | null;
       }[];
       photos: { photoId: string; requirementKey: string; sizeBytes: number; stored: boolean }[];
     }>(
       this.db,
-      sql`SELECT u.id, u.client_op_id, u.feature_id, u.feature_type, u.design_revision_id,
+      sql`SELECT u.id, u.client_op_id, u.feature_id, u.feature_type, u.drawing_id, u.design_revision_id,
                  u.user_id, u.device_id, u.work_type, u.status, u.label, u.note, u.captured_at,
-                 u.received_at, u.gps_distance_m::text AS gps_distance_m, u.flags,
+                 to_char(u.work_date, 'YYYY-MM-DD') AS work_date, u.received_at, u.gps_distance_m::text AS gps_distance_m, u.flags,
                  u.review_reason, u.sync_seq::text AS sync_seq,
                  (SELECT COALESCE(json_agg(json_build_object(
                      'workOrderItemId', l.work_order_item_id,
@@ -260,7 +310,10 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                        WHEN 'contractor' THEN json_build_object(
                          'kind', 'contractor', 'contractorLineId', l.contractor_line_id)
                        WHEN 'self' THEN json_build_object('kind', 'self')
-                     END) ORDER BY l.line_no), '[]')
+                     END,
+                     'dimensions', CASE WHEN l.length_m IS NULL THEN NULL ELSE json_build_object(
+                       'lengthM', l.length_m::text, 'widthM', l.width_m::text,
+                       'depthM', l.depth_m::text) END) ORDER BY l.line_no), '[]')
                   FROM execution_update_lines l WHERE l.update_id = u.id) AS lines,
                  (SELECT COALESCE(json_agg(json_build_object(
                      'photoId', p.id,
@@ -270,7 +323,7 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
                   FROM execution_photos p WHERE p.update_id = u.id) AS photos
           FROM execution_updates u
           WHERE u.project_id = ${projectId} AND u.sync_seq > ${cursor}::bigint
-            AND ${siteCondition(projectId, sql`u.design_revision_id`, sql`u.feature_id`, scope)}
+            AND ${updateInScope(projectId, scope)}
           ORDER BY u.sync_seq
           LIMIT ${limit}`,
     );
@@ -281,15 +334,27 @@ export class DrizzleExecutionReadQueries implements ExecutionReadQueries {
         clientOpId: row.client_op_id,
         featureId: row.feature_id,
         featureType: row.feature_type,
+        drawingId: row.drawing_id,
         designRevisionId: row.design_revision_id,
         userId: row.user_id,
         deviceId: row.device_id,
         workType: row.work_type,
         status: row.status,
-        lines: row.lines.map((line) => ({ ...line, quantity: toDecimalText(line.quantity) })),
+        lines: row.lines.map((line) => ({
+          ...line,
+          quantity: toDecimalText(line.quantity),
+          dimensions: line.dimensions
+            ? {
+                lengthM: toDecimalText(line.dimensions.lengthM),
+                widthM: toDecimalText(line.dimensions.widthM),
+                depthM: toDecimalText(line.dimensions.depthM),
+              }
+            : null,
+        })),
         label: row.label,
         note: row.note,
         capturedAt: iso(row.captured_at),
+        workDate: row.work_date,
         receivedAt: iso(row.received_at),
         gpsDistanceM: toDecimalTextOrNull(row.gps_distance_m),
         flags: row.flags,

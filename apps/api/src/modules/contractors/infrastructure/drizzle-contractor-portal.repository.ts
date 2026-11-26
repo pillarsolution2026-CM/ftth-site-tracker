@@ -1,5 +1,4 @@
 import {
-  CONTRACTOR_PRICE_DAY_TIME_ZONE,
   FeatureTypeSchema,
   UpdateStatusSchema,
   type PortalRegistration,
@@ -22,14 +21,14 @@ import type {
  * notes are never selected. Dates are formatted as text so the driver never turns them into JS Dates.
  */
 
-/** Work of the contractor with its price in force on the day it was recorded (Africa/Cairo). */
+/** Work of the contractor with its price in force on the work date of the update (ADR-057). */
 function workLines(contractorId: string) {
   return sql`
     SELECT l.update_id, l.line_no, r.id AS registration_id, cl.id AS contractor_line_id,
            u.feature_type, df.code, u.status,
            CASE WHEN u.status = 'rejected' THEN u.review_reason END AS review_reason,
            u.captured_at,
-           to_char(wd.day, 'YYYY-MM-DD') AS work_date,
+           to_char(u.work_date, 'YYYY-MM-DD') AS work_date,
            l.quantity::text AS quantity,
            price.unit_price::text AS unit_price,
            (l.quantity * price.unit_price)::text AS value,
@@ -41,11 +40,10 @@ function workLines(contractorId: string) {
     JOIN execution_updates u ON u.project_id = l.project_id AND u.id = l.update_id
     JOIN work_orders o ON o.project_id = r.project_id AND o.id = r.work_order_id
     LEFT JOIN design_features df ON df.revision_id = u.design_revision_id AND df.feature_id = u.feature_id
+    CROSS JOIN LATERAL (SELECT u.work_date AS day) wd
     CROSS JOIN LATERAL (
-      SELECT (u.captured_at AT TIME ZONE ${CONTRACTOR_PRICE_DAY_TIME_ZONE}::text)::date AS day
-    ) wd
-    CROSS JOIN LATERAL (
-      -- His price in force that day: the latest one starting on or before it, else his first price.
+      -- His price in force that day: the latest one starting on or before it. ADR-057: no work
+      -- predates his registration (his first price), so the first-price fallback is only a guard.
       SELECT p.unit_price FROM contractor_line_prices p
       WHERE p.contractor_line_id = cl.id
       ORDER BY (p.effective_from > wd.day),
@@ -87,7 +85,8 @@ interface WorkRow {
   line_no: number;
   registration_id: string;
   contractor_line_id: string;
-  feature_type: string;
+  /** NULL on a planning update recorded on a drawing (ADR-056): it has no element. */
+  feature_type: string | null;
   code: string | null;
   status: string;
   review_reason: string | null;
@@ -189,13 +188,17 @@ export class DrizzleContractorPortalRepository implements ContractorPortalReposi
       sql`SELECT w.update_id, w.line_no, w.registration_id, w.contractor_line_id, w.feature_type,
                  w.code, w.status, w.review_reason, w.work_date, w.quantity, w.unit_price, w.value
           FROM (${workLines(contractorId)}) w
-          ORDER BY w.captured_at DESC, w.update_id DESC, w.line_no DESC`,
+          ORDER BY w.work_date DESC, w.captured_at DESC, w.update_id DESC, w.line_no DESC`,
     );
+    // ADR-056: a «التخطيط» update has no element (element null), and is listed like the others.
     return rows.map((row) => ({
       key: `${row.update_id}:${row.line_no}`,
       registrationId: row.registration_id,
       contractorLineId: row.contractor_line_id,
-      element: { featureType: FeatureTypeSchema.parse(row.feature_type), code: row.code },
+      element:
+        row.feature_type === null
+          ? null
+          : { featureType: FeatureTypeSchema.parse(row.feature_type), code: row.code },
       workDate: row.work_date,
       quantity: toDecimalText(row.quantity),
       status: UpdateStatusSchema.parse(row.status),

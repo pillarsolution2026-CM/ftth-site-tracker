@@ -67,6 +67,7 @@ export function bundleWith(asBuilt: AsBuiltFeatureState[] = []): OfflineBundle {
     features: designFeatures,
     asBuilt,
     catalog: [],
+    elementGroups: [],
     settings: {
       gpsWarningDistanceM: 50,
       suggestedQuantity: 'unavailable',

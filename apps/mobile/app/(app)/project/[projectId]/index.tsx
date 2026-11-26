@@ -25,6 +25,12 @@ export default function ProjectCad() {
           params: { projectId, featureId },
         })
       }
+      onPlanning={(drawingId) =>
+        router.push({
+          pathname: '/project/[projectId]/update/planning',
+          params: { projectId, drawingId },
+        })
+      }
       onProposePoint={(featureId) =>
         router.push({
           pathname: '/project/[projectId]/propose/[featureId]',

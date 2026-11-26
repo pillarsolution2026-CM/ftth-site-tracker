@@ -130,9 +130,18 @@ class Device {
       capturedAt: at,
       payload: {
         featureId,
+        drawingId: null,
         designRevisionId: fx.revisionId,
         workType: 'civil',
-        lines: [{ workOrderItemId: itemId, quantity, role: 'work', performer: { kind: 'self' } }],
+        lines: [
+          {
+            workOrderItemId: itemId,
+            quantity,
+            role: 'work',
+            performer: { kind: 'self' },
+            dimensions: null,
+          },
+        ],
         label: null,
         note: `device ${this.id.slice(0, 4)} #${this.seq}`,
         gps: { lon: nearBox[0], lat: nearBox[1], accuracyM: 4, at },
@@ -148,6 +157,7 @@ class Device {
           },
         ],
         acknowledgedWarnings: [],
+        workDate: null,
       },
     };
     this.store.enqueue(op, new Map([[photoId, photo]]));

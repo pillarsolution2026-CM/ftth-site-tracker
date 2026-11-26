@@ -17,6 +17,10 @@ import { AsBuiltModule } from '../asbuilt/asbuilt.module.js';
 import { ASBUILT_EDIT_FEED, ASBUILT_STATE_READER } from '../asbuilt/asbuilt.tokens.js';
 import type { AsBuiltEditFeed, AsBuiltStateReader } from '../asbuilt/application/ports.js';
 import { IdentityModule } from '../identity/identity.module.js';
+import {
+  GetElementGroupsUseCase,
+  ReplaceElementGroupsUseCase,
+} from './application/element-groups.use-cases.js';
 import { Phase2UnavailableCapabilities } from './application/phase2-capabilities.js';
 import {
   DiscardIdleUploadsUseCase,
@@ -24,6 +28,7 @@ import {
   PutPhotoChunkUseCase,
 } from './application/photo-upload.use-cases.js';
 import type {
+  ElementGroupAdmin,
   ExecutionCapabilities,
   ExecutionReadQueries,
   ExecutionUnitOfWork,
@@ -35,6 +40,7 @@ import {
   GetSyncChangesUseCase,
 } from './application/sync-queries.use-cases.js';
 import {
+  ELEMENT_GROUP_ADMIN,
   EXECUTION_CAPABILITIES,
   EXECUTION_CLOCK,
   EXECUTION_READ_QUERIES,
@@ -43,9 +49,11 @@ import {
   SYNC_RATE_LIMITER,
   SYNC_RATE_LIMITS,
 } from './execution.tokens.js';
+import { DrizzleElementGroupAdmin } from './infrastructure/drizzle-element-group-admin.js';
 import { DrizzleExecutionReadQueries } from './infrastructure/drizzle-execution-read.queries.js';
 import { DrizzleExecutionUnitOfWork } from './infrastructure/drizzle-execution.repository.js';
 import { DrizzlePhotoUploadUnitOfWork } from './infrastructure/drizzle-photo-upload.repository.js';
+import { AdminElementGroupsController } from './interface/admin-element-groups.controller.js';
 import { SyncController } from './interface/sync.controller.js';
 import { SyncRateLimitGuard, type SyncRateLimits } from './interface/sync-rate-limit.guard.js';
 
@@ -77,6 +85,22 @@ const providers: Provider[] = [
     provide: EXECUTION_READ_QUERIES,
     inject: [DB],
     useFactory: (db: Database) => new DrizzleExecutionReadQueries(db),
+  },
+  {
+    provide: ELEMENT_GROUP_ADMIN,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleElementGroupAdmin(db),
+  },
+  {
+    provide: GetElementGroupsUseCase,
+    inject: [ELEMENT_GROUP_ADMIN],
+    useFactory: (admin: ElementGroupAdmin) => new GetElementGroupsUseCase(admin),
+  },
+  {
+    provide: ReplaceElementGroupsUseCase,
+    inject: [ELEMENT_GROUP_ADMIN, EXECUTION_CLOCK, GetElementGroupsUseCase],
+    useFactory: (admin: ElementGroupAdmin, clock: Clock, get: GetElementGroupsUseCase) =>
+      new ReplaceElementGroupsUseCase(admin, clock, get),
   },
   {
     provide: PHOTO_UPLOAD_UNIT_OF_WORK,
@@ -127,7 +151,7 @@ const providers: Provider[] = [
 /** Phase 3: offline execution updates, idempotent sync and resumable photos (ADR-024). */
 @Module({
   imports: [IdentityModule, AsBuiltModule],
-  controllers: [SyncController],
+  controllers: [SyncController, AdminElementGroupsController],
   providers,
 })
 export class ExecutionModule implements OnApplicationBootstrap, OnApplicationShutdown {

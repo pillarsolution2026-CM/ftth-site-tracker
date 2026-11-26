@@ -98,6 +98,7 @@ function op(o: OpOptions = {}) {
         },
       ],
       acknowledgedWarnings: [],
+      workDate: null,
     },
   };
 }

@@ -145,6 +145,8 @@ interface RecordedWork {
   featureId: string;
   featureType: string;
   capturedAt: string;
+  /** ADR-057: the day the supervisor picked; default the Cairo day of `capturedAt`. */
+  workDate?: string;
   status?: 'pending' | 'approved' | 'rejected';
   reason?: string;
   lines: { item: string; quantity: string; contractorLineId: string | null }[];
@@ -161,8 +163,10 @@ async function recordWork(work: RecordedWork): Promise<string> {
   const { rows } = await ctx.pool.query<{ id: string }>(
     `INSERT INTO execution_updates (project_id, client_op_id, feature_id, feature_type,
                                     design_revision_id, work_type, user_id, device_id, captured_at,
-                                    note, label)
-     VALUES ($1, $2, $3, $4, $5, 'civil', $6, $7, $8, 'secret note', 'secret label')
+                                    work_date, note, label)
+     VALUES ($1, $2, $3, $4, $5, 'civil', $6, $7, $8,
+             COALESCE($9::date, ($8::timestamptz AT TIME ZONE 'Africa/Cairo')::date),
+             'secret note', 'secret label')
      RETURNING id`,
     [
       work.projectId,
@@ -173,6 +177,7 @@ async function recordWork(work: RecordedWork): Promise<string> {
       world.userIds.supervisor1,
       DEVICE,
       work.capturedAt,
+      work.workDate ?? null,
     ],
   );
   const updateId = rows[0]?.id ?? '';
@@ -605,12 +610,14 @@ describe('GET /contractor/me', () => {
       status: 'approved',
       lines: [{ item: world.items.p1Metres, quantity: '4', contractorLineId: alphaLine }],
     });
-    // Before his first price: the first price applies. Rejected, with the reviewer's reason.
+    // ADR-057: saved on 20 Nov under the work date 5 Oct, which sets the price. Rejected, with
+    // the reviewer's reason.
     await recordWork({
       ...base,
       featureId: world.route1,
       featureType: 'route',
-      capturedAt: '2026-09-15T10:00:00Z',
+      capturedAt: '2026-11-20T10:00:00Z',
+      workDate: '2026-10-05',
       status: 'rejected',
       reason: 'Depth not as drawn',
       lines: [{ item: world.items.p1Metres, quantity: '1.5', contractorLineId: alphaLine }],
@@ -698,7 +705,7 @@ describe('GET /contractor/me', () => {
     expect(raw).not.toContain(`Beta ${tag}`);
   });
 
-  it('prices each work line by the day recorded in Cairo, newest first', () => {
+  it('prices each work line by its work date (Cairo), newest first', () => {
     expect(view.work.map((w) => [w.workDate, w.quantity, w.unitPrice, w.value, w.status])).toEqual([
       ['2026-11-15', '0.3333', '12.5', '4.16625', 'pending'],
       ['2026-11-12', '1', '5', '5', 'approved'],
@@ -706,8 +713,8 @@ describe('GET /contractor/me', () => {
       ['2026-11-10', '4', '12.5', '50', 'approved'],
       // 21:30 UTC on 9 Nov is 23:30 on 9 Nov in Cairo: still the old price.
       ['2026-11-09', '2', '10', '20', 'pending'],
-      // Before his first price: the first price.
-      ['2026-09-15', '1.5', '10', '15', 'rejected'],
+      // Saved on 20 Nov under the work date 5 Oct: the price of 5 Oct (ADR-057).
+      ['2026-10-05', '1.5', '10', '15', 'rejected'],
     ]);
   });
 

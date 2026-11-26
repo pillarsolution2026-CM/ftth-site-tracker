@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { Notice } from '@/shared/ui/notice';
+import { UnlinkedNavBadge } from '@/features/element-groups/components/unlinked-nav-badge';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useAdminSession } from '../hooks/use-admin-session';
 
@@ -22,11 +23,17 @@ export function AdminLayout({ children }: { children: ReactNode }) {
   if (session.state === 'loading') return <p role="status">{t('common.loading')}</p>;
   if (session.state === 'forbidden') return <Notice kind="error">{t('admin.forbidden')}</Notice>;
 
-  const items = [
+  const items: { href: string; label: string; exact: boolean; badge?: ReactNode }[] = [
     { href: `/${locale}`, label: t('home.projects'), exact: true },
     { href: `/${locale}/admin/projects`, label: t('admin.projects'), exact: false },
     { href: `/${locale}/admin/contracts`, label: t('admin.contracts.title'), exact: false },
     { href: `/${locale}/admin/contractors`, label: t('contractors.title'), exact: false },
+    {
+      href: `/${locale}/admin/element-groups`,
+      label: t('elementGroups.title'),
+      exact: false,
+      badge: <UnlinkedNavBadge />,
+    },
     { href: `/${locale}/admin/users`, label: t('admin.users.title'), exact: false },
   ];
   return (
@@ -48,6 +55,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
                   }
                 >
                   {item.label}
+                  {item.badge}
                 </Link>
               </li>
             );
