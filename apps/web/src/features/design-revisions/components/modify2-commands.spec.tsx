@@ -151,6 +151,44 @@ describe('QSELECT (audit 2 / 4.2)', { timeout: 30_000 }, () => {
   });
 });
 
+describe('PEDIT basics (audit 4.2)', { timeout: 30_000 }, () => {
+  it('Close, then Open in its place; Reverse; Undo; the options it has not say why', async () => {
+    const { canvas, user } = await openWorkspace();
+    await type(user, 'pe');
+    expect(prompt()).toBe('PEDIT Select polyline:');
+    await clickAt(user, canvas, 75, 25);
+    expect(history()).toMatch(/Object selected is not a polyline/);
+    await clickAt(user, canvas, 25, 0);
+    expect(prompt()).toBe(
+      'PEDIT Enter an option [Close/Join/Width/Edit vertex/Fit/Spline/Decurve/Ltype gen/Reverse/Undo]:',
+    );
+    await type(user, 'c');
+    expect(prompt()).toMatch(/^PEDIT Enter an option \[Open\/Join/);
+    await type(user, 'w');
+    expect(history()).toMatch(/PEDIT Width is not available/);
+    await type(user, 'd');
+    expect(history()).toMatch(/PEDIT Decurve is not available/);
+    await type(user, 'r');
+    await type(user, 'u');
+    expect(prompt()).toMatch(/^PEDIT Enter an option \[Open\/Join/);
+    await type(user, '');
+    expect(prompt()).toBe('Type a command');
+    await save(user);
+    expect(sent()).toEqual([
+      expect.objectContaining({
+        kind: 'set_curve',
+        handle: 'A',
+        points: [
+          [0, 0],
+          [50, 0],
+          [50, 25],
+        ],
+        closed: true,
+      }),
+    ]);
+  });
+});
+
 describe('EXTEND and EXPLODE (audit 4.2)', { timeout: 30_000 }, () => {
   it('EXTEND: a pick extends the end to the nearest edge; B picks boundary edges', async () => {
     const base = testView();

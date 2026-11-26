@@ -19,9 +19,16 @@ import {
 } from './inquiry-commands';
 import {
   isModify2Command,
+  MODIFY2_OBJECT_STEPS,
   modify2AfterSelect,
   modify2Begin,
+  modify2Enter,
+  modify2Object,
+  modify2Option,
+  modify2Point,
+  modify2Prompt,
   type Modify2PromptKey,
+  type Modify2Step,
 } from './modify2-commands';
 import {
   isViewCommand,
@@ -48,10 +55,14 @@ import {
  * the modules stay apart.
  */
 
-export type MoreStep = ViewStep | InquiryStep;
+export type MoreStep = ViewStep | InquiryStep | Modify2Step;
 export type MorePromptKey = ViewPromptKey | InquiryPromptKey | Modify2PromptKey;
 
-export const MORE_OBJECT_STEPS: readonly string[] = [...VIEW_OBJECT_STEPS, ...INQUIRY_OBJECT_STEPS];
+export const MORE_OBJECT_STEPS: readonly string[] = [
+  ...VIEW_OBJECT_STEPS,
+  ...INQUIRY_OBJECT_STEPS,
+  ...MODIFY2_OBJECT_STEPS,
+];
 export const MORE_TRACKED: readonly string[] = [...VIEW_TRACKED, ...INQUIRY_TRACKED];
 
 export const isMoreCommand = (cmd: CommandId) =>
@@ -70,6 +81,7 @@ interface Prompt {
 export function morePrompt(r: ExtraRun): Prompt | null {
   if (isViewCommand(r.cmd)) return viewPrompt(r);
   if (isInquiryCommand(r.cmd)) return inquiryPrompt(r);
+  if (isModify2Command(r.cmd)) return modify2Prompt(r);
   return null;
 }
 
@@ -107,6 +119,7 @@ export function moreAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R):
 export function morePoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Point): void {
   if (isViewCommand(r.cmd)) viewPoint(ctx, r, p);
   else if (isInquiryCommand(r.cmd)) inquiryPoint(ctx, r, p);
+  else if (isModify2Command(r.cmd)) modify2Point(ctx, p);
 }
 
 export function moreNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: number): void {
@@ -117,11 +130,13 @@ export function moreNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value
 export function moreOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key: string): void {
   if (isViewCommand(r.cmd)) viewOption(ctx, r, key);
   else if (isInquiryCommand(r.cmd)) inquiryOption(ctx, r, key);
+  else if (isModify2Command(r.cmd)) modify2Option(ctx, r, key);
 }
 
 export function moreEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void {
   if (isViewCommand(r.cmd)) viewEnter(ctx, r);
   else if (isInquiryCommand(r.cmd)) inquiryEnter(ctx, r);
+  else if (isModify2Command(r.cmd)) modify2Enter(ctx, r);
   else ctx.finish();
 }
 
@@ -132,6 +147,7 @@ export function moreObject<R extends ExtraRun>(
   at: Point,
 ): void {
   if (isInquiryCommand(r.cmd)) inquiryObject(ctx, r, index, at);
+  else if (isModify2Command(r.cmd)) modify2Object(ctx, r, index);
   else ctx.say(ctx.msg('badSelection'));
 }
 

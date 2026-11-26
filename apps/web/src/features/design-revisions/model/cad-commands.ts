@@ -111,7 +111,8 @@ export type CommandId =
   // Modify (round 3, audit 4.2)
   | 'extend'
   | 'explode'
-  | 'qselect';
+  | 'qselect'
+  | 'pedit';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -216,6 +217,7 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   extend: { name: 'EXTEND', aliases: ['EX'] },
   explode: { name: 'EXPLODE', aliases: ['X'] },
   qselect: { name: 'QSELECT', aliases: [] },
+  pedit: { name: 'PEDIT', aliases: ['PE'] },
 };
 
 /** Commands that may run inside another one, typed with an apostrophe (`'ZOOM`, AutoCAD). */
@@ -415,6 +417,7 @@ export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
   'undoCount',
   'undoEverything',
   'mgOption',
+  'peditOption',
 ]);
 
 /** An angle as AutoCAD prints it in a default (AUPREC 0: whole degrees). */

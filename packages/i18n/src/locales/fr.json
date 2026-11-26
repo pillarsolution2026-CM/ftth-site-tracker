@@ -1975,6 +1975,8 @@
         "bar": "Palettes"
       },
       "cmd": {
+        "peditPick": "Choisissez une polyligne",
+        "peditOption": "Entrez une option",
         "extendPick": "Sélectionnez l'objet à prolonger ou appuyez sur Maj pour ajuster",
         "extendEdges": "Sélectionnez les contours limites ... Choix des objets ou",
         "idPoint": "Spécifiez un point",
@@ -2203,6 +2205,12 @@
         "insertionPoint": "Spécifiez le point d’insertion"
       },
       "msg": {
+        "peditNotPolyline": "L'objet choisi n'est pas une polyligne (changer une ligne en polyligne ne peut pas être enregistré ici).",
+        "peditTooShort": "Une polyligne de deux points ne peut pas être fermée.",
+        "peditJoin": "PEDIT Joindre : utilisez JOIN, qui joint les tracés bout à bout comme la construction les lit.",
+        "peditWidth": "PEDIT Epaisseur n'est pas disponible : les corrections ne portent pas d'épaisseur de polyligne.",
+        "peditDecurve": "PEDIT Décurver n'est pas disponible : la vue du fichier porte la polyligne déjà aplatie, sans ses arcs.",
+        "peditNotHere": "Cette option de PEDIT n'est pas disponible sur cet écran.",
         "qselectFound": "{count} élément(s) sélectionné(s).",
         "extendEdgesSettings": "Sélectionnez les contours limites (aucun = tous les objets).",
         "explodeRefused": "{count} n'a pas pu être décomposé (seules les polylignes le sont ici : la vue du fichier n'a pas les définitions de blocs).",
