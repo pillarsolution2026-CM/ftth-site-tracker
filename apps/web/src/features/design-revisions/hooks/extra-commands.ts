@@ -26,6 +26,7 @@ import {
   splitAt,
 } from '../model/draw-shapes';
 import { effectiveLayer, type DrawingPreview } from '../model/drawing-preview';
+import { HATCH_FIELD_DEFAULTS } from '../model/hatch-patterns';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
 import { curveLength, distance, GeometryError, nearestOnCurve, type Pt } from '../model/geometry';
 import type { Bounds } from '../model/view-transform';
@@ -48,6 +49,25 @@ import {
   type LayerPromptKey,
   type LayerStep,
 } from './layer-commands';
+import {
+  DEFAULT_TEXT_SETTINGS,
+  isTextCommand,
+  TEXT_OBJECT_STEPS,
+  TEXT_TRACKED,
+  textAfterSelect,
+  textBegin,
+  textEnter,
+  textNumber,
+  textObject,
+  textOption,
+  textPoint,
+  textPrompt,
+  textSketch,
+  textText,
+  type TextPromptKey,
+  type TextStep,
+  type TextToolSettings,
+} from './text-commands';
 
 /**
  * The Draw and Modify commands added for the owner (2026-11-24), on the same command line as the
@@ -92,6 +112,7 @@ const SELECTING_EXTRA: ReadonlySet<CommandId> = new Set<CommandId>([
 
 export type ExtraStep =
   | LayerStep
+  | TextStep
   | 'x_brPick'
   | 'x_brFirst'
   | 'x_brSecond'
@@ -152,6 +173,7 @@ export type ExtraStep =
 /** Prompts of the added commands (i18n keys under `design.cad.cmd`). */
 export type ExtraPromptKey =
   | LayerPromptKey
+  | TextPromptKey
   | 'breakSelect'
   | 'breakFirst'
   | 'breakSecond'
@@ -210,6 +232,7 @@ export type ExtraPromptKey =
 /** Steps that wait for an object pick (a click picks, a typed point is refused). */
 export const EXTRA_OBJECT_STEPS: readonly string[] = [
   ...LAYER_OBJECT_STEPS,
+  ...TEXT_OBJECT_STEPS,
   'x_brPick',
   'x_bapPick',
   'x_lenPick',
@@ -223,6 +246,7 @@ export const EXTRA_OBJECT_STEPS: readonly string[] = [
 /** Steps that follow the pointer for the rubber band. */
 export const EXTRA_TRACKED: readonly string[] = [
   ...LAYER_TRACKED,
+  ...TEXT_TRACKED,
   'x_brSecond',
   'x_bapPoint',
   'x_splNext',
@@ -252,6 +276,8 @@ export interface ExtraSettings {
   splineCv: boolean;
   /** PICKSTYLE: picking one member of a group picks the whole group. */
   groupPick: boolean;
+  /** The Text panel's last answers (ADR-055 part 7). */
+  text: TextToolSettings;
 }
 
 export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
@@ -263,6 +289,7 @@ export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
   helixTurns: 3,
   splineCv: false,
   groupPick: true,
+  text: DEFAULT_TEXT_SETTINGS,
 };
 
 /** Per run: what the added command has taken so far. */
@@ -353,12 +380,14 @@ const go = <R extends ExtraRun>(
 const data = (r: ExtraRun): ExtraData => r.flags.extra ?? {};
 
 /** Whether the run is one of the added commands. */
-export const isExtra = (cmd: CommandId) => EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd);
+export const isExtra = (cmd: CommandId) =>
+  EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd) || isTextCommand(cmd);
 
 // ---------- prompts ----------
 
 export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null {
   if (isLayerCommand(r.cmd)) return layerPrompt(r);
+  if (isTextCommand(r.cmd)) return textPrompt(r, settings.text);
   const p = (
     key: Prompt['key'],
     options: CommandOption[] = [],
@@ -548,6 +577,7 @@ export function extraBegin<R extends ExtraRun>(
   fresh: (step: string) => R,
 ): R | null {
   if (isLayerCommand(cmd)) return layerBegin(ctx, cmd, fresh);
+  if (isTextCommand(cmd)) return textBegin(ctx, cmd, fresh);
   const picked = ctx.handles.length > 0;
   const start = (step: ExtraStep, extra: ExtraData = {}): R => {
     const r = fresh(step);
@@ -622,6 +652,7 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
     return null;
   }
   if (isLayerCommand(r.cmd)) return layerAfterSelect(ctx, r);
+  if (isTextCommand(r.cmd)) return textAfterSelect(ctx, r);
   if (ctx.handles.length === 0) {
     ctx.finish();
     return null;
@@ -693,6 +724,7 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
 
 export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Point): void {
   if (isLayerCommand(r.cmd)) return layerPoint(ctx, r, p);
+  if (isTextCommand(r.cmd)) return textPoint(ctx, r, p);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -840,6 +872,7 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
 }
 
 export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: number): void {
+  if (isTextCommand(r.cmd)) return textNumber(ctx, r, value);
   if (isLayerCommand(r.cmd)) {
     ctx.say(ctx.msg('badValue'));
     return;
@@ -973,6 +1006,7 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
 
 export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key: string): void {
   if (isLayerCommand(r.cmd)) return layerOption(ctx, r, key);
+  if (isTextCommand(r.cmd)) return textOption(ctx, r, key);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -1074,10 +1108,12 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
 /** Free text on a step of an added command (a layer, group or block name). */
 export function extraText<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: string): void {
   if (isLayerCommand(r.cmd)) layerText(ctx, r, value);
+  else if (isTextCommand(r.cmd)) textText(ctx, r, value);
 }
 
 export function extraEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void {
   if (isLayerCommand(r.cmd)) return layerEnter(ctx, r);
+  if (isTextCommand(r.cmd)) return textEnter(ctx, r);
   const d = data(r);
   const s = ctx.settings;
   switch (r.step as ExtraStep) {
@@ -1162,6 +1198,7 @@ export function extraObject<R extends ExtraRun>(
   at: Point,
 ): void {
   if (isLayerCommand(r.cmd)) return layerObject(ctx, r, index);
+  if (isTextCommand(r.cmd)) return textObject(ctx, r, index);
   const d = data(r);
   if (index === null || !ctx.pickable(index)) {
     ctx.say(ctx.msg('nothingThere'));
@@ -1260,6 +1297,7 @@ export function extraSketch(
   settings: ExtraSettings,
 ): { points: Point[]; closed: boolean } | null {
   if (isLayerCommand(r.cmd)) return layerSketch(r, at);
+  if (isTextCommand(r.cmd)) return textSketch(r, at);
   const d = data(r);
   const a = pt(at);
   try {
@@ -1457,6 +1495,7 @@ function addShape<R extends ExtraRun>(
       color2: null,
       inner: null,
       outer: null,
+      ...HATCH_FIELD_DEFAULTS,
       ...extra,
     },
   ]);

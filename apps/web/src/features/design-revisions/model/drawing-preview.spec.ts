@@ -1,4 +1,5 @@
 import type { DrawingCorrection, DrawingCorrectionInput } from '@ftth/shared';
+import { HATCH_FIELD_DEFAULTS } from './hatch-patterns';
 import { describe, expect, it } from 'vitest';
 import { applyCorrections, defaultTextHeight, effectiveLayer } from './drawing-preview';
 import { buildScene } from './drawing-scene';
@@ -289,6 +290,7 @@ describe('screen shapes and draw order (owner 2026-11-24)', () => {
       color2: null,
       inner: null,
       outer: null,
+      ...HATCH_FIELD_DEFAULTS,
     };
     const preview = applyCorrections(
       scene,

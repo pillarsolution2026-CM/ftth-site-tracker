@@ -78,7 +78,17 @@ export type CommandId =
   | 'pickstyle'
   | 'block'
   | 'insert'
-  | 'eattedit';
+  | 'eattedit'
+  // Text panel (Express Tools) and TABLE (ADR-055 part 7)
+  | 'tcase'
+  | 'torient'
+  | 'textfit'
+  | 'txt2mtxt'
+  | 'tcount'
+  | 'tcircle'
+  | 'textmask'
+  | 'textunmask'
+  | 'table';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -155,6 +165,15 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   block: { name: 'BLOCK', aliases: ['B'] },
   insert: { name: 'INSERT', aliases: ['I'] },
   eattedit: { name: 'EATTEDIT', aliases: [] },
+  tcase: { name: 'TCASE', aliases: [] },
+  torient: { name: 'TORIENT', aliases: [] },
+  textfit: { name: 'TEXTFIT', aliases: [] },
+  txt2mtxt: { name: 'TXT2MTXT', aliases: [] },
+  tcount: { name: 'TCOUNT', aliases: [] },
+  tcircle: { name: 'TCIRCLE', aliases: [] },
+  textmask: { name: 'TEXTMASK', aliases: [] },
+  textunmask: { name: 'TEXTUNMASK', aliases: [] },
+  table: { name: 'TABLE', aliases: ['TB'] },
 };
 
 const BY_NAME: ReadonlyMap<string, CommandId> = new Map(

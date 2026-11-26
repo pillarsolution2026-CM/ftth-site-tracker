@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { effectiveLayer } from '../model/drawing-preview';
+import { TableDialog } from './table-dialog';
 
 /**
  * The workspace's AutoCAD-like dialogs (owner 2026-11-24): FIND (find and replace text, as
@@ -12,11 +13,12 @@ import { effectiveLayer } from '../model/drawing-preview';
  * commands do: nothing is kept until «حفظ».
  */
 
-const FIELD = 'min-h-8 rounded border border-[#4a505a] bg-[#1d2127] px-2 text-xs text-[#e8eaed]';
-const BUTTON =
+export const FIELD =
+  'min-h-8 rounded border border-[#4a505a] bg-[#1d2127] px-2 text-xs text-[#e8eaed]';
+export const BUTTON =
   'min-h-8 rounded border border-[#5a606a] px-3 text-xs text-[#e8eaed] hover:bg-white/10 disabled:opacity-40';
 
-function Dialog({
+export function Dialog({
   title,
   onClose,
   children,
@@ -346,5 +348,6 @@ export function WorkspaceDialogs({ viewer }: { viewer: DrawingViewer }) {
   if (!dialog) return null;
   if (dialog.kind === 'find') return <FindDialog viewer={viewer} />;
   if (dialog.kind === 'laywalk') return <LayerWalkDialog viewer={viewer} />;
+  if (dialog.kind === 'table') return <TableDialog viewer={viewer} />;
   return <AttributesDialog key={dialog.index} viewer={viewer} index={dialog.index} />;
 }

@@ -15,10 +15,13 @@ import {
   type DrawingPreview,
   type PreviewNote,
   type PreviewShape,
+  type PreviewTextFormat,
 } from './drawing-preview';
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
 import { linearDimension, type Pt } from './geometry';
+import { cellRects, cellTextHeight, styleOfRow } from './table';
+import { textLength, wrapLines } from './text-tools';
 import { toScreen, visibleBounds, type Size, type ViewTransform } from './view-transform';
 
 /** Texts smaller than this on screen (px of text height) are not drawn. */
@@ -37,6 +40,8 @@ const HIGHLIGHT_HALO = '#ffb300';
 const SELECTED_COLOR = '#4fc3f7';
 /** The model space background, black as in AutoCAD (ADR-051). */
 export const CANVAS_BG = '#000000';
+/** AutoCAD's MText line spacing 1.0: 5/3 of the text height. */
+const MTEXT_LINE_SPACING = 5 / 3;
 /** Routes marked for trench (ADR-042): dashed purple, never colour alone (also a text label). */
 export const TRENCH_COLOR = '#6a1b9a';
 
@@ -182,6 +187,86 @@ function fillTextAt(
   ctx.restore();
 }
 
+/**
+ * A text with a format (set_text_format; ADR-055 part 7): its mask first (the background, or a
+ * colour), then the text stretched to its width factor, in lines when it is a wrapped MText.
+ */
+function fillFormattedText(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+  text: { x: number; y: number; height: number; rotation: number; text: string },
+  format: PreviewTextFormat,
+) {
+  const px = text.height * tf.scale;
+  if (px < MIN_TEXT_PX || px > 5000) return;
+  const lines =
+    format.mtext && format.wrap !== null
+      ? wrapLines(text.text, text.height, format.widthFactor, format.wrap)
+      : [text.text];
+  const step = px * MTEXT_LINE_SPACING;
+  const p = toScreen(tf, vp, text.x, text.y);
+  const fill = ctx.fillStyle;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  if (text.rotation !== 0) ctx.rotate((-text.rotation * Math.PI) / 180);
+  ctx.font = `${px * TEXT_FONT_FACTOR}px sans-serif`;
+  const widths = lines.map((line) => textLength(line, text.height, format.widthFactor) * tf.scale);
+  if (format.mask) {
+    const off = format.mask.offset * px;
+    const wide = Math.max(...widths, 0);
+    ctx.fillStyle = format.mask.color ?? (model.mapBehind ? '#000000' : CANVAS_BG);
+    ctx.fillRect(-off, -px - off, wide + 2 * off, px + (lines.length - 1) * step + 2 * off);
+    ctx.fillStyle = fill;
+  }
+  lines.forEach((line, i) => {
+    const measured = ctx.measureText(line).width;
+    const target = widths[i] ?? measured;
+    ctx.save();
+    ctx.translate(0, i * step);
+    // Drawn exactly as long as the screen reckons the text (TEXTFIT works on that length).
+    if (format.widthFactor !== null && measured > 0) ctx.scale(target / measured, 1);
+    ctx.fillText(line, 0, 0);
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+/** Tables of the page (add_table; owner 2026-11-26): the grid and the cell texts. */
+function drawTables(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+): void {
+  const { tables } = model.preview;
+  if (tables.length === 0) return;
+  setScreenTransform(ctx, vp);
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+  for (const table of tables) {
+    if (!model.layerShown(table.layer)) continue;
+    const color = layerColorOf(model, table.layer, table.color);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const cell of cellRects(table)) {
+      const a = toScreen(tf, vp, cell.x0, cell.y0);
+      const b = toScreen(tf, vp, cell.x1, cell.y1);
+      ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      const value = table.cells[cell.row]?.[cell.col] ?? '';
+      const px = cellTextHeight(styleOfRow(table.styles, cell.row), table.height) * tf.scale;
+      if (value === '' || px < MIN_TEXT_PX || px > 5000) continue;
+      ctx.font = `${px * TEXT_FONT_FACTOR}px sans-serif`;
+      ctx.fillText(value, (a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x));
+    }
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
 /** The drawing itself: entity strokes, then texts, on black. Heavy; redraw only on change. */
 export function drawBase(
   ctx: CanvasRenderingContext2D,
@@ -291,8 +376,26 @@ export function drawBase(
     const replaced = preview.textOf.get(index);
     const turned = preview.transformOf.get(index);
     ctx.globalAlpha = isFaded(index) && fade ? fade.alpha : 1;
+    const format = preview.textFormatOf.get(index);
     entity.texts.forEach((text, i) => {
       const at = turned ? applyAffine(turned, text.x, text.y) : text;
+      if (i === 0 && format) {
+        fillFormattedText(
+          ctx,
+          model,
+          tf,
+          vp,
+          {
+            x: at.x,
+            y: at.y,
+            height: text.height * (turned ? scaleOf(turned) : 1),
+            rotation: text.rotation + (turned ? angleOf(turned) : 0),
+            text: replaced ?? text.text,
+          },
+          format,
+        );
+        return;
+      }
       fillTextAt(
         ctx,
         tf,
@@ -315,6 +418,7 @@ export function drawBase(
   }
   // A wipeout hides what is under it with the background.
   drawShapes(ctx, model, tf, vp, true);
+  drawTables(ctx, model, tf, vp);
   drawAdded(ctx, model, cache, tf, vp);
 }
 

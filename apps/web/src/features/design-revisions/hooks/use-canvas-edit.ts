@@ -102,6 +102,16 @@ import {
   type ExtraStep,
 } from './extra-commands';
 import { LAYER_TEXT_STEPS } from './layer-commands';
+import {
+  isTextCommand,
+  tablePlace,
+  TEXT_TOOL_TEXT_STEPS,
+  textKeepOnCancel,
+  textPending,
+  textSelectOption,
+  textSelectPrompt,
+} from './text-commands';
+import type { TableSpec } from '../model/table';
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import type { LayerScreen } from './use-layer-screen';
 
@@ -427,7 +437,10 @@ const OBJECT_STEPS: readonly Step[] = [
   'dimSelect',
 ];
 
-const isTextStep = (step: Step) => TEXT_STEPS.includes(step) || LAYER_TEXT_STEPS.includes(step);
+const isTextStep = (step: Step) =>
+  TEXT_STEPS.includes(step) ||
+  LAYER_TEXT_STEPS.includes(step) ||
+  TEXT_TOOL_TEXT_STEPS.includes(step);
 const isTracked = (step: Step) => TRACKED.includes(step) || EXTRA_TRACKED.includes(step);
 const isObjectStep = (step: Step) =>
   OBJECT_STEPS.includes(step) || EXTRA_OBJECT_STEPS.includes(step);
@@ -467,6 +480,8 @@ export interface CanvasEditState {
   replaceText: (index: number, from: string, to: string) => void;
   /** Starts a command with one of its options already chosen (ribbon drop-downs, menus). */
   runWith: (id: CommandId, option: string) => void;
+  /** TABLE: the Insert Table dialog's OK — the command line asks where the table goes. */
+  placeTable: (spec: TableSpec) => void;
   prompt: CommandPrompt;
   /** Lines already on the command line (newest last). */
   history: readonly string[];
@@ -625,9 +640,19 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     return () => window.removeEventListener('beforeunload', warn);
   }, [unsaved]);
 
+  // What a running command shows before it is kept (a table being filled; ADR-055 part 7).
+  const pending = useMemo(() => (run ? textPending(run) : []), [run]);
   const shown = useMemo(
-    () => (scene && saved ? previewWithEdits(scene, saved, edits, textHeight) : null),
-    [scene, saved, edits, textHeight],
+    () =>
+      scene && saved
+        ? previewWithEdits(
+            scene,
+            saved,
+            pending.length > 0 ? [...edits, ...pending] : edits,
+            textHeight,
+          )
+        : null,
+    [scene, saved, edits, pending, textHeight],
   );
 
   // Layers added or renamed (saved and unsaved) take the meaning of their source.
@@ -799,6 +824,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       fallback,
     });
     if (!r) return p('command');
+    const selectWords = isTextCommand(r.cmd) ? textSelectPrompt(r) : null;
+    if (selectWords) return selectWords;
     if (isExtra(r.cmd) && r.step !== 'select') {
       const added = extraPrompt(r, extraSettings);
       if (added) return added;
@@ -2112,6 +2139,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const feedOption = (r: Run, key: string) => {
+    if (r.step === 'select' && isTextCommand(r.cmd)) {
+      const words = extraCtx();
+      if (words) textSelectOption(words, r, key);
+      return;
+    }
     const ctx = extraFor(r);
     if (ctx) {
       extraOption(ctx, r, key);
@@ -2596,6 +2628,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const cancelRun = () => {
     if (run) say(msg('cancel'));
+    // Esc in a table's cells keeps the table (AutoCAD's cell editor).
+    const kept = run ? textKeepOnCancel(run) : [];
+    if (kept.length > 0) add(kept);
     finish();
   };
 
@@ -2757,6 +2792,15 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       if (started.step === 'select') {
         setRun({ ...started, flags: { ...started.flags, extra: { pending: key } } });
       } else feedOption(started, key);
+    },
+    placeTable: (spec) => {
+      if (!editing) return;
+      if (run) setRun(null);
+      const ctx = extraCtx();
+      if (!ctx) return;
+      setLastCmd('table');
+      setFocusNonce((n) => n + 1);
+      tablePlace(ctx, spec, (step) => newRun('table', step as Step));
     },
     prompt: promptOf(run),
     history,

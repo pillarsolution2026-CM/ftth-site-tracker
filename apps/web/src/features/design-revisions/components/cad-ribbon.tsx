@@ -8,6 +8,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
 import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
+import { TableTile, TextPanel } from './text-panel';
 import {
   ACI_COLORS,
   COMMANDS,
@@ -92,7 +93,7 @@ function Svg({ children, size = 'size-5' }: { children: ReactNode; size?: string
 /** This program's own drawings of the commands (in the spirit of a CAD ribbon). */
 type IconKey =
   CommandId | 'undo' | 'redo' | 'markers' | 'osm' | 'bedit' | 'attdef' | 'fade' | 'layerstate';
-const ICONS: Record<IconKey, ReactNode> = {
+const ICONS: Partial<Record<IconKey, ReactNode>> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -1104,6 +1105,7 @@ export function CadRibbon({
           <Rows>
             <Tile edit={edit} id="leader" />
             <Tile edit={edit} id="textedit" />
+            <TableTile edit={edit} />
           </Rows>
           <button
             type="button"
@@ -1122,6 +1124,7 @@ export function CadRibbon({
             </span>
           </button>
         </Panel>
+        <TextPanel edit={edit} />
         <Panel
           title={t('design.cad.panel.layers')}
           more={
