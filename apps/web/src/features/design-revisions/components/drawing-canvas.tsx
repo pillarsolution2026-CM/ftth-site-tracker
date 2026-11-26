@@ -345,7 +345,7 @@ export function DrawingCanvas({
         tabIndex={0}
         aria-label={t('design.viewer.canvasLabel')}
         aria-describedby="drawing-canvas-help"
-        className="relative block size-full cursor-none touch-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--color-focus)"
+        className="relative block size-full cursor-none touch-none outline-none focus:outline-none focus-visible:outline-none"
         style={{ width: '100%', height: '100%' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -402,7 +402,7 @@ export function DrawingCanvas({
       </p>
       <div
         data-testid="drawing-coords"
-        className="pointer-events-none absolute bottom-1 left-1 rounded bg-[#1d2127]/90 px-2 py-0.5 font-mono text-xs text-[#d7dbe0]"
+        className="pointer-events-none absolute left-1 top-1 rounded bg-[#1d2127]/90 px-2 py-0.5 font-mono text-xs text-[#d7dbe0]"
       >
         <span className="font-sans">{t('design.viewer.coords')}: </span>
         <Ltr>{cursor ? `X ${cursor.x.toFixed(2)}  Y ${cursor.y.toFixed(2)}` : '—'}</Ltr>

@@ -2136,7 +2136,8 @@
         "layoffPick": "Sélectionnez un objet sur le calque à désactiver",
         "layfrzPick": "Sélectionnez un objet sur le calque à geler",
         "laylckPick": "Sélectionnez un objet sur le calque à verrouiller",
-        "layulkPick": "Sélectionnez un objet sur le calque à déverrouiller"
+        "layulkPick": "Sélectionnez un objet sur le calque à déverrouiller",
+        "insertionPoint": "Spécifiez le point d’insertion"
       },
       "msg": {
         "commandEcho": "Commande : {name}",
@@ -2265,7 +2266,8 @@
         "noLineToContinue": "Aucune ligne ou aucun arc à continuer.",
         "allUndone": "Tous les segments ont déjà été annulés.",
         "copyArrayRange": "Nécessite un entier compris entre 2 et 32767.",
-        "divideRange": "Nécessite un entier compris entre 2 et 32767."
+        "divideRange": "Nécessite un entier compris entre 2 et 32767.",
+        "clipboardEmpty": "Le Presse-papiers est vide."
       },
       "tool": {
         "line": "Ligne",
@@ -2645,6 +2647,15 @@
         "associativeReason": "Une hachure enregistrée garde ses points ; elle ne suit pas les modifications du contour.",
         "annotativeReason": "L’écran n’a pas d’échelles d’annotation.",
         "matchReason": "Les hachures du fichier ne sont pas lisibles comme hachures."
+      },
+      "strip": {
+        "save": "Save",
+        "cancel": "Cancel",
+        "layers": "Layers",
+        "errors": "Errors",
+        "corrections": "Corrections",
+        "properties": "Properties",
+        "history": "Historique des commandes (F2)"
       }
     }
   },
