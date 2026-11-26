@@ -1965,7 +1965,9 @@
         "blockName": "Entrez le nom du bloc",
         "insertPick": "Choisissez une référence de bloc à insérer",
         "insertPoint": "Spécifiez le point d'insertion",
-        "attributePick": "Choisissez la référence de bloc"
+        "attributePick": "Choisissez la référence de bloc",
+        "gripStretch": "Spécifiez le point d'étirement",
+        "gripBase": "Spécifiez le point de base"
       },
       "msg": {
         "commandEcho": "Commande : {name}",
@@ -2070,7 +2072,8 @@
         "mergeWarning": "Tous les objets du calque « {from} » iront sur le calque « {to} ».",
         "deleteWarning": "Tous les objets du calque « {layer} » seront supprimés.",
         "layerMerged": "Le calque « {from} » a été fusionné dans « {to} ».",
-        "layerDeleted": "Le calque « {layer} » a été supprimé."
+        "layerDeleted": "Le calque « {layer} » a été supprimé.",
+        "gripNotHere": "Cette poignée ne peut pas encore être étirée dans la vue web (extrémité d'arc, axe d'ellipse, extrémité de spline) — faites-le dans AutoCAD."
       },
       "tool": {
         "line": "Ligne",
@@ -2284,7 +2287,66 @@
       "crosshairFull": "Réticule sur tout le dessin (CURSORSIZE 100)",
       "paletteToggle": "Afficher / masquer la palette {name}",
       "fullScreenHint": "Le dessin occupe toute la fenêtre. Échap annule seulement la commande ; sortez avec ce bouton.",
-      "quickAccess": "Accès rapide"
+      "quickAccess": "Accès rapide",
+      "prop": {
+        "color": "Couleur",
+        "layer": "Calque",
+        "linetype": "Type de ligne",
+        "ltscale": "Echelle type de ligne",
+        "lineweight": "Epaisseur de ligne",
+        "transparency": "Transparence",
+        "startX": "Début X",
+        "startY": "Début Y",
+        "endX": "Fin X",
+        "endY": "Fin Y",
+        "deltaX": "Delta X",
+        "deltaY": "Delta Y",
+        "length": "Longueur",
+        "angle": "Angle",
+        "vertex": "Sommet",
+        "vertexX": "Sommet X",
+        "vertexY": "Sommet Y",
+        "area": "Aire",
+        "closed": "Fermé",
+        "centerX": "Centre X",
+        "centerY": "Centre Y",
+        "radius": "Rayon",
+        "diameter": "Diamètre",
+        "circumference": "Circonférence",
+        "startAngle": "Angle de départ",
+        "endAngle": "Angle de fin",
+        "totalAngle": "Angle total",
+        "arcLength": "Longueur d'arc",
+        "contents": "Contenu",
+        "style": "Style",
+        "height": "Hauteur",
+        "rotation": "Rotation",
+        "positionX": "Position X",
+        "positionY": "Position Y",
+        "name": "Nom",
+        "scaleX": "Echelle X",
+        "scaleY": "Echelle Y",
+        "attribute": "Attribut",
+        "section": {
+          "general": "Général",
+          "geometry": "Géométrie",
+          "text": "Texte",
+          "misc": "Divers",
+          "attributes": "Attributs"
+        },
+        "title": "Propriétés",
+        "type": "Type d'objet",
+        "all": "Tout ({count})",
+        "noSelection": "Aucune sélection",
+        "editFirst": "Appuyez d'abord sur le crayon pour modifier les propriétés.",
+        "why": {
+          "notInView": "La vue web du dessin ne contient pas cette valeur — modifiez-la dans AutoCAD.",
+          "noCorrection": "Aucune correction ne peut encore modifier cette valeur — modifiez-la dans AutoCAD.",
+          "computed": "Calculée à partir de la forme ; modifiez plutôt les coordonnées.",
+          "noRule": "Ce calque n'a pas de règle ; choisissez un calque avec une règle."
+        },
+        "refused": "Cette valeur ne peut pas être utilisée."
+      }
     }
   },
   "asbuilt": {

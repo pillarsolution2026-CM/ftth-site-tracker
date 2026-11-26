@@ -1150,15 +1150,118 @@ describe(
         expect(history()).toMatch(/"Route" is now the current layer/);
         expect(prompt()).toMatch(/^LINE Specify first point/);
       });
+    });
 
-      it('Properties shows the details of the picked object', async () => {
-        const { canvas, user } = await openWorkspace();
-        await rightClick(user, canvas, 75, 25);
-        await user.click(item('Properties'));
-        const panel = await screen.findByRole('dialog', {
-          name: 'Details of the place on the drawing',
+    describe('selection, grips and Properties as AutoCAD (owner 2026-11-26)', () => {
+      const fillsOf = () => {
+        const fills: string[] = [];
+        ctx.fillRect.mockImplementation(() => {
+          fills.push(ctx.fillStyle);
         });
-        expect(within(panel).getByText('B')).toBeInTheDocument();
+        return fills;
+      };
+
+      it('a picked line shows its grips; a click on an end grip STRETCHes that end', async () => {
+        const fills = fillsOf();
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await waitFor(() => expect(fills).toContain('#007fff'));
+        await click(user, canvas, 100, 25);
+        expect(prompt()).toBe(
+          '** STRETCH ** Specify stretch point or [Base point/Copy/Undo/eXit]:',
+        );
+        await type(user, '110,30');
+        expect(prompt()).toBe('Type a command');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 25],
+              [110, 30],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('Esc cancels the hot grip; the middle grip of a line moves it', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 75, 25);
+        expect(prompt()).toMatch(/^\*\* STRETCH \*\*/);
+        await user.keyboard('{Escape}');
+        expect(history()).toMatch(/\*Cancel\*/);
+        expect(prompt()).toBe('Type a command');
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 75, 35);
+        await save(user);
+        const [move] = sent();
+        expect(move).toMatchObject({ kind: 'move_item', handle: 'B', dx: 0 });
+        expect(move?.dy as number).toBeCloseTo(10, 0);
+      });
+
+      it('a window adds to the picked objects; Shift + window takes them off', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await drag(user, canvas, [19, 23], [23, 19]);
+        await user.keyboard('{Shift>}');
+        await drag(user, canvas, [19, 23], [23, 19]);
+        await user.keyboard('{/Shift}');
+        await drag(user, canvas, [40, 28], [29, 33]);
+        await user.click(canvas);
+        await user.keyboard('{Delete}');
+        await save(user);
+        expect(sent()).toEqual([
+          { kind: 'erase_item', handle: 'B' },
+          { kind: 'erase_item', handle: 'T1' },
+        ]);
+      });
+
+      it('right-click Properties opens the palette; a changed cell is an unsaved edit', async () => {
+        const { canvas, user } = await openWorkspace();
+        await user.pointer({ keys: '[MouseRight]', target: canvas, coords: at(75, 25) });
+        await user.click(screen.getByRole('menuitem', { name: 'Properties' }));
+        const palette = screen.getByRole('complementary', { name: 'Properties' });
+        expect(within(palette).getByLabelText('Object type')).toHaveDisplayValue('Line');
+        expect(within(palette).getByLabelText('Layer')).toHaveDisplayValue('Route');
+        expect(within(palette).getByLabelText('Length')).toHaveTextContent('50.0000');
+        expect(within(palette).getByLabelText('Linetype scale')).toHaveAttribute(
+          'title',
+          expect.stringMatching(/does not carry this value/),
+        );
+        const startX = within(palette).getByLabelText('Start X');
+        await user.clear(startX);
+        await user.type(startX, '40{Enter}');
+        expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
+        expect(within(palette).getByLabelText('Length')).toHaveTextContent('60.0000');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [40, 25],
+              [100, 25],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('Ctrl+1 opens Properties; several objects show All (n) and *VARIES*', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 31, 31);
+        canvas.focus();
+        await user.keyboard('{Control>}1{/Control}');
+        const palette = screen.getByRole('complementary', { name: 'Properties' });
+        const types = within(palette).getByLabelText('Object type');
+        expect(types).toHaveDisplayValue(/^All \(.?2.?\)$/);
+        expect(within(palette).getByLabelText('Layer')).toHaveDisplayValue('*VARIES*');
+        await user.selectOptions(types, 'Text (1)');
+        expect(within(palette).getByLabelText('Contents')).toHaveValue('F 36 C');
       });
     });
 

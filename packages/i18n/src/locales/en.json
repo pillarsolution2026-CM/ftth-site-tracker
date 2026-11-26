@@ -1965,7 +1965,9 @@
         "blockName": "Enter block name",
         "insertPick": "Select a block reference to insert",
         "insertPoint": "Specify insertion point",
-        "attributePick": "Select block reference"
+        "attributePick": "Select block reference",
+        "gripStretch": "Specify stretch point",
+        "gripBase": "Specify base point"
       },
       "msg": {
         "commandEcho": "Command: {name}",
@@ -2070,7 +2072,8 @@
         "mergeWarning": "Every object on layer \"{from}\" will move to layer \"{to}\".",
         "deleteWarning": "Every object on layer \"{layer}\" will be deleted.",
         "layerMerged": "Layer \"{from}\" was merged into \"{to}\".",
-        "layerDeleted": "Layer \"{layer}\" was deleted."
+        "layerDeleted": "Layer \"{layer}\" was deleted.",
+        "gripNotHere": "This grip cannot be stretched on the web view yet (arc end, ellipse axis, spline end) — do it in AutoCAD."
       },
       "tool": {
         "line": "Line",
@@ -2284,7 +2287,66 @@
       "crosshairFull": "Crosshair across the whole drawing (CURSORSIZE 100)",
       "paletteToggle": "Show / hide the {name} palette",
       "fullScreenHint": "The drawing takes the whole window. Esc only cancels the command; leave with this button.",
-      "quickAccess": "Quick access"
+      "quickAccess": "Quick access",
+      "prop": {
+        "color": "Color",
+        "layer": "Layer",
+        "linetype": "Linetype",
+        "ltscale": "Linetype scale",
+        "lineweight": "Lineweight",
+        "transparency": "Transparency",
+        "startX": "Start X",
+        "startY": "Start Y",
+        "endX": "End X",
+        "endY": "End Y",
+        "deltaX": "Delta X",
+        "deltaY": "Delta Y",
+        "length": "Length",
+        "angle": "Angle",
+        "vertex": "Vertex",
+        "vertexX": "Vertex X",
+        "vertexY": "Vertex Y",
+        "area": "Area",
+        "closed": "Closed",
+        "centerX": "Center X",
+        "centerY": "Center Y",
+        "radius": "Radius",
+        "diameter": "Diameter",
+        "circumference": "Circumference",
+        "startAngle": "Start angle",
+        "endAngle": "End angle",
+        "totalAngle": "Total angle",
+        "arcLength": "Arc length",
+        "contents": "Contents",
+        "style": "Style",
+        "height": "Height",
+        "rotation": "Rotation",
+        "positionX": "Position X",
+        "positionY": "Position Y",
+        "name": "Name",
+        "scaleX": "Scale X",
+        "scaleY": "Scale Y",
+        "attribute": "Attribute",
+        "section": {
+          "general": "General",
+          "geometry": "Geometry",
+          "text": "Text",
+          "misc": "Misc",
+          "attributes": "Attributes"
+        },
+        "title": "Properties",
+        "type": "Object type",
+        "all": "All ({count})",
+        "noSelection": "No selection",
+        "editFirst": "Press the pen first to change properties.",
+        "why": {
+          "notInView": "The web view of the drawing does not carry this value — change it in AutoCAD.",
+          "noCorrection": "No correction can change this value yet — change it in AutoCAD.",
+          "computed": "Worked out from the shape; change the coordinates instead.",
+          "noRule": "That layer has no rule; choose a layer with a rule."
+        },
+        "refused": "That value cannot be used."
+      }
     }
   },
   "asbuilt": {

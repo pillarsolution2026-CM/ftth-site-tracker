@@ -144,7 +144,15 @@ export function geometryOf(
     const changed = preview.attrOf.get(index);
     const values = entity.texts.map((text) => changed?.get(text.text) ?? text.text);
     if (!insert) {
-      return { type: 'insert', at: null, rotation: null, scaleX: null, scaleY: null, name: null, values };
+      return {
+        type: 'insert',
+        at: null,
+        rotation: null,
+        scaleX: null,
+        scaleY: null,
+        name: null,
+        values,
+      };
     }
     const factor = scaleOf(moved);
     return {

@@ -101,6 +101,7 @@ import {
   type ExtraSettings,
   type ExtraStep,
 } from './extra-commands';
+import { gripSketch, gripsOf, gripStretchEdits, type Grip } from '../model/grips';
 import { LAYER_TEXT_STEPS } from './layer-commands';
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import type { LayerScreen } from './use-layer-screen';
@@ -118,6 +119,8 @@ export type { Point } from '../model/cad-commands';
 /** What the current step waits for (an i18n key under `design.cad.cmd`). */
 export type PromptKey =
   | 'command'
+  | 'gripStretch'
+  | 'gripBase'
   | 'selectObjects'
   | 'stretchSelect'
   | 'basePoint'
@@ -447,6 +450,20 @@ const DRAW_LIKE: Readonly<Record<string, CommandId>> = {
   LEADER: 'leader',
 };
 const NONE: ReadonlySet<number> = new Set();
+/** AutoCAD's grip editing in progress (a hot grip, owner 2026-11-26). */
+interface GripRun {
+  grip: Grip;
+  base: Point;
+  copy: boolean;
+  step: 'stretch' | 'base';
+}
+const GRIP_NAME = '** STRETCH **';
+const GRIP_OPTIONS: readonly CommandOption[] = [
+  { word: 'Base point', key: 'B' },
+  { word: 'Copy', key: 'C' },
+  { word: 'Undo', key: 'U' },
+  { word: 'eXit', key: 'X' },
+];
 const HISTORY_LINES = 50;
 const opt = (word: string, key: string): CommandOption => ({ word, key });
 
@@ -493,6 +510,18 @@ export interface CanvasEditState {
   addSelected: () => void;
   /** A click on the canvas in the edit mode (`at`: the drawing point clicked). */
   pick: (entity: number | null, at: Point, additive: boolean) => void;
+  /** AutoCAD's grips of the picked objects (none while a command runs). */
+  grips: readonly Grip[];
+  /** Boxes of the groups picked as one object. */
+  groupBoxes: readonly { minX: number; minY: number; maxX: number; maxY: number }[];
+  /** The hot grip of a grip STRETCH, null otherwise. */
+  hotGrip: Grip | null;
+  /** A click on a grip: AutoCAD's «** STRETCH **» starts from it. */
+  startGrip: (grip: Grip) => void;
+  /** Edits made outside the command line (the Properties palette). */
+  apply: (edits: CanvasEdit[]) => void;
+  /** The name shown before the prompt when it is not a command's («** STRETCH **»). */
+  commandLabel: string | null;
   /** A drag on the canvas draws a selection box. */
   boxing: boolean;
   band: Band | null;
@@ -612,6 +641,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   /** Edits taken back by Undo, the last one on top (Redo). */
   const [undone, setUndone] = useState<readonly CanvasEdit[]>([]);
   const [error, setError] = useState<ErrorMessage | null>(null);
+  const [gripRun, setGripRun] = useState<GripRun | null>(null);
 
   // Leaving the page with unsaved edits asks first.
   const unsaved = edits.length > 0;
@@ -675,11 +705,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const handles = scene ? handlesOf(scene, selection) : [];
   /** The entity and, with group selection on, every shown member of its groups. */
   const groupMembers = (index: number): number[] => {
-    if (!scene || !shown || !extraSettings.groupPick || shown.groups.size === 0) return [index];
+    if (!scene || !shown || shown.groups.size === 0) return [index];
     const handle = scene.view.entities[index]?.handle;
     const out = new Set([index]);
     for (const group of shown.groups.values()) {
-      if (!handle || !group.handles.includes(handle)) continue;
+      // PICKSTYLE for groups; a block made on the page is always one object (AutoCAD).
+      if (!handle || !group.handles.includes(handle) || !(extraSettings.groupPick || group.block))
+        continue;
       for (const h of group.handles) {
         for (const i of scene.byHandle.get(h) ?? []) if (pickable(i)) out.add(i);
       }
@@ -2717,6 +2749,76 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const selecting = run === null || run.step === 'select';
 
+  // ---------- grips (AutoCAD, owner 2026-11-26) ----------
+
+  const gripSet =
+    scene && shown && editing && run === null
+      ? gripsOf(scene, shown, selection, extraSettings.groupPick)
+      : { grips: [], groupBoxes: [] };
+  const endGrip = (cancelled: boolean) => {
+    if (cancelled) say(msg('cancel'));
+    setGripRun(null);
+    setPointer(null);
+    setText('');
+  };
+  const gripPrompt = (g: GripRun): CommandPrompt =>
+    g.step === 'base'
+      ? { key: 'gripBase', options: [], fallback: null }
+      : { key: 'gripStretch', options: GRIP_OPTIONS, fallback: null };
+  const gripPoint = (g: GripRun, p: Point) => {
+    if (!scene || !shown) return;
+    if (g.step === 'base') {
+      setGripRun({ ...g, base: p, step: 'stretch' });
+      return;
+    }
+    const layer = g.grip.index >= 0 ? layerNameOf(g.grip.index) : '';
+    const made = gripStretchEdits(scene, shown, g.grip, g.base, p, g.copy, layer);
+    if (!made) {
+      say(msg('gripNotHere'));
+      endGrip(false);
+      return;
+    }
+    add(made);
+    if (!g.copy) {
+      setGripRun(null);
+      setPointer(null);
+    }
+  };
+  const gripOption = (g: GripRun, key: string) => {
+    if (key === 'B') setGripRun({ ...g, step: 'base' });
+    else if (key === 'C') setGripRun({ ...g, copy: true });
+    else if (key === 'U') undo();
+    else if (key === 'X') endGrip(false);
+  };
+  const gripSubmit = (g: GripRun) => {
+    const typed = text;
+    setText('');
+    say(`${formatPrompt(t, GRIP_NAME, gripPrompt(g))} ${typed}`.trim());
+    const entry = parseEntry(typed, g.base);
+    if (entry.kind === 'empty') endGrip(false);
+    else if (entry.kind === 'point') gripPoint(g, entry.point);
+    else if (entry.kind === 'word' && g.step === 'stretch') {
+      const key = matchOption(GRIP_OPTIONS, entry.word);
+      if (key) gripOption(g, key);
+      else say(msg('badPoint'));
+    } else say(msg('badPoint'));
+  };
+  const submitAll = () => (gripRun ? gripSubmit(gripRun) : submit());
+  if (gripRun && pointer && scene && shown && gripRun.step === 'stretch') {
+    const g = gripRun.grip;
+    const moving =
+      g.kind === 'group' ||
+      g.kind === 'insert' ||
+      g.kind === 'center' ||
+      (g.kind === 'mid' && scene.view.entities[g.index]?.kind === 'LINE');
+    if (moving) {
+      ghost = {
+        indexes: g.handles.flatMap((h) => [...(scene.byHandle.get(h) ?? [])]),
+        step: translation(pointer.x - gripRun.base.x, pointer.y - gripRun.base.y),
+      };
+    } else sketch = gripSketch(scene, shown, g, gripRun.base, pointer);
+  }
+
   const state: CanvasEditState = {
     available,
     editing,
@@ -2758,12 +2860,17 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         setRun({ ...started, flags: { ...started.flags, extra: { pending: key } } });
       } else feedOption(started, key);
     },
-    prompt: promptOf(run),
+    prompt: gripRun ? gripPrompt(gripRun) : promptOf(run),
     history,
     input: text,
     setInput: setText,
-    submit,
+    submit: submitAll,
     chooseOption: (key) => {
+      if (gripRun) {
+        say(`${formatPrompt(t, GRIP_NAME, gripPrompt(gripRun))} ${key}`);
+        gripOption(gripRun, key);
+        return;
+      }
       if (!run) return;
       say(`${promptLine(run)} ${key}`);
       feedOption(run, key);
@@ -2780,6 +2887,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         redo();
         return true;
       }
+      if (k === 'Escape' && gripRun) {
+        endGrip(true);
+        return true;
+      }
       if (k === 'Escape') {
         if (run) cancelRun();
         else {
@@ -2789,7 +2900,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return true;
       }
       if (k === 'Enter' || (k === ' ' && !(run && isTextStep(run.step)))) {
-        submit();
+        submitAll();
         return true;
       }
       if (k === 'Delete' && !run && handles.length > 0) {
@@ -2842,6 +2953,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     pick: (entity, at, additive) => {
       if (!editing || !scene) return;
       setError(null);
+      if (gripRun) {
+        gripPoint(gripRun, at);
+        return;
+      }
       if (run && isObjectStep(run.step)) {
         feedObject(run, entity, at, additive);
         return;
@@ -2866,7 +2981,28 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       });
       if (run) say(msg('found', { count: 1 }));
     },
-    boxing: editing && selecting,
+    grips: gripSet.grips,
+    groupBoxes: gripSet.groupBoxes,
+    hotGrip: gripRun?.grip ?? null,
+    startGrip: (grip) => {
+      if (!editing || run) return;
+      if (!grip.editable) {
+        say(msg('gripNotHere'));
+        return;
+      }
+      setError(null);
+      say(GRIP_NAME);
+      setGripRun({ grip, base: { x: grip.x, y: grip.y }, copy: false, step: 'stretch' });
+      setPointer({ x: grip.x, y: grip.y });
+      setFocusNonce((n) => n + 1);
+    },
+    commandLabel: gripRun ? GRIP_NAME : null,
+    apply: (made) => {
+      if (!editing || made.length === 0) return;
+      setError(null);
+      add(made);
+    },
+    boxing: editing && selecting && gripRun === null,
     band,
     setBand,
     pickBand: (picked, additive) => {
@@ -2901,19 +3037,20 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           },
         });
       }
+      // AutoCAD (PICKADD 2): a window adds to the selection; Shift + window takes off.
       setSelection((before) => {
-        const next = new Set(additive ? before : run ? before : NONE);
+        const next = new Set(before);
         for (const index of found) {
-          if (run?.flags.removing) next.delete(index);
+          if (run?.flags.removing || additive) next.delete(index);
           else next.add(index);
         }
         return next;
       });
       if (run) say(msg('found', { count: found.length }));
     },
-    tracking: run !== null && isTracked(run.step),
+    tracking: (run !== null && isTracked(run.step)) || gripRun !== null,
     hover: (at) => {
-      if (run && isTracked(run.step)) setPointer(at);
+      if (gripRun || (run && isTracked(run.step))) setPointer(at);
     },
     ghost,
     sketch,

@@ -1965,7 +1965,9 @@
         "blockName": "Enter block name",
         "insertPick": "Select a block reference to insert",
         "insertPoint": "Specify insertion point",
-        "attributePick": "Select block reference"
+        "attributePick": "Select block reference",
+        "gripStretch": "Specify stretch point",
+        "gripBase": "Specify base point"
       },
       "msg": {
         "commandEcho": "Command: {name}",
@@ -2070,7 +2072,8 @@
         "mergeWarning": "Every object on layer \"{from}\" will move to layer \"{to}\".",
         "deleteWarning": "Every object on layer \"{layer}\" will be deleted.",
         "layerMerged": "Layer \"{from}\" was merged into \"{to}\".",
-        "layerDeleted": "Layer \"{layer}\" was deleted."
+        "layerDeleted": "Layer \"{layer}\" was deleted.",
+        "gripNotHere": "الـ grip ده لسه ما ينفعش يتشد من شاشة الويب (طرف قوس، محور قطع ناقص، طرف spline) — اعمله في AutoCAD."
       },
       "tool": {
         "line": "Line",
@@ -2284,7 +2287,66 @@
       "crosshairFull": "مؤشر بعرض الرسمة كلها (CURSORSIZE 100)",
       "paletteToggle": "اظهر / اخفي لوحة {name}",
       "fullScreenHint": "الشاشة كلها للرسمة. Esc بيلغي الأمر بس؛ اخرج بنفس الزرار.",
-      "quickAccess": "شريط الأدوات السريعة"
+      "quickAccess": "شريط الأدوات السريعة",
+      "prop": {
+        "color": "Color",
+        "layer": "Layer",
+        "linetype": "Linetype",
+        "ltscale": "Linetype scale",
+        "lineweight": "Lineweight",
+        "transparency": "Transparency",
+        "startX": "Start X",
+        "startY": "Start Y",
+        "endX": "End X",
+        "endY": "End Y",
+        "deltaX": "Delta X",
+        "deltaY": "Delta Y",
+        "length": "Length",
+        "angle": "Angle",
+        "vertex": "Vertex",
+        "vertexX": "Vertex X",
+        "vertexY": "Vertex Y",
+        "area": "Area",
+        "closed": "Closed",
+        "centerX": "Center X",
+        "centerY": "Center Y",
+        "radius": "Radius",
+        "diameter": "Diameter",
+        "circumference": "Circumference",
+        "startAngle": "Start angle",
+        "endAngle": "End angle",
+        "totalAngle": "Total angle",
+        "arcLength": "Arc length",
+        "contents": "Contents",
+        "style": "Style",
+        "height": "Height",
+        "rotation": "Rotation",
+        "positionX": "Position X",
+        "positionY": "Position Y",
+        "name": "Name",
+        "scaleX": "Scale X",
+        "scaleY": "Scale Y",
+        "attribute": "Attribute",
+        "section": {
+          "general": "General",
+          "geometry": "Geometry",
+          "text": "Text",
+          "misc": "Misc",
+          "attributes": "Attributes"
+        },
+        "title": "Properties",
+        "type": "Object type",
+        "all": "All ({count})",
+        "noSelection": "No selection",
+        "editFirst": "اضغط القلم الأول عشان تغيّر الخصائص.",
+        "why": {
+          "notInView": "عرض الرسمة على الويب مش شايل القيمة دي — غيّرها في AutoCAD.",
+          "noCorrection": "مفيش تصحيح بيغيّر القيمة دي لسه — غيّرها في AutoCAD.",
+          "computed": "قيمة محسوبة من الشكل؛ غيّر الإحداثيات بدالها.",
+          "noRule": "الـ Layer دي ملهاش قاعدة؛ اختار Layer ليها قاعدة."
+        },
+        "refused": "القيمة دي ما تنفعش."
+      }
     }
   },
   "asbuilt": {

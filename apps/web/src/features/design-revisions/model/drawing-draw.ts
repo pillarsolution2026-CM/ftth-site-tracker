@@ -19,6 +19,7 @@ import {
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
 import { linearDimension, type Pt } from './geometry';
+import type { Grip } from './grips';
 import { toScreen, visibleBounds, type Size, type ViewTransform } from './view-transform';
 
 /** Texts smaller than this on screen (px of text height) are not drawn. */
@@ -74,6 +75,14 @@ export interface DrawModel {
   boxLabels?: readonly BoxLabel[];
   /** Entities picked in the edit mode (ADR-047). */
   chosen?: ReadonlySet<number>;
+  /** AutoCAD's grips of the picked objects (owner 2026-11-26). */
+  grips?: readonly Grip[];
+  /** Boxes of groups picked as one object, drawn dashed. */
+  groupBoxes?: readonly { minX: number; minY: number; maxX: number; maxY: number }[];
+  /** The grip under the pointer (AutoCAD's hover colour). */
+  hoverGrip?: Grip | null;
+  /** The hot grip of a grip STRETCH (red). */
+  hotGrip?: Grip | null;
   /** The selection box being dragged in the edit mode, in drawing coordinates. */
   band?: Band | null;
   /** Picked entities shown where a move / turn in progress would put them (ADR-047). */
@@ -812,7 +821,8 @@ export function drawOverlay(
   if (model.selected !== null && shown(model.selected)) {
     boxOutline(ctx, model, tf, vp, model.selected, SELECTED_COLOR);
   }
-  if (model.chosen && model.chosen.size > 0) drawChosen(ctx, model, cache, tf, vp);
+  if ((model.chosen && model.chosen.size > 0) || model.grips?.length)
+    drawChosen(ctx, model, cache, tf, vp);
   if (model.band) drawBand(ctx, model.band, tf, vp);
   if (model.ghost) drawGhost(ctx, model, cache, tf, vp, model.ghost);
   if (model.sketch && model.sketch.points.length > 0) drawSketch(ctx, model.sketch, tf, vp);
@@ -846,9 +856,23 @@ export function drawOverlay(
 
 /** AutoCAD shows picked objects dashed and light, with blue grips. */
 const CHOSEN_COLOR = '#5a9bff';
-const GRIP_COLOR = '#1e6bff';
+/** GRIPCOLOR 150, GRIPHOVER 11, GRIPHOT 12 (AutoCAD's defaults). */
+export const GRIP_COLOR = '#007fff';
+export const GRIP_HOVER_COLOR = '#ff7f7f';
+export const GRIP_HOT_COLOR = '#ff0000';
+/** Half the side of a grip on screen (GRIPSIZE 5 at 96 dpi). */
+export const GRIP_HALF_PX = 4.5;
 
-/** Picked items as AutoCAD shows them: dashed, with a grip at the corners of each one's box. */
+const sameGrip = (a: Grip | null | undefined, b: Grip) =>
+  a !== null &&
+  a !== undefined &&
+  a.index === b.index &&
+  a.kind === b.kind &&
+  a.vertex === b.vertex &&
+  a.x === b.x &&
+  a.y === b.y;
+
+/** Picked items as AutoCAD shows them: dashed, with AutoCAD's grips of each object. */
 function drawChosen(
   ctx: CanvasRenderingContext2D,
   model: DrawModel,
@@ -867,18 +891,26 @@ function drawChosen(
   }
   ctx.setLineDash([]);
   setScreenTransform(ctx, vp);
-  ctx.fillStyle = GRIP_COLOR;
-  for (const index of chosen) {
-    const box = shownBox(model, index);
-    for (const [x, y] of [
-      [box.minX, box.minY],
-      [box.maxX, box.maxY],
-      [box.minX, box.maxY],
-      [box.maxX, box.minY],
-    ] as const) {
-      const p = toScreen(tf, vp, x, y);
-      ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
-    }
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  for (const box of model.groupBoxes ?? []) {
+    const a = toScreen(tf, vp, box.minX, box.maxY);
+    const b = toScreen(tf, vp, box.maxX, box.minY);
+    ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+  }
+  ctx.setLineDash([]);
+  for (const grip of model.grips ?? []) {
+    const p = toScreen(tf, vp, grip.x, grip.y);
+    ctx.fillStyle = sameGrip(model.hotGrip, grip)
+      ? GRIP_HOT_COLOR
+      : sameGrip(model.hoverGrip, grip)
+        ? GRIP_HOVER_COLOR
+        : GRIP_COLOR;
+    // A polyline's segment grip is a thin rectangle, the others squares (AutoCAD).
+    const w = grip.kind === 'segment' ? GRIP_HALF_PX * 1.4 : GRIP_HALF_PX;
+    const h = grip.kind === 'segment' ? GRIP_HALF_PX * 0.6 : GRIP_HALF_PX;
+    ctx.fillRect(p.x - w, p.y - h, w * 2, h * 2);
   }
 }
 

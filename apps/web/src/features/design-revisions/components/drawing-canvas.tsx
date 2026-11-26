@@ -227,6 +227,7 @@ export function DrawingCanvas({
     const world = toWorld(transform, size, p.x, p.y);
     setCursor({ x: world.x, y: world.y });
     setHair(p);
+    viewer.hoverAt(p.x, p.y);
     if (viewer.edit.tracking) viewer.edit.hover(world);
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
@@ -266,7 +267,8 @@ export function DrawingCanvas({
     const from = bandFrom.current;
     if (wasSingle && from && moved.current) {
       const world = toWorld(transform, size, p.x, p.y);
-      viewer.edit.pickBand({ x0: from.x, y0: from.y, x1: world.x, y1: world.y }, additive);
+      // Shift + window takes the objects off the selection (AutoCAD).
+      viewer.edit.pickBand({ x0: from.x, y0: from.y, x1: world.x, y1: world.y }, event.shiftKey);
     } else if (wasSingle && !moved.current) {
       viewer.click(p.x, p.y, additive);
     }
@@ -275,6 +277,12 @@ export function DrawingCanvas({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLCanvasElement>) => {
+    // Ctrl+1: AutoCAD's Properties palette.
+    if ((event.ctrlKey || event.metaKey) && event.key === '1') {
+      event.preventDefault();
+      viewer.openProperties();
+      return;
+    }
     // CAD keys while editing (ADR-050): Esc, Enter, Ctrl+Z, Ctrl+Y, Delete and one-letter commands.
     if (viewer.edit.key(event.key, event.ctrlKey || event.metaKey)) {
       event.preventDefault();

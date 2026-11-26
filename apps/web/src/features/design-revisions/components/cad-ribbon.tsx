@@ -1748,7 +1748,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
     if (focusNonce > 0) inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
   if (!edit.available || !edit.editing) return null;
-  const name = edit.command ? COMMANDS[edit.command].name : null;
+  const name = edit.commandLabel ?? (edit.command ? COMMANDS[edit.command].name : null);
   const { prompt } = edit;
   const text = t(`design.cad.cmd.${prompt.key}` as MessageKey);
   return (

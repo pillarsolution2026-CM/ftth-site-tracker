@@ -14,6 +14,7 @@ import { CadCommandLine, CadRibbon } from './cad-ribbon';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
+import { PropertiesPalette } from './properties-palette';
 import { WorkspaceDialogs } from './workspace-dialogs';
 
 /**
@@ -148,7 +149,7 @@ export function DrawingViewer({
   );
 }
 
-type PaletteKey = 'problems' | 'corrections';
+type PaletteKey = 'problems' | 'corrections' | 'properties';
 type DrawingViewerState = ReturnType<typeof useDrawingViewer>;
 
 /**
@@ -208,6 +209,13 @@ function Workspace({
       setOpen(next);
     }
   }
+  // Right-click «Properties» and Ctrl+1 open AutoCAD's Properties palette.
+  const { propertiesNonce } = viewer;
+  const [seenProperties, setSeenProperties] = useState(propertiesNonce);
+  if (propertiesNonce !== seenProperties) {
+    setSeenProperties(propertiesNonce);
+    if (!open.has('properties')) setOpen(new Set([...open, 'properties']));
+  }
   const crosshair = useCrosshairSize();
   const palettes: { key: PaletteKey; title: string; body: ReactNode }[] = [];
   if (problems) {
@@ -218,6 +226,22 @@ function Workspace({
       key: 'corrections',
       title: t('design.cad.palette.corrections'),
       body: corrections,
+    });
+  }
+  if (edit.available && viewer.scene && edit.preview) {
+    palettes.push({
+      key: 'properties',
+      title: t('design.cad.prop.title'),
+      body: (
+        <PropertiesPalette
+          scene={viewer.scene}
+          preview={edit.preview}
+          chosen={edit.chosen}
+          layers={edit.layers}
+          editing={edit.editing}
+          onApply={edit.apply}
+        />
+      ),
     });
   }
   if (!model) return null;
