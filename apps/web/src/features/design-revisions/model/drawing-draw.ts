@@ -298,11 +298,23 @@ export function drawBase(
     ctx.fillRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
   }
 
-  const candidates = cullEntities(scene, visibleBounds(tf, vp));
-  // Moved entities are culled by where they were drawn: add them so they show where they are now.
+  const view = visibleBounds(tf, vp);
+  const candidates = cullEntities(scene, view);
+  // Moved entities are culled by where they were drawn: add those now on the screen (audit 10.2).
   if (preview.transformOf.size > 0) {
     const seen = new Set(candidates);
-    for (const index of preview.transformOf.keys()) if (!seen.has(index)) candidates.push(index);
+    for (const [index, moved] of preview.transformOf) {
+      if (seen.has(index)) continue;
+      const box = boxThrough(moved, boxOf(scene, index));
+      if (
+        box.minX > view.maxX ||
+        box.maxX < view.minX ||
+        box.minY > view.maxY ||
+        box.maxY < view.minY
+      )
+        continue;
+      candidates.push(index);
+    }
   }
   const shown: number[] = [];
   for (const index of candidates) {

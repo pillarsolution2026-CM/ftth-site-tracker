@@ -162,6 +162,28 @@ describe('2 000 copies on the page (audit 10.2 / 10.1)', () => {
     expect(ctx.stroke).not.toHaveBeenCalled();
   });
 
+  it('the base skips moved objects that are now off the screen', () => {
+    const cache = new PathCache(scene);
+    const near: ViewTransform = { cx: 5000, cy: 5000, scale: 2 };
+    const count = (transformOf: DrawingPreview['transformOf']) => {
+      const ctx = createMockContext();
+      drawBase(
+        ctx as unknown as CanvasRenderingContext2D,
+        modelOf(new Set(), { ...EMPTY_PREVIEW, transformOf }),
+        cache,
+        near,
+        vp,
+      );
+      return ctx.stroke.mock.calls.length + ctx.save.mock.calls.length;
+    };
+    const still = count(new Map());
+    // 2 000 objects moved far away (MOVE of an ARRAY): none of them is drawn here.
+    const far = new Map(
+      Array.from({ length: 2000 }, (_, i) => [i * 20, translation(50_000, 50_000)] as const),
+    );
+    expect(count(far)).toBeLessThanOrEqual(still + 50);
+  });
+
   it('the base draws each copy once', () => {
     const cache = new PathCache(scene);
     const ctx = createMockContext();
