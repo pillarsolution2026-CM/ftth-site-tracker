@@ -1717,6 +1717,9 @@
       "save": "حفظ"
     },
     "cad": {
+      "suggestions": "اقتراحات الأوامر",
+      "recentCommands": "الأوامر الأخيرة",
+      "noRecentCommands": "لا توجد أوامر حديثة",
       "ribbon": "أدوات الرسم",
       "home": "Home",
       "status": {

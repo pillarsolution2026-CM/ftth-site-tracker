@@ -18,8 +18,8 @@ import {
   acadNumber,
   COMMANDS,
   PROMPTS_WITHOUT_OR,
-  lookupCommand,
   matchOption,
+  resolveCommand,
   parseEntry,
   towards,
   type CommandId,
@@ -495,6 +495,8 @@ const GRIP_OPTIONS: readonly CommandOption[] = [
   { word: 'eXit', key: 'X' },
 ];
 const HISTORY_LINES = 50;
+/** AutoCAD's CMDINPUTHISTORYMAX: how many inputs ↑ / ↓ and the recent lists keep. */
+const INPUT_HISTORY_MAX = 20;
 const opt = (word: string, key: string): CommandOption => ({ word, key });
 
 /** The drawing's edit mode (ADR-047, ADR-050, ADR-051). */
@@ -529,6 +531,10 @@ export interface CanvasEditState {
   prompt: CommandPrompt;
   /** Lines already on the command line (newest last). */
   history: readonly string[];
+  /** What was typed on the command line, newest last (↑ / ↓ recall it, AutoCAD). */
+  recentInput: readonly string[];
+  /** Commands started, newest first (the command line's right-click «Recent Commands»). */
+  recentCommands: readonly CommandId[];
   input: string;
   setInput: (value: string) => void;
   /** Enter on the command line. */
@@ -766,6 +772,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const undoHistory = input.history ?? ownHistory;
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [gripRun, setGripRun] = useState<GripRun | null>(null);
+  // AutoCAD's recent input (↑ / ↓ on the command line) and recent commands (right-click).
+  const [recentInput, setRecentInput] = useState<readonly string[]>([]);
+  const [recentCommands, setRecentCommands] = useState<readonly CommandId[]>([]);
+  const rememberInput = (typed: string) => {
+    const value = typed.trim();
+    if (!value) return;
+    setRecentInput((before) =>
+      [...before.filter((v) => v !== value), value].slice(-INPUT_HISTORY_MAX),
+    );
+  };
 
   // Leaving the page with unsaved edits asks first.
   const unsaved = edits.length > 0;
@@ -1301,6 +1317,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     if (!scene) return null;
     setError(null);
     setLastCmd(cmd);
+    setRecentCommands((before) =>
+      [cmd, ...before.filter((c) => c !== cmd)].slice(0, INPUT_HISTORY_MAX),
+    );
     setText('');
     setBand(null);
     setFocusNonce((n) => n + 1);
@@ -2905,6 +2924,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const typed = text;
     setText('');
     if (!editing) return;
+    rememberInput(typed);
     if (run && isTextStep(run.step)) {
       say(`${promptLine(run)} ${typed}`);
       const ctx = extraFor(run);
@@ -2919,7 +2939,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (lastCmd) begin(lastCmd);
         return;
       }
-      const id = entry.kind === 'word' ? lookupCommand(entry.word) : null;
+      // AutoComplete (item 33): the exact name, else the first suggestion (`JO` → JOIN).
+      const id = entry.kind === 'word' ? resolveCommand(entry.word) : null;
       if (id) begin(id);
       else say(msg('unknownCommand', { name: typed.trim().toUpperCase() }));
       return;
@@ -3226,6 +3247,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         : null,
     prompt: gripRun ? gripPrompt(gripRun) : promptOf(run),
     history,
+    recentInput,
+    recentCommands,
     input: text,
     setInput: setText,
     submit: submitAll,

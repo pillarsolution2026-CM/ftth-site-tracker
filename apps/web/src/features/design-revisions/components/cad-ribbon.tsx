@@ -27,6 +27,7 @@ import {
   LINETYPES,
   LINEWEIGHTS,
   PROMPTS_WITHOUT_OR,
+  suggestCommands,
   type CommandId,
 } from '../model/cad-commands';
 
@@ -1809,9 +1810,31 @@ export function CadCommandLine({
   useEffect(() => {
     if (focusNonce > 0) inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
+  // AutoComplete (item 33): the highlighted suggestion; ↑ / ↓ recall (position in recentInput).
+  const [highlight, setHighlight] = useState(0);
+  const [recall, setRecall] = useState<number | null>(null);
+  const [recentOpen, setRecentOpen] = useState(false);
+  const typed = edit.input;
+  const [typedBefore, setTypedBefore] = useState(typed);
+  if (typed !== typedBefore) {
+    setTypedBefore(typed);
+    setHighlight(0);
+  }
   if (!edit.available || !edit.editing) return null;
   const name = edit.commandLabel ?? (edit.command ? COMMANDS[edit.command].name : null);
   const { prompt } = edit;
+  const suggestions =
+    prompt.key === 'command' && name === null && recall === null ? suggestCommands(typed) : [];
+  const listed = Math.min(highlight, Math.max(0, suggestions.length - 1));
+  const recallTo = (index: number | null) => {
+    setRecall(index);
+    edit.setInput(index === null ? '' : (edit.recentInput[index] ?? ''));
+  };
+  const start = (id: CommandId) => {
+    setRecentOpen(false);
+    setRecall(null);
+    edit.run(id);
+  };
   const text = t(`design.cad.cmd.${prompt.key}` as MessageKey);
   // AutoCAD's floating command line: a translucent grey bar over the bottom of the drawing, the
   // last lines fading above it; the text keeps a shadow so it reads on any drawing (owner 2026-11-26).
@@ -1843,7 +1866,67 @@ export function CadCommandLine({
           </div>
         ))}
       </div>
-      <div className="pointer-events-auto flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#22262c]/60 px-2 py-1.5">
+      <div
+        onContextMenu={(event) => {
+          // AutoCAD: right-click on the command line lists the recent commands.
+          event.preventDefault();
+          setRecentOpen((open) => !open);
+        }}
+        className="pointer-events-auto relative flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#22262c]/60 px-2 py-1.5"
+      >
+        {suggestions.length > 0 ? (
+          <ul
+            id="cad-suggestions"
+            role="listbox"
+            aria-label={t('design.cad.suggestions')}
+            className="absolute start-8 bottom-full z-20 mb-0.5 max-h-72 min-w-52 overflow-y-auto rounded border border-[#4a505a] bg-[#2b2f36] py-0.5 shadow-lg [text-shadow:none]"
+          >
+            {suggestions.map((s, i) => (
+              <li
+                key={s.id}
+                id={`cad-suggestion-${s.id}`}
+                role="option"
+                aria-selected={i === listed}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => start(s.id)}
+                className={`cursor-default px-2 py-0.5 ${
+                  i === listed ? 'bg-[#3d6fb6] text-white' : 'text-[#e8eaed] hover:bg-white/10'
+                }`}
+              >
+                {s.label}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {recentOpen ? (
+          <ul
+            role="menu"
+            aria-label={t('design.cad.recentCommands')}
+            className="absolute start-0 bottom-full z-20 mb-0.5 min-w-52 rounded border border-[#4a505a] bg-[#2b2f36] py-1 font-sans shadow-lg [text-shadow:none]"
+          >
+            <li role="presentation" className="px-2 pb-1 text-[11px] text-[#aab0b8]" dir="auto">
+              {t('design.cad.recentCommands')}
+            </li>
+            {edit.recentCommands.length === 0 ? (
+              <li role="presentation" className="px-2 text-[#aab0b8]" dir="auto">
+                {t('design.cad.noRecentCommands')}
+              </li>
+            ) : (
+              edit.recentCommands.map((id) => (
+                <li key={id} role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => start(id)}
+                    className="flex min-h-7 w-full items-center px-2 text-start font-mono hover:bg-white/10"
+                  >
+                    {COMMANDS[id].name}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        ) : null}
         <button
           type="button"
           aria-label={t('design.cad.strip.history')}
@@ -1890,13 +1973,52 @@ export function CadCommandLine({
           value={edit.input}
           spellCheck={false}
           autoComplete="off"
-          onChange={(event) => edit.setInput(event.target.value)}
+          role="combobox"
+          aria-expanded={suggestions.length > 0}
+          aria-controls="cad-suggestions"
+          aria-autocomplete="list"
+          aria-activedescendant={
+            suggestions[listed] ? `cad-suggestion-${suggestions[listed].id}` : undefined
+          }
+          onChange={(event) => {
+            setRecall(null);
+            edit.setInput(event.target.value);
+          }}
           onKeyDown={(event) => {
             const ctrl = event.ctrlKey || event.metaKey;
             if (event.key === 'Delete' && edit.input === '' && edit.key('Delete', false)) {
               event.preventDefault();
               return;
             }
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              const up = event.key === 'ArrowUp';
+              if (suggestions.length > 0) {
+                // AutoCAD: the arrows walk the suggestion list.
+                event.preventDefault();
+                const n = suggestions.length;
+                setHighlight((listed + (up ? n - 1 : 1)) % n);
+                return;
+              }
+              const count = edit.recentInput.length;
+              if (count === 0 || (edit.input !== '' && recall === null)) return;
+              // On an empty line the arrows recall what was typed before (AutoCAD).
+              event.preventDefault();
+              if (up) recallTo(recall === null ? count - 1 : Math.max(0, recall - 1));
+              else recallTo(recall === null || recall + 1 >= count ? null : recall + 1);
+              return;
+            }
+            if (event.key === 'Escape') {
+              setRecentOpen(false);
+              setRecall(null);
+            }
+            const picked = suggestions[listed];
+            if (picked && listed > 0 && (event.key === 'Enter' || event.key === ' ')) {
+              // Enter / Space takes the highlighted suggestion (the first one goes as typed).
+              event.preventDefault();
+              start(picked.id);
+              return;
+            }
+            if (event.key === 'Enter' || event.key === ' ') setRecall(null);
             if (
               event.key === 'Enter' ||
               event.key === 'Escape' ||
