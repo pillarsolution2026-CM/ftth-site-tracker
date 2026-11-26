@@ -42,6 +42,7 @@ import { useMapping } from '@/features/cad-mapping/api/queries';
 import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useLayerScreen, type LayerScreen } from './use-layer-screen';
+import { draftedEdit, useDrafting, type Drafting } from './use-drafting';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
 export type WorkspaceDialog =
@@ -164,6 +165,8 @@ export interface DrawingViewer {
     shown: boolean;
     setShown: (shown: boolean) => void;
   };
+  /** AutoCAD's status bar under the drawing: snaps, Ortho, Polar, tracking… (item 14). */
+  drafting: Drafting;
   /** The error markers are drawn (the tab-strip toggle). */
   markersShown: boolean;
   setMarkersShown: (shown: boolean) => void;
@@ -376,7 +379,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
 
   const textHeight = defaultTextHeight(tools.metresPerUnit);
-  const edit = useCanvasEdit({
+  const canvasEdit = useCanvasEdit({
     layerScreen,
     openDialog: setDialog,
     projectId,
@@ -397,7 +400,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     onOpenLayers: () => setLayersNonce((n) => n + 1),
     ruledLayers: tools.ruledLayers,
   });
-  const shownPreview = edit.preview;
+  const shownPreview = canvasEdit.preview;
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -411,6 +414,38 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   );
   const limits = useMemo(() => scaleLimits(fitted), [fitted]);
   const transform = custom ?? fitted;
+
+  // The status bar's aids stand in front of the edit mode (snaps feed every command's points).
+  const drawnNow = (index: number) =>
+    scene !== null &&
+    shownPreview !== null &&
+    !shownPreview.erased.has(index) &&
+    (objectShown === undefined || objectShown(index)) &&
+    isShown(effectiveLayer(scene, shownPreview, index));
+  const drafting = useDrafting({
+    source: scene && shownPreview ? { scene, preview: shownPreview, isShown: drawnNow } : null,
+    scale: transform.scale,
+    enabled: scene !== null,
+  });
+  const edit = draftedEdit(canvasEdit, drafting, (at) => {
+    if (!scene || !shownPreview) return [];
+    const found: number[] = [];
+    // The objects under the pick, nearest first (AutoCAD's Selection Cycling list).
+    for (let n = 0; n < 12; n++) {
+      const hit = hitEntity(
+        scene,
+        at.x,
+        at.y,
+        ENTITY_HIT_PX / transform.scale,
+        (index) => drawnNow(index) && !found.includes(index),
+        shownPreview.transformOf,
+        shownPreview.curveOf,
+      );
+      if (hit === null) break;
+      found.push(hit);
+    }
+    return found;
+  });
 
   // Selection, highlight and the floating panel.
   const [selected, setSelected] = useState<number | null>(null);
@@ -476,6 +511,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             noteHeight: textHeight,
             mapBehind,
             objectShown,
+            lineweights: drafting.settings.lineweight,
             lockedFade:
               layerScreen.fade.on && locked.size > 0
                 ? { layers: locked, alpha: 1 - layerScreen.fade.percent / 100 }
@@ -483,6 +519,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
           }
         : null,
     [
+      drafting.settings.lineweight,
       layerScreen.fade.on,
       layerScreen.fade.percent,
       locked,
@@ -645,6 +682,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     markerCount: allMarkers.length,
     markersShown,
     setMarkersShown,
+    drafting,
     osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
     layerScreen,
     dialog,

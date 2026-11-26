@@ -10,6 +10,8 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import { TrenchMarksPanel } from '@/features/installation/components/trench-marks-panel';
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
 import { CadCommandLine, CadRibbon, CanvasButton, PenButton } from './cad-ribbon';
+import { DraftingOverlay } from './drafting-overlay';
+import { CadStatusBar } from './status-bar';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
@@ -211,30 +213,35 @@ function Workspace({
     });
   }
   if (!model) return null;
-  const shownPalettes = palettes.filter((p) => open.has(p.key));
+  // Clean Screen (Ctrl+0): the ribbon and the palettes give their room to the drawing.
+  const clean = viewer.drafting.cleanScreen;
+  const shownPalettes = clean ? [] : palettes.filter((p) => open.has(p.key));
   return (
     <div
       ref={rootRef}
       className={`flex flex-col ${full ? 'h-screen w-screen overflow-auto bg-[#1f2328]' : ''}`}
     >
-      <CadRibbon
-        edit={edit}
-        rows={viewer.layerRows}
-        onToggleLayer={viewer.toggleLayer}
-        onToggleFrozen={viewer.toggleFrozen}
-        onToggleLocked={viewer.toggleLocked}
-        markersShown={viewer.markersShown}
-        onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
-        osm={{
-          available: viewer.osm.toLonLat !== null,
-          shown: viewer.osm.shown,
-          onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
-        }}
-        layerScreen={viewer.layerScreen}
-      />
+      {clean ? null : (
+        <CadRibbon
+          edit={edit}
+          rows={viewer.layerRows}
+          onToggleLayer={viewer.toggleLayer}
+          onToggleFrozen={viewer.toggleFrozen}
+          onToggleLocked={viewer.toggleLocked}
+          markersShown={viewer.markersShown}
+          onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
+          osm={{
+            available: viewer.osm.toLonLat !== null,
+            shown: viewer.osm.shown,
+            onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
+          }}
+          layerScreen={viewer.layerScreen}
+        />
+      )}
       <div className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}>
         <div className={`min-w-0 flex-1 ${full ? 'flex min-h-0 flex-col' : ''}`}>
           <DrawingCanvas viewer={viewer} model={model} fill={full}>
+            <DraftingOverlay viewer={viewer} />
             <div
               dir="ltr"
               role="group"
@@ -297,7 +304,8 @@ function Workspace({
             <WorkspaceDialogs viewer={viewer} />
           </DrawingCanvas>
           <CadCommandLine edit={edit} />
-          {managerOpen ? (
+          <CadStatusBar viewer={viewer} />
+          {managerOpen && !clean ? (
             <LayerManager
               rows={viewer.layerRows}
               query={viewer.layerQuery}

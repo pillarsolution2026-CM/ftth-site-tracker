@@ -501,6 +501,10 @@ export interface CanvasEditState {
   // Pointer
   tracking: boolean;
   hover: (at: Point) => void;
+  /** The step takes a point: object snaps, Ortho and Polar apply to it (status bar, item 14). */
+  wantsPoint: boolean;
+  /** The last point of the command (Ortho, Polar, Perpendicular, Tangent start there). */
+  anchor: Point | null;
   ghost: { indexes: readonly number[]; step: Affine } | null;
   sketch: { points: readonly Point[]; closed: boolean } | null;
   // Layers
@@ -2915,6 +2919,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     hover: (at) => {
       if (run && isTracked(run.step)) setPointer(at);
     },
+    wantsPoint:
+      run !== null && run.step !== 'select' && !isObjectStep(run.step) && !isTextStep(run.step),
+    anchor: run ? (run.points[run.points.length - 1] ?? run.base) : null,
     ghost,
     sketch,
     layers,
