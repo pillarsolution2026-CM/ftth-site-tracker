@@ -631,6 +631,14 @@ export const CreateDrawingCorrectionRequestSchema = z.strictObject({
     .strictObject({ code: DrawingProblemCodeSchema, handle: Handle })
     .nullable()
     .default(null),
+  /**
+   * The client's name for the item this request adds (ADR-061): a later request of the same
+   * batch names that item `NEW-<ref>`; the API rewrites it to `FIX-<id>`. Not stored.
+   */
+  ref: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,40}$/, 'A ref is 1–40 letters, digits, _ or -')
+    .optional(),
 });
 export type CreateDrawingCorrectionRequest = z.infer<typeof CreateDrawingCorrectionRequestSchema>;
 
