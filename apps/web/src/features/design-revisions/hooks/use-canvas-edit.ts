@@ -121,8 +121,8 @@ import { hatchLoopCount, hatchPending, isHatchCommand, type HatchSettings } from
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import { useHistory, type HistoryPart, type UndoHistory } from './use-history';
 import type { LayerScreen } from './use-layer-screen';
-import { moreTransparent, moreWord } from './more-commands';
-import { transparentLabel, type UndoControl, type ZoomView } from './view-commands';
+import { moreTransparent, moreWord, transparentLabel } from './more-commands';
+import type { UndoControl, ZoomView } from './view-commands';
 
 export type { Point } from '../model/cad-commands';
 

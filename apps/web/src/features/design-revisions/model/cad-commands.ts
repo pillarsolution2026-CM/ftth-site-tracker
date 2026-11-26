@@ -101,7 +101,13 @@ export type CommandId =
   | 'u'
   | 'undo'
   | 'redo'
-  | 'oops';
+  | 'oops'
+  // Inquiry (round 3, audit 4.2)
+  | 'id'
+  | 'dist'
+  | 'area'
+  | 'list'
+  | 'measuregeom';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -198,10 +204,20 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   undo: { name: 'UNDO', aliases: [] },
   redo: { name: 'REDO', aliases: [] },
   oops: { name: 'OOPS', aliases: [] },
+  id: { name: 'ID', aliases: [] },
+  dist: { name: 'DIST', aliases: ['DI'] },
+  area: { name: 'AREA', aliases: ['AA'] },
+  list: { name: 'LIST', aliases: ['LI', 'LS'] },
+  measuregeom: { name: 'MEASUREGEOM', aliases: ['MEA'] },
 };
 
 /** Commands that may run inside another one, typed with an apostrophe (`'ZOOM`, AutoCAD). */
-export const TRANSPARENT: ReadonlySet<CommandId> = new Set<CommandId>(['zoom', 'pan']);
+export const TRANSPARENT: ReadonlySet<CommandId> = new Set<CommandId>([
+  'zoom',
+  'pan',
+  'dist',
+  'id',
+]);
 
 const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
   (Object.entries(COMMANDS) as [CommandId, CommandDef][]).flatMap(([id, def]) =>
@@ -389,6 +405,7 @@ export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
   'zoomCorner',
   'undoCount',
   'undoEverything',
+  'mgOption',
 ]);
 
 /** An angle as AutoCAD prints it in a default (AUPREC 0: whole degrees). */
