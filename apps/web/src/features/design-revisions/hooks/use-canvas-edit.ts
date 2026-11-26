@@ -51,7 +51,7 @@ import {
 import { correctionError } from '../model/corrections';
 import { effectiveLayer, type DrawingPreview, type PreviewStyle } from '../model/drawing-preview';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
-import { pageSceneOf } from '../model/page-scene';
+import { isPageRow, pageSceneOf } from '../model/page-scene';
 import { joinProblem, type JoinPiece } from '../model/join';
 import {
   arcThrough,
@@ -937,7 +937,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       }
       const moved = shown.transformOf.get(index);
-      if (!moved && !meets(boxOf(scene, index))) return;
+      // Lines drawn on the page are always edges (EXTEND reaches past the box), as before.
+      if (!moved && !isPageRow(entity) && !meets(boxOf(scene, index))) return;
       for (const flat of entity.paths) {
         const points: Pt[] = [];
         for (let i = 0; i + 1 < flat.length; i += 2) {

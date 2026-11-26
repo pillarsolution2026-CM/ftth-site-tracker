@@ -97,16 +97,8 @@ describe('page items are objects (item 36)', { timeout: 20_000 }, () => {
       { keys: '[MouseLeft>]', target: canvas, coords: at(x, y) },
       { keys: '[/MouseLeft]' },
     ]);
-  const sent = () =>
-    (
-      api.createCorrections.mock.calls[0]?.[2] as {
-        items: { correction: Record<string, unknown> }[];
-      }
-    ).items.map((item) => item.correction);
   const command = () => screen.getByLabelText('Command');
   const type = async (user: User, text: string) => user.type(command(), `${text}{Enter}`);
-  const prompt = () => screen.getByTestId('cad-prompt').textContent ?? '';
-  const history = () => screen.getByRole('log', { name: 'Command history' }).textContent ?? '';
   const save = async (user: User) => user.click(screen.getByRole('button', { name: /^Save \(/ }));
   const chooseLayer = async (user: User, name: string) => {
     await user.click(screen.getByRole('button', { name: /^Layer: / }));
