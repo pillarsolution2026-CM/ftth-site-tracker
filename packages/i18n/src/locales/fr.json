@@ -258,7 +258,8 @@
     "designRevisions": "Révisions de conception",
     "contract": "Contrat",
     "contractors": "Sous-traitants",
-    "supervisorSites": "Sites des superviseurs"
+    "supervisorSites": "Sites des superviseurs",
+    "updates": "Travaux enregistrés"
   },
   "supervisorSites": {
     "title": "Sites des superviseurs",
@@ -3434,5 +3435,67 @@
     "value": "Valeur",
     "noRegistrations": "Vous n'êtes inscrit sur aucun ordre de travail.",
     "showMore": "Afficher plus"
+  },
+  "updatesList": {
+    "title": "Travaux enregistrés sur les téléphones",
+    "hint": "Lecture seule : ce que les superviseurs ont enregistré, tel que reçu par le serveur.",
+    "filter": {
+      "status": "Statut",
+      "all": "Tous",
+      "site": "Site",
+      "allSites": "Tous les sites"
+    },
+    "status": {
+      "pending": "En attente de revue",
+      "approved": "Accepté",
+      "rejected": "Refusé"
+    },
+    "empty": "Aucun travail enregistré ne correspond à ce filtre",
+    "count": "Enregistrements : {count}",
+    "field": {
+      "element": "Élément",
+      "site": "Site",
+      "drawing": "Plan",
+      "revision": "Révision {n}",
+      "supervisor": "Superviseur",
+      "workDate": "Date des travaux",
+      "received": "Reçu",
+      "captured": "Enregistré sur le téléphone",
+      "workType": "Type de travaux",
+      "lines": "Lignes",
+      "gps": "GPS",
+      "photos": "Photos",
+      "note": "Note",
+      "label": "Libellé",
+      "reviewReason": "Motif du refus",
+      "flags": "Alertes"
+    },
+    "line": {
+      "work": "Travaux",
+      "material": "Matériel",
+      "self": "L'entreprise elle-même",
+      "workOrder": "Bon de travaux {number}"
+    },
+    "gps": {
+      "none": "Pas de position GPS",
+      "accuracy": "Précision ± {accuracy} m",
+      "distance": "À {distance} m de l'élément"
+    },
+    "photo": {
+      "open": "Ouvrir la photo {n}",
+      "uploading": "Photo {n} en cours d'envoi",
+      "none": "Aucune photo"
+    },
+    "noDate": "Non renseignée",
+    "flags": {
+      "CLOCK_AHEAD": "Horloge du téléphone en avance",
+      "CLOCK_BEHIND": "Horloge du téléphone en retard",
+      "GPS_FAR": "Loin de l'élément",
+      "GPS_MISSING": "Pas de GPS",
+      "ITEM_OVERRUN": "Quantité au-delà du bon de travaux",
+      "REVISION_OUTDATED": "Sur une ancienne révision",
+      "FEATURE_REMOVED": "Élément retiré du plan"
+    },
+    "none": "Aucune"
   }
 }

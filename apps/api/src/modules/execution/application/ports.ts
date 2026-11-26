@@ -15,6 +15,8 @@ import type {
   PhotoRequirement,
   UpdateFlag,
   UpdateLineRole,
+  UpdateListItem,
+  UpdateListQuery,
   WorkType,
 } from '@ftth/shared';
 import type { DomainEventInput } from '../../../common/event-log.port.js';
@@ -431,4 +433,20 @@ export interface ElementGroupAdmin {
    */
   usedMainGroups(): Promise<UsedMainGroup[]>;
   run<T>(work: (tx: ElementGroupAdminTx) => Promise<T>): Promise<T>;
+}
+
+/** ADR-059: the read-only web list of recorded updates. Bound to `project_id` and the scope. */
+export interface UpdateListQueries {
+  list(
+    projectId: string,
+    scope: ExecutionScope,
+    query: UpdateListQuery,
+  ): Promise<{ items: UpdateListItem[]; total: number }>;
+  /** Sites with at least one update in the scope, by name. */
+  sites(projectId: string, scope: ExecutionScope): Promise<{ id: string; name: string }[]>;
+  /**
+   * The storage key of a photo of an update in the scope; null when the photo is unknown, belongs
+   * to no update (a GPS proposal), is outside the scope or is not fully stored.
+   */
+  photoKey(projectId: string, scope: ExecutionScope, photoId: string): Promise<string | null>;
 }
