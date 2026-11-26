@@ -258,7 +258,8 @@
     "designRevisions": "مراجعات التصميم",
     "contract": "العقد",
     "contractors": "المقاولين الباطن",
-    "supervisorSites": "صفحة توزيع المواقع على المشرفين"
+    "supervisorSites": "صفحة توزيع المواقع على المشرفين",
+    "updates": "الشغل المسجّل"
   },
   "supervisorSites": {
     "title": "توزيع المواقع على المشرفين",
@@ -3412,5 +3413,67 @@
     "value": "القيمة",
     "noRegistrations": "لسه مش مسجّل على أي أمر شغل.",
     "showMore": "عرض المزيد"
+  },
+  "updatesList": {
+    "title": "الشغل المسجّل من التليفونات",
+    "hint": "للقراية بس: اللي سجّله المشرفين زي ما وصل السيرفر.",
+    "filter": {
+      "status": "الحالة",
+      "all": "الكل",
+      "site": "الموقع",
+      "allSites": "كل المواقع"
+    },
+    "status": {
+      "pending": "مستني المراجعة",
+      "approved": "اتقبل",
+      "rejected": "اترفض"
+    },
+    "empty": "مفيش شغل مسجّل يطابق الاختيار ده",
+    "count": "عدد التسجيلات: {count}",
+    "field": {
+      "element": "العنصر",
+      "site": "الموقع",
+      "drawing": "الرسمة",
+      "revision": "إصدار {n}",
+      "supervisor": "المشرف",
+      "workDate": "تاريخ العمل",
+      "received": "وصل السيرفر",
+      "captured": "اتسجّل على التليفون",
+      "workType": "نوع الشغل",
+      "lines": "البنود",
+      "gps": "الـ GPS",
+      "photos": "الصور",
+      "note": "ملاحظة",
+      "label": "اسم",
+      "reviewReason": "سبب الرفض",
+      "flags": "تنبيهات"
+    },
+    "line": {
+      "work": "شغل",
+      "material": "خامة",
+      "self": "الشركة نفسها",
+      "workOrder": "أمر شغل {number}"
+    },
+    "gps": {
+      "none": "مفيش موقع GPS",
+      "accuracy": "دقة ± {accuracy} م",
+      "distance": "بعيد {distance} م عن العنصر"
+    },
+    "photo": {
+      "open": "افتح الصورة {n}",
+      "uploading": "صورة {n} لسه بتترفع",
+      "none": "مفيش صور"
+    },
+    "noDate": "غير محدد",
+    "flags": {
+      "CLOCK_AHEAD": "ساعة التليفون متقدمة",
+      "CLOCK_BEHIND": "ساعة التليفون متأخرة",
+      "GPS_FAR": "بعيد عن العنصر",
+      "GPS_MISSING": "مفيش GPS",
+      "ITEM_OVERRUN": "الكمية عدّت أمر الشغل",
+      "REVISION_OUTDATED": "على إصدار قديم",
+      "FEATURE_REMOVED": "العنصر اتشال من الرسمة"
+    },
+    "none": "مفيش"
   }
 }

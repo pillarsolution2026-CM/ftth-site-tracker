@@ -38,6 +38,7 @@ export interface NavItem {
     | 'contract'
     | 'contractors'
     | 'asbuilt'
+    | 'updates'
     | 'supervisorSites';
   labelKey: MessageKey;
   /** Path below `/{locale}/projects/{projectId}`. */
@@ -68,6 +69,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     labelKey: 'nav.contractors',
     segment: 'contractors',
     permission: 'contractors:read',
+  },
+  // ADR-059: read-only list of the work recorded on the phones (a supervisor: his sites only).
+  {
+    id: 'updates',
+    labelKey: 'nav.updates',
+    segment: 'updates',
+    permission: 'execution:read',
   },
   // Phase 4: review of the As-Built edits recorded on the phones (and the DXF export).
   {
