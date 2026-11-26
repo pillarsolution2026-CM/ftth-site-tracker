@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DrawingViewEntitySchema } from './drawing-view.schemas';
+import { DrawingViewEntitySchema } from './drawing-view.schemas.js';
 
 const entity = {
   handle: 'A1',
