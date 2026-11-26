@@ -45,6 +45,7 @@ const sameBase = (a: BaseState, model: DrawModel, width: number, height: number,
   a.model.mapBehind === model.mapBehind &&
   a.model.objectShown === model.objectShown &&
   a.model.lockedFade === model.lockedFade &&
+  a.model.lineweights === model.lineweights &&
   a.width === width &&
   a.height === height &&
   a.dpr === dpr;

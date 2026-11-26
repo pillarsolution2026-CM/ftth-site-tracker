@@ -99,6 +99,8 @@ export interface DrawModel {
   objectShown?: (index: number) => boolean;
   /** OpenStreetMap is shown under the drawing: the background is left clear (owner 2026-11-24). */
   mapBehind?: boolean;
+  /** LWDISPLAY (status bar): false draws every line one pixel wide; undefined: at its weight. */
+  lineweights?: boolean;
 }
 
 /** The colour an entity is drawn in now: its style, else its own, else its layer's (ADR-051). */
@@ -279,7 +281,8 @@ export function drawBase(
     const style = preview.styleOf.get(index);
     const weight = style?.lineweight ?? null;
     ctx.strokeStyle = colorOf(model, index);
-    ctx.lineWidth = (weight !== null ? lineweightPx(weight) : 1) / tf.scale;
+    ctx.lineWidth =
+      (weight !== null && model.lineweights !== false ? lineweightPx(weight) : 1) / tf.scale;
     ctx.setLineDash(LINETYPE_DASH[style?.linetype ?? 'continuous'].map((v) => v / tf.scale));
     strokeEntity(ctx, model, cache, index);
   }

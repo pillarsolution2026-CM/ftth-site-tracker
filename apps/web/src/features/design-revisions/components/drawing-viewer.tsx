@@ -11,6 +11,8 @@ import { TrenchMarksPanel } from '@/features/installation/components/trench-mark
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
 import { useCrosshairSize } from '../hooks/use-crosshair-size';
 import { CadCommandLine, CadRibbon } from './cad-ribbon';
+import { DraftingOverlay } from './drafting-overlay';
+import { CadStatusBar } from './status-bar';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
@@ -245,53 +247,59 @@ function Workspace({
     });
   }
   if (!model) return null;
-  const shownPalettes = palettes.filter((p) => open.has(p.key));
+  // Clean Screen (Ctrl+0): the ribbon and the palettes give their room to the drawing.
+  const clean = viewer.drafting.cleanScreen;
+  const shownPalettes = clean ? [] : palettes.filter((p) => open.has(p.key));
   return (
     <div
       data-testid="cad-workspace"
       data-full={full ? 'true' : undefined}
       className={`flex flex-col ${full ? 'fixed inset-0 z-50 overflow-auto bg-[#1f2328]' : ''}`}
     >
-      <CadRibbon
-        edit={edit}
-        rows={viewer.layerRows}
-        onToggleLayer={viewer.toggleLayer}
-        onToggleFrozen={viewer.toggleFrozen}
-        onToggleLocked={viewer.toggleLocked}
-        markersShown={viewer.markersShown}
-        onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
-        osm={{
-          available: viewer.osm.toLonLat !== null,
-          shown: viewer.osm.shown,
-          onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
-        }}
-        layerScreen={viewer.layerScreen}
-        view={{
-          zoomIn: viewer.zoomIn,
-          zoomOut: viewer.zoomOut,
-          fit: viewer.fit,
-          full,
-          onToggleFull: () => setFull(!full),
-          layersOpen: managerOpen,
-          onToggleLayers: () => setManagerOpen(!managerOpen),
-          palettes: palettes.map((p) => ({
-            key: p.key,
-            title: p.title,
-            open: open.has(p.key),
-            onToggle: () => toggle(p.key),
-          })),
-          crosshair: crosshair.size,
-          onToggleCrosshair: crosshair.toggle,
-        }}
-      />
+      {clean ? null : (
+        <CadRibbon
+          edit={edit}
+          rows={viewer.layerRows}
+          onToggleLayer={viewer.toggleLayer}
+          onToggleFrozen={viewer.toggleFrozen}
+          onToggleLocked={viewer.toggleLocked}
+          markersShown={viewer.markersShown}
+          onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
+          osm={{
+            available: viewer.osm.toLonLat !== null,
+            shown: viewer.osm.shown,
+            onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
+          }}
+          layerScreen={viewer.layerScreen}
+          view={{
+            zoomIn: viewer.zoomIn,
+            zoomOut: viewer.zoomOut,
+            fit: viewer.fit,
+            full,
+            onToggleFull: () => setFull(!full),
+            layersOpen: managerOpen,
+            onToggleLayers: () => setManagerOpen(!managerOpen),
+            palettes: palettes.map((p) => ({
+              key: p.key,
+              title: p.title,
+              open: open.has(p.key),
+              onToggle: () => toggle(p.key),
+            })),
+            crosshair: crosshair.size,
+            onToggleCrosshair: crosshair.toggle,
+          }}
+        />
+      )}
       <div className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}>
         <div className={`min-w-0 flex-1 ${full ? 'flex min-h-0 flex-col' : ''}`}>
           <DrawingCanvas viewer={viewer} model={model} fill={full} crosshair={crosshair.size}>
+            <DraftingOverlay viewer={viewer} />
             <CanvasPopover viewer={viewer} />
             <WorkspaceDialogs viewer={viewer} />
           </DrawingCanvas>
           <CadCommandLine edit={edit} />
-          {managerOpen ? (
+          <CadStatusBar viewer={viewer} />
+          {managerOpen && !clean ? (
             <LayerManager
               rows={viewer.layerRows}
               query={viewer.layerQuery}

@@ -44,6 +44,8 @@ import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useLayerScreen, type LayerScreen } from './use-layer-screen';
 import { hitGrip, type Grip } from '../model/grips';
+import { draftedEdit, useDrafting, type Drafting } from './use-drafting';
+import { useHistory, type HistoryPart } from './use-history';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
 export type WorkspaceDialog =
@@ -173,6 +175,8 @@ export interface DrawingViewer {
     shown: boolean;
     setShown: (shown: boolean) => void;
   };
+  /** AutoCAD's status bar under the drawing: snaps, Ortho, Polar, tracking… (item 14). */
+  drafting: Drafting;
   /** The error markers are drawn (the tab-strip toggle). */
   markersShown: boolean;
   setMarkersShown: (shown: boolean) => void;
@@ -372,11 +376,47 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [layers, layerQuery],
   );
 
+  // One Undo history for the edits and these screen states (owner 2026-11-26, item 13).
+  const history = useHistory();
+  interface ScreenState {
+    overrides: ReadonlyMap<number, boolean>;
+    frozen: ReadonlySet<number>;
+    locked: ReadonlySet<number>;
+    layerColor: ReadonlyMap<number, string>;
+    isolatedTo: ReadonlySet<number> | null;
+    hiddenObjects: ReadonlySet<number>;
+    fade: { on: boolean; percent: number };
+  }
+  const screenNow = (): ScreenState => ({
+    overrides,
+    frozen,
+    locked,
+    layerColor,
+    isolatedTo,
+    hiddenObjects,
+    fade: layerScreen.fade,
+  });
+  const screenPart: HistoryPart = {
+    capture: screenNow,
+    apply: (state) => {
+      const s = state as ScreenState;
+      setOverrides(s.overrides);
+      setFrozen(s.frozen);
+      setLocked(s.locked);
+      setLayerColorMap(s.layerColor);
+      setIsolatedTo(s.isolatedTo);
+      setHiddenObjects(s.hiddenObjects);
+      layerScreen.setFade(s.fade);
+    },
+  };
+  /** A screen step is about to happen: the state now goes on the Undo history. */
+  const remember = (label: string) => history.record(label, 'screen', screenNow());
   const layerScreen = useLayerScreen({
     cadFileId,
     layerCount: layers?.length ?? 0,
     snapshot: { overrides, frozen, locked },
     apply: (s) => {
+      remember('LAYER');
       setOverrides(s.overrides);
       setFrozen(s.frozen);
       setLocked(s.locked);
@@ -385,8 +425,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
 
   const textHeight = defaultTextHeight(tools.metresPerUnit);
-  const edit = useCanvasEdit({
-    layerScreen,
+  const canvasEdit = useCanvasEdit({
+    history,
+    screen: screenPart,
+    layerScreen: {
+      ...layerScreen,
+      setFade: (fade) => {
+        remember('LAYLOCKFADECTL');
+        layerScreen.setFade(fade);
+      },
+    },
     openDialog: setDialog,
     projectId,
     cadFileId,
@@ -406,7 +454,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     onOpenLayers: () => setLayersNonce((n) => n + 1),
     ruledLayers: tools.ruledLayers,
   });
-  const shownPreview = edit.preview;
+  const shownPreview = canvasEdit.preview;
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -420,6 +468,38 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   );
   const limits = useMemo(() => scaleLimits(fitted), [fitted]);
   const transform = custom ?? fitted;
+
+  // The status bar's aids stand in front of the edit mode (snaps feed every command's points).
+  const drawnNow = (index: number) =>
+    scene !== null &&
+    shownPreview !== null &&
+    !shownPreview.erased.has(index) &&
+    (objectShown === undefined || objectShown(index)) &&
+    isShown(effectiveLayer(scene, shownPreview, index));
+  const drafting = useDrafting({
+    source: scene && shownPreview ? { scene, preview: shownPreview, isShown: drawnNow } : null,
+    scale: transform.scale,
+    enabled: scene !== null,
+  });
+  const edit = draftedEdit(canvasEdit, drafting, (at) => {
+    if (!scene || !shownPreview) return [];
+    const found: number[] = [];
+    // The objects under the pick, nearest first (AutoCAD's Selection Cycling list).
+    for (let n = 0; n < 12; n++) {
+      const hit = hitEntity(
+        scene,
+        at.x,
+        at.y,
+        ENTITY_HIT_PX / transform.scale,
+        (index) => drawnNow(index) && !found.includes(index),
+        shownPreview.transformOf,
+        shownPreview.curveOf,
+      );
+      if (hit === null) break;
+      found.push(hit);
+    }
+    return found;
+  });
 
   // Selection, highlight and the floating panel.
   const [hoverGrip, setHoverGrip] = useState<Grip | null>(null);
@@ -491,6 +571,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             noteHeight: textHeight,
             mapBehind,
             objectShown,
+            lineweights: drafting.settings.lineweight,
             lockedFade:
               layerScreen.fade.on && locked.size > 0
                 ? { layers: locked, alpha: 1 - layerScreen.fade.percent / 100 }
@@ -498,6 +579,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
           }
         : null,
     [
+      drafting.settings.lineweight,
       layerScreen.fade.on,
       layerScreen.fade.percent,
       locked,
@@ -645,17 +727,31 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     layerRows,
     layerQuery,
     setLayerQuery,
-    toggleLayer,
-    setShownForListed,
-    toggleFrozen: toggleIn(setFrozen),
-    toggleLocked: toggleIn(setLocked),
-    setLayerColor: (index, color) =>
+    toggleLayer: (index) => {
+      remember('LAYER');
+      toggleLayer(index);
+    },
+    setShownForListed: (shown) => {
+      remember('LAYER');
+      setShownForListed(shown);
+    },
+    toggleFrozen: (index) => {
+      remember('LAYER');
+      toggleIn(setFrozen)(index);
+    },
+    toggleLocked: (index) => {
+      remember('LAYER');
+      toggleIn(setLocked)(index);
+    },
+    setLayerColor: (index, color) => {
+      remember('LAYER');
       setLayerColorMap((previous) => {
         const next = new Map(previous);
         if (color === null) next.delete(index);
         else next.set(index, color);
         return next;
-      }),
+      });
+    },
     layersNonce,
     size,
     setSize,
@@ -675,8 +771,15 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     markerCount: allMarkers.length,
     markersShown,
     setMarkersShown,
+    drafting,
     osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
-    layerScreen,
+    layerScreen: {
+      ...layerScreen,
+      setFade: (fade) => {
+        remember('LAYLOCKFADECTL');
+        layerScreen.setFade(fade);
+      },
+    },
     dialog,
     setDialog,
     zoomToEntity: (index) => {
@@ -689,11 +792,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     isolation: {
       active: objectShown !== undefined,
       isolate: (indexes) => {
+        remember('ISOLATEOBJECTS');
         setIsolatedTo(new Set(indexes));
         setHiddenObjects(NO_ENTITIES);
       },
-      hide: (indexes) => setHiddenObjects((previous) => new Set([...previous, ...indexes])),
+      hide: (indexes) => {
+        remember('HIDEOBJECTS');
+        setHiddenObjects((previous) => new Set([...previous, ...indexes]));
+      },
       end: () => {
+        remember('UNISOLATEOBJECTS');
         setIsolatedTo(null);
         setHiddenObjects(NO_ENTITIES);
       },
