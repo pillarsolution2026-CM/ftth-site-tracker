@@ -733,3 +733,13 @@ Implementation of the answers: one LABEL_MISSING place per feature (it names the
 **Not changed (still General only):** As-Built edits, As-Built export and GPS point proposals (the Secondary is placed from the General's cabinets, ADR-042).
 **Open:** the phone does not block a shared cabinet in advance; the refusal shows in «في الانتظار». A phone-side hint needs the other drawing's cabinets and updates in the bundle.
 **Consequences:** no migration. Next ADR: 059, next migration: 0032.
+
+## ADR-059: A read-only web page lists the work recorded on the phones — Accepted (owner «نفذ», 2026-11-26)
+**Context:** before the Phase 2 trials the web had display parts for updates (`features/execution-updates`) but no page and no API to list them; only the phone sync routes returned updates. A phone trial could not be checked from the web.
+**Decision:**
+- New page «الشغل المسجّل» in the project menu (`execution:read`), read only. Each update shows its element (or «التخطيط») and code, site, drawing kind and number, revision, work type, supervisor, work date, received and phone times, the raw GPS fix (WGS84 for display), its accuracy and distance from the element, flags, lines (item, quantity or L × W × D, work order, contractor and scope or «الشركة نفسها»), label, note, rejection reason and photos.
+- Filters: status (default all) and site; newest received first; 20 per page (100 at most per request, technical).
+- Reach: the same as the sync feed (ADR-054). PM, QC and admin see the whole project; a supervisor only his sites. The site of an update is the site of its drawing (the planning update's drawing, else the drawing of its revision).
+- Photos are served by the API through the web proxy; a photo outside the caller's reach, unknown, or still uploading answers 404.
+**Not in scope:** approving or rejecting updates (QC review), quantities and money.
+**Mechanism:** shared `execution/update-list.schemas.ts`; routes `GET /projects/:id/execution-updates` and `GET /projects/:id/execution-updates/photos/:photoId` (sync rate limits); proxy resource `execution-updates`. No migration. Next ADR: 060, next migration: 0032.

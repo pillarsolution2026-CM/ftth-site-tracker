@@ -38,6 +38,8 @@ const ALLOWED_RESOURCES = new Set([
   'asbuilt',
   // Supervisor GPS point proposals: list, photo, accept / reject (ADR-037).
   'gps-proposals',
+  // ADR-059: read-only list of recorded updates and their photos.
+  'execution-updates',
 ]);
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 

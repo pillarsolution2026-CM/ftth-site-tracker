@@ -33,8 +33,10 @@ import type {
   ExecutionReadQueries,
   ExecutionUnitOfWork,
   PhotoUploadUnitOfWork,
+  UpdateListQueries,
 } from './application/ports.js';
 import { PushSyncUseCase } from './application/push-sync.use-case.js';
+import { GetUpdatePhotoUseCase, ListUpdatesUseCase } from './application/update-list.use-cases.js';
 import {
   GetOfflineBundleUseCase,
   GetSyncChangesUseCase,
@@ -48,12 +50,15 @@ import {
   PHOTO_UPLOAD_UNIT_OF_WORK,
   SYNC_RATE_LIMITER,
   SYNC_RATE_LIMITS,
+  UPDATE_LIST_QUERIES,
 } from './execution.tokens.js';
 import { DrizzleElementGroupAdmin } from './infrastructure/drizzle-element-group-admin.js';
 import { DrizzleExecutionReadQueries } from './infrastructure/drizzle-execution-read.queries.js';
 import { DrizzleExecutionUnitOfWork } from './infrastructure/drizzle-execution.repository.js';
 import { DrizzlePhotoUploadUnitOfWork } from './infrastructure/drizzle-photo-upload.repository.js';
+import { DrizzleUpdateListQueries } from './infrastructure/drizzle-update-list.queries.js';
 import { AdminElementGroupsController } from './interface/admin-element-groups.controller.js';
+import { ExecutionUpdatesController } from './interface/execution-updates.controller.js';
 import { SyncController } from './interface/sync.controller.js';
 import { SyncRateLimitGuard, type SyncRateLimits } from './interface/sync-rate-limit.guard.js';
 
@@ -140,6 +145,23 @@ const providers: Provider[] = [
     useFactory: (uow: PhotoUploadUnitOfWork, storage: ObjectStorage, clock: Clock, env: ApiEnv) =>
       new PutPhotoChunkUseCase(uow, storage, clock, env.SYNC_UPLOAD_BACKLOG_MB * 1024 * 1024),
   },
+  // ADR-059: the read-only web list of recorded updates.
+  {
+    provide: UPDATE_LIST_QUERIES,
+    inject: [DB],
+    useFactory: (db: Database) => new DrizzleUpdateListQueries(db),
+  },
+  {
+    provide: ListUpdatesUseCase,
+    inject: [UPDATE_LIST_QUERIES],
+    useFactory: (queries: UpdateListQueries) => new ListUpdatesUseCase(queries),
+  },
+  {
+    provide: GetUpdatePhotoUseCase,
+    inject: [UPDATE_LIST_QUERIES, OBJECT_STORAGE],
+    useFactory: (queries: UpdateListQueries, storage: ObjectStorage) =>
+      new GetUpdatePhotoUseCase(queries, storage),
+  },
   {
     provide: DiscardIdleUploadsUseCase,
     inject: [PHOTO_UPLOAD_UNIT_OF_WORK, EXECUTION_CLOCK, APP_ENV],
@@ -151,7 +173,7 @@ const providers: Provider[] = [
 /** Phase 3: offline execution updates, idempotent sync and resumable photos (ADR-024). */
 @Module({
   imports: [IdentityModule, AsBuiltModule],
-  controllers: [SyncController, AdminElementGroupsController],
+  controllers: [SyncController, ExecutionUpdatesController, AdminElementGroupsController],
   providers,
 })
 export class ExecutionModule implements OnApplicationBootstrap, OnApplicationShutdown {

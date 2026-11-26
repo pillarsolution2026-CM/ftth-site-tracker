@@ -182,6 +182,16 @@ describe('upstreamPath (allow-list)', () => {
     );
   });
 
+  it('allows the recorded updates list and their photos (ADR-059), never the sync routes', () => {
+    expect(upstreamPath([PROJECT, 'execution-updates'])).toBe(
+      `/projects/${PROJECT}/execution-updates`,
+    );
+    expect(upstreamPath([PROJECT, 'execution-updates', 'photos', 'abc-1'])).toBe(
+      `/projects/${PROJECT}/execution-updates/photos/abc-1`,
+    );
+    expect(upstreamPath([PROJECT, 'sync', 'changes'])).toBeNull();
+  });
+
   it('allows only the two supervisor-sites routes (ADR-054)', () => {
     const U = '7a000000-0000-4000-8000-000000000001';
     expect(upstreamPath([PROJECT, 'supervisor-sites'])).toBe(

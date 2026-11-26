@@ -35,6 +35,7 @@ describe('project access and navigation', () => {
       'designRevisions',
       'contract',
       'contractors',
+      'updates',
       'asbuilt',
       'supervisorSites',
     ]);
@@ -44,8 +45,9 @@ describe('project access and navigation', () => {
 
   it('gives a QC user read access but no write actions', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'qc')] }), P1);
-    expect(visibleNavItems(access)).toHaveLength(4);
+    expect(visibleNavItems(access)).toHaveLength(5);
     expect(visibleNavItems(access).map((item) => item.id)).toContain('asbuilt');
+    expect(visibleNavItems(access).map((item) => item.id)).toContain('updates');
     // The contract is for the PM and the platform admin only.
     expect(visibleNavItems(access).map((item) => item.id)).not.toContain('contract');
     expect(visibleNavItems(access).map((item) => item.id)).not.toContain('contractors');
@@ -75,8 +77,9 @@ describe('project access and navigation', () => {
 
   it('links to the first readable section', () => {
     const access = resolveProjectAccess(me({ memberships: [membership(P1, 'supervisor')] }), P1);
-    // A supervisor only has asbuilt:* on the web (ADR-054): no work-order, CAD or design sections.
-    expect(visibleNavItems(access).map((item) => item.id)).toEqual(['asbuilt']);
-    expect(firstSectionPath('ar', access)).toBe(`/ar/projects/${P1}/asbuilt`);
+    // A supervisor reads only site-scoped sections on the web (ADR-054, ADR-059): his recorded
+    // work and As-Built; no work-order, CAD or design sections.
+    expect(visibleNavItems(access).map((item) => item.id)).toEqual(['updates', 'asbuilt']);
+    expect(firstSectionPath('ar', access)).toBe(`/ar/projects/${P1}/updates`);
   });
 });

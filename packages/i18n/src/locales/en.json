@@ -258,7 +258,8 @@
     "designRevisions": "Design revisions",
     "contract": "Contract",
     "contractors": "Subcontractors",
-    "supervisorSites": "Supervisor sites"
+    "supervisorSites": "Supervisor sites",
+    "updates": "Recorded work"
   },
   "supervisorSites": {
     "title": "Sites of the supervisors",
@@ -3412,5 +3413,67 @@
     "value": "Value",
     "noRegistrations": "You are not registered on any work order yet.",
     "showMore": "Show more"
+  },
+  "updatesList": {
+    "title": "Work recorded on the phones",
+    "hint": "Read only: what the supervisors recorded, as it reached the server.",
+    "filter": {
+      "status": "Status",
+      "all": "All",
+      "site": "Site",
+      "allSites": "All sites"
+    },
+    "status": {
+      "pending": "Awaiting review",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
+    "empty": "No recorded work matches this filter",
+    "count": "Records: {count}",
+    "field": {
+      "element": "Element",
+      "site": "Site",
+      "drawing": "Drawing",
+      "revision": "Revision {n}",
+      "supervisor": "Supervisor",
+      "workDate": "Work date",
+      "received": "Received",
+      "captured": "Recorded on the phone",
+      "workType": "Work type",
+      "lines": "Lines",
+      "gps": "GPS",
+      "photos": "Photos",
+      "note": "Note",
+      "label": "Label",
+      "reviewReason": "Reason for rejection",
+      "flags": "Flags"
+    },
+    "line": {
+      "work": "Work",
+      "material": "Material",
+      "self": "The company itself",
+      "workOrder": "Work order {number}"
+    },
+    "gps": {
+      "none": "No GPS fix",
+      "accuracy": "Accuracy ± {accuracy} m",
+      "distance": "{distance} m from the element"
+    },
+    "photo": {
+      "open": "Open photo {n}",
+      "uploading": "Photo {n} still uploading",
+      "none": "No photos"
+    },
+    "noDate": "Not set",
+    "flags": {
+      "CLOCK_AHEAD": "Phone clock ahead",
+      "CLOCK_BEHIND": "Phone clock behind",
+      "GPS_FAR": "Far from the element",
+      "GPS_MISSING": "No GPS",
+      "ITEM_OVERRUN": "Quantity over the work order",
+      "REVISION_OUTDATED": "On an old revision",
+      "FEATURE_REMOVED": "Element removed from the drawing"
+    },
+    "none": "None"
   }
 }
