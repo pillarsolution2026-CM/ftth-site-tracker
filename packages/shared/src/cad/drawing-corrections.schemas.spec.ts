@@ -197,6 +197,33 @@ describe('AutoCAD-like screen corrections (ADR-051)', () => {
     ).toBe(false);
     expect(ok({ kind: 'set_curve', handle: 'C1', points: line, layer: 'R' })).toBe(false);
   });
+  it('set_curve / add_curve may keep real vertices with bulges and a true arc (ADR-062)', () => {
+    const vertices = [
+      [0, 0, 1],
+      [2, 0, 0],
+    ];
+    const arc = { x: 0, y: 0, r: 1, start: 0, end: 90 };
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: line, vertices })).toBe(true);
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: line, arc })).toBe(true);
+    expect(ok({ kind: 'add_curve', layer: 'R', points: line, vertices })).toBe(true);
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: line, vertices: [[0, 0, 0]] })).toBe(
+      false,
+    );
+    expect(
+      ok({
+        kind: 'set_curve',
+        handle: 'C1',
+        points: line,
+        vertices: [
+          [0, 0, 1001],
+          [1, 0, 0],
+        ],
+      }),
+    ).toBe(false);
+    expect(ok({ kind: 'set_curve', handle: 'C1', points: line, arc: { ...arc, r: 0 } })).toBe(
+      false,
+    );
+  });
   it('add_note takes a dimension or leader of 1-MAX_NOTE_POINTS points, text optional', () => {
     const parsed = parse({ kind: 'add_note', note: 'dimension', layer: 'DIM', points: line });
     expect(parsed.success && parsed.data).toMatchObject({ text: null });

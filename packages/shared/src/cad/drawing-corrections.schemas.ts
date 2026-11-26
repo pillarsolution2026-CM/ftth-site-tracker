@@ -206,6 +206,35 @@ const Colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'A colour is #rrggbb');
 const Point = z.tuple([Coord, Coord]);
 const Size = z.number().refine(Number.isFinite).min(0).max(MAX_CORRECTION_COORD);
 const Positive = z.number().refine(Number.isFinite).positive().max(MAX_CORRECTION_COORD);
+/** |bulge| of a polyline vertex (technical bound: 1000 is an arc of about 359.8°). */
+export const MAX_CURVE_BULGE = 1000;
+/**
+ * A true circle / arc (ADR-061): centre (x, y), radius r, counter-clockwise from `start` to `end`
+ * degrees (0 → 360 = a full circle).
+ */
+const CurveArc = z.strictObject({
+  x: Coord,
+  y: Coord,
+  r: z.number().refine(Number.isFinite).positive().max(MAX_CORRECTION_COORD),
+  start: z.number().refine(Number.isFinite).min(-360).max(720),
+  end: z.number().refine(Number.isFinite).min(-360).max(720),
+});
+/**
+ * A polyline's real vertices `[x, y, bulge]` (ADR-062, owner item 33): the bulge of vertex i is
+ * the tangent of a quarter of the arc's included angle from vertex i to the next (0 straight,
+ * > 0 counter-clockwise), as DXF keeps it. The screen grips the vertices and the arc midpoints and
+ * keeps the bulges; `points` stay the flattened path, which the build reads as today.
+ */
+const CurveVertices = z
+  .array(
+    z.tuple([
+      Coord,
+      Coord,
+      z.number().refine(Number.isFinite).min(-MAX_CURVE_BULGE).max(MAX_CURVE_BULGE),
+    ]),
+  )
+  .min(2)
+  .max(MAX_CURVE_POINTS);
 /** A table cell: empty or a text of one line. */
 const CellText = z
   .string()
@@ -347,15 +376,9 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
      * screen picks, grips and snaps it as a circle / arc; `points` stay its flattened path, which
      * the build reads as today.
      */
-    arc: z
-      .strictObject({
-        x: Coord,
-        y: Coord,
-        r: z.number().refine(Number.isFinite).positive().max(MAX_CORRECTION_COORD),
-        start: z.number().refine(Number.isFinite).min(-360).max(720),
-        end: z.number().refine(Number.isFinite).min(-360).max(720),
-      })
-      .optional(),
+    arc: CurveArc.optional(),
+    /** The polyline's real vertices with their bulges (ADR-062); `points` are its path. */
+    vertices: CurveVertices.optional(),
   }),
   /**
    * A layer that means what `like` means in the mapping (ADR-050): items moved or drawn on it are
@@ -392,6 +415,14 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
     handle: Handle,
     points: z.array(Point).min(2).max(MAX_CURVE_POINTS),
     closed: z.boolean().default(false),
+    /**
+     * ADR-062 (grips, owner item 33): the curve stays a true circle / arc (an arc grip stretched)
+     * or a polyline with these real vertices and bulges (a vertex grip stretched). Only the screen
+     * reads them; `points` stay the flattened path the build reads. Without them a set_curve makes
+     * the curve a plain polyline of `points` (Trim, Fillet…), as before.
+     */
+    arc: CurveArc.optional(),
+    vertices: CurveVertices.optional(),
   }),
   /**
    * A dimension (2 points measured + 1 for the dimension line) or a leader (arrow tip first) drawn

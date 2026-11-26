@@ -55,6 +55,44 @@ export const DrawingViewInsertSchema = z.object({
 });
 export type DrawingViewInsert = z.infer<typeof DrawingViewInsertSchema>;
 
+/** Real vertices kept per polyline (more: the view sends none, grips stay on the path). */
+export const DRAWING_VIEW_MAX_ENTITY_VERTICES = 2000;
+/** |bulge| kept (as MAX_CURVE_BULGE of the corrections). */
+export const DRAWING_VIEW_MAX_BULGE = 1000;
+
+/** A polyline vertex: the bulge goes from this vertex to the next (DXF; > 0 counter-clockwise). */
+export const DrawingViewVertexSchema = z.object({
+  x: Finite,
+  y: Finite,
+  bulge: Finite.refine((b) => Math.abs(b) <= DRAWING_VIEW_MAX_BULGE, 'Bulge out of range'),
+});
+export type DrawingViewVertex = z.infer<typeof DrawingViewVertexSchema>;
+
+/** A circle / arc: centre, radius, counter-clockwise from `start` to `end` degrees (circle 0 → 360). */
+export const DrawingViewArcSchema = z.object({
+  x: Finite,
+  y: Finite,
+  r: Finite.refine((r) => r > 0, 'Radius must be positive'),
+  start: Finite,
+  end: Finite,
+});
+export type DrawingViewArc = z.infer<typeof DrawingViewArcSchema>;
+
+/**
+ * An ellipse: centre, the major axis end point relative to the centre, minor / major ratio, and
+ * the start / end parameters in radians (0 → 2π = a full ellipse), as DXF keeps it.
+ */
+export const DrawingViewEllipseSchema = z.object({
+  x: Finite,
+  y: Finite,
+  majorX: Finite,
+  majorY: Finite,
+  ratio: Finite.refine((r) => r > 0 && r <= 1, 'Ratio must be in (0, 1]'),
+  start: Finite,
+  end: Finite,
+});
+export type DrawingViewEllipse = z.infer<typeof DrawingViewEllipseSchema>;
+
 export const DrawingViewEntitySchema = z.object({
   /** Top-level handle in model space (an INSERT keeps its own handle for all its block shapes). */
   handle: z.string().min(1).max(64),
@@ -74,6 +112,22 @@ export const DrawingViewEntitySchema = z.object({
    * rendered before it was added, and for other entities.
    */
   insert: DrawingViewInsertSchema.optional(),
+  /**
+   * ADR-062 (owner item 33): a 2D LWPOLYLINE / POLYLINE's real vertices with their bulges, and
+   * whether it is closed, so the grips sit on the vertices and arc midpoints, not on every
+   * flattened point. `paths[0]` stays its flattened outline. Absent in views rendered before, for
+   * other entities and for polylines of more than DRAWING_VIEW_MAX_ENTITY_VERTICES vertices.
+   */
+  vertices: z
+    .array(DrawingViewVertexSchema)
+    .min(2)
+    .max(DRAWING_VIEW_MAX_ENTITY_VERTICES)
+    .optional(),
+  closed: z.boolean().optional(),
+  /** ADR-062: a CIRCLE's / ARC's own centre, radius and angles (WCS). Absent before. */
+  arc: DrawingViewArcSchema.optional(),
+  /** ADR-062: an ELLIPSE's own parameters (WCS). Absent before. */
+  ellipse: DrawingViewEllipseSchema.optional(),
 });
 export type DrawingViewEntity = z.infer<typeof DrawingViewEntitySchema>;
 
