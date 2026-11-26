@@ -729,7 +729,63 @@ describe(
       expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
       await save(user);
       expect(sent()).toEqual([{ kind: 'move_layer', handle: 'B', toLayer: 'Sap' }]);
+      // QSAVE (owner default): the edit mode stays open after «حفظ»; Cancel leaves it.
+      await waitFor(() =>
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit the drawing' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
       expect(await screen.findByRole('button', { name: 'Edit the drawing' })).toBeInTheDocument();
+    });
+
+    it('saves more than 200 edits in chunks of 200, with one progress line', async () => {
+      const { canvas, user } = await openWorkspace();
+      let next = 0;
+      api.createCorrections.mockImplementation(
+        async (_p: string, _f: string, body: { items: unknown[] }) => ({
+          items: body.items.map(() => ({ id: `id-${++next}` })),
+        }),
+      );
+      await click(user, canvas, 75, 25);
+      await type(user, 'ar');
+      await type(user, 'cou');
+      await type(user, '26');
+      await type(user, '18');
+      await type(user, '');
+      // 26 × 18 − 1 = 467 copies: no «too many edits» refusal any more.
+      expect(screen.getByText(/467.? edits not saved yet/)).toBeInTheDocument();
+      await save(user);
+      await waitFor(() => expect(api.createCorrections).toHaveBeenCalledTimes(3));
+      const sizes = api.createCorrections.mock.calls.map(
+        (call) => (call[2] as { items: unknown[] }).items.length,
+      );
+      expect(sizes).toEqual([200, 200, 67]);
+      await waitFor(() => expect(history()).toMatch(/Saving edits: 467 of 467/));
+      expect(history().match(/Saving edits/g)).toHaveLength(1);
+      expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+    });
+
+    it('a refused chunk keeps the chunks before it saved and the rest waiting', async () => {
+      const { canvas, user } = await openWorkspace();
+      let calls = 0;
+      api.createCorrections.mockImplementation(
+        async (_p: string, _f: string, body: { items: unknown[] }) => {
+          calls++;
+          if (calls === 2) throw new ApiClientError('VALIDATION_FAILED', 422, {});
+          return { items: body.items.map((_, i) => ({ id: `id-${calls}-${i}` })) };
+        },
+      );
+      await click(user, canvas, 75, 25);
+      await type(user, 'ar');
+      await type(user, 'cou');
+      await type(user, '26');
+      await type(user, '18');
+      await type(user, '');
+      await save(user);
+      await waitFor(() => expect(history()).toMatch(/200 of 467 edits saved; the other 267/));
+      expect(screen.getByText(/267.? edits not saved yet/)).toBeInTheDocument();
+      expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toBeInTheDocument();
     });
 
     it('a window to the right picks what is inside; a typed MOVE then asks for the base point', async () => {

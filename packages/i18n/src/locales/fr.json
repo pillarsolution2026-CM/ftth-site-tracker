@@ -2279,7 +2279,9 @@
         "allUndone": "Tous les segments ont déjà été annulés.",
         "copyArrayRange": "Nécessite un entier compris entre 2 et 32767.",
         "divideRange": "Nécessite un entier compris entre 2 et 32767.",
-        "clipboardEmpty": "Le Presse-papiers est vide."
+        "clipboardEmpty": "Le Presse-papiers est vide.",
+        "saveProgress": "Enregistrement des modifications : {saved} sur {total}...",
+        "savePartial": "{saved} modifications sur {total} enregistrées ; les {left} autres attendent encore d'être enregistrées."
       },
       "tool": {
         "line": "Ligne",

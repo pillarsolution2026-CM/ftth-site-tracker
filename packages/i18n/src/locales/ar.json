@@ -2279,7 +2279,9 @@
         "allUndone": "All segments already undone.",
         "copyArrayRange": "Requires an integer between 2 and 32767.",
         "divideRange": "Requires an integer between 2 and 32767.",
-        "clipboardEmpty": "The clipboard is empty."
+        "clipboardEmpty": "The clipboard is empty.",
+        "saveProgress": "Saving edits: {saved} of {total}...",
+        "savePartial": "{saved} of {total} edits saved; the other {left} are still waiting to be saved."
       },
       "tool": {
         "line": "Line",
