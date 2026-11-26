@@ -3,6 +3,7 @@ import type { DrawingProblemCode, DrawingProblemItem, DrawingProblemView } from 
 import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
 import { applyAffine, invert, type Affine } from './affine';
 import { placeKey } from './corrections';
+import { entityGridOf } from './entity-grid';
 
 const NO_TRANSFORMS: ReadonlyMap<number, Affine> = new Map();
 const NO_CURVES: ReadonlyMap<number, { points: readonly (readonly [number, number])[] }> =
@@ -81,6 +82,9 @@ export function hitEntity(
   let best: number | null = null;
   let bestDistance = tolerance;
   const entities = scene.view.entities;
+  /** The equally near object with the higher index wins, as when every object was walked in order. */
+  const takes = (d: number, i: number) =>
+    d <= bestDistance && (d < bestDistance || best === null || i > best);
   for (const [i, curve] of curveOf) {
     if (!isShown(i)) continue;
     const pts = curve.points;
@@ -88,37 +92,50 @@ export function hitEntity(
       const a = pts[k] as readonly [number, number];
       const b = pts[k + 1] as readonly [number, number];
       const d = distToSegment(px, py, a[0], a[1], b[0], b[1]);
-      if (d <= bestDistance) {
+      if (takes(d, i)) {
         best = i;
         bestDistance = d;
       }
     }
   }
-  for (let i = 0; i < entities.length; i++) {
-    if (curveOf.has(i)) continue;
-    const moved = transformOf.get(i);
-    // A rigid move keeps distances: test the point moved back instead of the entity moved on.
-    const at = moved ? applyAffine(invert(moved), px, py) : { x: px, y: py };
-    const x = at.x;
-    const y = at.y;
+  const test = (i: number, x: number, y: number) => {
     const box = boxOf(scene, i);
     if (
-      x < box.minX - tolerance ||
-      x > box.maxX + tolerance ||
-      y < box.minY - tolerance ||
-      y > box.maxY + tolerance
+      x < box.minX - bestDistance ||
+      x > box.maxX + bestDistance ||
+      y < box.minY - bestDistance ||
+      y > box.maxY + bestDistance
     ) {
-      continue;
+      return;
     }
-    if (!isShown(i)) continue;
+    if (!isShown(i)) return;
     const d = distToEntity(entities[i] as DrawingViewEntity, x, y);
-    if (d <= bestDistance) {
+    if (takes(d, i)) {
       best = i;
       bestDistance = d;
     }
+  };
+  // The objects near the point come from the spatial index (zoomed far out, the nearest few).
+  const reach = tolerance;
+  for (const i of entityGridOf(scene).query(
+    { minX: px - reach, minY: py - reach, maxX: px + reach, maxY: py + reach },
+    { at: [px, py], limit: HIT_CANDIDATES },
+  )) {
+    if (curveOf.has(i) || transformOf.has(i)) continue;
+    test(i, px, py);
+  }
+  // Moved / turned entities are hit where they are drawn now: test the point moved back.
+  for (const i of transformOf.keys()) {
+    if (curveOf.has(i)) continue;
+    // A rigid move keeps distances: test the point moved back instead of the entity moved on.
+    const at = applyAffine(invert(transformOf.get(i) as Affine), px, py);
+    test(i, at.x, at.y);
   }
   return best;
 }
+
+/** The most objects walked path by path for one pick (far out the nearest ones). */
+const HIT_CANDIDATES = 400;
 
 export interface ProblemMarker {
   key: string;
