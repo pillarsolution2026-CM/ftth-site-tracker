@@ -13,7 +13,15 @@ export interface DrawingScene {
   boxes: Float64Array;
   byHandle: ReadonlyMap<string, readonly number[]>;
   layerByName: ReadonlyMap<string, number>;
+  /**
+   * Set on a page scene (`model/page-scene.ts`, ADR-061): the file's own scene, whose entities
+   * come first with the same indexes; the items drawn on the page follow them.
+   */
+  file?: DrawingScene;
 }
+
+/** The file's own scene of a scene (itself unless it is a page scene). */
+export const fileSceneOf = (scene: DrawingScene): DrawingScene => scene.file ?? scene;
 
 /** Text boxes are only estimated: reach ≈ characters × this × height. */
 export const TEXT_WIDTH_FACTOR = 0.8;
