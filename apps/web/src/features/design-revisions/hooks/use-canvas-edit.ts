@@ -221,6 +221,7 @@ export type PromptKey =
   | 'layerName'
   | 'secondPointOr'
   | 'copyArrayCount'
+  | 'insertionPoint'
   | ExtraPromptKey;
 
 export interface CommandPrompt {
@@ -540,6 +541,10 @@ export interface CanvasEditState {
   clearChosen: () => void;
   /** AutoCAD's SELECTSIMILAR: every shown object of the same type on the same layer. */
   selectSimilar: () => void;
+  /** Ctrl+A: every shown, unlocked object (AutoCAD's «All»). */
+  selectAll: () => void;
+  /** The objects COPYCLIP / CUTCLIP / COPYBASE keep for PASTECLIP (Ctrl+C / X / Shift+C / V). */
+  clipboardCount: number;
   /** The draw command ADDSELECTED would start for the one picked object; null when none fits. */
   addSelectedCommand: CommandId | null;
   /** AutoCAD's ADDSELECTED: draw a new object like the picked one, on its layer. */
@@ -706,6 +711,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     area: number;
   }>({ chamfer: null, fillet: null, rotation: 0, length: 10, width: 10, area: 100 });
   const [previous, setPrevious] = useState<ReadonlySet<number>>(NONE);
+  /** The clipboard stays in the page: the objects' handles and the base point (ADR-058 note). */
+  const [clipboard, setClipboard] = useState<{ handles: string[]; base: Point } | null>(null);
   const [edits, setEdits] = useState<readonly CanvasEdit[]>([]);
   const [extraSettings, setExtraSettings] = useState<ExtraSettings>(DEFAULT_EXTRA_SETTINGS);
   const ownHistory = useHistory();
@@ -950,6 +957,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           copyMultiple ? 'Multiple' : 'Single',
         );
       case 'second':
+        if (r.cmd === 'pasteclip') return p('insertionPoint');
         if (r.cmd === 'copy') {
           return r.made.length > 0
             ? p('secondPoint', [opt('Array', 'A'), opt('Exit', 'E'), opt('Undo', 'U')], 'Exit')
@@ -1368,7 +1376,51 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       case 'laymcur':
         return next('laymcurPick');
+      case 'copyclip':
+      case 'cutclip':
+        if (picked) {
+          clipSelected(cmd, null);
+          return;
+        }
+        return next('select');
+      case 'copybase':
+        return next('base');
+      case 'pasteclip': {
+        if (!clipboard) {
+          say(msg('clipboardEmpty'));
+          finish();
+          return;
+        }
+        const indexes = clipboard.handles.flatMap((handle) => scene.byHandle.get(handle) ?? []);
+        setSelection(new Set(indexes));
+        const r = newRun(cmd, 'second');
+        r.base = clipboard.base;
+        setRun(r);
+        return r;
+      }
     }
+  };
+
+  /** COPYCLIP / CUTCLIP / COPYBASE: the picked objects go to the page's clipboard. */
+  const clipSelected = (cmd: CommandId, base: Point | null) => {
+    if (!scene) return;
+    const indexes = [...selection];
+    let at = base;
+    if (!at) {
+      // AutoCAD's base point for COPYCLIP is the lower-left corner of the extents.
+      let minX = Infinity;
+      let minY = Infinity;
+      for (const index of indexes) {
+        const box = boxOf(scene, index);
+        minX = Math.min(minX, box.minX);
+        minY = Math.min(minY, box.minY);
+      }
+      at = { x: minX, y: minY };
+    }
+    setClipboard({ handles, base: at });
+    say(msg('found', { count: handles.length }));
+    if (cmd === 'cutclip') add(eraseEdits(handles));
+    finish();
   };
 
   /** TEXTEDIT on a text; `from` (picked at its prompt): ask for the next one after it (Multiple). */
@@ -1421,6 +1473,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       return;
     }
     switch (r.cmd) {
+      case 'copyclip':
+      case 'cutclip':
+      case 'copybase':
+        clipSelected(r.cmd, r.base);
+        return;
       case 'erase':
         add(eraseEdits(handles));
         finish();
@@ -1461,6 +1518,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       else go(r, 'second', { made: [...r.made, made.length] });
     } else if (r.cmd === 'stretch') {
       stretch(r, dx, dy);
+    } else if (r.cmd === 'pasteclip') {
+      // PASTECLIP: the objects come back where the insertion point puts them, once.
+      add(copyEdits(handles, dx, dy));
+      finish();
     }
   };
 
@@ -1551,6 +1612,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const f = r.flags;
     switch (r.step) {
       case 'base':
+        if (r.cmd === 'copybase') {
+          if (handles.length > 0) clipSelected(r.cmd, p);
+          else go(r, 'select', { base: p });
+          return;
+        }
         go(r, r.cmd === 'rotate' ? 'angle' : r.cmd === 'scale' ? 'factor' : 'second', { base: p });
         setPointer(p);
         return;
@@ -3151,6 +3217,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     chosen: selection,
     chosenCount: handles.length,
     clearChosen: () => setSelection(NONE),
+    selectAll: () => {
+      if (!editing || !scene || run) return;
+      const all = new Set<number>();
+      scene.view.entities.forEach((_, index) => {
+        if (pickable(index)) all.add(index);
+      });
+      setSelection(all);
+      say(msg('found', { count: all.size }));
+    },
+    clipboardCount: clipboard?.handles.length ?? 0,
     selectSimilar: () => {
       if (!scene || !shown || selection.size === 0) return;
       const like = new Set<string>();

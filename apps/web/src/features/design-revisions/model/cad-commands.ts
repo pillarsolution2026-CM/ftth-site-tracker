@@ -46,6 +46,11 @@ export type CommandId =
   | 'arrayrect'
   | 'overkill'
   | 'draworder'
+  // Clipboard (Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+Shift+C)
+  | 'copyclip'
+  | 'cutclip'
+  | 'copybase'
+  | 'pasteclip'
   // Annotation
   | 'text'
   | 'textedit'
@@ -132,6 +137,10 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   breakatpoint: { name: 'BREAKATPOINT', aliases: [] },
   lengthen: { name: 'LENGTHEN', aliases: ['LEN'] },
   reverse: { name: 'REVERSE', aliases: [] },
+  copyclip: { name: 'COPYCLIP', aliases: [] },
+  cutclip: { name: 'CUTCLIP', aliases: [] },
+  copybase: { name: 'COPYBASE', aliases: [] },
+  pasteclip: { name: 'PASTECLIP', aliases: [] },
   arrayrect: { name: 'ARRAYRECT', aliases: ['AR', 'ARRAY'] },
   overkill: { name: 'OVERKILL', aliases: [] },
   draworder: { name: 'DRAWORDER', aliases: ['DR'] },
@@ -207,6 +216,9 @@ export const SELECTING: readonly CommandId[] = [
   'overkill',
   'draworder',
   'region',
+  'copyclip',
+  'cutclip',
+  'copybase',
 ];
 
 export interface Point {
