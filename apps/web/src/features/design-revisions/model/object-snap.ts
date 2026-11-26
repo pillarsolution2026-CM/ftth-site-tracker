@@ -90,6 +90,16 @@ export function overrideOf(word: string): SnapMode | 'none' | null {
   return SNAP_OVERRIDE[w.slice(0, 3)] ?? SNAP_OVERRIDE[w] ?? null;
 }
 
+/** The overrides that are not a snap mode but a way to give a point: FROM and Mid Between 2 Points. */
+export type SpecialOverride = 'from' | 'm2p';
+
+export function specialOverrideOf(word: string): SpecialOverride | null {
+  const w = word.trim().replace(/^_/, '').toUpperCase();
+  if (w === 'FROM' || w === 'FRO') return 'from';
+  if (w === 'M2P' || w === 'MTP') return 'm2p';
+  return null;
+}
+
 /** AutoCAD's default OSMODE 4133: Endpoint, Center, Intersection, Extension. */
 export const DEFAULT_OSMODE = 4133;
 

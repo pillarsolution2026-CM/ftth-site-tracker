@@ -454,6 +454,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     isLocked: (index) =>
       scene !== null && preview !== null && locked.has(effectiveLayer(scene, preview, index)),
     textHeight,
+    // The build joins line ends within ROUTE_END_TOUCH_M (0.05 m, worker drawing_checks.py).
+    joinTouch: tools.metresPerUnit !== null ? 0.05 / tools.metresPerUnit : undefined,
     onOpenLayers: () => setLayersNonce((n) => n + 1),
     ruledLayers: tools.ruledLayers,
   });

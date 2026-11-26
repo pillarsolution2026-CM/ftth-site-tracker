@@ -1224,7 +1224,12 @@ function drawGhost(
   for (const index of ghost.indexes) {
     if (!scene.view.entities[index]?.paths.length) continue;
     const box = boxThrough(ghost.step, shownBox(model, index));
-    if (box.minX > view.maxX || box.maxX < view.minX || box.minY > view.maxY || box.maxY < view.minY)
+    if (
+      box.minX > view.maxX ||
+      box.maxX < view.minX ||
+      box.minY > view.maxY ||
+      box.maxY < view.minY
+    )
       continue;
     if (preview.transformOf.has(index) || preview.curveOf.has(index)) special.push(index);
     else if (inView.length < GHOST_MAX_STROKES) inView.push(index);

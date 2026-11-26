@@ -50,7 +50,7 @@ export const typeName = (kind: string) => TYPE_NAME[kind] ?? kind;
 const MAX_GRID_THIN = 25;
 
 /** The grid, only redrawn when the view or its spacing changes (never on a pointer move). */
-const Grid = memo(function Grid({
+export const Grid = memo(function Grid({
   cx,
   cy,
   scale,

@@ -49,6 +49,7 @@ import {
 import { correctionError } from '../model/corrections';
 import { effectiveLayer, type DrawingPreview, type PreviewStyle } from '../model/drawing-preview';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
+import { joinProblem, type JoinPiece } from '../model/join';
 import {
   arcThrough,
   circlePoints,
@@ -221,6 +222,10 @@ export type PromptKey =
   | 'layerName'
   | 'secondPointOr'
   | 'copyArrayCount'
+  | 'fromBase'
+  | 'fromOffset'
+  | 'm2pFirst'
+  | 'm2pSecond'
   | ExtraPromptKey;
 
 export interface CommandPrompt {
@@ -638,11 +643,16 @@ interface Input {
   layerScreen?: LayerScreen;
   /** FIND, Layer Walk and Edit Attributes open a dialog. */
   openDialog?: (dialog: WorkspaceDialog | null) => void;
+  /** How near two line ends must be to JOIN, drawing units (the build's route end tolerance). */
+  joinTouch?: number;
   /** One Undo history for the edits and the screen states (item 13); its own when absent. */
   history?: UndoHistory;
   /** The screen states (layers, isolation…) the history puts back. */
   screen?: HistoryPart;
 }
+
+/** Line ends that meet when the drawing's scale is not known: only the very same point. */
+const JOIN_TOUCH_FALLBACK = 1e-6;
 
 /** AutoCAD's command name echoed when an edit made outside a command is undone. */
 const EDIT_LABEL: Readonly<Record<string, string>> = {
@@ -1425,6 +1435,20 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     );
     if (curves.length < 2) {
       say(msg('joinNeedsTwo'));
+      finish();
+      return;
+    }
+    // The build refuses lines that do not meet end to end on one layer: say so now, as AutoCAD.
+    const pieces: JoinPiece[] = [];
+    for (const handle of curves) {
+      for (const index of scene?.byHandle.get(handle) ?? []) {
+        const geom = curveGeom(index);
+        if (geom) pieces.push({ handle, layer: layerNameOf(index), ...geom });
+      }
+    }
+    const problem = joinProblem(pieces, input.joinTouch ?? JOIN_TOUCH_FALLBACK);
+    if (problem) {
+      say(msg(problem === 'layers' ? 'joinLayers' : 'joinChain'));
       finish();
       return;
     }
@@ -3326,9 +3350,15 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     hover: (at) => {
       if (gripRun || (run && isTracked(run.step))) setPointer(at);
     },
+    // Every «Specify … point» prompt takes the object snaps, a grip's new place included.
     wantsPoint:
-      run !== null && run.step !== 'select' && !isObjectStep(run.step) && !isTextStep(run.step),
-    anchor: run ? (run.points[run.points.length - 1] ?? run.base) : null,
+      gripRun !== null ||
+      (run !== null && run.step !== 'select' && !isObjectStep(run.step) && !isTextStep(run.step)),
+    anchor: run
+      ? (run.points[run.points.length - 1] ?? run.base)
+      : gripRun !== null
+        ? gripRun.base
+        : null,
     ghost,
     sketch,
     pointerStore,

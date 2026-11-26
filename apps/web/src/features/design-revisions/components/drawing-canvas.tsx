@@ -15,8 +15,10 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
 import { CanvasContextMenu } from './canvas-context-menu';
+import { SnapMenu } from './snap-menu';
 import type { CrosshairSize } from '../hooks/use-crosshair-size';
 import { OsmBackdrop } from './osm-backdrop';
+import { latinKey } from '../model/keyboard-layout';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
 /** Scenes up to this many entities are redrawn whole on every frame; bigger ones cache the base. */
@@ -114,6 +116,8 @@ export function DrawingCanvas({
   const boxing = viewer.edit.boxing;
   /** The right-click menu on picked objects (owner 2026-11-24), at canvas pixels. */
   const [menu, setMenu] = useState<Pointer | null>(null);
+  /** Shift + right-click at a point prompt: the one-time Object Snap overrides (item 28). */
+  const [snapMenu, setSnapMenu] = useState<Pointer | null>(null);
 
   // Canvas size follows the (resizable) container.
   useEffect(() => {
@@ -230,6 +234,7 @@ export function DrawingCanvas({
     // The right button opens the menu (contextmenu); it neither pans nor picks.
     if (event.button === 2) return;
     setMenu(null);
+    setSnapMenu(null);
     const p = local(event);
     pointers.current.set(event.pointerId, p);
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -346,7 +351,10 @@ export function DrawingCanvas({
       return;
     }
     // CAD keys while editing (ADR-050): Esc, Enter, Ctrl+Z, Ctrl+Y, Delete and one-letter commands.
-    if (viewer.edit.key(event.key, event.ctrlKey || event.metaKey)) {
+    // The key by its place, so M / L / C… work with the Arabic keyboard layout (item 27); the text
+    // of a TEXT command is typed as it comes.
+    const typed = viewer.edit.textEntry ? event.key : latinKey(event);
+    if (viewer.edit.key(typed, event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       return;
     }
@@ -420,6 +428,12 @@ export function DrawingCanvas({
         onContextMenu={(event) => {
           if (!viewer.edit.editing) return;
           event.preventDefault();
+          if (event.shiftKey && viewer.edit.wantsPoint) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu(null);
+            setSnapMenu({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+            return;
+          }
           if (viewer.edit.command !== null) return;
           const rect = event.currentTarget.getBoundingClientRect();
           const p = { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -468,6 +482,17 @@ export function DrawingCanvas({
         <span className="font-sans">{t('design.viewer.coords')}: </span>
         <Ltr>{cursor ? `X ${cursor.x.toFixed(2)}  Y ${cursor.y.toFixed(2)}` : '—'}</Ltr>
       </div>
+      {snapMenu ? (
+        <SnapMenu
+          viewer={viewer}
+          x={snapMenu.x}
+          y={snapMenu.y}
+          onClose={() => {
+            setSnapMenu(null);
+            canvasRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      ) : null}
       {menu ? (
         <CanvasContextMenu
           viewer={viewer}
