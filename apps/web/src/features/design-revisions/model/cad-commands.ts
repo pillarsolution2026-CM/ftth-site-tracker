@@ -113,7 +113,7 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   region: { name: 'REGION', aliases: ['REG'] },
   hatch: { name: 'HATCH', aliases: ['H', 'BH'] },
   gradient: { name: 'GRADIENT', aliases: ['GD'] },
-  boundary: { name: 'BOUNDARY', aliases: ['BO'] },
+  boundary: { name: 'BOUNDARY', aliases: ['BO', 'BPOLY'] },
   wipeout: { name: 'WIPEOUT', aliases: [] },
   helix: { name: 'HELIX', aliases: [] },
   donut: { name: 'DONUT', aliases: ['DO', 'DOUGHNUT'] },
@@ -137,10 +137,10 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   draworder: { name: 'DRAWORDER', aliases: ['DR'] },
   text: { name: 'TEXT', aliases: ['T', 'DT', 'DTEXT'] },
   textedit: { name: 'TEXTEDIT', aliases: ['ED', 'DDEDIT'] },
-  dimlinear: { name: 'DIMLINEAR', aliases: ['DLI'] },
+  dimlinear: { name: 'DIMLINEAR', aliases: ['DLI', 'DIMLIN'] },
   leader: { name: 'LEADER', aliases: ['LE', 'LEAD'] },
   layer: { name: 'LAYER', aliases: ['LA'] },
-  matchprop: { name: 'MATCHPROP', aliases: ['MA'] },
+  matchprop: { name: 'MATCHPROP', aliases: ['MA', 'PAINTER'] },
   laymcur: { name: 'LAYMCUR', aliases: [] },
   laymch: { name: 'LAYMCH', aliases: [] },
   layoff: { name: 'LAYOFF', aliases: [] },
@@ -286,6 +286,27 @@ export function matchOption(options: readonly CommandOption[], word: string): st
   );
   return hit ? hit.key : null;
 }
+
+/**
+ * Prompts that are a question or «Enter … option»: AutoCAD writes their options without «or»
+ * (`Erase source objects? [Yes/No] <No>:`), unlike «Specify … or [..]».
+ */
+export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
+  'mirrorErase',
+  'copyMode',
+  'filletTrim',
+  'offsetErase',
+  'offsetLayer',
+  'rectAreaBy',
+  'layerConfirm',
+  'groupOptions',
+  'splineMethod',
+  'polygonMode',
+  'orderOption',
+]);
+
+/** An angle as AutoCAD prints it in a default (AUPREC 0: whole degrees). */
+export const acadAngle = (degrees: number) => String(Math.round(degrees) + 0);
 
 /** A number as AutoCAD prints it (4 decimals). */
 export const acadNumber = (value: number) => value.toFixed(4);

@@ -162,6 +162,7 @@ export type ExtraStep =
   | 'x_helBase'
   | 'x_helTop'
   | 'x_helTurns'
+  | 'x_helHeight'
   | 'x_doInner'
   | 'x_doOuter'
   | 'x_doCenter'
@@ -218,6 +219,7 @@ export type ExtraPromptKey =
   | 'helixBase'
   | 'helixTop'
   | 'helixTurns'
+  | 'helixHeight'
   | 'donutInner'
   | 'donutOuter'
   | 'donutCenter'
@@ -228,6 +230,7 @@ export type ExtraPromptKey =
   | 'polygonEdge1'
   | 'polygonEdge2'
   | 'ellipseAxis'
+  | 'ellipseArcAxis'
   | 'ellipseOther'
   | 'ellipseCenter'
   | 'ellipseAxisEnd'
@@ -262,6 +265,7 @@ export const EXTRA_TRACKED: readonly string[] = [
   'x_wipeNext',
   'x_helBase',
   'x_helTop',
+  'x_helHeight',
   'x_doCenter',
   'x_polRadius',
   'x_polEdge2',
@@ -280,6 +284,8 @@ export interface ExtraSettings {
   polygon: { sides: number; inscribed: boolean };
   lengthen: { mode: 'DE' | 'T' | 'P'; value: number };
   helixTurns: number;
+  /** HELIX height: asked as AutoCAD does, though a 2D view only shows the turns. */
+  helixHeight: number;
   splineCv: boolean;
   /** PICKSTYLE: picking one member of a group picks the whole group. */
   groupPick: boolean;
@@ -293,6 +299,7 @@ export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
   polygon: { sides: 4, inscribed: true },
   lengthen: { mode: 'DE', value: 0 },
   helixTurns: 3,
+  helixHeight: 1,
   splineCv: false,
   groupPick: true,
   text: DEFAULT_TEXT_SETTINGS,
@@ -351,6 +358,8 @@ export interface ExtraContext<R extends ExtraRun> {
   layerNameOf: (index: number) => string;
   needDrawLayer: () => boolean;
   geometryMessage: (caught: unknown) => void;
+  /** Takes back the last `count` edits (a command's Undo option). */
+  drop?: (count: number) => void;
   /** Layers an item may move to (they have a usable rule). */
   usableLayers: readonly string[];
   layerScreen?: LayerScreen;
@@ -457,9 +466,14 @@ export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null
     case 'x_splFirst':
       return p('splineFirst', [opt('Method', 'M')]);
     case 'x_splNext':
+      // Undo once there are two points, Close once there are three (AutoCAD's order).
       return p(
         'splineNext',
-        r.points.length >= 3 ? [opt('Close', 'C'), opt('Undo', 'U')] : [opt('Undo', 'U')],
+        r.points.length >= 3
+          ? [opt('Undo', 'U'), opt('Close', 'C')]
+          : r.points.length >= 2
+            ? [opt('Undo', 'U')]
+            : [],
       );
     case 'x_splMethod':
       return p('splineMethod', [opt('Fit', 'F'), opt('CV', 'CV')], d.splineCv ? 'CV' : 'Fit');
@@ -497,6 +511,8 @@ export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null
       return p('helixTop', [], acadNumber(d.baseRadius ?? 1));
     case 'x_helTurns':
       return p('helixTurns', [], acadNumber(settings.helixTurns));
+    case 'x_helHeight':
+      return p('helixHeight', [opt('Turns', 'T')], acadNumber(settings.helixHeight));
     case 'x_doInner':
       return p('donutInner', [], acadNumber(settings.donut.inner));
     case 'x_doOuter':
@@ -520,7 +536,9 @@ export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null
     case 'x_polEdge2':
       return p('polygonEdge2');
     case 'x_elAxis':
-      return p('ellipseAxis', d.arc ? [opt('Center', 'C')] : [opt('Arc', 'A'), opt('Center', 'C')]);
+      return d.arc
+        ? p('ellipseArcAxis', [opt('Center', 'C')])
+        : p('ellipseAxis', [opt('Arc', 'A'), opt('Center', 'C')]);
     case 'x_elOther':
       return p('ellipseOther');
     case 'x_elCenter':
@@ -757,6 +775,9 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
       case 'x_helTop':
         if (d.at) extraNumber(ctx, r, distance(pt(d.at), pt(p)));
         return;
+      case 'x_helHeight':
+        if (d.at) extraNumber(ctx, r, distance(pt(d.at), pt(p)));
+        return;
       case 'x_doCenter':
         if (!ctx.needDrawLayer()) return;
         addShape(ctx, 'donut', [pt(p)], { inner: s.donut.inner, outer: s.donut.outer });
@@ -874,6 +895,10 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
         go(ctx, r, 'x_arrOpt', { rowSpacing: value, refs: [] });
         return;
       case 'x_divCount':
+        if (!(Number.isInteger(value) && value >= 2 && value <= 32767)) {
+          ctx.say(ctx.msg('divideRange'));
+          return;
+        }
         divideOrMeasure(ctx, d.target ?? -1, (g) => divideCurve(g.points, g.closed, value));
         return;
       case 'x_meLength':
@@ -885,12 +910,19 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
         positive(() => go(ctx, r, 'x_helTop', { baseRadius: value }));
         return;
       case 'x_helTop':
-        positive(() => go(ctx, r, 'x_helTurns', { topRadius: value }), true);
+        positive(() => go(ctx, r, 'x_helHeight', { topRadius: value }), true);
         return;
       case 'x_helTurns':
+        // Turns: AutoCAD asks the height again after it.
         positive(() => {
           ctx.setSettings({ helixTurns: value });
-          helix(ctx, d, value);
+          go(ctx, r, 'x_helHeight');
+        });
+        return;
+      case 'x_helHeight':
+        positive(() => {
+          ctx.setSettings({ helixHeight: value });
+          helix(ctx, d, s.helixTurns);
         });
         return;
       case 'x_doInner':
@@ -971,7 +1003,13 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
         go(ctx, r, 'x_lenValue');
         return;
       case 'x_lenChange':
-        if (key === 'U') ctx.say(ctx.msg('nothingToUndo'));
+        if (key !== 'U') return;
+        if (r.made.length === 0 || !ctx.drop) {
+          ctx.say(ctx.msg('nothingToUndo'));
+          return;
+        }
+        ctx.drop(r.made[r.made.length - 1] ?? 0);
+        ctx.setRun({ ...r, made: r.made.slice(0, -1) });
         return;
       case 'x_arrOpt':
         if (key === 'X') return arrayDone(ctx, d);
@@ -1036,6 +1074,9 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
       case 'x_elEnd':
         if (key === 'I') ctx.say(ctx.msg('ellipseIncluded'));
         return;
+      case 'x_helHeight':
+        if (key === 'T') go(ctx, r, 'x_helTurns');
+        return;
       default:
         ctx.say(ctx.msg('badKeyword'));
     }
@@ -1097,9 +1138,12 @@ export function extraEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void
       go(ctx, r, 'x_helTop', { baseRadius: 1 });
       return;
     case 'x_helTop':
-      go(ctx, r, 'x_helTurns', { topRadius: d.baseRadius ?? 1 });
+      go(ctx, r, 'x_helHeight', { topRadius: d.baseRadius ?? 1 });
       return;
     case 'x_helTurns':
+      go(ctx, r, 'x_helHeight');
+      return;
+    case 'x_helHeight':
       try {
         helix(ctx, d, s.helixTurns);
       } catch (caught) {
@@ -1178,7 +1222,10 @@ export function extraObject<R extends ExtraRun>(
         const first = geom.points[0] as Pt;
         const last = geom.points[geom.points.length - 1] as Pt;
         const atStart = distance(pt(at), first) < distance(pt(at), last);
-        ctx.add([setCurveEdit(handle, lengthenEnd(geom.points, atStart, delta), false)]);
+        const made = ctx.add([
+          setCurveEdit(handle, lengthenEnd(geom.points, atStart, delta), false),
+        ]);
+        ctx.setRun({ ...r, made: [...r.made, made.length] });
         return;
       }
       case 'x_ordRef': {

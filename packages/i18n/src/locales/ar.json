@@ -2071,7 +2071,7 @@
         "helixTurns": "Enter number of turns",
         "donutInner": "Specify inside diameter of donut",
         "donutOuter": "Specify outside diameter of donut",
-        "donutCenter": "Specify center of donut",
+        "donutCenter": "Specify center of donut or",
         "polygonSides": "Enter number of sides",
         "polygonCenter": "Specify center of polygon",
         "polygonMode": "Enter an option",
@@ -2129,7 +2129,14 @@
         "tableCell": "Enter cell text (row,column)",
         "hatchSelect": "Select objects",
         "hatchRemove": "Select Objects",
-        "hatchOrigin": "Specify origin point"
+        "hatchOrigin": "Specify origin point",
+        "ellipseArcAxis": "Specify axis endpoint of elliptical arc",
+        "helixHeight": "Specify helix height",
+        "copyArrayCount": "Enter number of items to array",
+        "layoffPick": "Select an object on the layer to be turned off",
+        "layfrzPick": "Select an object on the layer to be frozen",
+        "laylckPick": "Select an object on the layer to be locked",
+        "layulkPick": "Select an object on the layer to be unlocked"
       },
       "msg": {
         "commandEcho": "Command: {name}",
@@ -2253,7 +2260,12 @@
         "aciRange": "Requires a color number 1-9.",
         "hatchLoops": "{count} boundary loop(s) in the hatch.",
         "hatchNoBoundary": "No hatch boundary picked yet.",
-        "hatchRemoved": "Boundary removed."
+        "hatchRemoved": "Boundary removed.",
+        "textEditSettings": "Current settings: Edit mode = Multiple",
+        "noLineToContinue": "No line or arc to continue.",
+        "allUndone": "All segments already undone.",
+        "copyArrayRange": "Requires an integer between 2 and 32767.",
+        "divideRange": "Requires an integer between 2 and 32767."
       },
       "tool": {
         "line": "Line",
