@@ -203,32 +203,16 @@ function ModifyText({ edit }: { edit: CanvasEditState }) {
   );
 }
 
-/** The «Text» panel (Express Tools). */
-export function TextPanel({ edit }: { edit: CanvasEditState }) {
-  const { t } = useI18n();
-  const title = t('design.cad.panel.text');
+/** The tools of the «Text» panel (Express Tools); the ribbon wraps them in its panel. */
+export function TextTools({ edit }: { edit: CanvasEditState }) {
   return (
-    <div
-      role="group"
-      aria-label={title}
-      className="relative flex flex-col border-e border-[#454b55] px-2 last:border-e-0"
-    >
-      <div className="flex flex-1 items-start gap-0.5">
-        <div className="grid grid-flow-col grid-rows-3 gap-x-1">
-          <ModifyText edit={edit} />
-          <Tool edit={edit} id="txt2mtxt" />
-          <Tool edit={edit} id="tcount" />
-          <Tool edit={edit} id="tcircle" />
-          <Tool edit={edit} id="textmask" />
-          <Tool edit={edit} id="textunmask" />
-        </div>
-      </div>
-      <div
-        dir="ltr"
-        className="mt-1 rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
-      >
-        {title}
-      </div>
+    <div className="grid grid-flow-col grid-rows-3 gap-x-1">
+      <ModifyText edit={edit} />
+      <Tool edit={edit} id="txt2mtxt" />
+      <Tool edit={edit} id="tcount" />
+      <Tool edit={edit} id="tcircle" />
+      <Tool edit={edit} id="textmask" />
+      <Tool edit={edit} id="textunmask" />
     </div>
   );
 }

@@ -18,7 +18,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
 import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
-import { TableTile, TextPanel } from './text-panel';
+import { TableTile, TextTools } from './text-panel';
 import { HatchCreationTab } from './hatch-tab';
 import {
   ACI_COLORS,
@@ -94,7 +94,12 @@ type IconKey =
   | 'fullOff'
   | 'crossFull'
   | 'crossSmall'
-  | 'save';
+  | 'save'
+  | 'cancel'
+  | 'paletteLayers'
+  | 'paletteProblems'
+  | 'paletteCorrections'
+  | 'paletteProperties';
 const ICONS: Partial<Record<IconKey, ReactNode>> = {
   line: (
     <>
@@ -559,6 +564,40 @@ const ICONS: Partial<Record<IconKey, ReactNode>> = {
   crossFull: <path d="M12 2v20M2 12h20M10 10h4v4h-4z" />,
   crossSmall: <path d="M12 7v10M7 12h10M10 10h4v4h-4z" />,
   save: <path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" />,
+  cancel: <path d="M6 6l12 12M18 6 6 18" />,
+  paletteLayers: <path d="M12 3 3 8l9 5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5" />,
+  paletteProblems: (
+    <>
+      <path d="M12 3 2.5 20h19z" />
+      <path d="M12 10v4M12 17v.5" />
+    </>
+  ),
+  paletteCorrections: (
+    <>
+      <path d="M5 4h14v16H5z" />
+      <path d="M8 9h8M8 13h8M8 17h5" />
+    </>
+  ),
+  paletteProperties: (
+    <>
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="8" cy="17" r="2" />
+    </>
+  ),
+};
+
+/** Palette key → its icon on the tab strip (icons only, owner 2026-11-26). */
+const PALETTE_ICON: Record<string, IconKey> = {
+  problems: 'paletteProblems',
+  corrections: 'paletteCorrections',
+  properties: 'paletteProperties',
+};
+/** The tab strip names its tools in English in every language (owner 2026-11-26). */
+const PALETTE_NAME: Record<string, 'errors' | 'corrections' | 'properties'> = {
+  problems: 'errors',
+  corrections: 'corrections',
+  properties: 'properties',
 };
 
 /** A small button on the dark tab strip next to «Home» (Undo, Redo, the view buttons). */
@@ -648,36 +687,26 @@ function TabStrip({
       {editing && edit.hatch === null ? (
         <>
           <StripButton
-            label={
-              edit.saving
-                ? t('design.edit.saving')
-                : count > 0
-                  ? t('design.edit.saveCount', { count: ltr(count) })
-                  : t('design.edit.save')
-            }
-            title={t('design.edit.saveHint')}
+            label={`${t('design.cad.strip.save')}${count > 0 ? ` (${count})` : ''}`}
+            title={`${t('design.cad.strip.save')} (Ctrl+S) — ${t('design.edit.saveHint')}`}
             onClick={edit.save}
             disabled={edit.saving}
             className="bg-[#3d6fb6] px-2 font-semibold text-white hover:bg-[#4a7fca]"
           >
             <Svg size="size-4">{ICONS.save}</Svg>
-            <span>
-              {edit.saving
-                ? t('design.edit.saving')
-                : count > 0
-                  ? t('design.edit.saveCount', { count: ltr(count) })
-                  : t('design.edit.save')}
-            </span>
+            {count > 0 ? (
+              <span aria-hidden="true" dir="ltr">
+                {count}
+              </span>
+            ) : null}
           </StripButton>
           <StripButton
-            label={t('design.edit.cancel')}
-            title={t('design.edit.cancelHint')}
+            label={t('design.cad.strip.cancel')}
+            title={`${t('design.cad.strip.cancel')} — ${t('design.edit.cancelHint')}`}
             onClick={edit.cancel}
             disabled={edit.saving}
-            className="px-2"
           >
-            <span aria-hidden="true">✕</span>
-            <span>{t('design.edit.cancel')}</span>
+            <Svg size="size-4">{ICONS.cancel}</Svg>
           </StripButton>
         </>
       ) : null}
@@ -731,25 +760,27 @@ function TabStrip({
       </StripButton>
       <StripSeparator />
       <StripButton
-        label={t('design.cad.palette.layers')}
+        label={t('design.cad.strip.layers')}
+        title={t('design.cad.paletteToggle', { name: t('design.cad.strip.layers') })}
         pressed={view.layersOpen}
         onClick={view.onToggleLayers}
-        className="px-2"
       >
-        {t('design.cad.palette.layers')}
+        <Svg size="size-4">{ICONS.paletteLayers}</Svg>
       </StripButton>
-      {view.palettes.map((p) => (
-        <StripButton
-          key={p.key}
-          label={p.title}
-          title={t('design.cad.paletteToggle', { name: p.title })}
-          pressed={p.open}
-          onClick={p.onToggle}
-          className="px-2"
-        >
-          {p.title}
-        </StripButton>
-      ))}
+      {view.palettes.map((p) => {
+        const name = t(`design.cad.strip.${PALETTE_NAME[p.key] ?? 'properties'}` as MessageKey);
+        return (
+          <StripButton
+            key={p.key}
+            label={name}
+            title={t('design.cad.paletteToggle', { name })}
+            pressed={p.open}
+            onClick={p.onToggle}
+          >
+            <Svg size="size-4">{ICONS[PALETTE_ICON[p.key] ?? 'paletteProperties']}</Svg>
+          </StripButton>
+        );
+      })}
     </div>
   );
 }
@@ -983,10 +1014,11 @@ export function collapsedPanels(
 }
 
 /** The panels left to right; the last ones shrink first. */
-const PANEL_ORDER = [
+export const PANEL_ORDER = [
   'draw',
   'modify',
   'annotation',
+  'text',
   'map',
   'layers',
   'groups',
@@ -1388,7 +1420,9 @@ export function CadRibbon({
                 <TableTile edit={edit} />
               </Rows>
             </Panel>
-            <TextPanel edit={edit} />
+            <Panel id="text" title={t('design.cad.panel.text')}>
+              <TextTools edit={edit} />
+            </Panel>
             <Panel id="map" title={t('design.cad.panel.map')}>
               <button
                 type="button"
@@ -1759,7 +1793,16 @@ function PropertiesControls({ edit }: { edit: CanvasEditState }) {
  * AutoCAD's command line under the canvas: the last lines, the prompt of the command (its option
  * words can be clicked) and the entry. Enter or Space confirms, Esc cancels.
  */
-export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
+export function CadCommandLine({
+  edit,
+  historyOpen = false,
+  onToggleHistory,
+}: {
+  edit: CanvasEditState;
+  /** F2: AutoCAD's text window with the whole history above the line. */
+  historyOpen?: boolean;
+  onToggleHistory?: () => void;
+}) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const { focusNonce } = edit;
@@ -1770,24 +1813,47 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
   const name = edit.commandLabel ?? (edit.command ? COMMANDS[edit.command].name : null);
   const { prompt } = edit;
   const text = t(`design.cad.cmd.${prompt.key}` as MessageKey);
+  // AutoCAD's floating command line: a translucent grey bar over the bottom of the drawing, the
+  // last lines fading above it; the text keeps a shadow so it reads on any drawing (owner 2026-11-26).
+  const lines = historyOpen ? edit.history : edit.history.slice(-3);
   return (
     <div
       role="group"
       aria-label={t('design.cad.commandLine')}
       dir="ltr"
-      className="flex flex-col border border-t-0 border-[#1b1e23] bg-[#22262c] font-mono text-xs text-[#d7dbe0]"
+      data-testid="cad-command-line"
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col pe-4 font-mono text-xs text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]"
     >
-      <div role="log" aria-label={t('design.cad.history')} className="px-2 pt-1 opacity-75">
-        {edit.history.slice(-3).map((line, i) => (
-          <div key={`${edit.history.length}-${i}`} dir="auto" className="truncate text-start">
+      <div
+        role="log"
+        aria-label={t('design.cad.history')}
+        className={`px-2 pt-1 ${
+          historyOpen
+            ? 'pointer-events-auto max-h-[50vh] overflow-y-auto bg-[#22262c]/75'
+            : 'bg-gradient-to-t from-[#22262c]/45 to-transparent opacity-90'
+        }`}
+      >
+        {lines.map((line, i) => (
+          <div
+            key={`${edit.history.length}-${i}`}
+            dir="auto"
+            className={`text-start ${historyOpen ? 'whitespace-pre-wrap' : 'truncate'}`}
+          >
             {line}
           </div>
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
-        <span aria-hidden="true" className="text-[#7fb2ff]">
-          {name ? '▸' : '⌨'}
-        </span>
+      <div className="pointer-events-auto flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#22262c]/60 px-2 py-1.5">
+        <button
+          type="button"
+          aria-label={t('design.cad.strip.history')}
+          title={t('design.cad.strip.history')}
+          aria-pressed={historyOpen}
+          onClick={onToggleHistory}
+          className="rounded px-1 text-[#9cc4ff] hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-(--color-focus)"
+        >
+          <span aria-hidden="true">{name ? '▸' : '⌨'}</span>
+        </button>
         <span data-testid="cad-prompt" aria-live="polite">
           {prompt.key === 'command' ? (
             text
@@ -1827,6 +1893,10 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
           onChange={(event) => edit.setInput(event.target.value)}
           onKeyDown={(event) => {
             const ctrl = event.ctrlKey || event.metaKey;
+            if (event.key === 'Delete' && edit.input === '' && edit.key('Delete', false)) {
+              event.preventDefault();
+              return;
+            }
             if (
               event.key === 'Enter' ||
               event.key === 'Escape' ||
@@ -1837,7 +1907,8 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
               edit.key(event.key, ctrl);
             }
           }}
-          className="min-h-8 min-w-48 flex-1 bg-transparent px-1 text-[#ffffff] outline-none placeholder:text-[#7d838c]"
+          data-cad-input="true"
+          className="min-h-8 min-w-48 flex-1 bg-transparent px-1 text-[#ffffff] outline-none placeholder:text-[#c4c9d0]"
         />
         {edit.edits.length > 0 ? (
           <span className="font-sans opacity-80" dir="auto">
@@ -1846,7 +1917,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
         ) : null}
       </div>
       {edit.error ? (
-        <div className="px-2 pb-2 font-sans" dir="auto">
+        <div className="pointer-events-auto bg-[#22262c]/70 px-2 pb-2 font-sans" dir="auto">
           <Notice kind="error">{t(edit.error.key, edit.error.params)}</Notice>
         </div>
       ) : null}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { matchOption, type Point } from '../model/cad-commands';
+import { matchOption, parseEntry, type Point } from '../model/cad-commands';
 import {
   activeModes,
   DEFAULT_DRAFTING,
@@ -22,12 +22,15 @@ import {
   segmentDirection,
   shapesNear,
   snapsAt,
+  specialOverrideOf,
   type Acquired,
   type Pt,
   type SnapHit,
   type SnapMode,
   type SnapSource,
+  type SpecialOverride,
 } from '../model/object-snap';
+import { latinize } from '../model/keyboard-layout';
 import type { CanvasEditState } from './use-canvas-edit';
 
 /**
@@ -96,6 +99,9 @@ export interface PointContext {
   anchor: Pt | null;
 }
 
+/** FROM (base, then offset) and Mid Between 2 Points (two points) wait for their points. */
+export type SpecialPoint = { kind: 'from'; base: Pt | null } | { kind: 'm2p'; first: Pt | null };
+
 export type DraftingToggle =
   | 'grid'
   | 'snap'
@@ -136,6 +142,9 @@ export interface Drafting {
   /** A word typed at a point prompt: END, MID, … (one-time override); true when it was one. */
   override: (word: string) => boolean;
   overrideMode: SnapMode | 'none' | null;
+  /** FROM / M2P in progress (the point prompt asks for their points first); null otherwise. */
+  special: SpecialPoint | null;
+  setSpecial: (special: SpecialPoint | null) => void;
   /** The Drafting Settings dialog (the tab it opens on); null when closed. */
   dialog: DraftingTab | null;
   openDialog: (tab: DraftingTab | null) => void;
@@ -173,6 +182,7 @@ export function useDrafting(input: Input): Drafting {
   const [loaded, setLoaded] = useState(false);
   const [store] = useState(createPointerStore);
   const [overrideMode, setOverrideMode] = useState<SnapMode | 'none' | null>(null);
+  const [special, setSpecial] = useState<SpecialPoint | null>(null);
   const [dialog, setDialog] = useState<DraftingTab | null>(null);
   const [cleanScreen, setCleanScreen] = useState(false);
   const [cycle, setCycle] = useState<CycleChoice | null>(null);
@@ -394,12 +404,20 @@ export function useDrafting(input: Input): Drafting {
     take,
     key,
     override: (word) => {
+      const kind: SpecialOverride | null = specialOverrideOf(word);
+      if (kind !== null) {
+        setOverrideMode(null);
+        setSpecial(kind === 'from' ? { kind: 'from', base: null } : { kind: 'm2p', first: null });
+        return true;
+      }
       const mode = overrideOf(word);
       if (mode === null) return false;
       setOverrideMode(mode);
       return true;
     },
     overrideMode,
+    special,
+    setSpecial,
     dialog,
     openDialog: setDialog,
     cleanScreen,
@@ -424,9 +442,12 @@ export function draftedEdit(
   /** Every pickable object under a drawing point (Selection Cycling). */
   candidatesAt: (at: Point) => number[],
 ): CanvasEditState {
+  const special = edit.editing && edit.wantsPoint ? drafting.special : null;
+  // FROM measures from its base point, Mid Between 2 Points from its first (Ortho, Polar start there).
+  const reference = special ? (special.kind === 'from' ? special.base : special.first) : null;
   const ctx: PointContext = {
     wants: edit.editing && edit.wantsPoint,
-    anchor: edit.anchor ? pt(edit.anchor) : null,
+    anchor: reference ?? (edit.anchor ? pt(edit.anchor) : null),
   };
   /** A word that is not an option of the prompt and names an object snap. */
   const isOverride = (word: string) =>
@@ -434,17 +455,63 @@ export function draftedEdit(
     word.trim() !== '' &&
     matchOption(edit.prompt.options, word.trim()) === null &&
     drafting.override(word);
+  /** A point given to FROM / Mid Between 2 Points: false when it is the point the command takes. */
+  const feedSpecial = (q: Pt, give: (point: Point) => void): boolean => {
+    if (!special) return false;
+    if (special.kind === 'from') {
+      if (special.base === null) {
+        drafting.setSpecial({ kind: 'from', base: q });
+        return true;
+      }
+    } else if (special.first === null) {
+      drafting.setSpecial({ kind: 'm2p', first: q });
+      return true;
+    } else {
+      drafting.setSpecial(null);
+      give(xy([(special.first[0] + q[0]) / 2, (special.first[1] + q[1]) / 2]));
+      return true;
+    }
+    drafting.setSpecial(null);
+    give(xy(q));
+    return true;
+  };
+  /** A typed point at the FROM / M2P prompts (x,y  @dx,dy  @d<a); true when it was one. */
+  const typedSpecial = (): boolean => {
+    if (!special || edit.input.trim() === '') return false;
+    const entry = parseEntry(edit.input, reference ? xy(reference) : null);
+    if (entry.kind !== 'point') return false;
+    edit.setInput('');
+    return feedSpecial(pt(entry.point), (point) => edit.pick(null, point, false));
+  };
+  const prompt: CanvasEditState['prompt'] = special
+    ? {
+        key:
+          special.kind === 'from'
+            ? special.base === null
+              ? 'fromBase'
+              : 'fromOffset'
+            : special.first === null
+              ? 'm2pFirst'
+              : 'm2pSecond',
+        options: [],
+        fallback: null,
+      }
+    : edit.prompt;
   return {
     ...edit,
+    prompt,
     // The canvas reports every move: the coordinates and the snap markers follow the pointer.
     tracking: true,
     hover: (at) => {
+      if (!ctx.wants && drafting.special) drafting.setSpecial(null);
       const p = drafting.move(pt(at), ctx);
       if (edit.tracking) edit.hover(xy(p));
     },
     pick: (entity, at, additive) => {
       if (ctx.wants) {
-        edit.pick(entity, xy(drafting.take(pt(at), ctx)), additive);
+        const q = drafting.take(pt(at), ctx);
+        if (feedSpecial(q, (point) => edit.pick(null, point, additive))) return;
+        edit.pick(entity, xy(q), additive);
         return;
       }
       if (edit.editing && drafting.settings.selectionCycling) {
@@ -465,17 +532,27 @@ export function draftedEdit(
     },
     key: (k, ctrl) => {
       if ((k === 'Tab' || (ctrl && k === '0')) && drafting.key(k, ctrl)) return true;
-      if ((k === 'Enter' || k === ' ') && !edit.textEntry && isOverride(edit.input)) {
-        edit.setInput('');
+      if (k === 'Escape' && drafting.special) {
+        drafting.setSpecial(null);
         return true;
+      }
+      if ((k === 'Enter' || k === ' ') && !edit.textEntry) {
+        if (isOverride(edit.input)) {
+          edit.setInput('');
+          return true;
+        }
+        if (typedSpecial()) return true;
       }
       return edit.key(k, ctrl);
     },
+    // The Arabic keyboard layout types the commands by key position (round 2, item 27).
+    setInput: (value) => edit.setInput(edit.textEntry ? value : latinize(value)),
     submit: () => {
       if (isOverride(edit.input)) {
         edit.setInput('');
         return;
       }
+      if (typedSpecial()) return;
       edit.submit();
     },
   };

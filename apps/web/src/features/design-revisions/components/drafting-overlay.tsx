@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import type { MessageKey } from '@ftth/i18n';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { COMMANDS } from '../model/cad-commands';
@@ -45,18 +46,49 @@ const TYPE_NAME: Readonly<Record<string, string>> = {
 };
 export const typeName = (kind: string) => TYPE_NAME[kind] ?? kind;
 
-function Grid({ viewer }: { viewer: DrawingViewer }) {
-  const { transform: tf, size } = viewer;
-  const { gridX, gridY } = viewer.drafting.settings;
-  let sx = gridX * tf.scale;
-  let sy = gridY * tf.scale;
+/** The grid is thinned (×5) at most this many times; denser than that it is not drawn. */
+const MAX_GRID_THIN = 25;
+
+/** The grid, only redrawn when the view or its spacing changes (never on a pointer move). */
+export const Grid = memo(function Grid({
+  cx,
+  cy,
+  scale,
+  width,
+  height,
+  gridX,
+  gridY,
+}: {
+  cx: number;
+  cy: number;
+  scale: number;
+  width: number;
+  height: number;
+  gridX: number;
+  gridY: number;
+}) {
+  const { t } = useI18n();
+  let sx = gridX * scale;
+  let sy = gridY * scale;
   let k = 1;
-  while (Math.min(sx, sy) < MIN_GRID_PX && k < 1e9) {
+  while (Math.min(sx, sy) < MIN_GRID_PX && k <= MAX_GRID_THIN) {
     sx *= 5;
     sy *= 5;
     k *= 5;
   }
-  const origin = toScreen(tf, size, 0, 0);
+  // AutoCAD: «Grid too dense to display» — the pattern would be a smear, so it is not drawn.
+  if (!(Math.min(sx, sy) >= MIN_GRID_PX)) {
+    return (
+      <p
+        role="status"
+        data-testid="grid-too-dense"
+        className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2 rounded bg-[#1d2127]/90 px-2 py-0.5 text-xs text-[#d7dbe0]"
+      >
+        {t('design.cad.status.gridTooDense')}
+      </p>
+    );
+  }
+  const origin = toScreen({ cx, cy, scale }, { width, height }, 0, 0);
   const ox = ((origin.x % (sx * 5)) + sx * 5) % (sx * 5);
   const oy = ((origin.y % (sy * 5)) + sy * 5) % (sy * 5);
   return (
@@ -91,7 +123,7 @@ function Grid({ viewer }: { viewer: DrawingViewer }) {
       <rect width="100%" height="100%" fill="url(#cad-grid-major)" />
     </svg>
   );
-}
+});
 
 /** Markers, tracking paths and the AutoSnap / polar tooltip. */
 function Snapping({ viewer }: { viewer: DrawingViewer }) {
@@ -361,7 +393,17 @@ export function DraftingOverlay({ viewer }: { viewer: DrawingViewer }) {
   const { settings } = viewer.drafting;
   return (
     <>
-      {settings.grid ? <Grid viewer={viewer} /> : null}
+      {settings.grid ? (
+        <Grid
+          cx={viewer.transform.cx}
+          cy={viewer.transform.cy}
+          scale={viewer.transform.scale}
+          width={viewer.size.width}
+          height={viewer.size.height}
+          gridX={settings.gridX}
+          gridY={settings.gridY}
+        />
+      ) : null}
       <Snapping viewer={viewer} />
       <DynamicInput viewer={viewer} />
       <CycleList viewer={viewer} />

@@ -1755,6 +1755,11 @@
         "cleanScreen": "Clean Screen (Ctrl+0)",
         "customize": "Customization",
         "orthoTip": "Ortho",
+        "gridTooDense": "Grid too dense to display",
+        "snapFrom": "From",
+        "snapM2p": "Mid Between 2 Points",
+        "snapNone": "None",
+        "snapMenu": "Object Snap overrides",
         "polarTip": "Polar",
         "trackTip": "Object Snap Tracking",
         "cycleTitle": "Selection",
@@ -1981,6 +1986,10 @@
         "offsetPick": "Select object to offset",
         "offsetSide": "Specify point on side to offset",
         "joinSelect": "Select source object or multiple objects to join at once",
+        "fromBase": "from Base point",
+        "fromOffset": "<Offset>",
+        "m2pFirst": "of First point of mid",
+        "m2pSecond": "of Second point of mid",
         "textStart": "Specify start point of text",
         "textHeight": "Specify height",
         "textValue": "Enter text",
@@ -2137,7 +2146,8 @@
         "layoffPick": "Select an object on the layer to be turned off",
         "layfrzPick": "Select an object on the layer to be frozen",
         "laylckPick": "Select an object on the layer to be locked",
-        "layulkPick": "Select an object on the layer to be unlocked"
+        "layulkPick": "Select an object on the layer to be unlocked",
+        "insertionPoint": "Specify insertion point"
       },
       "msg": {
         "commandEcho": "Command: {name}",
@@ -2163,6 +2173,8 @@
         "changedToLayer": "{count} object(s) changed to layer \"{layer}\".",
         "joined": "{count} objects joined into 1 polyline.",
         "joinNeedsTwo": "Select at least two lines or polylines to join.",
+        "joinLayers": "The objects to join are on different layers.",
+        "joinChain": "The objects do not meet end to end in one chain, so they cannot be joined.",
         "stretchWindow": "Select objects to stretch by a crossing window (drag a box).",
         "needLayer": "Pick a current layer that has a rule (Layers panel) before drawing.",
         "layerNoRule": "Layer \"{layer}\" has no rule for drawing items: choose another layer.",
@@ -2266,7 +2278,8 @@
         "noLineToContinue": "No line or arc to continue.",
         "allUndone": "All segments already undone.",
         "copyArrayRange": "Requires an integer between 2 and 32767.",
-        "divideRange": "Requires an integer between 2 and 32767."
+        "divideRange": "Requires an integer between 2 and 32767.",
+        "clipboardEmpty": "The clipboard is empty."
       },
       "tool": {
         "line": "Line",
@@ -2646,6 +2659,15 @@
         "associativeReason": "A saved hatch keeps its boundary points; it does not follow later edits of the boundary.",
         "annotativeReason": "The screen has no annotation scales.",
         "matchReason": "Hatches of the drawing file are not readable as hatches in the web view."
+      },
+      "strip": {
+        "save": "Save",
+        "cancel": "Cancel",
+        "layers": "Layers",
+        "errors": "Errors",
+        "corrections": "Corrections",
+        "properties": "Properties",
+        "history": "Command history (F2)"
       }
     }
   },

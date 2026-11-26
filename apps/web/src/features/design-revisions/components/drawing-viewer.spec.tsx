@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { DrawingCorrection, DrawingProblemList, DrawingViewState } from '@ftth/shared';
 import { useState } from 'react';
@@ -978,11 +978,11 @@ describe(
       });
 
       it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
-        // Each panel is 200 px wide open; the row is 800 px: the last ones shrink.
+        // Each panel is 100 px wide open; the row is 800 px: the last ones shrink.
         vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
           this: HTMLElement,
         ) {
-          return this.getAttribute('role') === 'group' ? 200 : 0;
+          return this.getAttribute('role') === 'group' ? 100 : 0;
         });
         const { user } = await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
@@ -2378,6 +2378,186 @@ describe(
           { kind: 'move_item', handle: 'A1', dx: 1, dy: 0 },
           { kind: 'move_item', handle: 'T1', dx: 1, dy: 0 },
         ]);
+      });
+    });
+
+    describe('round 2: screen and shortcuts (items 20-24, 29)', () => {
+      const withPalettes = async () => {
+        renderScreen(
+          <DrawingViewer
+            projectId={PROJECT}
+            revisionId={REVISION}
+            cadFileId={FILE_ID}
+            enabled
+            canWrite
+            canFix
+            sidePanel={<p>The errors list</p>}
+            correctionsPanel={<p>The corrections list</p>}
+            focus={null}
+          />,
+        );
+        const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
+        return { canvas, user };
+      };
+      const strip = () => screen.getByRole('group', { name: 'Quick access' });
+
+      it('the tab strip has icons only: names are tooltips and labels in English', async () => {
+        const { canvas, user } = await withPalettes();
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        for (const button of within(strip()).getAllByRole('button')) {
+          // No visible words: an icon, a sign (+ / −) or the count of unsaved edits.
+          expect(button.textContent ?? '').toMatch(/^[\d+−]*$/);
+          expect(button).toHaveAttribute('aria-label');
+          expect(button).toHaveAttribute('title');
+        }
+        for (const name of ['Cancel', 'Layers', 'Errors', 'Corrections', 'Properties']) {
+          const button = within(strip()).getByRole('button', { name });
+          expect(button.querySelector('svg')).not.toBeNull();
+        }
+        const saveButton = within(strip()).getByRole('button', { name: /^Save \(/ });
+        expect(saveButton.querySelector('svg')).not.toBeNull();
+        expect(saveButton).toHaveAttribute('title', expect.stringContaining('Ctrl+S'));
+      });
+
+      it('only one side palette is open at a time and it takes the drawing height', async () => {
+        const { user } = await withPalettes();
+        expect(screen.getByRole('complementary', { name: 'Errors' })).toBeInTheDocument();
+        await user.click(within(strip()).getByRole('button', { name: 'Corrections' }));
+        expect(screen.queryByRole('complementary', { name: 'Errors' })).toBeNull();
+        const corrections = screen.getByRole('complementary', { name: 'Corrections' });
+        // Full height beside the canvas, with its own scroll.
+        expect(corrections).toHaveClass('lg:absolute', 'lg:inset-y-0');
+        expect(corrections.querySelector('.overflow-y-auto')).not.toBeNull();
+        await user.click(within(strip()).getByRole('button', { name: 'Properties' }));
+        expect(screen.queryByRole('complementary', { name: 'Corrections' })).toBeNull();
+        expect(screen.getByRole('complementary', { name: 'Properties' })).toBeInTheDocument();
+        expect(screen.getAllByTestId('cad-palette')).toHaveLength(1);
+        // The Layer Properties Manager is one of them too.
+        await user.click(within(strip()).getByRole('button', { name: 'Layers' }));
+        expect(screen.queryByRole('complementary', { name: 'Properties' })).toBeNull();
+        expect(
+          screen.getByRole('dialog', { name: 'Layer Properties Manager' }),
+        ).toBeInTheDocument();
+        await user.click(within(strip()).getByRole('button', { name: 'Errors' }));
+        expect(screen.queryByRole('dialog', { name: 'Layer Properties Manager' })).toBeNull();
+        expect(screen.getByRole('complementary', { name: 'Errors' })).toBeInTheDocument();
+      });
+
+      it('the canvas shows no focus ring; the buttons keep theirs', async () => {
+        const { canvas } = await openWorkspace();
+        expect(canvas.className).not.toMatch(/color-focus/);
+        expect(canvas).toHaveClass('outline-none');
+        const undo = within(strip()).getByRole('button', { name: 'Undo (Ctrl+Z)' });
+        expect(undo.className).toMatch(/focus-visible:outline-\(--color-focus\)/);
+      });
+
+      it('the command line floats over the drawing, translucent, with readable text', async () => {
+        const { canvas } = await openWorkspace();
+        const line = screen.getByTestId('cad-command-line');
+        expect(line).toHaveClass('absolute', 'bottom-0', 'text-white');
+        expect(line.parentElement).toContainElement(canvas);
+        expect(command().parentElement?.className).toMatch(/bg-\[#22262c\]\/\d+/);
+      });
+
+      it('Ctrl+C, Ctrl+V: the picked object is pasted where the insertion point says', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Control>}c{/Control}');
+        expect(history()).toMatch(/COPYCLIP/);
+        expect(history()).toMatch(/1.? found/);
+        await user.keyboard('{Control>}v{/Control}');
+        expect(prompt()).toMatch(/PASTECLIP Specify insertion point:/);
+        await user.click(command());
+        await type(user, '10,10');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'copy_item',
+            handle: 'B',
+            dx: expect.any(Number),
+            dy: expect.any(Number),
+            toLayer: null,
+          },
+        ]);
+      });
+
+      it('Ctrl+Shift+C asks for the base point; Ctrl+V then moves by the difference', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Control>}{Shift>}c{/Shift}{/Control}');
+        expect(prompt()).toMatch(/COPYBASE Specify base point:/);
+        await user.click(command());
+        await type(user, '10,10');
+        expect(history()).toMatch(/1.? found/);
+        await user.click(canvas);
+        await user.keyboard('{Control>}v{/Control}');
+        expect(prompt()).toMatch(/PASTECLIP Specify insertion point:/);
+        await user.click(command());
+        await type(user, '15,12');
+        await save(user);
+        expect(sent()[0]).toMatchObject({ kind: 'copy_item', handle: 'B', dx: 5, dy: 2 });
+      });
+
+      it('Ctrl+X cuts (copy and erase); Ctrl+V brings it back; an empty clipboard says so', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Control>}v{/Control}');
+        expect(history()).toMatch(/clipboard is empty/);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Control>}x{/Control}');
+        await user.keyboard('{Control>}v{/Control}');
+        await user.click(command());
+        await type(user, '0,0');
+        await save(user);
+        expect(sent().map((c) => c.kind)).toEqual(['erase_item', 'copy_item']);
+      });
+
+      it('Ctrl+A selects every shown object; Ctrl+S saves; browser defaults are kept off', async () => {
+        const { canvas, user } = await openWorkspace();
+        await user.click(canvas);
+        expect(fireEvent.keyDown(canvas, { key: 'F1' })).toBe(false);
+        expect(fireEvent.keyDown(canvas, { key: 'a', ctrlKey: true })).toBe(false);
+        expect(history()).toMatch(/\d+.? found/);
+        await user.keyboard('{Delete}');
+        expect(screen.getByText(/\d+.? edits not saved yet/)).toBeInTheDocument();
+        expect(fireEvent.keyDown(canvas, { key: 's', ctrlKey: true })).toBe(false);
+        await waitFor(() => expect(api.createCorrections).toHaveBeenCalledTimes(1));
+        expect(sent().every((c) => c.kind === 'erase_item')).toBe(true);
+      });
+
+      it('F2 opens the command history window; Ctrl+9 turns the command line off and on', async () => {
+        const { canvas, user } = await openWorkspace();
+        await user.click(canvas);
+        const log = () => screen.getByRole('log', { name: 'Command history' });
+        expect(log().className).not.toMatch(/overflow-y-auto/);
+        expect(fireEvent.keyDown(canvas, { key: 'F2' })).toBe(false);
+        expect(log().className).toMatch(/overflow-y-auto/);
+        fireEvent.keyDown(canvas, { key: 'F2' });
+        expect(log().className).not.toMatch(/overflow-y-auto/);
+        await user.keyboard('{Control>}9{/Control}');
+        expect(screen.queryByLabelText('Command')).toBeNull();
+        await user.keyboard('{Control>}9{/Control}');
+        expect(screen.getByLabelText('Command')).toBeInTheDocument();
+      });
+
+      it('the shortcuts work from the command line too, but keep the text editing keys', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await user.click(command());
+        await user.keyboard('{Control>}c{/Control}');
+        expect(history()).toMatch(/COPYCLIP/);
+        // With a typed text Ctrl+A belongs to the text box.
+        await user.type(command(), 'zz');
+        expect(fireEvent.keyDown(command(), { key: 'a', ctrlKey: true })).toBe(true);
+        await user.clear(command());
+        await click(user, canvas, 75, 25);
+        await user.click(command());
+        await user.keyboard('{Delete}');
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
       });
     });
 

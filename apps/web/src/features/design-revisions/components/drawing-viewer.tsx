@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ltr } from '@ftth/i18n';
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/form-controls';
@@ -17,6 +17,7 @@ import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
 import { PropertiesPalette } from './properties-palette';
+import { cadShortcut } from '../model/cad-shortcuts';
 import { WorkspaceDialogs } from './workspace-dialogs';
 
 /**
@@ -170,23 +171,27 @@ function Workspace({
   corrections?: ReactNode;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState<ReadonlySet<PaletteKey>>(
-    () => new Set<PaletteKey>(problems ? ['problems'] : []),
-  );
-  const toggle = (key: PaletteKey, on?: boolean) =>
-    setOpen((previous) => {
-      const next = new Set(previous);
-      if (on ?? !next.has(key)) next.add(key);
-      else next.delete(key);
-      return next;
-    });
+  // One side palette at a time (owner 2026-11-26): opening one closes the others, and the Layer
+  // Properties Manager too.
+  const [openKey, setOpenKey] = useState<PaletteKey | null>(problems ? 'problems' : null);
+  const open = new Set<PaletteKey>(openKey ? [openKey] : []);
   // LAYER / LA and the Layers buttons open the Layer Properties Manager.
   const { layersNonce, edit, model } = viewer;
   const [managerOpen, setManagerOpen] = useState(false);
+  const toggle = (key: PaletteKey, on?: boolean) => {
+    const show = on ?? openKey !== key;
+    setOpenKey(show ? key : null);
+    if (show) setManagerOpen(false);
+  };
+  const toggleManager = () => {
+    setManagerOpen(!managerOpen);
+    if (!managerOpen) setOpenKey(null);
+  };
   const [seenNonce, setSeenNonce] = useState(layersNonce);
   if (layersNonce !== seenNonce) {
     setSeenNonce(layersNonce);
     setManagerOpen(true);
+    setOpenKey(null);
   }
   // Full screen (owner 2026-11-26): an in-page full window that Esc never leaves (Esc cancels the
   // command, as in AutoCAD); only its button leaves it. The browser's own F11 hides its bars.
@@ -205,20 +210,20 @@ function Workspace({
   const [seenFullEdit, setSeenFullEdit] = useState(fullEdit);
   if (fullEdit !== seenFullEdit) {
     setSeenFullEdit(fullEdit);
-    if (fullEdit && open.has('problems')) {
-      const next = new Set(open);
-      next.delete('problems');
-      setOpen(next);
-    }
+    if (fullEdit && openKey === 'problems') setOpenKey(null);
   }
   // Right-click «Properties» and Ctrl+1 open AutoCAD's Properties palette.
   const { propertiesNonce } = viewer;
   const [seenProperties, setSeenProperties] = useState(propertiesNonce);
   if (propertiesNonce !== seenProperties) {
     setSeenProperties(propertiesNonce);
-    if (!open.has('properties')) setOpen(new Set([...open, 'properties']));
+    setOpenKey('properties');
+    setManagerOpen(false);
   }
   const crosshair = useCrosshairSize();
+  // F2 (the history window) and Ctrl+9 (the command line on / off).
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [commandLineOn, setCommandLineOn] = useState(true);
   const palettes: { key: PaletteKey; title: string; body: ReactNode }[] = [];
   if (problems) {
     palettes.push({ key: 'problems', title: t('design.cad.palette.problems'), body: problems });
@@ -254,6 +259,45 @@ function Workspace({
     <div
       data-testid="cad-workspace"
       data-full={full ? 'true' : undefined}
+      onKeyDownCapture={(event: KeyboardEvent<HTMLDivElement>) => {
+        // AutoCAD's keys while the canvas or the command line has the focus (item 24).
+        const target = event.target as HTMLElement;
+        const onCanvas = target.tagName === 'CANVAS';
+        const onLine = target.dataset.cadInput === 'true';
+        if (!onCanvas && !onLine) return;
+        const line = onLine ? (target as HTMLInputElement) : null;
+        const result = cadShortcut(event, {
+          editing: edit.available && edit.editing,
+          // In the command line a typed text keeps the browser's copy / paste / select-all.
+          typing: line !== null && (line.value !== '' || line.selectionStart !== line.selectionEnd),
+        });
+        if (!result) return;
+        event.preventDefault();
+        event.stopPropagation();
+        switch (result) {
+          case 'copyclip':
+          case 'cutclip':
+          case 'copybase':
+          case 'pasteclip':
+            edit.run(result);
+            break;
+          case 'selectAll':
+            edit.selectAll();
+            break;
+          case 'save':
+            if (edit.edits.length > 0 && !edit.saving) edit.save();
+            break;
+          case 'properties':
+            viewer.openProperties();
+            break;
+          case 'commandLine':
+            setCommandLineOn(!commandLineOn);
+            break;
+          case 'history':
+            setHistoryOpen(!historyOpen);
+            break;
+        }
+      }}
       className={`flex flex-col ${full ? 'fixed inset-0 z-50 overflow-auto bg-[#1f2328]' : ''}`}
     >
       {clean ? null : (
@@ -278,7 +322,7 @@ function Workspace({
             full,
             onToggleFull: () => setFull(!full),
             layersOpen: managerOpen,
-            onToggleLayers: () => setManagerOpen(!managerOpen),
+            onToggleLayers: toggleManager,
             palettes: palettes.map((p) => ({
               key: p.key,
               title: p.title,
@@ -292,12 +336,20 @@ function Workspace({
       )}
       <div className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}>
         <div className={`min-w-0 flex-1 ${full ? 'flex min-h-0 flex-col' : ''}`}>
-          <DrawingCanvas viewer={viewer} model={model} fill={full} crosshair={crosshair.size}>
-            <DraftingOverlay viewer={viewer} />
-            <CanvasPopover viewer={viewer} />
-            <WorkspaceDialogs viewer={viewer} />
-          </DrawingCanvas>
-          <CadCommandLine edit={edit} />
+          <div className={`relative ${full ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+            <DrawingCanvas viewer={viewer} model={model} fill={full} crosshair={crosshair.size}>
+              <DraftingOverlay viewer={viewer} />
+              <CanvasPopover viewer={viewer} />
+              <WorkspaceDialogs viewer={viewer} />
+            </DrawingCanvas>
+            {commandLineOn ? (
+              <CadCommandLine
+                edit={edit}
+                historyOpen={historyOpen}
+                onToggleHistory={() => setHistoryOpen(!historyOpen)}
+              />
+            ) : null}
+          </div>
           <CadStatusBar viewer={viewer} />
           {managerOpen && !clean ? (
             <LayerManager
@@ -315,12 +367,13 @@ function Workspace({
           ) : null}
         </div>
         {shownPalettes.length > 0 ? (
-          <div className="flex flex-col gap-2 lg:w-96 lg:shrink-0 lg:ps-2">
+          <div className="relative lg:w-96 lg:shrink-0">
             {shownPalettes.map((p) => (
               <aside
                 key={p.key}
                 aria-label={p.title}
-                className="flex max-h-[75vh] min-h-0 flex-col rounded-md border border-(--color-border) bg-(--color-surface) text-(--color-text) dark:bg-(--color-surfaceDark) dark:text-(--color-textDark)"
+                data-testid="cad-palette"
+                className="flex max-h-[75vh] min-h-0 flex-col rounded-md lg:absolute lg:inset-y-0 lg:start-2 lg:end-0 lg:max-h-none border border-(--color-border) bg-(--color-surface) text-(--color-text) dark:bg-(--color-surfaceDark) dark:text-(--color-textDark)"
               >
                 <div className="flex items-center justify-between gap-2 border-b border-(--color-border) bg-[#2b2f36] px-2 py-1 text-[#e8eaed]">
                   <span className="text-sm font-semibold">{p.title}</span>
@@ -334,7 +387,7 @@ function Workspace({
                     <span aria-hidden="true">✕</span>
                   </button>
                 </div>
-                <div className="overflow-y-auto p-2 pe-1">{p.body}</div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-2 pe-1">{p.body}</div>
               </aside>
             ))}
           </div>

@@ -1,6 +1,7 @@
 import { applyAffine, type Affine } from './affine';
 import type { DrawingPreview } from './drawing-preview';
 import type { DrawingScene } from './drawing-scene';
+import { entityGridOf } from './entity-grid';
 
 /**
  * AutoCAD's object snaps, 2D only (owner 2026-11-26, item 14): the 14 modes of the Object Snap
@@ -87,6 +88,16 @@ export function overrideOf(word: string): SnapMode | 'none' | null {
   const w = word.trim().replace(/^_/, '').toUpperCase();
   if (w.length < 3) return null;
   return SNAP_OVERRIDE[w.slice(0, 3)] ?? SNAP_OVERRIDE[w] ?? null;
+}
+
+/** The overrides that are not a snap mode but a way to give a point: FROM and Mid Between 2 Points. */
+export type SpecialOverride = 'from' | 'm2p';
+
+export function specialOverrideOf(word: string): SpecialOverride | null {
+  const w = word.trim().replace(/^_/, '').toUpperCase();
+  if (w === 'FROM' || w === 'FRO') return 'from';
+  if (w === 'M2P' || w === 'MTP') return 'm2p';
+  return null;
 }
 
 /** AutoCAD's default OSMODE 4133: Endpoint, Center, Intersection, Extension. */
@@ -366,25 +377,81 @@ function entityShapes(
   return out;
 }
 
+interface BoundedShape {
+  shape: SnapShape;
+  bounds: Bounds;
+}
+
+/** Shapes of the untouched entities, made once per scene (the pointer asks again and again). */
+const plainShapes = new WeakMap<DrawingScene, (BoundedShape[] | undefined)[]>();
+
+function boundedPlain(scene: DrawingScene, preview: DrawingPreview, index: number): BoundedShape[] {
+  let cache = plainShapes.get(scene);
+  if (!cache) {
+    cache = new Array<BoundedShape[] | undefined>(scene.view.entities.length);
+    plainShapes.set(scene, cache);
+  }
+  let found = cache[index];
+  if (!found) {
+    found = entityShapes(scene, preview, index, undefined).map((shape) => ({
+      shape,
+      bounds: shapeBounds(shape),
+    }));
+    cache[index] = found;
+  }
+  return found;
+}
+
+/** The most objects whose shapes are made and tested for the snaps of one pointer position. */
+export const MAX_CANDIDATES = 300;
+
+/** The `limit` entities whose boxes are nearest to the point (distance 0 inside a box). */
+function nearestBoxes(
+  boxes: Float64Array,
+  indexes: Int32Array | number[],
+  at: Pt,
+  limit: number,
+): number[] {
+  const away = new Float64Array(indexes.length);
+  for (let k = 0; k < indexes.length; k++) {
+    const o = (indexes[k] as number) * 4;
+    const dx = Math.max((boxes[o] as number) - at[0], 0, at[0] - (boxes[o + 2] as number));
+    const dy = Math.max((boxes[o + 1] as number) - at[1], 0, at[1] - (boxes[o + 3] as number));
+    away[k] = dx * dx + dy * dy;
+  }
+  const cut = Float64Array.from(away).sort()[limit - 1] as number;
+  const out: number[] = [];
+  for (let k = 0; k < indexes.length && out.length < limit; k++) {
+    if ((away[k] as number) <= cut) out.push(indexes[k] as number);
+  }
+  return out;
+}
+
 /** Everything drawn whose box meets `box`: the drawing (moved, trimmed), copies, added lines. */
-export function shapesNear(source: SnapSource, box: Bounds): SnapShape[] {
+export function shapesNear(source: SnapSource, box: Bounds, around?: Pt): SnapShape[] {
   const { scene, preview, isShown } = source;
   const out: SnapShape[] = [];
-  const b = scene.boxes;
-  const count = scene.view.entities.length;
-  for (let index = 0; index < count; index++) {
+  // The untouched entities come from the spatial index: only those near the pointer are looked at.
+  let candidates: Int32Array | number[] = entityGridOf(scene).query(
+    box,
+    around ? { at: around, limit: MAX_CANDIDATES } : undefined,
+  );
+  // Zoomed far out the aperture holds thousands of objects: the nearest to the pointer are used.
+  if (around && candidates.length > MAX_CANDIDATES) {
+    candidates = nearestBoxes(scene.boxes, candidates, around, MAX_CANDIDATES);
+  }
+  for (const index of candidates) {
+    if (preview.transformOf.has(index) || preview.curveOf.has(index)) continue;
+    if (preview.erased.has(index) || !isShown(index)) continue;
+    for (const item of boundedPlain(scene, preview, index)) {
+      if (meets(item.bounds, box)) out.push(item.shape);
+    }
+  }
+  // Moved and reshaped entities are not where the index has them: each is looked at in turn.
+  const touched = new Set<number>([...preview.transformOf.keys(), ...preview.curveOf.keys()]);
+  for (const index of touched) {
     if (preview.erased.has(index) || !isShown(index)) continue;
     const step = preview.transformOf.get(index);
-    if (!step && !preview.curveOf.has(index)) {
-      const o = index * 4;
-      const own = {
-        minX: b[o] as number,
-        minY: b[o + 1] as number,
-        maxX: b[o + 2] as number,
-        maxY: b[o + 3] as number,
-      };
-      if (!meets(own, box)) continue;
-    }
     for (const shape of entityShapes(scene, preview, index, step)) {
       if (meets(shapeBounds(shape), box)) out.push(shape);
     }
@@ -484,6 +551,9 @@ const RANK: Readonly<Record<SnapMode, number>> = {
   nearest: 4,
 };
 
+/** The most segments under the pointer that are crossed with each other. */
+export const MAX_HOVERED = 48;
+
 /**
  * Every snap the enabled modes find within the aperture of the pointer, best first (Tab steps
  * through them as in AutoCAD).
@@ -495,8 +565,11 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
   const push = (mode: SnapMode, at: Pt, from?: Pt) => {
     if (modes.has(mode)) hits.push(from ? { mode, at, from } : { mode, at });
   };
-  const hovered: { seg: Segment; shape: SnapShape }[] = [];
+  const hovered: { seg: Segment; shape: SnapShape; d: number }[] = [];
+  /** Nearest: only the closest point on any line counts (thousands may be under the pointer). */
+  let nearest: { at: Pt; d: number } | null = null;
   const rounds: SnapShape[] = [];
+  const roundAway = new Map<SnapShape, number>();
 
   for (const shape of shapes) {
     if (shape.kind === 'node') {
@@ -525,6 +598,7 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
       }
       if (hover) {
         rounds.push(shape);
+        roundAway.set(shape, Math.abs(dist(cursor, center) - radius));
         const towards = unit(sub(cursor, center));
         push('nearest', add(center, mul(towards, radius)));
         if (anchor && modes.has('perpendicular')) {
@@ -556,18 +630,37 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
       continue;
     }
     // A line or polyline: every vertex is an endpoint (AutoCAD), each segment has a midpoint.
-    for (const p of shape.points) if (near(p)) push('endpoint', p);
-    const segments = segmentsOf(shape);
+    // Plain numbers first: zoomed far out thousands of segments are looked at per pointer move.
+    const pts = shape.points;
+    const n = pts.length;
+    const [cx, cy] = cursor;
+    const r2 = aperture * aperture;
+    for (const p of pts) {
+      const dx = p[0] - cx;
+      const dy = p[1] - cy;
+      if (dx * dx + dy * dy <= r2) push('endpoint', p);
+    }
+    const segCount = shape.closed && n > 2 ? n : n - 1;
     let onShape = false;
-    for (const seg of segments) {
-      const [a, b] = seg;
+    for (let k = 0; k < segCount; k++) {
+      const a = pts[k] as Pt;
+      const b = pts[k + 1 === n ? 0 : k + 1] as Pt;
+      if (
+        Math.min(a[0], b[0]) > cx + aperture ||
+        Math.max(a[0], b[0]) < cx - aperture ||
+        Math.min(a[1], b[1]) > cy + aperture ||
+        Math.max(a[1], b[1]) < cy - aperture
+      ) {
+        continue;
+      }
       const mid: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       if (near(mid)) push('midpoint', mid);
       const closest = closestOnSegment(cursor, a, b);
-      if (dist(closest.at, cursor) > aperture) continue;
+      const away = dist(closest.at, cursor);
+      if (away > aperture) continue;
       onShape = true;
-      hovered.push({ seg, shape });
-      push('nearest', closest.at);
+      hovered.push({ seg: [a, b], shape, d: away });
+      if (!nearest || away < nearest.d) nearest = { at: closest.at, d: away };
       if (anchor && modes.has('perpendicular')) {
         const foot = footOnLine(anchor, a, b);
         if (foot.t >= 0 && foot.t <= 1 && dist(anchor, foot.at) > 0) push('perpendicular', foot.at);
@@ -579,7 +672,19 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
     }
   }
 
-  // Intersections of what is under the pointer (segments with segments and circles).
+  if (nearest) push('nearest', nearest.at);
+
+  // Intersections of what is under the pointer (segments with segments and circles). Zoomed far
+  // out the aperture covers thousands of segments: the nearest ones are paired, so a pointer move
+  // never costs the square of the drawing.
+  if (hovered.length > MAX_HOVERED) {
+    hovered.sort((p, q) => p.d - q.d);
+    hovered.length = MAX_HOVERED;
+  }
+  if (rounds.length > MAX_HOVERED / 2) {
+    rounds.sort((p, q) => (roundAway.get(p) ?? 0) - (roundAway.get(q) ?? 0));
+    rounds.length = MAX_HOVERED / 2;
+  }
   if (modes.has('intersection') || modes.has('apparentIntersection')) {
     for (let i = 0; i < hovered.length; i++) {
       const [a1, a2] = (hovered[i] as { seg: Segment }).seg;
@@ -638,8 +743,11 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
     }
   }
 
+  // Zoomed far out thousands of hits can pile up (one perpendicular per line under the pointer):
+  // each mode keeps its nearest few before the ranking.
+  const ranked = hits.length > MAX_PER_MODE * 14 ? nearestPerMode(hits, cursor) : hits;
   const seen = new Set<string>();
-  return hits
+  return ranked
     .sort((p, q) => RANK[p.mode] - RANK[q.mode] || dist(p.at, cursor) - dist(q.at, cursor))
     .filter((hit) => {
       const key = `${hit.mode}|${hit.at[0].toFixed(9)}|${hit.at[1].toFixed(9)}`;
@@ -649,6 +757,27 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
     });
 }
 
+/** The most hits of one mode kept for the ranking. */
+const MAX_PER_MODE = 16;
+
+function nearestPerMode(hits: readonly SnapHit[], cursor: Pt): SnapHit[] {
+  const byMode = new Map<SnapMode, { hit: SnapHit; d: number }[]>();
+  for (const hit of hits) {
+    const dx = hit.at[0] - cursor[0];
+    const dy = hit.at[1] - cursor[1];
+    const list = byMode.get(hit.mode);
+    const item = { hit, d: dx * dx + dy * dy };
+    if (list) list.push(item);
+    else byMode.set(hit.mode, [item]);
+  }
+  const out: SnapHit[] = [];
+  for (const list of byMode.values()) {
+    if (list.length > MAX_PER_MODE) list.sort((p, q) => p.d - q.d).length = MAX_PER_MODE;
+    for (const item of list) out.push(item.hit);
+  }
+  return out;
+}
+
 /**
  * The snaps at the pointer: the shapes near it, then {@link findSnaps}. `query.aperture` also
  * sizes the search box.
@@ -656,7 +785,11 @@ export function findSnaps(shapes: readonly SnapShape[], query: SnapQuery): SnapH
 export function snapsAt(source: SnapSource, query: SnapQuery): SnapHit[] {
   const r = query.aperture;
   const [x, y] = query.cursor;
-  const shapes = shapesNear(source, { minX: x - r, minY: y - r, maxX: x + r, maxY: y + r });
+  const shapes = shapesNear(
+    source,
+    { minX: x - r, minY: y - r, maxX: x + r, maxY: y + r },
+    query.cursor,
+  );
   return findSnaps(shapes, query);
 }
 

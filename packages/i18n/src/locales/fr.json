@@ -1755,6 +1755,11 @@
         "cleanScreen": "Nettoyer l'écran (Ctrl+0)",
         "customize": "Personnalisation",
         "orthoTip": "Ortho",
+        "gridTooDense": "Grille trop dense pour être affichée",
+        "snapFrom": "Depuis",
+        "snapM2p": "Milieu entre 2 points",
+        "snapNone": "Aucun",
+        "snapMenu": "Accrochages ponctuels",
         "polarTip": "Polaire",
         "trackTip": "Repérage par accrochage aux objets",
         "cycleTitle": "Sélection",
@@ -1981,6 +1986,10 @@
         "offsetPick": "Choisissez l'objet à décaler",
         "offsetSide": "Spécifiez un point sur le côté à décaler",
         "joinSelect": "Choisissez l'objet source ou plusieurs objets à joindre",
+        "fromBase": "depuis Point de base",
+        "fromOffset": "<Décalage>",
+        "m2pFirst": "de Premier point du milieu",
+        "m2pSecond": "de Deuxième point du milieu",
         "textStart": "Spécifiez le point de départ du texte",
         "textHeight": "Spécifiez la hauteur",
         "textValue": "Entrez le texte",
@@ -2137,7 +2146,8 @@
         "layoffPick": "Sélectionnez un objet sur le calque à désactiver",
         "layfrzPick": "Sélectionnez un objet sur le calque à geler",
         "laylckPick": "Sélectionnez un objet sur le calque à verrouiller",
-        "layulkPick": "Sélectionnez un objet sur le calque à déverrouiller"
+        "layulkPick": "Sélectionnez un objet sur le calque à déverrouiller",
+        "insertionPoint": "Spécifiez le point d’insertion"
       },
       "msg": {
         "commandEcho": "Commande : {name}",
@@ -2163,6 +2173,8 @@
         "changedToLayer": "{count} objet(s) placé(s) sur le calque « {layer} ».",
         "joined": "{count} objets joints en 1 polyligne.",
         "joinNeedsTwo": "Choisissez au moins deux lignes ou polylignes à joindre.",
+        "joinLayers": "Les objets à joindre sont sur des calques différents.",
+        "joinChain": "Les objets ne se rejoignent pas bout à bout en une seule chaîne : jonction impossible.",
         "stretchWindow": "Choisissez les objets à étirer par une fenêtre de capture (tirez un cadre).",
         "needLayer": "Choisissez un calque courant qui a une règle (groupe Calques) avant de dessiner.",
         "layerNoRule": "Le calque « {layer} » n'a pas de règle pour les éléments : choisissez-en un autre.",
@@ -2266,7 +2278,8 @@
         "noLineToContinue": "Aucune ligne ou aucun arc à continuer.",
         "allUndone": "Tous les segments ont déjà été annulés.",
         "copyArrayRange": "Nécessite un entier compris entre 2 et 32767.",
-        "divideRange": "Nécessite un entier compris entre 2 et 32767."
+        "divideRange": "Nécessite un entier compris entre 2 et 32767.",
+        "clipboardEmpty": "Le Presse-papiers est vide."
       },
       "tool": {
         "line": "Ligne",
@@ -2646,6 +2659,15 @@
         "associativeReason": "Une hachure enregistrée garde ses points ; elle ne suit pas les modifications du contour.",
         "annotativeReason": "L’écran n’a pas d’échelles d’annotation.",
         "matchReason": "Les hachures du fichier ne sont pas lisibles comme hachures."
+      },
+      "strip": {
+        "save": "Save",
+        "cancel": "Cancel",
+        "layers": "Layers",
+        "errors": "Errors",
+        "corrections": "Corrections",
+        "properties": "Properties",
+        "history": "Historique des commandes (F2)"
       }
     }
   },
