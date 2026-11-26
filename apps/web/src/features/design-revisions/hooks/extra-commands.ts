@@ -33,6 +33,17 @@ import type { Bounds } from '../model/view-transform';
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import type { LayerScreen } from './use-layer-screen';
 import {
+  DEFAULT_MATCH_SETTINGS,
+  isMatchCommand,
+  MATCH_OBJECT_STEPS,
+  matchAfterSelect,
+  matchBegin,
+  matchObject,
+  matchOption,
+  matchPrompt,
+  type MatchSettings,
+} from './match-commands';
+import {
   blockAfterSelect,
   isLayerCommand,
   LAYER_OBJECT_STEPS,
@@ -184,6 +195,8 @@ export type ExtraStep =
 /** Prompts of the added commands (i18n keys under `design.cad.cmd`). */
 export type ExtraPromptKey =
   | LayerPromptKey
+  | 'matchSource'
+  | 'matchDest'
   | HatchPromptKey
   | TextPromptKey
   | 'breakSelect'
@@ -242,6 +255,7 @@ export type ExtraPromptKey =
 /** Steps that wait for an object pick (a click picks, a typed point is refused). */
 export const EXTRA_OBJECT_STEPS: readonly string[] = [
   ...LAYER_OBJECT_STEPS,
+  ...MATCH_OBJECT_STEPS,
   ...TEXT_OBJECT_STEPS,
   ...HATCH_OBJECT_STEPS,
   'x_brPick',
@@ -291,6 +305,8 @@ export interface ExtraSettings {
   groupPick: boolean;
   /** The Text panel's last answers (ADR-055 part 7). */
   text: TextToolSettings;
+  /** MATCHPROP's Property Settings (item 34). */
+  match: MatchSettings;
 }
 
 export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
@@ -303,6 +319,7 @@ export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
   splineCv: false,
   groupPick: true,
   text: DEFAULT_TEXT_SETTINGS,
+  match: DEFAULT_MATCH_SETTINGS,
 };
 
 /** Per run: what the added command has taken so far. */
@@ -396,12 +413,13 @@ const data = (r: ExtraRun): ExtraData => r.flags.extra ?? {};
 
 /** Whether the run is one of the added commands. */
 export const isExtra = (cmd: CommandId) =>
-  EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd) || isTextCommand(cmd);
+  EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd) || isTextCommand(cmd) || isMatchCommand(cmd);
 
 // ---------- prompts ----------
 
 export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null {
   if (isLayerCommand(r.cmd)) return layerPrompt(r);
+  if (isMatchCommand(r.cmd)) return matchPrompt(r);
   if (isTextCommand(r.cmd)) return textPrompt(r, settings.text);
   if (isHatchCommand(r.cmd)) return hatchPrompt(r);
   const p = (
@@ -569,6 +587,7 @@ export function extraBegin<R extends ExtraRun>(
   fresh: (step: string) => R,
 ): R | null {
   if (isLayerCommand(cmd)) return layerBegin(ctx, cmd, fresh);
+  if (isMatchCommand(cmd)) return matchBegin(ctx, fresh);
   if (isTextCommand(cmd)) return textBegin(ctx, cmd, fresh);
   if (isHatchCommand(cmd)) return hatchBegin(ctx, cmd, fresh);
   const picked = ctx.handles.length > 0;
@@ -631,6 +650,7 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
     return null;
   }
   if (isLayerCommand(r.cmd)) return layerAfterSelect(ctx, r);
+  if (isMatchCommand(r.cmd)) return matchAfterSelect(ctx, r);
   if (isTextCommand(r.cmd)) return textAfterSelect(ctx, r);
   if (ctx.handles.length === 0) {
     ctx.finish();
@@ -987,6 +1007,7 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
 
 export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key: string): void {
   if (isLayerCommand(r.cmd)) return layerOption(ctx, r, key);
+  if (isMatchCommand(r.cmd)) return matchOption(ctx, r, key);
   if (isTextCommand(r.cmd)) return textOption(ctx, r, key);
   if (isHatchCommand(r.cmd)) return hatchOption(ctx, r, key);
   const d = data(r);
@@ -1175,6 +1196,7 @@ export function extraObject<R extends ExtraRun>(
   at: Point,
 ): void {
   if (isLayerCommand(r.cmd)) return layerObject(ctx, r, index);
+  if (isMatchCommand(r.cmd)) return matchObject(ctx, r, index);
   if (isTextCommand(r.cmd)) return textObject(ctx, r, index);
   if (isHatchCommand(r.cmd)) return hatchObject(ctx, r, index, at);
   const d = data(r);

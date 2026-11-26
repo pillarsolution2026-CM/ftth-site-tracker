@@ -52,7 +52,8 @@ export type WorkspaceDialog =
   | { kind: 'find' }
   | { kind: 'laywalk' }
   | { kind: 'attributes'; index: number }
-  | { kind: 'table' };
+  | { kind: 'table' }
+  | { kind: 'matchprop' };
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {

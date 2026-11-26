@@ -1,7 +1,9 @@
 'use client';
 
 import {
+  Children,
   createContext,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -12,7 +14,6 @@ import {
   type ReactNode,
 } from 'react';
 import { ltr, type MessageKey } from '@ftth/i18n';
-import type { DrawingLinetype } from '@ftth/shared';
 import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
@@ -20,15 +21,8 @@ import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
 import { TableTile, TextTools } from './text-panel';
 import { HatchCreationTab } from './hatch-tab';
-import {
-  ACI_COLORS,
-  COMMANDS,
-  LINETYPE_NAMES,
-  LINETYPES,
-  LINEWEIGHTS,
-  PROMPTS_WITHOUT_OR,
-  type CommandId,
-} from '../model/cad-commands';
+import { COMMANDS, PROMPTS_WITHOUT_OR, type CommandId } from '../model/cad-commands';
+import { ColorPicker, LinetypePicker, LineweightPicker } from './property-pickers';
 
 /**
  * The AutoCAD-like workspace of the drawing (ADR-051): a dark ribbon laid out as AutoCAD's Home tab
@@ -540,10 +534,12 @@ const ICONS: Partial<Record<IconKey, ReactNode>> = {
   ),
   undo: <path d="M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3" />,
   redo: <path d="M15 4l5 5-5 5M20 9H10a6 6 0 0 0 0 12h3" />,
+  // The error markers (item 32): a map pin over a target ring, not a warning triangle.
   markers: (
     <>
-      <path d="M12 3 2.5 20h19z" />
-      <path d="M12 10v4M12 17v.5" />
+      <path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z" />
+      <circle cx="12" cy="10.5" r="2.2" />
+      <path d="M7.5 21h9" opacity="0.6" />
     </>
   ),
   osm: (
@@ -657,7 +653,10 @@ function TabStrip({
   view: StripView;
 }) {
   const { t } = useI18n();
-  const markersLabel = markersShown ? t('design.cad.markersHide') : t('design.cad.markersShow');
+  // English on the tab strip in every language (owner 2026-11-26).
+  const markersLabel = markersShown
+    ? t('design.cad.strip.markersHide')
+    : t('design.cad.strip.markersShow');
   const count = edit.edits.length;
   const editing = edit.available && edit.editing;
   const crossLabel =
@@ -729,6 +728,7 @@ function TabStrip({
         {markersShown ? null : (
           <span
             aria-hidden="true"
+            data-testid="markers-slash"
             className="absolute inset-x-1.5 top-1/2 h-0.5 -rotate-45 bg-[#ff6b6b]"
           />
         )}
@@ -989,31 +989,38 @@ function Variant({
   );
 }
 
-/** Width of a panel shrunk to its title button (AutoCAD's collapsed ribbon panel), px. */
-const COLLAPSED_PANEL_PX = 84;
+/** A panel's side padding and border (px-2 + border-e), px. */
+const PANEL_PAD_PX = 17;
+/** The gap between two tools of a panel (gap-0.5), px. */
+const TOOL_GAP_PX = 2;
 
 /**
- * Which panels are shrunk to a button so the ribbon stays ONE row (AutoCAD): from the last panel
- * back, until the panels' widths (as last measured open) fit the row.
+ * Each panel's width (owner 2026-11-26, items 31 + 31b): the ribbon's width divided EQUALLY between
+ * all panels, filling the bar; 0 while the ribbon is not laid out (every panel takes what it needs).
  */
-export function collapsedPanels(
-  order: readonly string[],
-  widths: ReadonlyMap<string, number>,
-  available: number,
-): Set<string> {
-  const out = new Set<string>();
-  let total = order.reduce((sum, id) => sum + (widths.get(id) ?? 0), 0);
-  for (let i = order.length - 1; i >= 0 && total > available; i--) {
-    const id = order[i] as string;
-    const width = widths.get(id) ?? 0;
-    if (width <= COLLAPSED_PANEL_PX) continue;
-    out.add(id);
-    total += COLLAPSED_PANEL_PX - width;
-  }
-  return out;
+export function panelShare(rowWidth: number, panels: number): number {
+  return rowWidth > 0 && panels > 0 ? Math.floor(rowWidth / panels) : 0;
 }
 
-/** The panels left to right; the last ones shrink first. */
+/**
+ * How many of a panel's tools (left to right) fit in its share; the others go under the ▾ next to
+ * its title. One tool always stays, so no panel collapses to a bare title (item 31b). A share of 0
+ * (not laid out) shows every tool.
+ */
+export function fittingTools(widths: readonly number[], share: number): number {
+  if (share <= 0) return widths.length;
+  const room = share - PANEL_PAD_PX;
+  let used = 0;
+  let count = 0;
+  for (const width of widths) {
+    used += (count > 0 ? TOOL_GAP_PX : 0) + width;
+    if (used > room) break;
+    count++;
+  }
+  return Math.max(Math.min(1, widths.length), count);
+}
+
+/** The panels left to right (every one gets the same share of the ribbon). */
 export const PANEL_ORDER = [
   'draw',
   'modify',
@@ -1026,18 +1033,38 @@ export const PANEL_ORDER = [
   'properties',
 ] as const satisfies readonly string[];
 
-const RibbonFit = createContext<{
-  collapsed: ReadonlySet<string>;
-  measure: (id: string, element: HTMLElement | null) => void;
-}>({ collapsed: new Set(), measure: () => undefined });
+/** The width each panel gets (px), 0 until the ribbon is measured. */
+export const RibbonFit = createContext<{ share: number }>({ share: 0 });
 
-function Panel({
+/** The tools of a panel one by one: a `Rows` block gives one tool per column of three. */
+function toolsOf(children: ReactNode): ReactNode[] {
+  const out: ReactNode[] = [];
+  Children.toArray(children).forEach((child, i) => {
+    if (isValidElement<{ children?: ReactNode }>(child) && child.type === Rows) {
+      const small = Children.toArray(child.props.children);
+      for (let at = 0; at < small.length; at += 3) {
+        out.push(
+          <div key={`rows-${i}-${at}`} className="grid grid-rows-3 gap-y-0">
+            {small.slice(at, at + 3)}
+          </div>,
+        );
+      }
+    } else out.push(child);
+  });
+  return out;
+}
+
+/**
+ * One panel of AutoCAD's ribbon at its equal share of the width: the tools that fit, then the
+ * title; the ▾ next to the title opens what did not fit and the panel's slide-out tools.
+ */
+export function Panel({
   id,
   title,
   more,
   children,
 }: {
-  /** Key of the panel in the ribbon's order (which ones shrink first). */
+  /** Key of the panel in the ribbon's order. */
   id: string;
   title: string;
   /** AutoCAD's slide-out: more tools under the panel, opened by the arrow next to its title. */
@@ -1045,51 +1072,47 @@ function Panel({
   children: ReactNode;
 }) {
   const { t } = useI18n();
-  const fit = useContext(RibbonFit);
+  const { share } = useContext(RibbonFit);
   const [open, setOpen] = useState(false);
-  const [flyout, setFlyout] = useState(false);
+  const tools = toolsOf(children);
+  const widths = useRef<number[]>([]);
+  const toolRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [shown, setShown] = useState(tools.length);
+  // Measure the tools on the row (those under ▾ keep their last width) and refit.
+  useLayoutEffect(() => {
+    toolRefs.current.forEach((element, i) => {
+      if (element && element.offsetWidth > 0) widths.current[i] = element.offsetWidth;
+    });
+    const all = tools.map((_, i) => widths.current[i] ?? 0);
+    const next = fittingTools(all, share);
+    if (next !== shown) setShown(next);
+  });
+  const fits = Math.min(shown, tools.length);
+  const overflow = tools.slice(fits);
+  const hasMore = overflow.length > 0 || more !== undefined;
   const moreLabel = t('design.cad.panelMore', { panel: title });
-  if (fit.collapsed.has(id)) {
-    const openLabel = t('design.cad.panelOpen', { panel: title });
-    return (
-      <div role="group" aria-label={title} className="relative flex border-e border-[#454b55] px-1">
-        <button
-          type="button"
-          aria-expanded={flyout}
-          aria-label={openLabel}
-          title={openLabel}
-          onClick={() => setFlyout(!flyout)}
-          className={`flex min-h-16 min-w-16 flex-col items-center justify-center gap-1 rounded px-1.5 text-[11px] ${
-            flyout ? DARK.on : DARK.tile
-          }`}
-        >
-          <span dir="ltr" className="whitespace-nowrap">
-            {title}
-          </span>
-          <span aria-hidden="true">▾</span>
-        </button>
-        {flyout ? (
-          <div
-            role="group"
-            aria-label={openLabel}
-            className="absolute start-0 top-full z-30 mt-0.5 flex flex-col gap-1 rounded-b border border-[#454b55] bg-[#2b2f36] p-1.5 shadow-lg"
-          >
-            <div className="flex flex-nowrap items-start gap-0.5">{children}</div>
-            {more ? <div className="flex w-80 flex-wrap gap-0.5">{more}</div> : null}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
   return (
     <div
-      ref={(element) => fit.measure(id, element)}
       role="group"
       aria-label={title}
+      data-panel={id}
+      style={share > 0 ? { width: share } : undefined}
       className="relative flex shrink-0 flex-col border-e border-[#454b55] px-2 last:border-e-0"
     >
-      <div className="flex flex-1 flex-nowrap items-start gap-0.5">{children}</div>
-      {more ? (
+      <div className="flex flex-1 flex-nowrap items-start gap-0.5 overflow-hidden">
+        {tools.slice(0, fits).map((tool, i) => (
+          <div
+            key={i}
+            ref={(element) => {
+              toolRefs.current[i] = element;
+            }}
+            className="flex shrink-0"
+          >
+            {tool}
+          </div>
+        ))}
+      </div>
+      {hasMore ? (
         <button
           type="button"
           aria-expanded={open}
@@ -1097,7 +1120,7 @@ function Panel({
           title={moreLabel}
           onClick={() => setOpen(!open)}
           dir="ltr"
-          className={`mt-1 rounded-sm text-center text-[11px] hover:bg-white/10 ${
+          className={`mt-1 truncate rounded-sm text-center text-[11px] hover:bg-white/10 ${
             open ? 'bg-[#3d6fb6] text-white' : 'bg-[#22262c] text-[#aab0b8]'
           }`}
         >
@@ -1106,18 +1129,27 @@ function Panel({
       ) : (
         <div
           dir="ltr"
-          className="mt-1 rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
+          className="mt-1 truncate rounded-sm bg-[#22262c] text-center text-[11px] text-[#aab0b8]"
         >
           {title}
         </div>
       )}
-      {more && open ? (
+      {hasMore && open ? (
         <div
           role="group"
           aria-label={moreLabel}
-          className="absolute start-0 top-full z-30 mt-0.5 flex w-80 flex-wrap gap-0.5 rounded-b border border-[#454b55] bg-[#2b2f36] p-1.5 shadow-lg"
+          className="absolute start-0 top-full z-30 mt-0.5 flex w-max min-w-full max-w-[32rem] flex-col gap-1 rounded-b border border-[#454b55] bg-[#2b2f36] p-1.5 shadow-lg"
         >
-          {more}
+          {overflow.length > 0 ? (
+            <div className="flex flex-wrap items-start gap-0.5">
+              {overflow.map((tool, i) => (
+                <div key={fits + i} className="flex">
+                  {tool}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {more ? <div className="flex flex-wrap gap-0.5">{more}</div> : null}
         </div>
       ) : null}
     </div>
@@ -1231,20 +1263,12 @@ export function CadRibbon({
 }) {
   const { t } = useI18n();
   const editing = edit.available && edit.editing;
-  // ONE row as AutoCAD: panels that do not fit shrink to a button, the last ones first.
+  // Items 31 + 31b: every panel gets the same share of the ribbon's width; recomputed on resize.
   const rowRef = useRef<HTMLDivElement>(null);
-  const widths = useRef(new Map<string, number>());
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [rowWidth, setRowWidth] = useState(0);
   const refit = useCallback(() => {
     const row = rowRef.current;
-    if (!row) return;
-    const next = collapsedPanels(PANEL_ORDER, widths.current, row.clientWidth);
-    setCollapsed((previous) =>
-      previous.size === next.size && [...next].every((id) => previous.has(id)) ? previous : next,
-    );
-  }, []);
-  const measure = useCallback((id: string, element: HTMLElement | null) => {
-    if (element && element.offsetWidth > 0) widths.current.set(id, element.offsetWidth);
+    if (row) setRowWidth(row.clientWidth);
   }, []);
   useLayoutEffect(() => {
     refit();
@@ -1256,7 +1280,8 @@ export function CadRibbon({
     observer.observe(row);
     return () => observer.disconnect();
   }, [refit, editing]);
-  const fit = useMemo(() => ({ collapsed, measure }), [collapsed, measure]);
+  const share = panelShare(rowWidth, PANEL_ORDER.length);
+  const fit = useMemo(() => ({ share }), [share]);
   return (
     <div
       role="toolbar"
@@ -1727,64 +1752,80 @@ function IconToggle({
   );
 }
 
-/** Colour, line type, line weight of the picked objects (saved as styles the build ignores). */
+/**
+ * AutoCAD's Properties panel (owner 2026-11-26, item 34): Object Color, Linetype, Lineweight,
+ * Transparency and List. With objects picked they change those objects (set_style, saved as notes
+ * the build ignores) and show how the first one is drawn (its own colour in the file too); with
+ * nothing picked they set the current properties new objects are drawn with.
+ */
 function PropertiesControls({ edit }: { edit: CanvasEditState }) {
   const { t } = useI18n();
-  const style = edit.selectionStyle;
-  const disabled = style === null;
-  const byLayer = t('design.cad.byLayer');
-  const title = disabled ? t('design.cad.pickFirst') : t('design.cad.screenOnly');
-  const field = `min-h-7 w-44 rounded px-1 text-xs disabled:opacity-50 ${DARK.field}`;
+  const picked = edit.selectionStyle;
+  const style = picked ?? edit.currentStyle;
+  const title = picked ? t('design.cad.screenOnly') : t('design.cad.currentStyle');
+  const hasList = 'list' in COMMANDS;
+  const transparency = edit.currentStyle.transparency;
   return (
-    <div className="flex flex-col gap-1" title={title}>
-      <select
-        aria-label={t('design.cad.color')}
-        className={field}
-        disabled={disabled}
-        value={style?.color ?? ''}
-        onChange={(event) => edit.setStyle({ color: event.target.value || null })}
-      >
-        <option value="">{byLayer}</option>
-        {ACI_COLORS.map((c) => (
-          <option key={c.aci} value={c.hex}>
-            {c.name}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={t('design.cad.linetype')}
-        className={field}
-        disabled={disabled}
-        value={style?.linetype ?? ''}
-        onChange={(event) =>
-          edit.setStyle({ linetype: (event.target.value || null) as DrawingLinetype | null })
-        }
-      >
-        <option value="">{byLayer}</option>
-        {LINETYPES.map((lt) => (
-          <option key={lt} value={lt}>
-            {LINETYPE_NAMES[lt]}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={t('design.cad.lineweight')}
-        className={field}
-        disabled={disabled}
-        value={style?.lineweight === null || style === null ? '' : String(style.lineweight)}
-        onChange={(event) =>
-          edit.setStyle({
-            lineweight: event.target.value === '' ? null : Number(event.target.value),
-          })
-        }
-      >
-        <option value="">{byLayer}</option>
-        {LINEWEIGHTS.map((w) => (
-          <option key={w} value={String(w)}>
-            {w.toFixed(2)} mm
-          </option>
-        ))}
-      </select>
+    <div className="flex gap-1">
+      <div className="flex flex-col gap-1">
+        <ColorPicker
+          value={style.color}
+          title={title}
+          onChange={(color) => edit.setStyle({ color })}
+        />
+        <LinetypePicker
+          value={style.linetype}
+          title={title}
+          onChange={(linetype) => edit.setStyle({ linetype })}
+          onCurrent={(linetype) => edit.setCurrentStyle({ linetype })}
+        />
+        <LineweightPicker
+          value={style.lineweight}
+          title={title}
+          onChange={(lineweight) => edit.setStyle({ lineweight })}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <div
+          className="flex min-h-7 items-center gap-1 text-xs"
+          title={picked ? t('design.cad.transparencyNo') : t('design.cad.currentStyle')}
+        >
+          <Svg size="size-4">{ICONS.fade}</Svg>
+          <input
+            type="range"
+            min={0}
+            max={90}
+            step={1}
+            disabled={picked !== null}
+            value={transparency ?? 0}
+            aria-label={t('design.cad.transparency')}
+            onChange={(event) => edit.setCurrentStyle({ transparency: Number(event.target.value) })}
+            className="w-20 disabled:opacity-40"
+          />
+          <button
+            type="button"
+            disabled={picked !== null}
+            onClick={() => edit.setCurrentStyle({ transparency: null })}
+            className={`min-w-12 rounded px-1 text-end disabled:opacity-40 ${DARK.tile}`}
+            dir="ltr"
+          >
+            {transparency === null ? t('design.cad.byLayer') : String(transparency)}
+          </button>
+        </div>
+        <button
+          type="button"
+          aria-label={t('design.cad.list')}
+          title={hasList ? `${t('design.cad.list')} — LIST (LI)` : t('design.cad.listSoon')}
+          disabled={!hasList}
+          onClick={() => edit.run('list' as CommandId)}
+          className={`flex min-h-7 items-center gap-1.5 rounded px-1.5 text-xs disabled:opacity-40 ${DARK.tile}`}
+        >
+          <Svg size="size-4">
+            <path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" />
+          </Svg>
+          <span dir="ltr">{t('design.cad.list')}</span>
+        </button>
+      </div>
     </div>
   );
 }

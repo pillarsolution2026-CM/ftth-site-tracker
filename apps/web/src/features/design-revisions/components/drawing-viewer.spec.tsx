@@ -839,14 +839,17 @@ describe(
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
       const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
       ctx.fillText.mockClear();
-      await user.click(within(ribbon).getByRole('button', { name: 'Hide the error markers' }));
-      const show = within(ribbon).getByRole('button', { name: 'Show the error markers' });
+      await user.click(within(ribbon).getByRole('button', { name: 'Hide error markers' }));
+      const show = within(ribbon).getByRole('button', { name: 'Show error markers' });
       expect(show).toHaveAttribute('aria-pressed', 'true');
+      // Item 32: a map pin, slashed while the markers are hidden (not a warning triangle).
+      expect(within(show).getByTestId('markers-slash')).toBeInTheDocument();
       await waitFor(() => expect(ctx.fillText).toHaveBeenCalled());
       expect(codes()).not.toContain('LABEL_MISSING');
       ctx.fillText.mockClear();
       await user.click(show);
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+      expect(screen.queryByTestId('markers-slash')).not.toBeInTheDocument();
     });
 
     it('OpenStreetMap needs the file CRS', async () => {
@@ -915,7 +918,7 @@ describe(
           'Show the whole drawing',
           'Full screen',
           'Layers',
-          'Hide the error markers',
+          'Hide error markers',
         ]) {
           expect(within(strip).getByRole('button', { name })).toBeInTheDocument();
         }
@@ -2019,10 +2022,15 @@ describe(
 
     it('colour and line type of picked objects are styles; MATCHPROP copies them', async () => {
       const { canvas, user } = await openWorkspace();
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      // Nothing picked: the current colour for new objects (ByLayer).
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await click(user, canvas, 75, 25);
-      await user.selectOptions(screen.getByLabelText('Color'), 'Red');
-      await user.selectOptions(screen.getByLabelText('Linetype'), 'DASHED');
+      // B has its own colour in the file: shown as AutoCAD does (r,g,b), not «ByLayer».
+      expect(screen.getByLabelText('Color')).toHaveTextContent('18,52,86');
+      await user.click(screen.getByLabelText('Color'));
+      await user.click(screen.getByRole('option', { name: 'Red' }));
+      await user.click(screen.getByLabelText('Linetype'));
+      await user.click(screen.getByRole('option', { name: 'DASHED' }));
       await user.keyboard('{Escape}');
       await type(user, 'ma');
       await click(user, canvas, 75, 25);
@@ -2041,7 +2049,7 @@ describe(
       const palette = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       // A frozen layer is not drawn, so nothing on it can be picked either.
       await user.click(within(palette).getByRole('button', { name: 'Freeze Route' }));
@@ -2050,10 +2058,10 @@ describe(
         'true',
       );
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await user.click(within(palette).getByRole('button', { name: 'Freeze Route' }));
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeEnabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('18,52,86');
       await user.click(screen.getByRole('button', { name: /^Cancel/ }));
       expect(api.createCorrections).not.toHaveBeenCalled();
     });

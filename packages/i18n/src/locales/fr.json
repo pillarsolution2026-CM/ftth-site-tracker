@@ -1919,6 +1919,52 @@
       "lineweight": "Épaisseur de ligne",
       "screenOnly": "Enregistré comme note pour l'écran ; la construction l'ignore.",
       "pickFirst": "Choisissez d'abord des objets",
+      "currentStyle": "Propriété courante des nouveaux objets (rien de choisi)",
+      "byBlock": "DuBloc",
+      "byBlockNo": "DuBloc n'est pas disponible ici : la vue du dessin n'a pas les propriétés des blocs",
+      "moreColors": "Autres couleurs...",
+      "otherLinetype": "Autre...",
+      "lwDefault": "Par défaut",
+      "lwDefaultNo": "Par défaut (LWDEFAULT) ne peut pas être enregistré comme style : choisissez une épaisseur ou DuCalque",
+      "transparency": "Transparence",
+      "transparencyNo": "La transparence des objets ne peut pas être enregistrée (aucune correction ne la porte) ; sans objet choisi c'est la valeur courante",
+      "list": "Liste",
+      "listSoon": "LISTE n'est pas encore disponible",
+      "colorDialog": {
+        "title": "Sélectionner une couleur",
+        "index": "Couleur d'index",
+        "trueColor": "Couleurs vraies",
+        "rgb": "Couleur (r,v,b ou #rrvvbb)",
+        "bad": "Tapez r,v,b (0-255 chacun) ou #rrvvbb",
+        "aci": "Couleur d'index : {n}",
+        "ok": "OK",
+        "cancel": "Annuler"
+      },
+      "linetypeManager": {
+        "title": "Gestionnaire des types de ligne",
+        "name": "Type de ligne",
+        "appearance": "Apparence",
+        "description": "Description",
+        "current": "Courant",
+        "currentIs": "Type de ligne courant : {name}",
+        "load": "Charger...",
+        "loadNo": "Seuls ces types de ligne peuvent être enregistrés comme styles",
+        "ok": "OK",
+        "cancel": "Annuler"
+      },
+      "match": {
+        "title": "Paramètres des propriétés",
+        "basic": "Propriétés de base",
+        "special": "Propriétés spéciales",
+        "ok": "OK",
+        "cancel": "Annuler",
+        "why": {
+          "noCorrection": "Non copié ici : aucune correction ne peut le changer sur cet écran",
+          "threeD": "Non copié ici : 3D seulement, l'écran de dessin est 2D",
+          "noPlot": "Non copié ici : pas de styles de tracé sur cet écran",
+          "paperSpace": "Non copié ici : les fenêtres de l'espace papier ne sont pas affichées"
+        }
+      },
       "layerAdd": "Nouveau calque",
       "layerRename": "Renommer",
       "layerDelete": "Supprimer le calque",
@@ -2167,7 +2213,7 @@
         "sameObject": "Impossible de raccorder un objet avec lui-même.",
         "filletSettings": "Paramètres courants : Mode = {mode}, Rayon = {radius}",
         "offsetSettings": "Paramètres courants : Effacer source={erase}  Calque={layer}  OFFSETGAPTYPE=0",
-        "matchSettings": "Paramètres actifs : Couleur Typeligne Epaisseurligne",
+        "matchSettings": "Paramètres actifs courants : {settings}",
         "dimText": "Texte de cote = {value}",
         "currentNow": "« {layer} » est maintenant le calque courant.",
         "changedToLayer": "{count} objet(s) placé(s) sur le calque « {layer} ».",
@@ -2667,7 +2713,9 @@
         "errors": "Errors",
         "corrections": "Corrections",
         "properties": "Properties",
-        "history": "Historique des commandes (F2)"
+        "history": "Historique des commandes (F2)",
+        "markersHide": "Hide error markers",
+        "markersShow": "Show error markers"
       }
     }
   },

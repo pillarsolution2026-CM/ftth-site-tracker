@@ -247,6 +247,11 @@ function Workspace({
           layers={edit.layers}
           editing={edit.editing}
           onApply={edit.apply}
+          current={{
+            style: edit.currentStyle,
+            layer: edit.currentLayer,
+            onChange: edit.setCurrentStyle,
+          }}
         />
       ),
     });
