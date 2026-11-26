@@ -463,36 +463,40 @@ describe('the AutoCAD-like screen (ADR-051)', () => {
 
 describe('TRANSPARENCYDISPLAY (status bar Show/Hide Transparency)', () => {
   const tf = { cx: 50, cy: 25, scale: 4 };
-  const hatch = applyCorrections(scene, [
-    {
-      id: '44444444-4444-4444-8444-444444444449',
-      cadFileId: scene.view.cadFileId,
-      correction: {
-        kind: 'add_shape',
-        shape: 'hatch',
-        layer: 'Sap',
-        points: [
-          [40, 20],
-          [60, 20],
-          [60, 30],
-        ],
-        pattern: 'SOLID',
-        scale: 1,
-        angle: 0,
-        color: '#ff0000',
-        color2: null,
-        inner: null,
-        outer: null,
-        ...HATCH_FIELD_DEFAULTS,
-        transparency: 50,
+  const hatch = applyCorrections(
+    scene,
+    [
+      {
+        id: '44444444-4444-4444-8444-444444444449',
+        cadFileId: scene.view.cadFileId,
+        correction: {
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          points: [
+            [40, 20],
+            [60, 20],
+            [60, 30],
+          ],
+          pattern: 'SOLID',
+          scale: 1,
+          angle: 0,
+          color: '#ff0000',
+          color2: null,
+          inner: null,
+          outer: null,
+          ...HATCH_FIELD_DEFAULTS,
+          transparency: 50,
+        },
+        problem: null,
+        createdBy: null,
+        createdAt: '2026-11-26T10:00:00+00:00',
+        withdrawnBy: null,
+        withdrawnAt: null,
       },
-      problem: null,
-      createdBy: null,
-      createdAt: '2026-11-26T10:00:00+00:00',
-      withdrawnBy: null,
-      withdrawnAt: null,
-    },
-  ]);
+    ],
+    2.5,
+  );
   const alphaOfFill = (transparency: boolean | undefined) => {
     const ctx = createMockContext();
     const alphas: number[] = [];
