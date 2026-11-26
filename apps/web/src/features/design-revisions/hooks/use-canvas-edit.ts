@@ -109,6 +109,19 @@ import {
 import { gripSketch, gripsOf, gripStretchEdits, type Grip } from '../model/grips';
 import { LAYER_TEXT_STEPS } from './layer-commands';
 import {
+  activeSettings,
+  matchDestinations,
+  matchOption as matchOptionKey,
+  matchPrompt,
+  type MatchSettings,
+} from './match-commands';
+import {
+  BY_LAYER_STYLE,
+  currentStyleEdits,
+  objectStyle,
+  type CurrentStyle,
+} from '../model/properties';
+import {
   isTextCommand,
   tablePlace,
   TEXT_TOOL_TEXT_STEPS,
@@ -280,8 +293,6 @@ type Step =
   | 'leaderStart'
   | 'leaderNext'
   | 'leaderText'
-  | 'source'
-  | 'dest'
   | 'laymcurPick'
   | 'laymchDest'
   | 'displacement'
@@ -447,8 +458,6 @@ const OBJECT_STEPS: readonly Step[] = [
   'filletSecond',
   'offsetPick',
   'editPick',
-  'source',
-  'dest',
   'laymcurPick',
   'laymchDest',
   'trimEdges',
@@ -610,9 +619,24 @@ export interface CanvasEditState {
   renameLayer: (from: string, to: string) => string | null;
   deleteLayer: (name: string) => void;
   // Properties (screen only, ADR-051)
-  /** The style of the first picked object (null fields: by layer); null with nothing picked. */
+  /**
+   * How the first picked object is drawn (its own colour in the file too; null fields: by layer);
+   * null with nothing picked.
+   */
   selectionStyle: PreviewStyle | null;
+  /** With objects picked they change (set_style); with nothing picked the current properties do. */
   setStyle: (patch: Partial<PreviewStyle>) => void;
+  /** AutoCAD's current properties (CECOLOR, CELTYPE, CELWEIGHT, CETRANSPARENCY; item 34). */
+  currentStyle: CurrentStyle;
+  setCurrentStyle: (patch: Partial<CurrentStyle>) => void;
+  /**
+   * The `set_style` a new object needs to be drawn with the current properties (none when all are
+   * ByLayer): every draw command adds it naming its new item (`NEW-<ref>`, ADR-061).
+   */
+  currentStyleEdits: (newItemHandle: string) => CanvasEdit[];
+  /** MATCHPROP's Property Settings (the dialog of its Settings option). */
+  matchSettings: MatchSettings;
+  setMatchSettings: (settings: MatchSettings) => void;
   // Unsaved edits
   edits: readonly CanvasEdit[];
   /** The saved corrections with the unsaved edits on top. */
@@ -737,6 +761,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const [history, setHistory] = useState<readonly string[]>([]);
   const [focusNonce, setFocusNonce] = useState(0);
   const [currentLayer, setCurrentLayer] = useState('');
+  /** CECOLOR / CELTYPE / CELWEIGHT / CETRANSPARENCY: new objects are drawn with them (item 34). */
+  const [currentStyle, setCurrentStyle] = useState<CurrentStyle>(BY_LAYER_STYLE);
   const [filletRadius, setFilletRadius] = useState(0);
   const [offsetDist, setOffsetDist] = useState(1);
   // AutoCAD keeps these settings from one use of a command to the next.
@@ -992,7 +1018,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
             ? p('joinSelect')
             : r.cmd === 'laymch'
               ? p('laymchSelect')
-              : p('selectObjects');
+              : r.cmd === 'matchprop'
+                ? matchPrompt(r)
+                : p('selectObjects');
       case 'base':
         return r.cmd === 'copy'
           ? p('basePoint', [opt('Displacement', 'D'), opt('mOde', 'O')], 'Displacement')
@@ -1238,10 +1266,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           : p('nextPoint');
       case 'leaderText':
         return p('leaderText');
-      case 'source':
-        return p('matchSource');
-      case 'dest':
-        return p('matchDest');
       case 'laymcurPick':
         return p('laymcurPick');
       case 'laymchDest':
@@ -1412,19 +1436,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         input.onOpenLayers?.();
         finish(true);
         return;
-      case 'matchprop': {
-        const [only] = [...selection];
-        if (only !== undefined && selection.size === 1) {
-          const r = newRun(cmd, 'dest');
-          r.target = only;
-          setRun(r);
-          setSelection(NONE);
-          say(msg('matchSettings'));
-          return;
-        }
-        setSelection(NONE);
-        return next('source');
-      }
       case 'laymcur':
         return next('laymcurPick');
       case 'copyclip':
@@ -2070,7 +2081,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     }
     if (!scene) return;
     if (index === null || !pickable(index)) {
-      if (r.step === 'trimPick' || r.step === 'dest' || r.step === 'trimErase') return;
+      if (r.step === 'trimPick' || r.step === 'trimErase') return;
       say(msg('nothingThere'));
       return;
     }
@@ -2228,20 +2239,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         }
         editText(index, r);
         return;
-      case 'source':
-        go(r, 'dest', { target: index });
-        say(msg('matchSettings'));
-        return;
-      case 'dest': {
-        if (r.target === null) return;
-        const style = shown?.styleOf.get(r.target) ?? {
-          color: null,
-          linetype: null,
-          lineweight: null,
-        };
-        add([{ kind: 'set_style', handle, ...style }]);
-        return;
-      }
       case 'laymcurPick': {
         const layer = layerNameOf(index);
         setCurrentLayer(layer);
@@ -2429,6 +2426,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const feedOption = (r: Run, key: string) => {
+    if (r.step === 'select' && r.cmd === 'matchprop') {
+      const words = extraCtx();
+      if (words) matchOptionKey(words, r, key);
+      return;
+    }
     if (r.step === 'select' && isTextCommand(r.cmd)) {
       const words = extraCtx();
       if (words) textSelectOption(words, r, key);
@@ -3095,7 +3097,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const selectStyle = (): PreviewStyle | null => {
     const [first] = [...selection];
     if (first === undefined) return null;
-    return shown?.styleOf.get(first) ?? { color: null, linetype: null, lineweight: null };
+    return scene && shown ? objectStyle(scene, shown, first) : null;
   };
 
   const selecting = run === null || run.step === 'select';
@@ -3351,6 +3353,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       const removing = run?.flags.removing === true;
       // PICKSTYLE on: one member of a group picks the whole group (AutoCAD).
       const members = groupMembers(entity);
+      if (run?.cmd === 'matchprop') {
+        // MATCHPROP: each destination changes at once and the prompt asks again (AutoCAD).
+        const words = extraCtx();
+        if (words) matchDestinations(words, run, members);
+        return;
+      }
       setSelection((before) => {
         const next = new Set(before);
         if ((additive || removing) && before.has(entity)) members.forEach((i) => next.delete(i));
@@ -3414,6 +3422,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
             maxY: Math.max(box.y0, box.y1),
           },
         });
+      }
+      if (run?.cmd === 'matchprop') {
+        const words = extraCtx();
+        if (words) matchDestinations(words, run, found);
+        return;
       }
       // AutoCAD (PICKADD 2): a window adds to the selection; Shift + window takes off.
       setSelection((before) => {
@@ -3498,8 +3511,23 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       if (currentLayer === name) setCurrentLayer('');
     },
     selectionStyle: selectStyle(),
+    currentStyle,
+    setCurrentStyle: (patch) => setCurrentStyle((previous) => ({ ...previous, ...patch })),
+    currentStyleEdits: (newItemHandle) => currentStyleEdits(currentStyle, newItemHandle),
+    matchSettings: extraSettings.match,
+    setMatchSettings: (match) => {
+      setExtraSettings((previous) => ({ ...previous, match }));
+      if (run?.cmd === 'matchprop' && run.step === 'select') {
+        say(msg('matchSettings', { settings: activeSettings(match) }));
+      }
+    },
     setStyle: (patch) => {
-      if (!scene || handles.length === 0) return;
+      if (!scene) return;
+      // Nothing picked: the current properties for new objects (AutoCAD), not a disabled control.
+      if (handles.length === 0) {
+        setCurrentStyle((previous) => ({ ...previous, ...patch }));
+        return;
+      }
       const out: CanvasEdit[] = [];
       const seen = new Set<string>();
       for (const index of selection) {

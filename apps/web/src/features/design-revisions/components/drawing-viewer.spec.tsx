@@ -895,14 +895,17 @@ describe(
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
       const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
       ctx.fillText.mockClear();
-      await user.click(within(ribbon).getByRole('button', { name: 'Hide the error markers' }));
-      const show = within(ribbon).getByRole('button', { name: 'Show the error markers' });
+      await user.click(within(ribbon).getByRole('button', { name: 'Hide error markers' }));
+      const show = within(ribbon).getByRole('button', { name: 'Show error markers' });
       expect(show).toHaveAttribute('aria-pressed', 'true');
+      // Item 32: a map pin, slashed while the markers are hidden (not a warning triangle).
+      expect(within(show).getByTestId('markers-slash')).toBeInTheDocument();
       await waitFor(() => expect(ctx.fillText).toHaveBeenCalled());
       expect(codes()).not.toContain('LABEL_MISSING');
       ctx.fillText.mockClear();
       await user.click(show);
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+      expect(screen.queryByTestId('markers-slash')).not.toBeInTheDocument();
     });
 
     it('OpenStreetMap needs the file CRS', async () => {
@@ -971,7 +974,7 @@ describe(
           'Show the whole drawing',
           'Full screen',
           'Layers',
-          'Hide the error markers',
+          'Hide error markers',
         ]) {
           expect(within(strip).getByRole('button', { name })).toBeInTheDocument();
         }
@@ -1033,29 +1036,26 @@ describe(
         }
       });
 
-      it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
-        // Each panel is 100 px wide open; the row is 800 px: the last ones shrink.
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
-          this: HTMLElement,
-        ) {
-          return this.getAttribute('role') === 'group' ? 100 : 0;
-        });
+      it('divides the ribbon equally between all panels; what does not fit goes under ▾ (items 31, 31b)', async () => {
+        // The row is 800 px (clientWidth): nine panels of 88 px; every tool is 60 px wide, so
+        // each panel keeps its first tool and none collapses to a bare title.
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(60);
         const { user } = await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        for (const name of ['Draw', 'Modify', 'Layers', 'Groups', 'Block', 'Properties']) {
+          expect(within(ribbon).getByRole('group', { name })).toHaveStyle({ width: '88px' });
+        }
         await waitFor(() =>
-          expect(
-            within(ribbon).getByRole('button', { name: 'Open the Properties panel' }),
-          ).toBeInTheDocument(),
+          expect(within(ribbon).queryByRole('button', { name: 'Polyline' })).toBeNull(),
         );
-        expect(within(ribbon).getByRole('group', { name: 'Draw' })).toBeInTheDocument();
         expect(tool('Line')).toBeInTheDocument();
-        expect(within(ribbon).queryByRole('button', { name: 'Open the Draw panel' })).toBeNull();
-        // A shrunk panel opens its tools under it.
-        expect(within(ribbon).queryByRole('button', { name: 'Match Properties' })).toBeNull();
-        await user.click(within(ribbon).getByRole('button', { name: 'Open the Properties panel' }));
         expect(
           within(ribbon).getByRole('button', { name: 'Match Properties' }),
         ).toBeInTheDocument();
+        expect(within(ribbon).queryByRole('button', { name: /^Open the .* panel$/ })).toBeNull();
+        // The ▾ next to «Draw» holds the tools that did not fit, then the slide-out.
+        await user.click(within(ribbon).getByRole('button', { name: 'More Draw tools' }));
+        expect(tool('Polyline')).toBeInTheDocument();
       });
     });
 
@@ -2075,10 +2075,15 @@ describe(
 
     it('colour and line type of picked objects are styles; MATCHPROP copies them', async () => {
       const { canvas, user } = await openWorkspace();
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      // Nothing picked: the current colour for new objects (ByLayer).
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await click(user, canvas, 75, 25);
-      await user.selectOptions(screen.getByLabelText('Color'), 'Red');
-      await user.selectOptions(screen.getByLabelText('Linetype'), 'DASHED');
+      // B has its own colour in the file: shown as AutoCAD does (r,g,b), not «ByLayer».
+      expect(screen.getByLabelText('Color')).toHaveTextContent('18,52,86');
+      await user.click(screen.getByLabelText('Color'));
+      await user.click(screen.getByRole('option', { name: 'Red' }));
+      await user.click(screen.getByLabelText('Linetype'));
+      await user.click(screen.getByRole('option', { name: 'DASHED' }));
       await user.keyboard('{Escape}');
       await type(user, 'ma');
       await click(user, canvas, 75, 25);
@@ -2097,7 +2102,7 @@ describe(
       const palette = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       // A frozen layer is not drawn, so nothing on it can be picked either.
       await user.click(within(palette).getByRole('button', { name: 'Freeze Route' }));
@@ -2106,10 +2111,10 @@ describe(
         'true',
       );
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await user.click(within(palette).getByRole('button', { name: 'Freeze Route' }));
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeEnabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('18,52,86');
       await user.click(screen.getByRole('button', { name: /^Cancel/ }));
       expect(api.createCorrections).not.toHaveBeenCalled();
     });

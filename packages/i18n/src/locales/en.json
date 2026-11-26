@@ -1919,6 +1919,52 @@
       "lineweight": "Lineweight",
       "screenOnly": "Saved as a note for the screen; the build ignores it.",
       "pickFirst": "Pick objects first",
+      "currentStyle": "Current property for new objects (nothing picked)",
+      "byBlock": "ByBlock",
+      "byBlockNo": "ByBlock is not available here: the drawing view has no block properties",
+      "moreColors": "More Colors...",
+      "otherLinetype": "Other...",
+      "lwDefault": "Default",
+      "lwDefaultNo": "Default (LWDEFAULT) cannot be saved as a style: pick a weight or ByLayer",
+      "transparency": "Transparency",
+      "transparencyNo": "The transparency of objects cannot be saved (no correction carries it); with nothing picked it is the current value",
+      "list": "List",
+      "listSoon": "LIST is not available yet",
+      "colorDialog": {
+        "title": "Select Color",
+        "index": "Index Color",
+        "trueColor": "True Color",
+        "rgb": "Color (r,g,b or #rrggbb)",
+        "bad": "Type r,g,b (0-255 each) or #rrggbb",
+        "aci": "Index color: {n}",
+        "ok": "OK",
+        "cancel": "Cancel"
+      },
+      "linetypeManager": {
+        "title": "Linetype Manager",
+        "name": "Linetype",
+        "appearance": "Appearance",
+        "description": "Description",
+        "current": "Current",
+        "currentIs": "Current Linetype: {name}",
+        "load": "Load...",
+        "loadNo": "Only these line types can be saved as styles",
+        "ok": "OK",
+        "cancel": "Cancel"
+      },
+      "match": {
+        "title": "Property Settings",
+        "basic": "Basic Properties",
+        "special": "Special Properties",
+        "ok": "OK",
+        "cancel": "Cancel",
+        "why": {
+          "noCorrection": "Not copied here: no correction can change it on this screen",
+          "threeD": "Not copied here: 3D only, the drawing screen is 2D",
+          "noPlot": "Not copied here: the drawing has no plot styles on this screen",
+          "paperSpace": "Not copied here: paper space viewports are not shown"
+        }
+      },
       "layerAdd": "New layer",
       "layerRename": "Rename",
       "layerDelete": "Delete layer",
@@ -2167,7 +2213,7 @@
         "sameObject": "Cannot fillet an object with itself.",
         "filletSettings": "Current settings: Mode = {mode}, Radius = {radius}",
         "offsetSettings": "Current settings: Erase source={erase}  Layer={layer}  OFFSETGAPTYPE=0",
-        "matchSettings": "Current active settings: Color Ltype Lineweight",
+        "matchSettings": "Current active settings: {settings}",
         "dimText": "Dimension text = {value}",
         "currentNow": "\"{layer}\" is now the current layer.",
         "changedToLayer": "{count} object(s) changed to layer \"{layer}\".",
@@ -2232,6 +2278,7 @@
         "layersOff": "Layer \"{layers}\" has been turned off.",
         "layersIsolated": "Layer \"{layers}\" has been isolated.",
         "layersFrozen": "Layer \"{layers}\" has been frozen.",
+        "cannotFreezeCurrent": "Cannot freeze layer \"{layer}\".  It is the CURRENT layer.",
         "layersLocked": "Layer \"{layers}\" has been locked.",
         "layersUnlocked": "Layer \"{layers}\" has been unlocked.",
         "layersRestored": "Layers restored.",
@@ -2669,7 +2716,9 @@
         "errors": "Errors",
         "corrections": "Corrections",
         "properties": "Properties",
-        "history": "Command history (F2)"
+        "history": "Command history (F2)",
+        "markersHide": "Hide error markers",
+        "markersShow": "Show error markers"
       }
     }
   },

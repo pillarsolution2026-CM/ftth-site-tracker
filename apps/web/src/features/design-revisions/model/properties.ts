@@ -1,4 +1,5 @@
 import type { DrawingLinetype } from '@ftth/shared';
+import { colorLabel } from './aci-colors';
 import { ACI_COLORS, acadNumber, LINETYPE_NAMES, LINETYPES, LINEWEIGHTS } from './cad-commands';
 import {
   isTextEntity,
@@ -96,13 +97,148 @@ function styleOf(preview: DrawingPreview, index: number): PreviewStyle {
   return preview.styleOf.get(index) ?? { color: null, linetype: null, lineweight: null };
 }
 
-const colorName = (hex: string | null) =>
-  hex === null ? BY_LAYER : (ACI_COLORS.find((c) => c.hex === hex)?.name ?? hex);
+/**
+ * How an object is drawn now, as AutoCAD's Properties shows it: a style made here, else the
+ * object's own colour in the file (not «ByLayer» when it has one); null fields are ByLayer.
+ */
+export function objectStyle(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  index: number,
+): PreviewStyle {
+  const style = preview.styleOf.get(index);
+  return {
+    color: style?.color ?? scene.view.entities[index]?.color ?? null,
+    linetype: style?.linetype ?? null,
+    lineweight: style?.lineweight ?? null,
+  };
+}
+
+const colorName = (hex: string | null) => colorLabel(hex);
+
+/** The colour drop-down: ByLayer, the index colours, and the colour shown when it is another. */
+function colorOptions(shown: string): { value: string; label: string }[] {
+  const options = [
+    { value: '', label: BY_LAYER },
+    ...ACI_COLORS.map((c) => ({ value: c.hex, label: c.name })),
+  ];
+  if (shown && shown !== VARIES && !options.some((o) => o.value === shown))
+    options.push({ value: shown, label: colorLabel(shown) });
+  return options;
+}
+
+/**
+ * AutoCAD's current properties for new objects (CECOLOR, CELTYPE, CELWEIGHT, CETRANSPARENCY):
+ * set from the ribbon's Properties panel or the palette with nothing picked; null = ByLayer.
+ * Transparency stays on the screen (no correction carries it).
+ */
+export interface CurrentStyle extends PreviewStyle {
+  /** Percent 0-90; null = ByLayer. */
+  transparency: number | null;
+}
+
+export const BY_LAYER_STYLE: CurrentStyle = {
+  color: null,
+  linetype: null,
+  lineweight: null,
+  transparency: null,
+};
+
+/**
+ * The `set_style` a new object drawn now gets so it is drawn with the current properties (AutoCAD
+ * draws with CECOLOR / CELTYPE / CELWEIGHT); none when they are all ByLayer. `handle` names the new
+ * item (`NEW-<ref>` inside one «حفظ», ADR-061).
+ */
+export function currentStyleEdits(current: CurrentStyle, handle: string): CanvasEdit[] {
+  if (current.color === null && current.linetype === null && current.lineweight === null) return [];
+  return [
+    {
+      kind: 'set_style',
+      handle,
+      color: current.color,
+      linetype: current.linetype,
+      lineweight: current.lineweight,
+    },
+  ];
+}
+
+/** The palette with nothing picked: General with the current properties (AutoCAD). */
+export function currentRows(current: CurrentStyle, layer: string): PropertyRow[] {
+  const color = current.color ?? '';
+  return [
+    {
+      id: 'color',
+      label: 'color',
+      section: 'general',
+      value: colorName(current.color),
+      raw: color,
+      editor: { kind: 'select', options: colorOptions(color) },
+    },
+    { id: 'layer', label: 'layer', section: 'general', value: layer || '—', editor: null },
+    {
+      id: 'linetype',
+      label: 'linetype',
+      section: 'general',
+      value: current.linetype ? LINETYPE_NAMES[current.linetype] : BY_LAYER,
+      raw: current.linetype ?? '',
+      editor: {
+        kind: 'select',
+        options: [
+          { value: '', label: BY_LAYER },
+          ...LINETYPES.map((lt) => ({ value: lt, label: LINETYPE_NAMES[lt] })),
+        ],
+      },
+    },
+    {
+      id: 'lineweight',
+      label: 'lineweight',
+      section: 'general',
+      value: current.lineweight === null ? BY_LAYER : `${current.lineweight.toFixed(2)} mm`,
+      raw: current.lineweight === null ? '' : String(current.lineweight),
+      editor: {
+        kind: 'select',
+        options: [
+          { value: '', label: BY_LAYER },
+          ...LINEWEIGHTS.map((w) => ({ value: String(w), label: `${w.toFixed(2)} mm` })),
+        ],
+      },
+    },
+    {
+      id: 'transparency',
+      label: 'transparency',
+      section: 'general',
+      value: current.transparency === null ? BY_LAYER : String(current.transparency),
+      raw: current.transparency === null ? '' : String(current.transparency),
+      editor: { kind: 'number' },
+    },
+  ];
+}
+
+/** A changed cell of the current properties; null when the value is not usable. */
+export function currentPatch(rowId: string, value: string): Partial<CurrentStyle> | null {
+  switch (rowId) {
+    case 'color':
+      return { color: value || null };
+    case 'linetype':
+      return { linetype: (value || null) as DrawingLinetype | null };
+    case 'lineweight':
+      return { lineweight: value === '' ? null : Number(value) };
+    case 'transparency': {
+      const text = value.trim();
+      if (text === '' || text.toLowerCase() === 'bylayer') return { transparency: null };
+      const v = Number(text);
+      return Number.isInteger(v) && v >= 0 && v <= 90 ? { transparency: v } : null;
+    }
+    default:
+      return null;
+  }
+}
 
 export function propertyRows(input: PropertiesInput): PropertyRow[] {
   const { scene, preview, indexes } = input;
   if (indexes.length === 0) return [];
-  const styles = indexes.map((i) => styleOf(preview, i));
+  // The colour shown is the object's own in the file too, not «ByLayer» (AutoCAD).
+  const styles = indexes.map((i) => objectStyle(scene, preview, i));
   const layerNames = indexes.map(
     (i) => scene.view.layers[effectiveLayer(scene, preview, i)]?.name ?? '',
   );
@@ -120,13 +256,7 @@ export function propertyRows(input: PropertiesInput): PropertyRow[] {
       section: 'general',
       value: color === VARIES ? VARIES : colorName(color || null),
       raw: color === VARIES ? undefined : color,
-      editor: {
-        kind: 'select',
-        options: [
-          { value: '', label: BY_LAYER },
-          ...ACI_COLORS.map((c) => ({ value: c.hex, label: c.name })),
-        ],
-      },
+      editor: { kind: 'select', options: colorOptions(color) },
     },
     {
       id: 'layer',

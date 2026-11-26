@@ -29,6 +29,8 @@ export interface LayerManagerProps {
   /** The edit mode: current layer, meaning, new / rename / delete (saved as corrections). */
   edit: CanvasEditState | null;
   onClose: () => void;
+  /** Why the last layer change was refused (the current layer cannot be frozen). */
+  notice?: string | null;
 }
 
 interface Row {
@@ -189,6 +191,11 @@ export function LayerManager(props: LayerManagerProps) {
           />
         ) : null}
 
+        {props.notice ? (
+          <p role="alert" className="border-b border-[#454b55] px-3 py-1.5 text-xs text-[#ffb4a8]">
+            {props.notice}
+          </p>
+        ) : null}
         <div className="min-h-0 flex-1 overflow-auto px-2 py-1.5">
           <table className="w-full border-collapse text-xs">
             <thead className="sticky top-0 bg-[#2b2f36] text-[#aab0b8]">

@@ -7,10 +7,13 @@ import type { CanvasEdit } from '../model/canvas-edit';
 import type { DrawingPreview } from '../model/drawing-preview';
 import type { DrawingScene } from '../model/drawing-scene';
 import {
+  currentPatch,
+  currentRows,
   nameOf,
   objectTypes,
   propertyEdits,
   propertyRows,
+  type CurrentStyle,
   type PropertyRow,
   type PropertySection,
 } from '../model/properties';
@@ -29,6 +32,7 @@ export function PropertiesPalette({
   layers,
   editing,
   onApply,
+  current,
 }: {
   scene: DrawingScene;
   preview: DrawingPreview;
@@ -37,6 +41,15 @@ export function PropertiesPalette({
   layers: readonly string[];
   editing: boolean;
   onApply: (edits: CanvasEdit[]) => void;
+  /**
+   * With nothing picked the palette shows the current properties (AutoCAD's General with
+   * CECOLOR, CLAYER, CELTYPE, CELWEIGHT, CETRANSPARENCY) and changes them.
+   */
+  current?: {
+    style: CurrentStyle;
+    layer: string;
+    onChange: (patch: Partial<CurrentStyle>) => void;
+  };
 }) {
   const { t } = useI18n();
   // One object per handle (an INSERT's shapes share one).
@@ -62,8 +75,16 @@ export function PropertiesPalette({
     layers,
     vertex: vertex.key === key ? vertex.at : 0,
   };
-  const rows = propertyRows(input);
+  const showCurrent = all.length === 0 && current !== undefined && editing;
+  const rows = showCurrent ? currentRows(current.style, current.layer) : propertyRows(input);
   const commit = (row: PropertyRow, value: string) => {
+    if (showCurrent) {
+      if (value === row.raw) return;
+      const patch = currentPatch(row.id, value);
+      setRefused(patch === null);
+      if (patch) current.onChange(patch);
+      return;
+    }
     if (row.id === 'vertex') {
       setVertex({ key, at: Number(value) });
       return;
