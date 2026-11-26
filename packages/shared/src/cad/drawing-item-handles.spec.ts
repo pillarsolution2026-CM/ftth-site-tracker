@@ -104,3 +104,15 @@ describe('drawing item handles (ADR-061)', () => {
     ).toBe(false);
   });
 });
+
+describe('add_curve arc (ADR-061)', () => {
+  it('keeps a true circle and refuses a zero radius', async () => {
+    const { DrawingCorrectionInputSchema } = await import('./drawing-corrections.schemas.js');
+    const circle = { ...line, arc: { x: 0, y: 0, r: 5, start: 0, end: 360 } };
+    expect(DrawingCorrectionInputSchema.parse(circle)).toEqual(circle);
+    expect(
+      DrawingCorrectionInputSchema.safeParse({ ...circle, arc: { ...circle.arc, r: 0 } }).success,
+    ).toBe(false);
+    expect(DrawingCorrectionInputSchema.parse(line)).not.toHaveProperty('arc');
+  });
+});
