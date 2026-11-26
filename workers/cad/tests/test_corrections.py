@@ -1111,3 +1111,96 @@ def test_bad_text_formats_tables_and_hatches_fail_loudly() -> None:
     for body in bad:
         with pytest.raises(CorrectionInvalidError):
             parse_corrections([{"id": ID1, "correction": body}])
+
+
+# ---------- items drawn on the page are objects (ADR-061) ----------
+
+
+def fx(n: int) -> str:
+    """The handle of the item the n-th correction (1-based) of `apply` adds."""
+    return f"FIX-{uuid.UUID(int=n)}"
+
+
+def test_add_curve_accepts_a_true_arc_and_ignores_it() -> None:
+    body: dict[str, Any] = {
+        "kind": "add_curve",
+        "layer": "R",
+        "points": [[0, 0], [1, 1]],
+        "closed": False,
+        "arc": {"x": 0, "y": 0, "r": 1, "start": 0, "end": 360},
+    }
+    parsed = parse_corrections([{"id": ID1, "correction": body}])
+    assert type(parsed[0].correction).__name__ == "AddCurve"
+    for arc in (
+        {"x": 0, "y": 0, "r": 0, "start": 0, "end": 360},
+        {"x": 0, "y": 0, "r": 1, "start": -361, "end": 360},
+        {"x": 0, "y": 0, "r": 1, "start": 0, "end": 721},
+        {"x": 0, "y": 0, "r": 1, "start": 0},
+        {"x": 0, "y": 0, "r": float("inf"), "start": 0, "end": 1},
+        "circle",
+    ):
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": {**body, "arc": arc}}])
+
+
+def test_an_added_curve_is_edited_by_its_fix_handle() -> None:
+    out = apply(
+        empty(),
+        AddCurve("R", ((0, 0), (2, 0)), False),
+        MoveItem(fx(1), 1, 1),
+        RotateItem(fx(1), 0, 0, 90),
+        MirrorItem(fx(1), 0, 0, 1, 0),
+        ScaleItem(fx(1), 0, 0, 2),
+        SetCurve(fx(1), ((0, 0), (5, 0)), False),
+        MoveLayer(fx(1), "R2"),
+        SetStyle(fx(1), "#ff0000", None, None),
+        SetOrder(fx(1), "front"),
+    )
+    assert len(out.curves) == 1
+    assert out.curves[0].layer == "R2" and out.curves[0].points == ((0, 0), (5, 0))
+
+
+def test_an_added_text_is_edited_and_a_copy_of_a_copy_is_an_item() -> None:
+    out = apply(
+        empty(),
+        AddText("L", 0, 0, "a", 1.0),
+        SetText(fx(1), "b"),
+        CopyItem(fx(1), 1, 0, None),  # 3rd: FIX of the copy
+        CopyItem(fx(3), 1, 0, None),  # 4th: a copy of the copy
+        MoveItem(fx(4), 0, 5),
+        EraseItem(fx(1)),
+    )
+    assert sorted((t.text, t.position) for t in out.texts) == [("b", (1, 0)), ("b", (2, 5))]
+    assert fx(1) not in {t.handle for t in out.texts}
+
+
+def test_a_screen_only_item_is_checked_and_ignored_by_later_edits() -> None:
+    note = AddNote("dimension", "ANY", ((0, 0), (1, 0)), None)
+    out = apply(
+        empty(),
+        note,
+        MoveItem(fx(1), 3, 3),
+        CopyItem(fx(1), 1, 1, None),
+        MoveItem(fx(3), 1, 1),
+        EraseItem(fx(3)),
+        MoveItem(fx(3), 1, 1),
+    )
+    assert out == empty()
+    assert apply(empty(), note, EraseItem(fx(1)), MoveItem(fx(1), 1, 1)) == empty()
+
+
+def test_an_edit_of_an_added_item_whose_layer_was_deleted_is_skipped() -> None:
+    out = apply(
+        empty(curves=(line("c1", "keep", (0, 0), (1, 0)),)),
+        AddCurve("gone", ((0, 0), (2, 0)), False),
+        DeleteLayer("gone"),
+        MoveItem(fx(1), 1, 1),
+        CopyItem(fx(1), 1, 1, None),
+        MergeRoutes((fx(1), "c1")),
+    )
+    assert [c.handle for c in out.curves] == ["c1"]
+
+
+def test_an_unknown_row_handle_of_the_drawing_still_fails() -> None:
+    with pytest.raises(CorrectionInvalidError):
+        apply(empty(), MoveItem("nope", 1, 1))

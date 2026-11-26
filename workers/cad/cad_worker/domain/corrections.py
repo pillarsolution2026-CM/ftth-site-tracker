@@ -28,7 +28,9 @@ drawing units.
 - the CAD ribbon (ADR-050): `erase_item {handle}` removes the row; `copy_item {handle, dx, dy}` adds
   a moved copy with handle `FIX-<correction id>`; `mirror_item {handle, x1, y1, x2, y2}` reflects
   the points across that line; `scale_item {handle, x, y, factor}` scales them about (x, y) (a
-  text's height too); `add_curve {layer, points, closed}` adds a line / polyline `FIX-<id>`;
+  text's height too); `add_curve {layer, points, closed, arc?}` adds a line /
+  polyline `FIX-<id>` (`arc`, a true circle / arc of the screen, is checked and ignored: `points`
+  are its path, ADR-061);
   `add_layer {layer, like}` and `rename_layer {from, to}` give a layer the rule of another (the
   build copies that rule to a layer without one, `layer_aliases`; ADR-051: also a layer of the
   drawing without a rule, so what is drawn on it counts; `like` null = a layer for drawing only),
@@ -430,7 +432,7 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "copy_item": frozenset({"kind", "handle", "dx", "dy", "toLayer"}),
     "mirror_item": frozenset({"kind", "handle", "x1", "y1", "x2", "y2"}),
     "scale_item": frozenset({"kind", "handle", "x", "y", "factor"}),
-    "add_curve": frozenset({"kind", "layer", "points", "closed"}),
+    "add_curve": frozenset({"kind", "layer", "points", "closed", "arc"}),
     "add_layer": frozenset({"kind", "layer", "like"}),
     "rename_layer": frozenset({"kind", "from", "to"}),
     "delete_layer": frozenset({"kind", "layer"}),
@@ -580,6 +582,7 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
             factor,
         )
     if kind == "add_curve":
+        _arc(cid, body.get("arc"))
         return AddCurve(
             _layer(cid, body, "layer"), _points(cid, body.get("points")), _flag(cid, body)
         )
@@ -693,6 +696,23 @@ def _finite(cid: str, body: Mapping[str, object], key: str) -> float:
             f"correction {cid}: `{key}` must be a number within ±{MAX_CORRECTION_COORD}"
         )
     return number
+
+
+def _arc(cid: str, arc: object) -> None:
+    """Checks the optional true circle / arc of an added curve (ADR-061); the rows ignore it:
+    `points` stay the path."""
+    if arc is None:
+        return
+    if not isinstance(arc, Mapping) or set(arc) != {"x", "y", "r", "start", "end"}:
+        raise CorrectionInvalidError(f"correction {cid}: `arc` needs x, y, r, start and end")
+    _finite(cid, arc, "x")
+    _finite(cid, arc, "y")
+    r = _finite(cid, arc, "r")
+    if r <= 0:
+        raise CorrectionInvalidError(f"correction {cid}: the arc radius must be positive")
+    for key in ("start", "end"):
+        if not -360 <= _finite(cid, arc, key) <= 720:
+            raise CorrectionInvalidError(f"correction {cid}: arc {key} must be within -360..720")
 
 
 def _note(cid: str, body: Mapping[str, object]) -> AddNote:
