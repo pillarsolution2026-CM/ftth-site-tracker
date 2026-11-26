@@ -52,6 +52,12 @@ drawing units.
   height, styles, cells}` are checked and then ignored; `add_shape` gains `loops`, `island`,
   `background`, `transparency`, `origin`, `double` and `drawOrder` (checked, ignored).
 
+Items drawn on the page are objects (ADR-061): a later correction may name `FIX-<id>` of an
+added text, item, line or copy and is applied to its row like any other. Notes, shapes and tables
+(and copies of them) have no row: a correction that names one is checked and ignored, an erase
+drops it. A correction naming an added item that has no row any more (its layer was deleted, it
+was erased) is skipped, not an error.
+
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
 a correction is never skipped silently. Background tiles render from the raw rows in PostGIS, so
@@ -1024,6 +1030,9 @@ class _Rows:
     # Layer -> sorted heights of its readable texts, kept in step by `put_text`: a default text
     # height is a lookup, not a scan of every text (security review M).
     heights: dict[str, list[float]] = dataclasses.field(default_factory=dict)
+    # `FIX-<id>` handles of added items that have no row (note, shape, table and copies of them,
+    # ADR-061): later corrections that name them are checked and ignored.
+    screen: set[str] = dataclasses.field(default_factory=set)
 
     def taken(self, handle: str) -> bool:
         return handle in self.curves or handle in self.inserts or handle in self.texts
@@ -1055,9 +1064,40 @@ class _Rows:
         return heights[mid] if len(heights) % 2 else (heights[mid - 1] + heights[mid]) / 2
 
 
+def _named_handles(c: Correction) -> tuple[str, ...]:
+    """The handles a correction names (none for the corrections that add or name layers)."""
+    if isinstance(c, MergeRoutes | SetGroup):
+        return tuple(c.handles)
+    if isinstance(c, DismissProblem):
+        return ()
+    handle = getattr(c, "handle", None)
+    return (handle,) if isinstance(handle, str) else ()
+
+
+def _apply_to_added(rows: _Rows, fc: FrozenCorrection) -> bool:
+    """Handles the correction that names an item an earlier correction added (ADR-061): True when
+    it is done (ignored). A screen-only item has no row: the correction is ignored, an erase drops
+    it, a copy of it is screen-only too. An added item with no row any more (its layer was
+    deleted, it was erased) makes the correction skipped, not an error. Rows of the drawing and
+    rows still there are left to the usual code (and its errors)."""
+    c = fc.correction
+    named = [h for h in _named_handles(c) if h.startswith(FIX_HANDLE_PREFIX)]
+    if not named:
+        return False
+    if any(h in rows.screen for h in named):
+        if isinstance(c, EraseItem):
+            rows.screen.discard(c.handle)
+        elif isinstance(c, CopyItem):
+            rows.screen.add(fc.fix_handle)
+        return True
+    return any(not rows.taken(h) for h in named)
+
+
 def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
     c = fc.correction
     where = f"drawing correction {fc.id}"
+    if _apply_to_added(rows, fc):
+        return
     if isinstance(c, MoveLayer):
         _move_layer(rows, c, where)
     elif isinstance(c, SetText):
@@ -1114,6 +1154,8 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
     elif isinstance(
         c, AddNote | SetStyle | AddShape | SetOrder | SetGroup | SetTextFormat | AddTable
     ):
+        if isinstance(c, AddNote | AddShape | AddTable):
+            rows.screen.add(fc.fix_handle)  # an object of the page: later edits are ignored
         return  # screen only (ADR-051): no row, quantity or problem changes
     elif isinstance(c, MergeLayer):
         _relayer(rows, c.from_layer, c.to_layer)
