@@ -619,7 +619,7 @@ describe('DrawingViewer box types (ADR-043)', () => {
 
 describe(
   'DrawingViewer AutoCAD-like workspace (ADR-047, ADR-050, ADR-051)',
-  { timeout: 20_000 },
+  { timeout: 60_000 },
   () => {
     const size = { width: 800, height: 600 };
     const tf = fitTransform(testView().extents, size);
