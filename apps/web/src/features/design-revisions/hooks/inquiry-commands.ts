@@ -29,6 +29,7 @@ export const INQUIRY_COMMANDS: ReadonlySet<CommandId> = new Set<CommandId>([
   'area',
   'list',
   'measuregeom',
+  'qselect',
 ]);
 
 export type InquiryStep =
@@ -246,6 +247,11 @@ export function inquiryBegin<R extends ExtraRun>(
       return start('i_areaFirst', { mode: null, total: 0 });
     case 'measuregeom':
       return start('i_mgOption', { mg: true });
+    case 'qselect':
+      // The Quick Select dialog; its OK picks the objects (the selection is kept until then).
+      ctx.openDialog?.({ kind: 'qselect' });
+      ctx.finish(true);
+      return null;
     case 'list': {
       const r = fresh('select');
       if (ctx.handles.length > 0) return inquiryAfterSelect(ctx, r);

@@ -1653,11 +1653,7 @@ export function CadRibbon({
                 ]}
               />
               <Rows>
-                <Unavailable
-                  icon="qselect"
-                  label={t('design.cad.tool.qselect')}
-                  reason={t('design.cad.qselectLater')}
-                />
+                <Tile edit={edit} id="qselect" />
                 <button
                   type="button"
                   aria-label={t('design.cad.tool.selectall')}

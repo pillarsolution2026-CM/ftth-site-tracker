@@ -110,7 +110,8 @@ export type CommandId =
   | 'measuregeom'
   // Modify (round 3, audit 4.2)
   | 'extend'
-  | 'explode';
+  | 'explode'
+  | 'qselect';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -214,6 +215,7 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   measuregeom: { name: 'MEASUREGEOM', aliases: ['MEA'] },
   extend: { name: 'EXTEND', aliases: ['EX'] },
   explode: { name: 'EXPLODE', aliases: ['X'] },
+  qselect: { name: 'QSELECT', aliases: [] },
 };
 
 /** Commands that may run inside another one, typed with an apostrophe (`'ZOOM`, AutoCAD). */

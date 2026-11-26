@@ -1717,7 +1717,24 @@
       "save": "Save"
     },
     "cad": {
-      "qselectLater": "Quick Select is not on this screen yet",
+      "qselect_title": "Quick Select",
+      "qselect_applyTo": "Apply to",
+      "qselect_entire": "Entire drawing",
+      "qselect_current": "Current selection",
+      "qselect_objectType": "Object type",
+      "qselect_properties": "Properties",
+      "qselect_prop_color": "Color",
+      "qselect_prop_layer": "Layer",
+      "qselect_prop_linetype": "Linetype",
+      "qselect_prop_lineweight": "Lineweight",
+      "qselect_operator": "Operator",
+      "qselect_value": "Value",
+      "qselect_howTo": "How to apply",
+      "qselect_include": "Include in new selection set",
+      "qselect_exclude": "Exclude from new selection set",
+      "qselect_append": "Append to current selection set",
+      "qselect_ok": "OK",
+      "qselect_cancel": "Cancel",
       "suggestions": "Command suggestions",
       "recentCommands": "Recent Commands",
       "noRecentCommands": "No recent commands",
@@ -2186,6 +2203,7 @@
         "insertionPoint": "Specify insertion point"
       },
       "msg": {
+        "qselectFound": "{count} item(s) selected.",
         "extendEdgesSettings": "Select boundary edges (none picked = all objects).",
         "explodeRefused": "{count} was not able to be exploded (only polylines are exploded here: the view of the file has no block definitions).",
         "idResult": "X = {x}     Y = {y}     Z = 0.0000",
@@ -2483,6 +2501,7 @@
         "tjust": "Justify"
       },
       "hint": {
+        "qselect": "Pick objects by type and property",
         "extend": "Extend objects to meet the edges of other objects",
         "explode": "Break a polyline into its segments",
         "id": "Show the coordinates of a point",

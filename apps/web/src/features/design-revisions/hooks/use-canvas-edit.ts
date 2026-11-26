@@ -557,6 +557,10 @@ export interface CanvasEditState {
   selectSimilar: () => void;
   /** Ctrl+A: every shown, unlocked object (AutoCAD's «All»). */
   selectAll: () => void;
+  /** QSELECT: every object that may be picked now (shown, unlocked, not erased). */
+  selectable: () => number[];
+  /** QSELECT's OK: these objects are picked (`append`: added to the picked ones). */
+  selectIndexes: (indexes: readonly number[], append: boolean) => void;
   /** The objects COPYCLIP / CUTCLIP / COPYBASE keep for PASTECLIP (Ctrl+C / X / Shift+C / V). */
   clipboardCount: number;
   /** The draw command ADDSELECTED would start for the one picked object; null when none fits. */
@@ -3386,6 +3390,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       });
       setSelection(all);
       say(msg('found', { count: all.size }));
+    },
+    selectable: () =>
+      scene ? scene.view.entities.flatMap((_, i) => (pickable(i) ? [i] : [])) : [],
+    selectIndexes: (indexes, append) => {
+      if (!editing || run) return;
+      setSelection((before) => new Set([...(append ? before : []), ...indexes]));
+      say(msg('qselectFound', { count: indexes.length }));
     },
     clipboardCount: clipboard?.handles.length ?? 0,
     selectSimilar: () => {

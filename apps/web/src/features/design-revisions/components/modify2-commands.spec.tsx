@@ -124,6 +124,33 @@ const sent = () =>
   ).items.map((item) => item.correction);
 const save = async (user: User) => user.click(screen.getByRole('button', { name: /^Save \(/ }));
 
+describe('QSELECT (audit 2 / 4.2)', { timeout: 30_000 }, () => {
+  it('picks by layer; Exclude and Append; the picked objects then go to ERASE', async () => {
+    const { user } = await openWorkspace();
+    await type(user, 'qselect');
+    const dialog = screen.getByRole('dialog', { name: 'Quick Select' });
+    await user.selectOptions(within(dialog).getByLabelText('Value'), 'Route');
+    await user.click(within(dialog).getByRole('button', { name: 'OK' }));
+    expect(history()).toContain('2 item(s) selected.');
+    expect(screen.queryByRole('dialog', { name: 'Quick Select' })).toBeNull();
+    // Exclude on the current selection: nothing of the two is off Route.
+    await type(user, 'qselect');
+    const again = screen.getByRole('dialog', { name: 'Quick Select' });
+    expect(within(again).getByLabelText('Apply to')).toHaveValue('picked');
+    await user.click(within(again).getByLabelText('Exclude from new selection set'));
+    await user.click(within(again).getByRole('button', { name: 'OK' }));
+    expect(history()).toContain('0 item(s) selected.');
+    await type(user, 'qselect');
+    const third = screen.getByRole('dialog', { name: 'Quick Select' });
+    await user.selectOptions(within(third).getByLabelText('Object type'), 'Line');
+    await user.click(within(third).getByRole('button', { name: 'OK' }));
+    expect(history()).toContain('1 item(s) selected.');
+    await type(user, 'e');
+    await save(user);
+    expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+  });
+});
+
 describe('EXTEND and EXPLODE (audit 4.2)', { timeout: 30_000 }, () => {
   it('EXTEND: a pick extends the end to the nearest edge; B picks boundary edges', async () => {
     const base = testView();
@@ -217,7 +244,13 @@ describe('Utilities and Clipboard panels (audit 8)', { timeout: 30_000 }, () => 
     await user.click(within(utilities).getByRole('menuitem', { name: 'Distance' }));
     expect(prompt()).toBe('MEASUREGEOM Specify first point:');
     await user.keyboard('{Escape}');
-    expect(within(utilities).getByRole('button', { name: 'Quick Select' })).toBeDisabled();
+    await user.click(within(utilities).getByRole('button', { name: 'Quick Select' }));
+    expect(screen.getByRole('dialog', { name: 'Quick Select' })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Quick Select' })).getByRole('button', {
+        name: 'Cancel',
+      }),
+    );
     await user.click(within(utilities).getByRole('button', { name: 'ID Point' }));
     expect(prompt()).toBe('ID Specify point:');
     await user.keyboard('{Escape}');

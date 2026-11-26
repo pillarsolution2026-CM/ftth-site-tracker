@@ -1717,7 +1717,24 @@
       "save": "حفظ"
     },
     "cad": {
-      "qselectLater": "التحديد السريع غير متاح في هذه الشاشة بعد",
+      "qselect_title": "تحديد سريع",
+      "qselect_applyTo": "التطبيق على",
+      "qselect_entire": "الرسمة كلها",
+      "qselect_current": "العناصر المختارة الآن",
+      "qselect_objectType": "نوع العنصر",
+      "qselect_properties": "الخاصية",
+      "qselect_prop_color": "اللون",
+      "qselect_prop_layer": "الطبقة",
+      "qselect_prop_linetype": "نوع الخط",
+      "qselect_prop_lineweight": "سمك الخط",
+      "qselect_operator": "المقارنة",
+      "qselect_value": "القيمة",
+      "qselect_howTo": "طريقة التطبيق",
+      "qselect_include": "ضمّها في التحديد الجديد",
+      "qselect_exclude": "استبعدها من التحديد الجديد",
+      "qselect_append": "أضف إلى التحديد الحالي",
+      "qselect_ok": "موافق",
+      "qselect_cancel": "إلغاء",
       "suggestions": "اقتراحات الأوامر",
       "recentCommands": "الأوامر الأخيرة",
       "noRecentCommands": "لا توجد أوامر حديثة",
@@ -2186,6 +2203,7 @@
         "insertionPoint": "Specify insertion point"
       },
       "msg": {
+        "qselectFound": "{count} item(s) selected.",
         "extendEdgesSettings": "Select boundary edges (none picked = all objects).",
         "explodeRefused": "{count} was not able to be exploded (only polylines are exploded here: the view of the file has no block definitions).",
         "idResult": "X = {x}     Y = {y}     Z = 0.0000",
@@ -2483,6 +2501,7 @@
         "tjust": "Justify"
       },
       "hint": {
+        "qselect": "اختيار العناصر حسب النوع والخاصية",
         "extend": "مد العناصر حتى تلاقي حواف عناصر أخرى",
         "explode": "تفكيك خط متعدد إلى قطعه",
         "id": "عرض إحداثيات نقطة",

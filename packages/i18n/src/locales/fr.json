@@ -1717,7 +1717,24 @@
       "save": "Enregistrer"
     },
     "cad": {
-      "qselectLater": "La sélection rapide n'est pas encore sur cet écran",
+      "qselect_title": "Sélection rapide",
+      "qselect_applyTo": "Appliquer à",
+      "qselect_entire": "Tout le dessin",
+      "qselect_current": "Sélection courante",
+      "qselect_objectType": "Type d'objet",
+      "qselect_properties": "Propriétés",
+      "qselect_prop_color": "Couleur",
+      "qselect_prop_layer": "Calque",
+      "qselect_prop_linetype": "Type de ligne",
+      "qselect_prop_lineweight": "Epaisseur de ligne",
+      "qselect_operator": "Opérateur",
+      "qselect_value": "Valeur",
+      "qselect_howTo": "Mode d'application",
+      "qselect_include": "Inclure dans le nouveau jeu de sélection",
+      "qselect_exclude": "Exclure du nouveau jeu de sélection",
+      "qselect_append": "Ajouter au jeu de sélection courant",
+      "qselect_ok": "OK",
+      "qselect_cancel": "Annuler",
       "suggestions": "Suggestions de commandes",
       "recentCommands": "Commandes récentes",
       "noRecentCommands": "Aucune commande récente",
@@ -2186,6 +2203,7 @@
         "insertionPoint": "Spécifiez le point d’insertion"
       },
       "msg": {
+        "qselectFound": "{count} élément(s) sélectionné(s).",
         "extendEdgesSettings": "Sélectionnez les contours limites (aucun = tous les objets).",
         "explodeRefused": "{count} n'a pas pu être décomposé (seules les polylignes le sont ici : la vue du fichier n'a pas les définitions de blocs).",
         "idResult": "X = {x}     Y = {y}     Z = 0.0000",
@@ -2483,6 +2501,7 @@
         "tjust": "Justifier"
       },
       "hint": {
+        "qselect": "Choisir des objets par type et propriété",
         "extend": "Prolonger des objets jusqu'aux bords d'autres objets",
         "explode": "Décomposer une polyligne en ses segments",
         "id": "Afficher les coordonnées d'un point",
