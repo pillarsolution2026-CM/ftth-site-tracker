@@ -108,6 +108,7 @@ function uowFailingOn(
     anyPhotoExists: async () => false,
     planningDrawing: async () => null,
     publishedRevisionOfDrawing: async () => null,
+    cabinetTakenByOtherDrawing: async () => false,
     insertUpdate: async () => {
       throw new Error('Failed query', { cause: pgError });
     },
@@ -250,6 +251,7 @@ describe('PushSyncUseCase contractor lines (ADR-052)', () => {
       anyPhotoExists: async () => false,
       planningDrawing: async () => null,
       publishedRevisionOfDrawing: async () => null,
+      cabinetTakenByOtherDrawing: async () => false,
       insertUpdate: async (update: NewUpdate) => {
         inserted.push(update);
       },
@@ -554,6 +556,7 @@ describe('PushSyncUseCase work date (ADR-057)', () => {
       anyPhotoExists: async () => false,
       planningDrawing: async () => null,
       publishedRevisionOfDrawing: async () => null,
+      cabinetTakenByOtherDrawing: async () => false,
       insertUpdate: async (update: NewUpdate) => {
         inserted.push(update);
       },
@@ -652,5 +655,85 @@ describe('PushSyncUseCase work date (ADR-057)', () => {
     const { push } = setup('2026-11-05');
     const [result] = await push('2026-11-01', { kind: 'self' });
     expect(result?.outcome).toBe('applied');
+  });
+});
+
+describe('PushSyncUseCase shared cabinet (ADR-058)', () => {
+  function setup(featureType: 'cabinet' | 'box', takenElsewhere: boolean) {
+    const inserted: NewUpdate[] = [];
+    const asked: string[] = [];
+    const tx = {
+      lockProject: async () => undefined,
+      findOperation: async () => null,
+      insertOperation: async () => undefined,
+      featureExists: async () => true,
+      featureInPublishedRevision: async () => ({
+        featureType,
+        revisionPublishedAt: new Date(0),
+      }),
+      featureInScope: async () => true,
+      latestPublishedRevision: async () => ({
+        id: id(3),
+        revNo: 1,
+        publishedAt: new Date(0),
+        hasTiles: false,
+      }),
+      featureInRevision: async () => true,
+      findItems: async () => [{ id: id(4), workType: 'civil' as const, unit: 'م', group: null }],
+      lockContractorLines: async () => [],
+      wouldOverrun: async () => false,
+      gpsDistanceM: async () => 0,
+      anyPhotoExists: async () => false,
+      planningDrawing: async () => null,
+      publishedRevisionOfDrawing: async () => null,
+      cabinetTakenByOtherDrawing: async (_p: string, _r: string, featureId: string) => {
+        asked.push(featureId);
+        return takenElsewhere;
+      },
+      insertUpdate: async (update: NewUpdate) => {
+        inserted.push(update);
+      },
+      appendEvent: async () => undefined,
+      ...asBuiltStubs,
+    } as ExecutionTx;
+    const useCase = new PushSyncUseCase(
+      { run: (work) => work(tx) },
+      new Phase2UnavailableCapabilities(),
+      { now: () => new Date() },
+      { next: () => id(9) },
+    );
+    const push = () =>
+      useCase.execute({
+        projectId: id(10),
+        userId: id(11),
+        deviceId: id(12),
+        scope: { kind: 'project' },
+        ops: [op],
+      });
+    return { push, inserted, asked };
+  }
+
+  it('refuses a cabinet whose work is already recorded in another drawing of the site', async () => {
+    const { push, inserted } = setup('cabinet', true);
+    const [result] = await push();
+    expect(result).toMatchObject({
+      outcome: 'rejected',
+      code: 'CABINET_RECORDED_IN_OTHER_DRAWING',
+    });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('accepts a cabinet no other drawing has work on', async () => {
+    const { push, inserted } = setup('cabinet', false);
+    const [result] = await push();
+    expect(result?.outcome).toBe('applied');
+    expect(inserted).toHaveLength(1);
+  });
+
+  it('does not ask for other element types', async () => {
+    const { push, asked } = setup('box', true);
+    const [result] = await push();
+    expect(result?.outcome).toBe('applied');
+    expect(asked).toEqual([]);
   });
 });

@@ -112,6 +112,12 @@ export const OP_REJECTION_CODES = [
   'WORK_DATE_IN_FUTURE',
   /** A contractor picked on a work line was registered on the work order after the work date. */
   'CONTRACTOR_NOT_REGISTERED_ON_DATE',
+  // ---- Secondary drawings (ADR-058) ----
+  /**
+   * The cabinet is shared by the General and a Secondary of the site (same name) and its work is
+   * already recorded on it in the other drawing (first drawing with non-rejected work wins).
+   */
+  'CABINET_RECORDED_IN_OTHER_DRAWING',
 ] as const;
 export const OpRejectionCodeSchema = z.enum(OP_REJECTION_CODES);
 export type OpRejectionCode = z.infer<typeof OpRejectionCodeSchema>;

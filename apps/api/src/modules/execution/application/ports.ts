@@ -135,7 +135,10 @@ export interface ExecutionTx {
     receivedAt: Date;
   }): Promise<void>;
   featureExists(projectId: string, featureId: string): Promise<boolean>;
-  /** The feature as drawn in `revisionId`, only if that revision is published. */
+  /**
+   * The feature as drawn in `revisionId`, only if that revision is published. Either drawing
+   * kind: the General or a Secondary of the site (ADR-058).
+   */
   featureInPublishedRevision(
     projectId: string,
     revisionId: string,
@@ -185,6 +188,17 @@ export interface ExecutionTx {
     drawingId: string,
     revisionId: string,
   ): Promise<{ publishedAt: Date; crsEpsg: number } | null>;
+  /**
+   * ADR-058 (ADR-040 shared cabinets): true when the cabinet `featureId` of `revisionId` has a
+   * namesake (same `cabinetNameKey`) in ANOTHER drawing of the same site that already holds work
+   * not rejected. The first drawing with work on the cabinet owns it. Called under the project
+   * lock, so two pushes cannot both be first.
+   */
+  cabinetTakenByOtherDrawing(
+    projectId: string,
+    revisionId: string,
+    featureId: string,
+  ): Promise<boolean>;
   insertUpdate(update: NewUpdate): Promise<void>;
   appendEvent(event: DomainEventInput): Promise<void>;
 
