@@ -360,5 +360,33 @@ function Values({ item }: { item: DrawingCorrection }) {
           {t('design.corrections.values.screenOnly')})
         </>
       );
+    case 'set_text_format':
+      return (
+        <>
+          <Ltr>{c.handle}</Ltr>{' '}
+          <Ltr>
+            {[
+              c.widthFactor !== null ? `W ${round(c.widthFactor)}` : null,
+              c.mtext ? 'MText' : null,
+              c.mask ? 'Mask' : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Ltr>{' '}
+          ({t('design.corrections.values.screenOnly')})
+        </>
+      );
+    case 'add_table':
+      return (
+        <>
+          <Ltr>
+            {t('design.corrections.values.tableSize', {
+              rows: c.rows.length,
+              columns: c.columns.length,
+            })}
+          </Ltr>{' '}
+          <Ltr className="break-all">{c.layer}</Ltr> ({t('design.corrections.values.screenOnly')})
+        </>
+      );
   }
 }

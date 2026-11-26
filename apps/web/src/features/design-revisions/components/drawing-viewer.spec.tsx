@@ -713,7 +713,7 @@ describe(
       for (const name of ['Line', 'Polyline', 'Circle', 'Arc', 'Rectangle', 'Trim', 'Fillet']) {
         expect(tool(name)).toBeInTheDocument();
       }
-      expect(within(ribbon).queryByRole('button', { name: /^Table$/ })).not.toBeInTheDocument();
+      expect(within(ribbon).getByRole('button', { name: /^Table$/ })).toBeInTheDocument();
       expect(tool('Move')).toHaveAttribute('title', expect.stringMatching(/MOVE \(M\)$/));
       expect(prompt()).toBe('Type a command');
       await waitFor(() => expect(fills).toContain('#000000'));
@@ -1496,6 +1496,124 @@ describe(
             [1, 1],
           ],
         });
+      });
+
+      it('TCASE and TCOUNT change the picked text as AutoCAD (ADR-055 part 7)', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 32, 31);
+        await type(user, 'tcase');
+        expect(prompt()).toMatch(
+          /Select case (or )?\[Sentence\/lower\/UPPER\/Title\/toGGLE\] <UPPER>/,
+        );
+        await type(user, 'l');
+        await click(user, canvas, 32, 31);
+        await type(user, 'tcount');
+        expect(prompt()).toMatch(/Sort selected objects by (or )?\[X\/Y\/Select-order\] <Y>/);
+        await type(user, '');
+        expect(prompt()).toMatch(/\(Start,increment\) <1,1>/);
+        await type(user, '7,1');
+        expect(prompt()).toMatch(/(or )?\[Overwrite\/Prefix\/Suffix\/Find&replace..\] <Prefix>/);
+        await type(user, '');
+        await save(user);
+        // The later set_text of the same text replaces the earlier one (latest wins).
+        expect(sent()).toEqual([{ kind: 'set_text', handle: 'T1', text: '7 f 36 c' }]);
+      });
+
+      it('TEXTMASK masks the picked text; TORIENT keeps a readable text', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 32, 31);
+        await type(user, 'textmask');
+        expect(history()).toMatch(/Offset factor = 0.35000, Mask type = Wipeout/);
+        await click(user, canvas, 32, 31);
+        await type(user, 'torient');
+        await type(user, '');
+        expect(history()).toMatch(/0 text object\(s\) changed/);
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_text_format',
+            handle: 'T1',
+            widthFactor: null,
+            mtext: false,
+            wrap: null,
+            mask: { offset: 0.35, color: null },
+          },
+        ]);
+      });
+
+      it('TABLE opens the Insert Table dialog, places the table and fills its cells', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'table');
+        const dialog = screen.getByRole('dialog', { name: 'Insert Table' });
+        const columns = within(dialog).getByRole('spinbutton', { name: 'Columns' });
+        await user.clear(columns);
+        await user.type(columns, '2');
+        await user.click(within(dialog).getByRole('button', { name: 'OK' }));
+        expect(prompt()).toMatch(/Specify insertion point/);
+        await type(user, '0,100');
+        await type(user, 'Title');
+        await type(user, 'A');
+        await type(user, 'B');
+        await user.type(command(), '{Escape}');
+        await save(user);
+        const [table] = sent();
+        expect(table).toMatchObject({
+          kind: 'add_table',
+          layer: 'Sap',
+          x: 0,
+          y: 100,
+          columns: [63.5, 63.5],
+          styles: ['title', 'header', 'data'],
+          cells: [
+            ['Title', ''],
+            ['A', 'B'],
+            ['', ''],
+          ],
+        });
+      });
+
+      it('HATCH as AutoCAD: the Hatch Creation tab, several boundaries with islands in ONE hatch (ADR-055 part 8)', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'rec');
+        await type(user, '0,50');
+        await type(user, '30,80');
+        await type(user, 'rec');
+        await type(user, '10,60');
+        await type(user, '20,70');
+        await type(user, 'h');
+        const tab = screen.getByRole('tabpanel', { name: 'Hatch Creation' });
+        // The Home panels give way to the contextual tab while HATCH runs.
+        expect(screen.queryByRole('group', { name: 'Draw' })).not.toBeInTheDocument();
+        await user.click(within(tab).getByRole('option', { name: 'AR-B816' }));
+        await type(user, '5,55');
+        expect(history()).toMatch(/2 boundary loop\(s\) in the hatch/);
+        await type(user, '21,21');
+        expect(within(tab).getByText('3 boundaries')).toBeInTheDocument();
+        await type(user, 'u');
+        await type(user, '21,21');
+        await user.click(within(tab).getByRole('button', { name: 'Close Hatch Creation' }));
+        expect(screen.queryByRole('tabpanel', { name: 'Hatch Creation' })).not.toBeInTheDocument();
+        await save(user);
+        const hatch = sent().find((c) => c.kind === 'add_shape');
+        expect(hatch).toMatchObject({
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          pattern: 'AR-B816',
+          island: 'normal',
+          drawOrder: 'behind',
+          transparency: 0,
+        });
+        expect((hatch?.points as number[][]).length).toBe(4);
+        expect((hatch?.loops as number[][][]).length).toBe(2);
+        expect(hatch?.loops).toContainEqual([
+          [10, 60],
+          [20, 60],
+          [20, 70],
+          [10, 70],
+        ]);
       });
 
       it('DIVIDE puts points on the current layer along the picked line', async () => {

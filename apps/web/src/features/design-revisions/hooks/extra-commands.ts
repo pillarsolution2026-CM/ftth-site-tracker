@@ -1,4 +1,4 @@
-import { MAX_CORRECTIONS_PER_SAVE, type HatchPattern } from '@ftth/shared';
+import { MAX_CORRECTIONS_PER_SAVE } from '@ftth/shared';
 import { applyAffine, boxThrough } from '../model/affine';
 import { acadNumber, type CommandId, type CommandOption, type Point } from '../model/cad-commands';
 import {
@@ -26,6 +26,7 @@ import {
   splitAt,
 } from '../model/draw-shapes';
 import { effectiveLayer, type DrawingPreview } from '../model/drawing-preview';
+import { HATCH_FIELD_DEFAULTS } from '../model/hatch-patterns';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
 import { curveLength, distance, GeometryError, nearestOnCurve, type Pt } from '../model/geometry';
 import type { Bounds } from '../model/view-transform';
@@ -48,6 +49,39 @@ import {
   type LayerPromptKey,
   type LayerStep,
 } from './layer-commands';
+import {
+  DEFAULT_HATCH_SETTINGS,
+  HATCH_OBJECT_STEPS,
+  hatchBegin,
+  hatchEnter,
+  hatchObject,
+  hatchOption,
+  hatchPoint,
+  hatchPrompt,
+  isHatchCommand,
+  type HatchPromptKey,
+  type HatchSettings,
+  type HatchStep,
+} from './hatch-command';
+import {
+  DEFAULT_TEXT_SETTINGS,
+  isTextCommand,
+  TEXT_OBJECT_STEPS,
+  TEXT_TRACKED,
+  textAfterSelect,
+  textBegin,
+  textEnter,
+  textNumber,
+  textObject,
+  textOption,
+  textPoint,
+  textPrompt,
+  textSketch,
+  textText,
+  type TextPromptKey,
+  type TextStep,
+  type TextToolSettings,
+} from './text-commands';
 
 /**
  * The Draw and Modify commands added for the owner (2026-11-24), on the same command line as the
@@ -92,6 +126,8 @@ const SELECTING_EXTRA: ReadonlySet<CommandId> = new Set<CommandId>([
 
 export type ExtraStep =
   | LayerStep
+  | HatchStep
+  | TextStep
   | 'x_brPick'
   | 'x_brFirst'
   | 'x_brSecond'
@@ -118,11 +154,6 @@ export type ExtraStep =
   | 'x_divCount'
   | 'x_mePick'
   | 'x_meLength'
-  | 'x_hatchPick'
-  | 'x_hatchSel'
-  | 'x_hatchPattern'
-  | 'x_hatchScale'
-  | 'x_hatchAngle'
   | 'x_boPick'
   | 'x_wipeFirst'
   | 'x_wipeNext'
@@ -152,6 +183,8 @@ export type ExtraStep =
 /** Prompts of the added commands (i18n keys under `design.cad.cmd`). */
 export type ExtraPromptKey =
   | LayerPromptKey
+  | HatchPromptKey
+  | TextPromptKey
   | 'breakSelect'
   | 'breakFirst'
   | 'breakSecond'
@@ -178,10 +211,6 @@ export type ExtraPromptKey =
   | 'divideCount'
   | 'measureSelect'
   | 'measureLength'
-  | 'hatchPick'
-  | 'hatchPattern'
-  | 'hatchScale'
-  | 'hatchAngle'
   | 'wipeoutFirst'
   | 'wipeoutNext'
   | 'wipeoutPolyline'
@@ -210,6 +239,8 @@ export type ExtraPromptKey =
 /** Steps that wait for an object pick (a click picks, a typed point is refused). */
 export const EXTRA_OBJECT_STEPS: readonly string[] = [
   ...LAYER_OBJECT_STEPS,
+  ...TEXT_OBJECT_STEPS,
+  ...HATCH_OBJECT_STEPS,
   'x_brPick',
   'x_bapPick',
   'x_lenPick',
@@ -217,12 +248,12 @@ export const EXTRA_OBJECT_STEPS: readonly string[] = [
   'x_ordRef',
   'x_divPick',
   'x_mePick',
-  'x_hatchSel',
   'x_wipePoly',
 ];
 /** Steps that follow the pointer for the rubber band. */
 export const EXTRA_TRACKED: readonly string[] = [
   ...LAYER_TRACKED,
+  ...TEXT_TRACKED,
   'x_brSecond',
   'x_bapPoint',
   'x_splNext',
@@ -243,8 +274,8 @@ export const EXTRA_TRACKED: readonly string[] = [
 
 /** What the added commands remember between runs (AutoCAD keeps the last values). */
 export interface ExtraSettings {
-  hatch: { pattern: HatchPattern; scale: number; angle: number };
-  gradientAngle: number;
+  /** The Hatch Creation tab (ADR-055 part 8). */
+  hatch: HatchSettings;
   donut: { inner: number; outer: number };
   polygon: { sides: number; inscribed: boolean };
   lengthen: { mode: 'DE' | 'T' | 'P'; value: number };
@@ -252,17 +283,19 @@ export interface ExtraSettings {
   splineCv: boolean;
   /** PICKSTYLE: picking one member of a group picks the whole group. */
   groupPick: boolean;
+  /** The Text panel's last answers (ADR-055 part 7). */
+  text: TextToolSettings;
 }
 
 export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
-  hatch: { pattern: 'ANSI31', scale: 1, angle: 0 },
-  gradientAngle: 0,
+  hatch: DEFAULT_HATCH_SETTINGS,
   donut: { inner: 0.5, outer: 1 },
   polygon: { sides: 4, inscribed: true },
   lengthen: { mode: 'DE', value: 0 },
   helixTurns: 3,
   splineCv: false,
   groupPick: true,
+  text: DEFAULT_TEXT_SETTINGS,
 };
 
 /** Per run: what the added command has taken so far. */
@@ -353,12 +386,15 @@ const go = <R extends ExtraRun>(
 const data = (r: ExtraRun): ExtraData => r.flags.extra ?? {};
 
 /** Whether the run is one of the added commands. */
-export const isExtra = (cmd: CommandId) => EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd);
+export const isExtra = (cmd: CommandId) =>
+  EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd) || isTextCommand(cmd);
 
 // ---------- prompts ----------
 
 export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null {
   if (isLayerCommand(r.cmd)) return layerPrompt(r);
+  if (isTextCommand(r.cmd)) return textPrompt(r, settings.text);
+  if (isHatchCommand(r.cmd)) return hatchPrompt(r);
   const p = (
     key: Prompt['key'],
     options: CommandOption[] = [],
@@ -442,39 +478,6 @@ export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null
       return p('measureSelect');
     case 'x_meLength':
       return p('measureLength');
-    case 'x_hatchPick':
-      return p(
-        'hatchPick',
-        r.cmd === 'gradient'
-          ? [opt('Select objects', 'S'), opt('Angle', 'A')]
-          : [
-              opt('Select objects', 'S'),
-              opt('Pattern', 'P'),
-              opt('Scale', 'SC'),
-              opt('Angle', 'A'),
-            ],
-      );
-    case 'x_hatchSel':
-      return p('selectObjects');
-    case 'x_hatchPattern':
-      return p(
-        'hatchPattern',
-        [
-          opt('SOLID', 'SOLID'),
-          opt('ANSI31', 'ANSI31'),
-          opt('ANSI37', 'ANSI37'),
-          opt('DOTS', 'DOTS'),
-        ],
-        settings.hatch.pattern,
-      );
-    case 'x_hatchScale':
-      return p('hatchScale', [], acadNumber(settings.hatch.scale));
-    case 'x_hatchAngle':
-      return p(
-        'hatchAngle',
-        [],
-        acadNumber(r.cmd === 'gradient' ? settings.gradientAngle : settings.hatch.angle),
-      );
     case 'x_boPick':
       return p('hatchPick');
     case 'x_wipeFirst':
@@ -548,6 +551,8 @@ export function extraBegin<R extends ExtraRun>(
   fresh: (step: string) => R,
 ): R | null {
   if (isLayerCommand(cmd)) return layerBegin(ctx, cmd, fresh);
+  if (isTextCommand(cmd)) return textBegin(ctx, cmd, fresh);
+  if (isHatchCommand(cmd)) return hatchBegin(ctx, cmd, fresh);
   const picked = ctx.handles.length > 0;
   const start = (step: ExtraStep, extra: ExtraData = {}): R => {
     const r = fresh(step);
@@ -584,20 +589,6 @@ export function extraBegin<R extends ExtraRun>(
       return start('x_divPick');
     case 'measure':
       return start('x_mePick');
-    case 'hatch':
-    case 'gradient': {
-      const h = ctx.settings.hatch;
-      ctx.say(
-        cmd === 'hatch'
-          ? ctx.msg('hatchSettings', {
-              pattern: h.pattern,
-              scale: acadNumber(h.scale),
-              angle: acadNumber(h.angle),
-            })
-          : ctx.msg('gradientSettings', { angle: acadNumber(ctx.settings.gradientAngle) }),
-      );
-      return start('x_hatchPick');
-    }
     case 'boundary':
       return start('x_boPick');
     case 'wipeout':
@@ -622,6 +613,7 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
     return null;
   }
   if (isLayerCommand(r.cmd)) return layerAfterSelect(ctx, r);
+  if (isTextCommand(r.cmd)) return textAfterSelect(ctx, r);
   if (ctx.handles.length === 0) {
     ctx.finish();
     return null;
@@ -693,6 +685,8 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
 
 export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Point): void {
   if (isLayerCommand(r.cmd)) return layerPoint(ctx, r, p);
+  if (isTextCommand(r.cmd)) return textPoint(ctx, r, p);
+  if (isHatchCommand(r.cmd)) return hatchPoint(ctx, r, p);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -735,20 +729,15 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
         if (!ctx.needDrawLayer()) return;
         go(ctx, r, 'x_rayThrough', {}, [p]);
         return;
-      case 'x_hatchPick':
       case 'x_boPick': {
         const loop = loopAround(loopsNear(ctx, pt(p)), pt(p));
         if (!loop) {
           ctx.say(ctx.msg('hatchNone'));
           return;
         }
-        if (r.cmd === 'boundary') {
-          if (!ctx.needDrawLayer()) return;
-          ctx.add([pointsCurveEdit(ctx.drawLayer, loop, true)]);
-          ctx.say(ctx.msg('boundaryDone'));
-          return;
-        }
-        fill(ctx, r.cmd, loop);
+        if (!ctx.needDrawLayer()) return;
+        ctx.add([pointsCurveEdit(ctx.drawLayer, loop, true)]);
+        ctx.say(ctx.msg('boundaryDone'));
         return;
       }
       case 'x_wipeFirst':
@@ -840,6 +829,11 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
 }
 
 export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: number): void {
+  if (isTextCommand(r.cmd)) return textNumber(ctx, r, value);
+  if (isHatchCommand(r.cmd)) {
+    ctx.say(ctx.msg('badPoint'));
+    return;
+  }
   if (isLayerCommand(r.cmd)) {
     ctx.say(ctx.msg('badValue'));
     return;
@@ -886,18 +880,6 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
         positive(() =>
           divideOrMeasure(ctx, d.target ?? -1, (g) => measureCurve(g.points, g.closed, value)),
         );
-        return;
-      case 'x_hatchScale':
-        positive(() => {
-          ctx.setSettings({ hatch: { ...s.hatch, scale: value } });
-          go(ctx, r, 'x_hatchPick');
-        });
-        return;
-      case 'x_hatchAngle':
-        if (Math.abs(value) > 360) return ctx.say(ctx.msg('badValue'));
-        if (r.cmd === 'gradient') ctx.setSettings({ gradientAngle: value });
-        else ctx.setSettings({ hatch: { ...s.hatch, angle: value } });
-        go(ctx, r, 'x_hatchPick');
         return;
       case 'x_helBase':
         positive(() => go(ctx, r, 'x_helTop', { baseRadius: value }));
@@ -973,6 +955,8 @@ export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, valu
 
 export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key: string): void {
   if (isLayerCommand(r.cmd)) return layerOption(ctx, r, key);
+  if (isTextCommand(r.cmd)) return textOption(ctx, r, key);
+  if (isHatchCommand(r.cmd)) return hatchOption(ctx, r, key);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -1026,16 +1010,6 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
         go(ctx, r, 'x_xlPoint', { fixed: key === 'H' ? [1, 0] : [0, 1] });
         ctx.say(ctx.msg(key === 'H' ? 'xlineHor' : 'xlineVer'));
         return;
-      case 'x_hatchPick':
-        if (key === 'S') go(ctx, r, 'x_hatchSel');
-        else if (key === 'P') go(ctx, r, 'x_hatchPattern');
-        else if (key === 'SC') go(ctx, r, 'x_hatchScale');
-        else if (key === 'A') go(ctx, r, 'x_hatchAngle');
-        return;
-      case 'x_hatchPattern':
-        ctx.setSettings({ hatch: { ...s.hatch, pattern: key as HatchPattern } });
-        go(ctx, r, 'x_hatchPick');
-        return;
       case 'x_wipeFirst':
         if (key === 'P') go(ctx, r, 'x_wipePoly');
         return;
@@ -1074,10 +1048,13 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
 /** Free text on a step of an added command (a layer, group or block name). */
 export function extraText<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: string): void {
   if (isLayerCommand(r.cmd)) layerText(ctx, r, value);
+  else if (isTextCommand(r.cmd)) textText(ctx, r, value);
 }
 
 export function extraEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void {
   if (isLayerCommand(r.cmd)) return layerEnter(ctx, r);
+  if (isTextCommand(r.cmd)) return textEnter(ctx, r);
+  if (isHatchCommand(r.cmd)) return hatchEnter(ctx, r);
   const d = data(r);
   const s = ctx.settings;
   switch (r.step as ExtraStep) {
@@ -1109,14 +1086,6 @@ export function extraEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void
       return;
     case 'x_splMethod':
       go(ctx, r, 'x_splFirst');
-      return;
-    case 'x_hatchSel':
-      go(ctx, r, 'x_hatchPick');
-      return;
-    case 'x_hatchPattern':
-    case 'x_hatchScale':
-    case 'x_hatchAngle':
-      go(ctx, r, 'x_hatchPick');
       return;
     case 'x_wipeFirst':
       go(ctx, r, 'x_wipePoly');
@@ -1162,6 +1131,8 @@ export function extraObject<R extends ExtraRun>(
   at: Point,
 ): void {
   if (isLayerCommand(r.cmd)) return layerObject(ctx, r, index);
+  if (isTextCommand(r.cmd)) return textObject(ctx, r, index);
+  if (isHatchCommand(r.cmd)) return hatchObject(ctx, r, index, at);
   const d = data(r);
   if (index === null || !ctx.pickable(index)) {
     ctx.say(ctx.msg('nothingThere'));
@@ -1225,15 +1196,6 @@ export function extraObject<R extends ExtraRun>(
         go(ctx, r, r.step === 'x_divPick' ? 'x_divCount' : 'x_meLength', { target: index });
         return;
       }
-      case 'x_hatchSel': {
-        const loop = loopOf(ctx, index);
-        if (!loop) {
-          ctx.say(ctx.msg('hatchNone'));
-          return;
-        }
-        fill(ctx, r.cmd, loop);
-        return;
-      }
       case 'x_wipePoly': {
         const loop = loopOf(ctx, index);
         if (!loop) {
@@ -1260,6 +1222,7 @@ export function extraSketch(
   settings: ExtraSettings,
 ): { points: Point[]; closed: boolean } | null {
   if (isLayerCommand(r.cmd)) return layerSketch(r, at);
+  if (isTextCommand(r.cmd)) return textSketch(r, at);
   const d = data(r);
   const a = pt(at);
   try {
@@ -1457,22 +1420,10 @@ function addShape<R extends ExtraRun>(
       color2: null,
       inner: null,
       outer: null,
+      ...HATCH_FIELD_DEFAULTS,
       ...extra,
     },
   ]);
-}
-
-function fill<R extends ExtraRun>(ctx: ExtraContext<R>, cmd: CommandId, loop: Pt[]): void {
-  if (!ctx.needDrawLayer()) return;
-  const s = ctx.settings;
-  if (cmd === 'gradient') addShape(ctx, 'gradient', loop, { angle: s.gradientAngle });
-  else {
-    addShape(ctx, 'hatch', loop, {
-      pattern: s.hatch.pattern,
-      scale: s.hatch.scale,
-      angle: s.hatch.angle,
-    });
-  }
 }
 
 function breakAt<R extends ExtraRun>(

@@ -49,7 +49,10 @@ import { useHistory, type HistoryPart } from './use-history';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
 export type WorkspaceDialog =
-  { kind: 'find' } | { kind: 'laywalk' } | { kind: 'attributes'; index: number };
+  | { kind: 'find' }
+  | { kind: 'laywalk' }
+  | { kind: 'attributes'; index: number }
+  | { kind: 'table' };
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {

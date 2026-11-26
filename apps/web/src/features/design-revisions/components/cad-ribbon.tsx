@@ -18,6 +18,8 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
 import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
+import { TableTile, TextPanel } from './text-panel';
+import { HatchCreationTab } from './hatch-tab';
 import {
   ACI_COLORS,
   COMMANDS,
@@ -92,7 +94,7 @@ type IconKey =
   | 'crossFull'
   | 'crossSmall'
   | 'save';
-const ICONS: Record<IconKey, ReactNode> = {
+const ICONS: Partial<Record<IconKey, ReactNode>> = {
   line: (
     <>
       <path d="M4 19 19 5" />
@@ -626,14 +628,23 @@ function TabStrip({
       aria-label={t('design.cad.quickAccess')}
       className="flex flex-wrap items-end gap-1 bg-[#1f2328] px-2 pt-1 text-xs"
     >
-      <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold">{t('design.cad.home')}</span>
+      <span
+        className={`rounded-t px-3 py-1 font-semibold ${edit.hatch ? 'text-[#aab0b8]' : 'bg-[#2b2f36]'}`}
+      >
+        {t('design.cad.home')}
+      </span>
+      {edit.hatch ? (
+        <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold text-[#9fd17a]">
+          {t('design.cad.hatch.tab')}
+        </span>
+      ) : null}
       <StripSeparator />
       {edit.available && !edit.editing ? (
         <StripButton label={t('design.edit.start')} onClick={edit.start}>
           <Svg size="size-4">{ICONS.pen}</Svg>
         </StripButton>
       ) : null}
-      {editing ? (
+      {editing && edit.hatch === null ? (
         <>
           <StripButton
             label={
@@ -1228,7 +1239,12 @@ export function CadRibbon({
       />
       {editing ? (
         <RibbonFit.Provider value={fit}>
-          <div ref={rowRef} className="flex flex-nowrap items-stretch py-1.5">
+          <HatchCreationTab edit={edit} />
+          <div
+            ref={rowRef}
+            hidden={edit.hatch !== null}
+            className="flex flex-nowrap items-stretch py-1.5"
+          >
             <Panel
               id="draw"
               title={t('design.cad.panel.draw')}
@@ -1368,8 +1384,10 @@ export function CadRibbon({
               <Rows>
                 <Tile edit={edit} id="leader" />
                 <Tile edit={edit} id="textedit" />
+                <TableTile edit={edit} />
               </Rows>
             </Panel>
+            <TextPanel edit={edit} />
             <Panel id="map" title={t('design.cad.panel.map')}>
               <button
                 type="button"

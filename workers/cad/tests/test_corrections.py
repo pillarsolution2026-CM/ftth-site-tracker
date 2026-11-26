@@ -17,6 +17,7 @@ from cad_worker.domain.corrections import (
     AddLayer,
     AddNote,
     AddShape,
+    AddTable,
     AddText,
     CopyItem,
     CorrectionInvalidError,
@@ -38,6 +39,7 @@ from cad_worker.domain.corrections import (
     SetOrder,
     SetStyle,
     SetText,
+    SetTextFormat,
     apply_corrections,
     curve_handles,
     dismissed_places,
@@ -943,7 +945,7 @@ def test_bad_shapes_and_orders_fail_loudly() -> None:
     bad: tuple[dict[str, Any], ...] = (
         {**shape, "points": [[0, 0], [1, 1]]},
         {**shape, "shape": "cloud", "points": [[0, 0], [1, 0], [1, 1]]},
-        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "pattern": "BRICK"},
+        {**shape, "points": [[0, 0], [1, 0], [1, 1]], "pattern": "BRICKS"},
         {**shape, "points": [[0, 0], [1, 0], [1, 1]], "color": "red"},
         {**shape, "points": [[0, 0], [1, 0], [1, 1]], "scale": 0},
         {**shape, "shape": "donut", "points": [[0, 0]], "inner": 2, "outer": 2},
@@ -1022,3 +1024,90 @@ def test_groups_are_screen_only_and_parsed_strictly() -> None:
     ):
         with pytest.raises(CorrectionInvalidError):
             parse_corrections([{"id": ID1, "correction": bad}])
+
+
+# ---------- Text panel, TABLE and HATCH (ADR-055 parts 7-8) ----------
+
+_SQUARE = [[0, 0], [10, 0], [10, 10], [0, 10]]
+_TABLE: dict[str, Any] = {
+    "kind": "add_table",
+    "layer": "ANY",
+    "x": 0,
+    "y": 50,
+    "columns": [63.5, 63.5],
+    "rows": [9, 9],
+    "height": 4.5,
+    "styles": ["title", "header", "data"],
+    "cells": [["Title", ""], ["A", "B"]],
+}
+_FORMAT: dict[str, Any] = {
+    "kind": "set_text_format",
+    "handle": "t1",
+    "widthFactor": 1.25,
+    "mtext": True,
+    "wrap": 40,
+    "mask": {"offset": 0.35, "color": None},
+}
+
+
+def test_text_formats_tables_and_full_hatches_are_parsed_and_change_nothing() -> None:
+    hatch: dict[str, Any] = {
+        "kind": "add_shape",
+        "shape": "hatch",
+        "layer": "H",
+        "points": _SQUARE,
+        "pattern": "AR-B816",
+        "loops": [[[3, 3], [6, 3], [6, 6]]],
+        "island": "outer",
+        "background": "#202020",
+        "transparency": 50,
+        "origin": [5, 5],
+        "double": False,
+        "drawOrder": "front",
+    }
+    gradient = {**hatch, "shape": "gradient", "pattern": "GR_SPHER"}
+    bodies = [_FORMAT, {"kind": "set_text_format", "handle": "t1"}, _TABLE, hatch, gradient]
+    raw = [{"id": str(uuid.UUID(int=i + 1)), "correction": b} for i, b in enumerate(bodies)]
+    parsed = [p.correction for p in parse_corrections(raw)]
+    assert parsed[0] == SetTextFormat("t1")
+    assert parsed[2] == AddTable("ANY", 2, 2)
+    assert parsed[3] == AddShape("hatch", "H", ((0, 0), (10, 0), (10, 10), (0, 10)))
+    drawing = empty(curves=(line("c1", "DUCT 4", (0, 0), (10, 0)),))
+    for correction in parsed:
+        assert apply(drawing, correction) == apply(drawing, SetOrder("c1", 0))
+
+
+def test_bad_text_formats_tables_and_hatches_fail_loudly() -> None:
+    hatch: dict[str, Any] = {"kind": "add_shape", "shape": "hatch", "layer": "H", "points": _SQUARE}
+    bad: tuple[dict[str, Any], ...] = (
+        {**_FORMAT, "widthFactor": 0},
+        {**_FORMAT, "wrap": -1},
+        {**_FORMAT, "mtext": "yes"},
+        {**_FORMAT, "mask": {"offset": 9}},
+        {**_FORMAT, "mask": {"offset": 1, "color": "red"}},
+        {**_FORMAT, "mask": {"offset": 1, "size": 2}},
+        {**_FORMAT, "rotation": 5},
+        {**_TABLE, "cells": [["a", "b"]]},
+        {**_TABLE, "cells": [["a"], ["b"]]},
+        {**_TABLE, "columns": [0, 1]},
+        {**_TABLE, "columns": []},
+        {**_TABLE, "styles": ["title", "header"]},
+        {**_TABLE, "styles": ["title", "header", "note"]},
+        {**_TABLE, "cells": [["a", ""], ["", ""]]},
+        {**_TABLE, "height": 0},
+        {**hatch, "pattern": "GR_LINEAR"},
+        {**hatch, "shape": "gradient", "pattern": "ANSI31"},
+        {**hatch, "loops": [[[0, 0], [1, 1]]]},
+        {**hatch, "loops": [_SQUARE] * 101},
+        {**hatch, "shape": "wipeout", "loops": [_SQUARE]},
+        {**hatch, "island": "all"},
+        {**hatch, "drawOrder": "top"},
+        {**hatch, "transparency": 91},
+        {**hatch, "transparency": 1.5},
+        {**hatch, "background": "grey"},
+        {**hatch, "origin": [1]},
+        {**hatch, "double": 1},
+    )
+    for body in bad:
+        with pytest.raises(CorrectionInvalidError):
+            parse_corrections([{"id": ID1, "correction": body}])

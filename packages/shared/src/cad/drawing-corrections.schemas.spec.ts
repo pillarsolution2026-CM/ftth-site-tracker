@@ -7,6 +7,12 @@ import {
   MAX_LINEWEIGHT_MM,
   MAX_NOTE_POINTS,
   SCREEN_ONLY_CORRECTION_KINDS,
+  HATCH_PATTERNS,
+  MAX_HATCH_LOOPS,
+  MAX_HATCH_TRANSPARENCY,
+  MAX_TABLE_COLUMNS,
+  MAX_TEXT_MASK_OFFSET,
+  MIN_TEXT_WIDTH_FACTOR,
   moveLayerTargets,
 } from './drawing-corrections.schemas.js';
 
@@ -217,13 +223,15 @@ describe('AutoCAD-like screen corrections (ADR-051)', () => {
     expect(ok({ kind: 'set_style', handle: 'C1', lineweight: MAX_LINEWEIGHT_MM + 1 })).toBe(false);
     expect(ok({ kind: 'set_style', handle: 'C1', lineweight: -1 })).toBe(false);
   });
-  it('only notes, styles, shapes, draw order and groups are screen-only', () => {
+  it('only notes, styles, shapes, draw order, groups, text formats and tables are screen-only', () => {
     expect([...SCREEN_ONLY_CORRECTION_KINDS].sort()).toEqual([
       'add_note',
       'add_shape',
+      'add_table',
       'set_group',
       'set_order',
       'set_style',
+      'set_text_format',
     ]);
   });
 });
@@ -357,5 +365,144 @@ describe('layers, groups and attributes (owner 2026-11-24)', () => {
   it('an attribute changes from one value to another', () => {
     expect(ok({ kind: 'set_attribute', handle: 'I1', from: 'FDB-1', to: 'FDB-2' })).toBe(true);
     expect(ok({ kind: 'set_attribute', handle: 'I1', from: 'X', to: 'X' })).toBe(false);
+  });
+});
+
+describe('text formats (ADR-055 part 7)', () => {
+  const parse = (input: object) => DrawingCorrectionInputSchema.safeParse(input);
+  const ok = (input: object) => parse(input).success;
+  it('defaults: no width factor, not MText, no wrap, no mask', () => {
+    const format = parse({ kind: 'set_text_format', handle: 'T1' });
+    expect(format.success && format.data).toEqual({
+      kind: 'set_text_format',
+      handle: 'T1',
+      widthFactor: null,
+      mtext: false,
+      wrap: null,
+      mask: null,
+    });
+  });
+  it('a width factor, a wrap width and a mask stay within their bounds', () => {
+    expect(ok({ kind: 'set_text_format', handle: 'T1', widthFactor: 1.5 })).toBe(true);
+    expect(
+      ok({ kind: 'set_text_format', handle: 'T1', widthFactor: MIN_TEXT_WIDTH_FACTOR / 2 }),
+    ).toBe(false);
+    expect(ok({ kind: 'set_text_format', handle: 'T1', wrap: 0 })).toBe(false);
+    expect(ok({ kind: 'set_text_format', handle: 'T1', mtext: true, wrap: 40 })).toBe(true);
+    const masked = parse({ kind: 'set_text_format', handle: 'T1', mask: { offset: 0.35 } });
+    expect(masked.success && masked.data.kind === 'set_text_format' && masked.data.mask).toEqual({
+      offset: 0.35,
+      color: null,
+    });
+    expect(
+      ok({ kind: 'set_text_format', handle: 'T1', mask: { offset: MAX_TEXT_MASK_OFFSET + 1 } }),
+    ).toBe(false);
+    expect(ok({ kind: 'set_text_format', handle: 'T1', mask: { offset: 1, color: 'red' } })).toBe(
+      false,
+    );
+  });
+});
+
+describe('tables (owner 2026-11-26)', () => {
+  const parse = (input: object) => DrawingCorrectionInputSchema.safeParse(input);
+  const ok = (input: object) => parse(input).success;
+  const table = {
+    kind: 'add_table',
+    layer: 'L',
+    x: 0,
+    y: 100,
+    columns: [63.5, 63.5],
+    rows: [9, 9, 9],
+    height: 4.5,
+    cells: [
+      ['Title', ''],
+      ['A', 'B'],
+      ['', '1'],
+    ],
+  };
+  it('a table with one cell per row and column; styles default to Title / Header / Data', () => {
+    const parsed = parse(table);
+    expect(parsed.success && parsed.data).toMatchObject({ styles: ['title', 'header', 'data'] });
+  });
+  it('refuses cells that do not match the rows and columns', () => {
+    expect(ok({ ...table, cells: [['a', 'b']] })).toBe(false);
+    expect(ok({ ...table, cells: [['a'], ['b'], ['c']] })).toBe(false);
+  });
+  it('refuses a zero width, too many columns and control characters', () => {
+    expect(ok({ ...table, columns: [0, 10] })).toBe(false);
+    const wide = Array.from({ length: MAX_TABLE_COLUMNS + 1 }, () => 1);
+    expect(ok({ ...table, columns: wide, cells: table.cells.map(() => wide.map(() => '')) })).toBe(
+      false,
+    );
+    expect(
+      ok({
+        ...table,
+        cells: [
+          ['a', ''],
+          ['', ''],
+          ['', ''],
+        ],
+      }),
+    ).toBe(false);
+    expect(ok({ ...table, styles: ['data', 'data', 'title'] })).toBe(true);
+    expect(ok({ ...table, styles: ['data', 'data', 'note'] })).toBe(false);
+  });
+});
+
+describe('HATCH (ADR-055 part 8)', () => {
+  const parse = (input: object) => DrawingCorrectionInputSchema.safeParse(input);
+  const ok = (input: object) => parse(input).success;
+  const square = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ];
+  const island = [
+    [3, 3],
+    [6, 3],
+    [6, 6],
+  ];
+  const hatch = { kind: 'add_shape', shape: 'hatch', layer: 'L', points: square };
+  it('new fields have AutoCAD defaults (saved hatches without them stay valid)', () => {
+    const parsed = parse(hatch);
+    expect(parsed.success && parsed.data).toMatchObject({
+      loops: [],
+      island: 'normal',
+      background: null,
+      transparency: 0,
+      origin: null,
+      double: false,
+      drawOrder: 'behind',
+    });
+  });
+  it('a hatch keeps several loops, a pattern of the gallery and its properties', () => {
+    expect(
+      ok({
+        ...hatch,
+        loops: [island],
+        pattern: 'AR-B816',
+        island: 'outer',
+        background: '#202020',
+        transparency: MAX_HATCH_TRANSPARENCY,
+        origin: [5, 5],
+        drawOrder: 'front',
+      }),
+    ).toBe(true);
+    expect(ok({ ...hatch, pattern: 'USER', double: true, scale: 2 })).toBe(true);
+    expect(ok({ ...hatch, transparency: MAX_HATCH_TRANSPARENCY + 1 })).toBe(false);
+    expect(ok({ ...hatch, transparency: 1.5 })).toBe(false);
+    expect(ok({ ...hatch, loops: [island.slice(0, 2)] })).toBe(false);
+    expect(ok({ ...hatch, loops: Array.from({ length: MAX_HATCH_LOOPS + 1 }, () => island) })).toBe(
+      false,
+    );
+    expect(ok({ ...hatch, island: 'all' })).toBe(false);
+  });
+  it('GR_ patterns are for gradients only; loops are for hatches and gradients only', () => {
+    expect(ok({ ...hatch, pattern: 'GR_LINEAR' })).toBe(false);
+    expect(ok({ ...hatch, shape: 'gradient', pattern: 'GR_SPHER', loops: [island] })).toBe(true);
+    expect(ok({ ...hatch, shape: 'gradient', pattern: 'ANSI31' })).toBe(false);
+    expect(ok({ ...hatch, shape: 'wipeout', loops: [island] })).toBe(false);
+    expect(HATCH_PATTERNS).toEqual(expect.arrayContaining(['ANSI31', 'SOLID', 'GR_INVCUR']));
   });
 });

@@ -400,6 +400,51 @@ describe('adding a correction', () => {
     expect(uow.corrections.rows.size).toBe(6);
   });
 
+  it('a text format needs a text; a table names no item (ADR-055 parts 7-8)', async () => {
+    await add({
+      correction: {
+        kind: 'set_text_format',
+        handle: 'A1',
+        widthFactor: 1.2,
+        mtext: true,
+        wrap: 30,
+        mask: { offset: 0.35, color: null },
+      },
+      problem: null,
+    });
+    for (const handle of ['A2', 'C1']) {
+      await expect(
+        add({
+          correction: {
+            kind: 'set_text_format',
+            handle,
+            widthFactor: null,
+            mtext: false,
+            wrap: null,
+            mask: null,
+          },
+          problem: null,
+        }),
+      ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: [handle] } });
+    }
+    // A table may sit on any layer, even one without a rule: the build ignores it.
+    await add({
+      correction: {
+        kind: 'add_table',
+        layer: 'ANY',
+        x: 0,
+        y: 0,
+        columns: [10],
+        rows: [5, 5],
+        height: 2,
+        styles: ['title', 'header', 'data'],
+        cells: [['T'], ['']],
+      },
+      problem: null,
+    });
+    expect(uow.corrections.rows.size).toBe(2);
+  });
+
   it('accepts add_text and add_item without any handle', async () => {
     await add({
       correction: { kind: 'add_text', layer: 'L', x: 1, y: 2, text: 'MH-1', height: null },

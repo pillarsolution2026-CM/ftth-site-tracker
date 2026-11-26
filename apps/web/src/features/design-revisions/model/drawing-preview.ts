@@ -4,7 +4,10 @@ import type {
   DrawingLinetype,
   DrawingNoteKind,
   DrawingShapeKind,
+  HatchDrawOrder,
+  HatchIslandStyle,
   HatchPattern,
+  TableCellStyle,
 } from '@ftth/shared';
 import {
   compose,
@@ -71,9 +74,40 @@ export interface PreviewShape {
   color2: string | null;
   inner: number | null;
   outer: number | null;
+  /** More loops of a hatch or gradient (islands, several picks; ADR-055 part 8). */
+  loops: readonly (readonly (readonly [number, number])[])[];
+  island: HatchIslandStyle;
+  background: string | null;
+  /** 0-90 %. */
+  transparency: number;
+  origin: readonly [number, number] | null;
+  double: boolean;
+  drawOrder: HatchDrawOrder;
   layer: number;
   /** The layer's colour (`color` null). */
   layerColor: string;
+  layerName: string;
+}
+
+/** How a text of the drawing looks (set_text_format; ADR-055 part 7). Screen only. */
+export interface PreviewTextFormat {
+  widthFactor: number | null;
+  mtext: boolean;
+  wrap: number | null;
+  mask: { offset: number; color: string | null } | null;
+}
+
+/** A table drawn on the page (add_table; owner 2026-11-26). Screen only. */
+export interface PreviewTable {
+  x: number;
+  y: number;
+  columns: readonly number[];
+  rows: readonly number[];
+  height: number;
+  styles: readonly [TableCellStyle, TableCellStyle, TableCellStyle];
+  cells: readonly (readonly string[])[];
+  layer: number;
+  color: string;
   layerName: string;
 }
 
@@ -126,6 +160,10 @@ export interface DrawingPreview {
   groups: ReadonlyMap<string, { handles: readonly string[]; block: boolean }>;
   /** Insert → its attribute values changed (set_attribute): old value → new value. */
   attrOf: ReadonlyMap<number, ReadonlyMap<string, string>>;
+  /** Text → its latest format (set_text_format: TEXTFIT, TXT2MTXT, TEXTMASK). */
+  textFormatOf: ReadonlyMap<number, PreviewTextFormat>;
+  /** Tables drawn on the page (add_table). */
+  tables: readonly PreviewTable[];
 }
 
 export const EMPTY_PREVIEW: DrawingPreview = {
@@ -146,6 +184,8 @@ export const EMPTY_PREVIEW: DrawingPreview = {
   orderOf: new Map(),
   groups: new Map(),
   attrOf: new Map(),
+  textFormatOf: new Map(),
+  tables: [],
 };
 
 /** Text height of an added label that has none: 0.25 m, or 2.5 drawing units without a scale. */
@@ -211,6 +251,8 @@ export function applyInputs(
   const orderOf = new Map(base.orderOf);
   const groups = new Map(base.groups);
   const attrOf = new Map(base.attrOf);
+  const textFormatOf = new Map(base.textFormatOf);
+  let tables = [...base.tables];
   const layers = scene.view.layers;
   const layerIndex = (name: string) =>
     scene.layerByName.get(name) ?? scene.layerByName.get(aliases.get(name) ?? '') ?? -1;
@@ -302,6 +344,7 @@ export function applyInputs(
         extraCurves = extraCurves.map(move);
         notes = notes.map(move);
         shapes = shapes.map(move);
+        tables = tables.map(move);
         break;
       }
       case 'set_group':
@@ -351,6 +394,7 @@ export function applyInputs(
         extraCurves = extraCurves.map(rename);
         notes = notes.map(rename);
         shapes = shapes.map(rename);
+        tables = tables.map(rename);
         break;
       }
       case 'delete_layer': {
@@ -361,6 +405,7 @@ export function applyInputs(
         extraCurves = extraCurves.filter(keep);
         notes = notes.filter(keep);
         shapes = shapes.filter(keep);
+        tables = tables.filter(keep);
         break;
       }
       case 'set_curve':
@@ -403,6 +448,13 @@ export function applyInputs(
           color2: correction.color2,
           inner: correction.inner,
           outer: correction.outer,
+          loops: correction.loops,
+          island: correction.island,
+          background: correction.background,
+          transparency: correction.transparency,
+          origin: correction.origin,
+          double: correction.double,
+          drawOrder: correction.drawOrder,
           layer,
           layerColor: colorOf(layer),
           layerName: correction.layer,
@@ -412,6 +464,32 @@ export function applyInputs(
       case 'set_order':
         for (const index of indexes(correction.handle)) orderOf.set(index, correction.order);
         break;
+      case 'set_text_format':
+        for (const index of indexes(correction.handle)) {
+          textFormatOf.set(index, {
+            widthFactor: correction.widthFactor,
+            mtext: correction.mtext,
+            wrap: correction.wrap,
+            mask: correction.mask,
+          });
+        }
+        break;
+      case 'add_table': {
+        const layer = layerIndex(correction.layer);
+        tables.push({
+          x: correction.x,
+          y: correction.y,
+          columns: correction.columns,
+          rows: correction.rows,
+          height: correction.height,
+          styles: correction.styles,
+          cells: correction.cells,
+          layer,
+          color: colorOf(layer),
+          layerName: correction.layer,
+        });
+        break;
+      }
       case 'dismiss_problem':
         break; // changes nothing on the drawing (ADR-046)
     }
@@ -434,6 +512,8 @@ export function applyInputs(
     orderOf,
     groups,
     attrOf,
+    textFormatOf,
+    tables,
   };
 }
 

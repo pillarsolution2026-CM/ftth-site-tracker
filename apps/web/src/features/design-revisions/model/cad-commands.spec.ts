@@ -19,7 +19,9 @@ describe('command names and aliases (ADR-051)', () => {
     expect(lookupCommand('LAYMCUR')).toBe('laymcur');
     expect(lookupCommand('ARRAY')).toBe('arrayrect');
     expect(lookupCommand('3DORBIT')).toBeNull();
-    expect(lookupCommand('TABLE')).toBeNull();
+    // Owner 2026-11-26 lifts ADR-051's «no Table».
+    expect(lookupCommand('TABLE')).toBe('table');
+    expect(lookupCommand('tb')).toBe('table');
   });
   it('has the aliases the owner asked for, each once', () => {
     const wanted: Record<string, string> = {
