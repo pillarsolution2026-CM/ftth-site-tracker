@@ -1933,7 +1933,7 @@
         "helixTurns": "Entrez le nombre de tours",
         "donutInner": "Spécifiez le diamètre intérieur de l'anneau",
         "donutOuter": "Spécifiez le diamètre extérieur de l'anneau",
-        "donutCenter": "Spécifiez le centre de l'anneau",
+        "donutCenter": "Spécifiez le centre de l'anneau ou",
         "polygonSides": "Entrez le nombre de côtés",
         "polygonCenter": "Spécifiez le centre du polygone",
         "polygonMode": "Entrez une option",
@@ -1963,7 +1963,14 @@
         "blockName": "Entrez le nom du bloc",
         "insertPick": "Choisissez une référence de bloc à insérer",
         "insertPoint": "Spécifiez le point d'insertion",
-        "attributePick": "Choisissez la référence de bloc"
+        "attributePick": "Choisissez la référence de bloc",
+        "ellipseArcAxis": "Spécifiez l'extrémité de l'axe de l'arc elliptique",
+        "helixHeight": "Spécifiez la hauteur de l'hélice",
+        "copyArrayCount": "Entrez le nombre d'éléments du réseau",
+        "layoffPick": "Sélectionnez un objet sur le calque à désactiver",
+        "layfrzPick": "Sélectionnez un objet sur le calque à geler",
+        "laylckPick": "Sélectionnez un objet sur le calque à verrouiller",
+        "layulkPick": "Sélectionnez un objet sur le calque à déverrouiller"
       },
       "msg": {
         "commandEcho": "Commande : {name}",
@@ -2068,7 +2075,12 @@
         "mergeWarning": "Tous les objets du calque « {from} » iront sur le calque « {to} ».",
         "deleteWarning": "Tous les objets du calque « {layer} » seront supprimés.",
         "layerMerged": "Le calque « {from} » a été fusionné dans « {to} ».",
-        "layerDeleted": "Le calque « {layer} » a été supprimé."
+        "layerDeleted": "Le calque « {layer} » a été supprimé.",
+        "textEditSettings": "Paramètres courants : Mode d'édition = Multiple",
+        "noLineToContinue": "Aucune ligne ou aucun arc à continuer.",
+        "allUndone": "Tous les segments ont déjà été annulés.",
+        "copyArrayRange": "Nécessite un entier compris entre 2 et 32767.",
+        "divideRange": "Nécessite un entier compris entre 2 et 32767."
       },
       "tool": {
         "line": "Ligne",

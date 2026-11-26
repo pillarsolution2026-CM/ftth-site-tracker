@@ -40,11 +40,7 @@ export const LAYER_COMMANDS: ReadonlySet<CommandId> = new Set<CommandId>([
 
 /** Commands that start with «Select objects:» (noun-verb or verb-noun). */
 const SELECTING_LAYER: ReadonlySet<CommandId> = new Set<CommandId>([
-  'layoff',
   'layiso',
-  'layfrz',
-  'laylck',
-  'layulk',
   'laycur',
   'copytolayer',
   'group',
@@ -52,6 +48,10 @@ const SELECTING_LAYER: ReadonlySet<CommandId> = new Set<CommandId>([
 ]);
 
 export type LayerStep =
+  | 'l_offPick'
+  | 'l_frzPick'
+  | 'l_lckPick'
+  | 'l_ulkPick'
   | 'l_ctlDest'
   | 'l_ctlBase'
   | 'l_ctlSecond'
@@ -71,6 +71,10 @@ export type LayerStep =
   | 'l_attPick';
 
 export type LayerPromptKey =
+  | 'layoffPick'
+  | 'layfrzPick'
+  | 'laylckPick'
+  | 'layulkPick'
   | 'copyToLayerDest'
   | 'copyToLayerBase'
   | 'copyToLayerSecond'
@@ -89,6 +93,10 @@ export type LayerPromptKey =
   | 'attributePick';
 
 export const LAYER_OBJECT_STEPS: readonly string[] = [
+  'l_offPick',
+  'l_frzPick',
+  'l_lckPick',
+  'l_ulkPick',
   'l_ctlDest',
   'l_mrgFrom',
   'l_mrgTo',
@@ -147,6 +155,14 @@ export function layerPrompt(r: ExtraRun): Prompt | null {
     fallback,
   });
   switch (r.step as LayerStep) {
+    case 'l_offPick':
+      return p('layoffPick', r.made.length > 0 ? [opt('Undo', 'U')] : []);
+    case 'l_frzPick':
+      return p('layfrzPick', r.made.length > 0 ? [opt('Undo', 'U')] : []);
+    case 'l_lckPick':
+      return p('laylckPick');
+    case 'l_ulkPick':
+      return p('layulkPick');
     case 'l_ctlDest':
       return p('copyToLayerDest', [opt('Name', 'N')]);
     case 'l_ctlBase':
@@ -229,6 +245,13 @@ export function layerBegin<R extends ExtraRun>(
     ctx.setRun(r);
     return r;
   }
+  const byPick = PICK_STEP[cmd];
+  if (byPick) {
+    // Objects picked first: their layers at once; else one object at a time (AutoCAD).
+    if (ctx.handles.length > 0) return layerAfterSelect(ctx, fresh('select'));
+    ctx.setSelection(new Set());
+    return start(byPick);
+  }
   switch (cmd) {
     case 'layuniso':
       ctx.say(ctx.msg(screen?.unisolate() ? 'layersRestored' : 'noIsolation'));
@@ -292,6 +315,42 @@ export function layerBegin<R extends ExtraRun>(
     }
     default:
       return null;
+  }
+}
+
+/** LAYOFF, LAYFRZ, LAYLCK, LAYULK ask for one object on the layer (LAYOFF / LAYFRZ repeat). */
+const PICK_STEP: Partial<Record<CommandId, LayerStep>> = {
+  layoff: 'l_offPick',
+  layfrz: 'l_frzPick',
+  laylck: 'l_lckPick',
+  layulk: 'l_ulkPick',
+};
+
+/** A pick at «Select an object on the layer to be …»: that layer changes on the screen. */
+function layerByPick<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, index: number): void {
+  const screen = ctx.layerScreen;
+  const layer = effectiveLayer(ctx.scene, ctx.shown, index);
+  const layers = layer < 0 ? [] : [layer];
+  const said = { layers: layerNames(ctx, layers) };
+  switch (r.step as LayerStep) {
+    case 'l_offPick':
+    case 'l_frzPick':
+      if (r.step === 'l_offPick') screen?.off(layers);
+      else screen?.freeze(layers);
+      ctx.say(ctx.msg(r.step === 'l_offPick' ? 'layersOff' : 'layersFrozen', said));
+      ctx.setRun({ ...r, made: [...r.made, 0] });
+      return;
+    case 'l_lckPick':
+      screen?.lock(layers);
+      ctx.say(ctx.msg('layersLocked', said));
+      ctx.finish();
+      return;
+    case 'l_ulkPick':
+      screen?.unlock(layers);
+      ctx.say(ctx.msg('layersUnlocked', said));
+      ctx.finish();
+      return;
+    default:
   }
 }
 
@@ -403,6 +462,13 @@ export function layerPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
 export function layerOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key: string): void {
   const d = layerData(r);
   switch (r.step as LayerStep) {
+    case 'l_offPick':
+    case 'l_frzPick':
+      // Undo: the layer turned off / frozen last comes back (the screen's previous state).
+      if (key === 'U' && r.made.length > 0 && ctx.layerScreen?.previous()) {
+        ctx.setRun({ ...r, made: r.made.slice(0, -1) });
+      } else ctx.say(ctx.msg('nothingToUndo'));
+      return;
     case 'l_ctlDest':
       if (key === 'N') go(ctx, r, 'l_name', { naming: 'ctl' });
       return;
@@ -532,12 +598,19 @@ export function blockAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
   ctx.finish();
 }
 
+const PICKED_LAYER_STEPS: ReadonlySet<string> = new Set(Object.values(PICK_STEP));
+
 export function layerObject<R extends ExtraRun>(
   ctx: ExtraContext<R>,
   r: R,
   index: number | null,
 ): void {
   const d = layerData(r);
+  if (index !== null && PICKED_LAYER_STEPS.has(r.step) && !ctx.shown.erased.has(index)) {
+    // An object on a locked layer counts here (LAYULK unlocks it).
+    layerByPick(ctx, r, index);
+    return;
+  }
   if (index === null || !ctx.pickable(index)) {
     ctx.say(ctx.msg('nothingThere'));
     return;

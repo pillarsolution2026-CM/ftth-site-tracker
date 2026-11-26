@@ -14,8 +14,10 @@ import {
   type Affine,
 } from '../model/affine';
 import {
+  acadAngle,
   acadNumber,
   COMMANDS,
+  PROMPTS_WITHOUT_OR,
   lookupCommand,
   matchOption,
   parseEntry,
@@ -203,6 +205,7 @@ export type PromptKey =
   | 'dimTextValue'
   | 'layerName'
   | 'secondPointOr'
+  | 'copyArrayCount'
   | ExtraPromptKey;
 
 export interface CommandPrompt {
@@ -305,6 +308,8 @@ type Step =
   | 'dimSelect'
   | 'dimTextValue'
   | 'laymchName'
+  | 'copyArrayCount'
+  | 'copyArraySecond'
   | ExtraStep;
 
 /** What a command's options set while it runs (AutoCAD's sub-options). */
@@ -334,6 +339,9 @@ interface Flags {
   repeat?: boolean;
   /** What an added Draw / Modify command has taken (owner 2026-11-24). */
   extra?: ExtraData;
+  /** COPY Array: how many items (the original is the first), and Fit (the point is the last). */
+  arrayCount?: number;
+  arrayFit?: boolean;
 }
 
 interface Run {
@@ -408,6 +416,7 @@ const TRACKED: readonly Step[] = [
   'arcERadius',
   'rectSide',
   'rectRotation',
+  'copyArraySecond',
 ];
 const OBJECT_STEPS: readonly Step[] = [
   'trimPick',
@@ -567,6 +576,12 @@ interface Input {
   openDialog?: (dialog: WorkspaceDialog | null) => void;
 }
 
+/** Single-line text: the next line starts under the last one, 5/3 of the height lower. */
+export const textLineBelow = (at: Point, height: number): Point => ({
+  x: at.x,
+  y: at.y - (height * 5) / 3,
+});
+
 /** Degrees counter-clockwise from the base point to the point (0 = to the right, as CAD). */
 const directionOf = (base: Point, at: Point) =>
   (Math.atan2(at.y - base.y, at.x - base.x) * 180) / Math.PI;
@@ -593,11 +608,18 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const [offsetDist, setOffsetDist] = useState(1);
   // AutoCAD keeps these settings from one use of a command to the next.
   const [copyMultiple, setCopyMultiple] = useState(true);
-  const [offsetThrough, setOffsetThrough] = useState(false);
+  // OFFSETDIST starts at -1 in AutoCAD: the first OFFSET offers <Through>.
+  const [offsetThrough, setOffsetThrough] = useState(true);
   const [offsetErase, setOffsetErase] = useState(false);
   const [offsetOnCurrent, setOffsetOnCurrent] = useState(false);
   const [filletTrim, setFilletTrim] = useState(true);
   const [lastRadius, setLastRadius] = useState<number | null>(null);
+  // ROTATE's last angle, SCALE's last factor and TEXTSIZE are the next defaults (AutoCAD).
+  const [lastAngle, setLastAngle] = useState(0);
+  const [lastFactor, setLastFactor] = useState(1);
+  const [lastTextHeight, setLastTextHeight] = useState<number | null>(null);
+  /** Where the last LINE ended: Enter at «Specify first point:» goes on from there. */
+  const [lineEnd, setLineEnd] = useState<Point | null>(null);
   const [rect, setRect] = useState<{
     chamfer: [number, number] | null;
     fillet: number | null;
@@ -829,11 +851,18 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           copyMultiple ? 'Multiple' : 'Single',
         );
       case 'second':
-        return r.cmd === 'copy' && r.made.length > 0
-          ? p('secondPoint', [opt('Exit', 'E'), opt('Undo', 'U')], 'Exit')
-          : p('secondPointOr', [], 'use first point as displacement');
+        if (r.cmd === 'copy') {
+          return r.made.length > 0
+            ? p('secondPoint', [opt('Array', 'A'), opt('Exit', 'E'), opt('Undo', 'U')], 'Exit')
+            : p('secondPoint', [opt('Array', 'A')], 'use first point as displacement');
+        }
+        return p('secondPointOr', [], 'use first point as displacement');
+      case 'copyArrayCount':
+        return p('copyArrayCount');
+      case 'copyArraySecond':
+        return p('secondPoint', [f.arrayFit ? opt('Array', 'A') : opt('Fit', 'F')]);
       case 'angle':
-        return p('rotationAngle', [opt('Copy', 'C'), opt('Reference', 'R')], '0');
+        return p('rotationAngle', [opt('Copy', 'C'), opt('Reference', 'R')], acadAngle(lastAngle));
       case 'refAngle':
         return p('refAngle', [], '0');
       case 'refAngle2':
@@ -847,7 +876,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'newLengthP1':
         return p('firstPoint');
       case 'factor':
-        return p('scaleFactor', [opt('Copy', 'C'), opt('Reference', 'R')]);
+        return p('scaleFactor', [opt('Copy', 'C'), opt('Reference', 'R')], acadNumber(lastFactor));
       case 'refLength':
         return p('refLength', [], acadNumber(1));
       case 'newLength':
@@ -899,7 +928,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           lastRadius ? acadNumber(lastRadius) : null,
         );
       case 'diameter':
-        return p('circleDiameter');
+        return p('circleDiameter', [], lastRadius ? acadNumber(lastRadius * 2) : null);
       case 'c3p1':
         return p('circleFirst');
       case 'c3p2':
@@ -915,7 +944,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'ttr2':
         return p('ttrSecond');
       case 'ttrRadius':
-        return p('circleRadius');
+        return p('circleRadius', [], lastRadius ? acadNumber(lastRadius) : null);
       case 'arc1':
         return p('arcStart', [opt('Center', 'C')]);
       case 'arc2':
@@ -966,7 +995,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'pointAt':
         return p('pointAt');
       case 'trimPick':
-        return p('trimPick', [opt('cuTting edges', 'T'), opt('eRase', 'R'), opt('Undo', 'U')]);
+        // Undo is offered once something was trimmed (AutoCAD).
+        return p('trimPick', [
+          opt('cuTting edges', 'T'),
+          opt('eRase', 'R'),
+          ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
+        ]);
       case 'trimEdges':
         return p('trimEdges', [], 'select all');
       case 'trimErase':
@@ -1016,7 +1050,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'textStart':
         return p('textStart');
       case 'textHeight':
-        return p('textHeight', [], acadNumber(textHeight));
+        return p('textHeight', [], acadNumber(lastTextHeight ?? textHeight));
       case 'textValue':
         return p('textValue');
       case 'editPick':
@@ -1101,6 +1135,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           layerNameOf,
           needDrawLayer,
           geometryMessage,
+          drop: dropEdits,
           usableLayers: layers,
           layerScreen: input.layerScreen,
           openDialog: input.openDialog,
@@ -1198,9 +1233,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         );
         return next('offsetDistance');
       case 'text':
-        say(msg('textSettings', { height: acadNumber(textHeight) }));
+        say(msg('textSettings', { height: acadNumber(lastTextHeight ?? textHeight) }));
         return next('textStart');
       case 'textedit': {
+        say(msg('textEditSettings'));
         const [only] = [...selection];
         if (only !== undefined && isTextEntity(scene, only)) {
           editText(only);
@@ -1235,9 +1271,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     }
   };
 
-  const editText = (index: number) => {
-    const r = newRun('textedit', 'editValue');
-    r.target = index;
+  /** TEXTEDIT on a text; `from` (picked at its prompt): ask for the next one after it (Multiple). */
+  const editText = (index: number, from: Run | null = null) => {
+    const r: Run = from
+      ? { ...from, step: 'editValue', target: index, flags: { ...from.flags, repeat: true } }
+      : { ...newRun('textedit', 'editValue'), target: index };
     setRun(r);
     setSelection(new Set([index]));
     setText(shown?.textOf.get(index) ?? scene?.view.entities[index]?.texts[0]?.text ?? '');
@@ -1326,6 +1364,27 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     }
   };
 
+  /** COPY Array: the items after the original, a step apart (Fit: the point is the last item). */
+  const copyArray = (r: Run, dx: number, dy: number) => {
+    const count = r.flags.arrayCount ?? 2;
+    const steps = r.flags.arrayFit ? count - 1 : 1;
+    const out: CanvasEdit[] = [];
+    for (let i = 1; i < count; i++) {
+      out.push(...copyEdits(handles, (dx * i) / steps, (dy * i) / steps));
+    }
+    const made = add(out);
+    if (!copyMultiple) {
+      finish();
+      return;
+    }
+    setRun({
+      ...r,
+      step: 'second',
+      made: [...r.made, made.length],
+      flags: { ...r.flags, arrayCount: undefined, arrayFit: undefined },
+    });
+  };
+
   const rotateBy = (r: Run, angle: number) => {
     if (!r.base) return;
     if (Math.abs(angle) > 360) {
@@ -1333,6 +1392,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       return;
     }
     add([...keepCopy(r.flags.copy), ...rotateEdits(handles, r.base.x, r.base.y, angle)]);
+    setLastAngle(angle);
     finish();
   };
 
@@ -1343,6 +1403,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       return;
     }
     add([...keepCopy(r.flags.copy), ...scaleEdits(handles, r.base.x, r.base.y, factor)]);
+    setLastFactor(factor);
     finish();
   };
 
@@ -1399,6 +1460,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       case 'second':
         if (r.base) moveBy(r, p.x - r.base.x, p.y - r.base.y);
+        return;
+      case 'copyArraySecond':
+        if (r.base) copyArray(r, p.x - r.base.x, p.y - r.base.y);
         return;
       case 'angle':
         if (r.base) rotateBy(r, directionOf(r.base, p));
@@ -1468,6 +1532,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (!last) return;
         if (r.cmd === 'line') {
           const made = add([curveEdit(drawLayer, [last, p], false)]);
+          setLineEnd(p);
           go(r, 'next', { points: [...r.points, p], made: [...r.made, made.length] });
         } else if (f.arcMode) {
           plineArcTo(r, p);
@@ -1699,11 +1764,14 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     }
   };
 
-  const feedHeight = (r: Run, height: number | null) => {
-    if (height !== null && !(height > 0)) {
+  const feedHeight = (r: Run, typed: number | null) => {
+    if (typed !== null && !(typed > 0)) {
       say(msg('badValue'));
       return;
     }
+    // Enter keeps the last height (TEXTSIZE); a new one is kept for the next TEXT.
+    const height = typed ?? lastTextHeight;
+    if (typed !== null) setLastTextHeight(typed);
     go(r, 'textValue', { height });
     setFocusNonce((n) => n + 1);
   };
@@ -1927,7 +1995,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notText'));
           return;
         }
-        editText(index);
+        editText(index, r);
         return;
       case 'source':
         go(r, 'dest', { target: index });
@@ -2005,7 +2073,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         else if (r.base) moveBy(r, r.base.x, r.base.y);
         return;
       case 'angle':
-        rotateBy(r, 0);
+        rotateBy(r, lastAngle);
+        return;
+      case 'factor':
+        feedFactor(r, lastFactor);
         return;
       case 'refAngle':
         flag(r, { refAngle: 0 }, 'newAngle');
@@ -2029,7 +2100,22 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         finish();
         return;
       case 'radius':
+      case 'diameter':
         if (lastRadius && r.base) circle(r.base, lastRadius);
+        return;
+      case 'ttrRadius':
+        if (lastRadius) feedNumber(r, lastRadius);
+        return;
+      case 'first':
+        // LINE: Enter goes on from the end of the last line (AutoCAD).
+        if (r.cmd === 'line') {
+          if (lineEnd) feedPoint(r, lineEnd);
+          else say(msg('noLineToContinue'));
+          return;
+        }
+        finish();
+        return;
+      case 'copyArrayCount':
         return;
       case 'filletRadius':
         go(r, 'filletFirst');
@@ -2135,6 +2221,10 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'second':
         if (key === 'E') finish();
         else if (key === 'U') undoMade(r);
+        else if (key === 'A') flag(r, { arrayFit: false }, 'copyArrayCount');
+        return;
+      case 'copyArraySecond':
+        flag(r, { arrayFit: key === 'F' });
         return;
       case 'angle':
         if (key === 'C') {
@@ -2166,6 +2256,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           const first = r.points[0];
           const last = r.points[r.points.length - 1];
           if (first && last) add([curveEdit(drawLayer, [last, first], false)]);
+          if (first) setLineEnd(first);
           finish();
           return;
         }
@@ -2266,7 +2357,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         else undoMade(r);
         return;
       case 'editPick':
-        dropEdits(1);
+        undoMade(r);
         return;
       case 'dim3':
         if (key === 'T' || key === 'M') {
@@ -2297,12 +2388,14 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   /** Undo of LINE, PLINE and LEADER: the last segment (a PLINE arc goes as one). */
   const undoPoint = (r: Run) => {
     if (r.points.length <= 1) {
-      say(msg('nothingToUndo'));
+      say(msg(r.cmd === 'line' || r.cmd === 'pline' ? 'allUndone' : 'nothingToUndo'));
       return;
     }
     if (r.cmd === 'line') {
       dropEdits(1);
-      go(r, r.step, { points: r.points.slice(0, -1), made: r.made.slice(0, -1) });
+      const kept = r.points.slice(0, -1);
+      setLineEnd(kept.length > 1 ? (kept[kept.length - 1] ?? null) : lineEnd);
+      go(r, r.step, { points: kept, made: r.made.slice(0, -1) });
       return;
     }
     if (r.cmd === 'pline') {
@@ -2336,6 +2429,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       else say(msg('badValue'));
     };
     switch (r.step) {
+      case 'copyArrayCount':
+        // The number of items, the original being the first (AutoCAD COPY Array).
+        if (Number.isInteger(value) && value >= 2 && value <= 32767) {
+          flag(r, { arrayCount: value }, 'copyArraySecond');
+        } else say(msg('copyArrayRange'));
+        return;
       case 'angle':
         rotateBy(r, value);
         return;
@@ -2486,25 +2585,37 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const feedText = (r: Run, value: string) => {
     const trimmed = value.trim();
     if (r.step === 'textValue') {
-      if (trimmed && r.textAt && drawLayer) {
-        add([
-          {
-            kind: 'add_text',
-            layer: drawLayer,
-            x: roundCoord(r.textAt.x),
-            y: roundCoord(r.textAt.y),
-            text: trimmed,
-            height: r.height,
-          },
-        ]);
+      if (!trimmed || !r.textAt || !drawLayer) {
+        finish();
+        return;
       }
-      finish();
+      add([
+        {
+          kind: 'add_text',
+          layer: drawLayer,
+          x: roundCoord(r.textAt.x),
+          y: roundCoord(r.textAt.y),
+          text: trimmed,
+          height: r.height,
+        },
+      ]);
+      // TEXT goes on with the next line under this one; an empty line ends it (AutoCAD).
+      const below = textLineBelow(r.textAt, r.height ?? textHeight);
+      go(r, 'textValue', { textAt: below });
+      setFocusNonce((n) => n + 1);
       return;
     }
     if (r.step === 'editValue') {
       const handle = r.target !== null ? scene?.view.entities[r.target]?.handle : undefined;
-      if (trimmed && handle) add([{ kind: 'set_text', handle, text: trimmed }]);
-      finish();
+      const made =
+        trimmed && handle
+          ? [...r.made, add([{ kind: 'set_text', handle, text: trimmed }]).length]
+          : r.made;
+      // Edit mode = Multiple: the next annotation object is asked for until Enter (AutoCAD).
+      if (r.flags.repeat) {
+        go(r, 'editPick', { target: null, made });
+        setSelection(NONE);
+      } else finish();
       return;
     }
     if (r.step === 'leaderText') {
@@ -3038,10 +3149,9 @@ export function formatPrompt(
 ): string {
   const text = t(`design.cad.cmd.${prompt.key}` as MessageKey);
   if (prompt.key === 'command') return text;
+  const or = PROMPTS_WITHOUT_OR.has(prompt.key) ? '' : ` ${t('design.cad.or')}`;
   const options =
-    prompt.options.length > 0
-      ? ` ${t('design.cad.or')} [${prompt.options.map((o) => o.word).join('/')}]`
-      : '';
+    prompt.options.length > 0 ? `${or} [${prompt.options.map((o) => o.word).join('/')}]` : '';
   const fallback = prompt.fallback !== null ? ` <${prompt.fallback}>` : '';
   return `${name ?? ''} ${text}${options}${fallback}:`.trim();
 }

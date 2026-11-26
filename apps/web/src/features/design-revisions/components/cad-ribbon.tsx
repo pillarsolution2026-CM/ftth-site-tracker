@@ -14,6 +14,7 @@ import {
   LINETYPE_NAMES,
   LINETYPES,
   LINEWEIGHTS,
+  PROMPTS_WITHOUT_OR,
   type CommandId,
 } from '../model/cad-commands';
 
@@ -1533,7 +1534,7 @@ export function CadCommandLine({ edit }: { edit: CanvasEditState }) {
               {prompt.options.length > 0 ? (
                 <>
                   {' '}
-                  {t('design.cad.or')} [
+                  {PROMPTS_WITHOUT_OR.has(prompt.key) ? '' : `${t('design.cad.or')} `}[
                   {prompt.options.map((o, i) => (
                     <span key={o.key}>
                       {i > 0 ? '/' : ''}

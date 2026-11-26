@@ -1556,7 +1556,7 @@ describe(
       await click(user, canvas, 90, 25);
       await type(user, '');
       await type(user, 'o');
-      expect(prompt()).toBe('OFFSET Specify offset distance or [Through/Erase/Layer] <1.0000>:');
+      expect(prompt()).toBe('OFFSET Specify offset distance or [Through/Erase/Layer] <Through>:');
       await type(user, '2');
       await click(user, canvas, 60, 25);
       await click(user, canvas, 60, 30);
@@ -1775,7 +1775,7 @@ describe(
         await click(user, canvas, 75, 25);
         await type(user, '');
         await type(user, 'o');
-        expect(prompt()).toBe('COPY Enter a copy mode option or [Single/Multiple] <Multiple>:');
+        expect(prompt()).toBe('COPY Enter a copy mode option [Single/Multiple] <Multiple>:');
         await type(user, 's');
         await type(user, '0,0');
         await type(user, '@0,5');
@@ -1818,7 +1818,7 @@ describe(
         await type(user, '');
         await type(user, '0,0');
         await type(user, '0,10');
-        expect(prompt()).toBe('MIRROR Erase source objects? or [Yes/No] <No>:');
+        expect(prompt()).toBe('MIRROR Erase source objects? [Yes/No] <No>:');
         await type(user, '');
         await save(user);
         expect(sent()).toEqual([
@@ -1912,11 +1912,13 @@ describe(
         await type(user, '');
         await type(user, 'tr');
         expect(prompt()).toBe(
-          'TRIM Select object to trim or shift-select to extend or [cuTting edges/eRase/Undo]:',
+          'TRIM Select object to trim or shift-select to extend or [cuTting edges/eRase]:',
         );
         await user.keyboard('{Shift>}');
         await click(user, canvas, 95, 25);
         await user.keyboard('{/Shift}');
+        // Undo is offered once something was trimmed or extended (AutoCAD).
+        expect(prompt()).toMatch(/\[cuTting edges\/eRase\/Undo\]:$/);
         await type(user, 't');
         expect(prompt()).toBe('TRIM Select cutting edges ... Select objects or <select all>:');
         await type(user, '');
@@ -1948,7 +1950,7 @@ describe(
         expect(history()).toMatch(/1 lines were filleted/);
         await type(user, 'f');
         await type(user, 't');
-        expect(prompt()).toBe('FILLET Enter Trim mode option or [Trim/No trim] <Trim>:');
+        expect(prompt()).toBe('FILLET Enter Trim mode option [Trim/No trim] <Trim>:');
         await type(user, 'n');
         await type(user, 'r');
         await type(user, '5');

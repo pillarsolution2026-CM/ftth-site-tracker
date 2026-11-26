@@ -1933,7 +1933,7 @@
         "helixTurns": "Enter number of turns",
         "donutInner": "Specify inside diameter of donut",
         "donutOuter": "Specify outside diameter of donut",
-        "donutCenter": "Specify center of donut",
+        "donutCenter": "Specify center of donut or",
         "polygonSides": "Enter number of sides",
         "polygonCenter": "Specify center of polygon",
         "polygonMode": "Enter an option",
@@ -1963,7 +1963,14 @@
         "blockName": "Enter block name",
         "insertPick": "Select a block reference to insert",
         "insertPoint": "Specify insertion point",
-        "attributePick": "Select block reference"
+        "attributePick": "Select block reference",
+        "ellipseArcAxis": "Specify axis endpoint of elliptical arc",
+        "helixHeight": "Specify helix height",
+        "copyArrayCount": "Enter number of items to array",
+        "layoffPick": "Select an object on the layer to be turned off",
+        "layfrzPick": "Select an object on the layer to be frozen",
+        "laylckPick": "Select an object on the layer to be locked",
+        "layulkPick": "Select an object on the layer to be unlocked"
       },
       "msg": {
         "commandEcho": "Command: {name}",
@@ -2068,7 +2075,12 @@
         "mergeWarning": "Every object on layer \"{from}\" will move to layer \"{to}\".",
         "deleteWarning": "Every object on layer \"{layer}\" will be deleted.",
         "layerMerged": "Layer \"{from}\" was merged into \"{to}\".",
-        "layerDeleted": "Layer \"{layer}\" was deleted."
+        "layerDeleted": "Layer \"{layer}\" was deleted.",
+        "textEditSettings": "Current settings: Edit mode = Multiple",
+        "noLineToContinue": "No line or arc to continue.",
+        "allUndone": "All segments already undone.",
+        "copyArrayRange": "Requires an integer between 2 and 32767.",
+        "divideRange": "Requires an integer between 2 and 32767."
       },
       "tool": {
         "line": "Line",
