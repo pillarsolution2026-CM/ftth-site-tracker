@@ -1,4 +1,5 @@
 import type { DrawingView, DrawingViewEntity } from '@ftth/shared';
+import type { Affine } from './affine';
 
 /**
  * A large synthetic drawing for the performance tests (round 2, items 26 / 30): thousands of
@@ -54,4 +55,20 @@ export function perfView(count: number, side = 10_000): DrawingView {
     entities,
     truncated: false,
   };
+}
+
+/**
+ * Round 3 (audit 10): `count` copies of entities of the scene (as an ARRAY makes), each moved by
+ * a fixed step, for a preview's `copies`.
+ */
+export function perfCopies(
+  entityCount: number,
+  count: number,
+): { index: number; transform: Affine }[] {
+  const out: { index: number; transform: Affine }[] = [];
+  for (let i = 0; i < count; i++) {
+    const index = (i * 7919) % entityCount;
+    out.push({ index, transform: [1, 0, 0, 1, (i % 50) * 40, Math.floor(i / 50) * 40] });
+  }
+  return out;
 }

@@ -1,4 +1,3 @@
-import { MAX_CORRECTIONS_PER_SAVE } from '@ftth/shared';
 import { applyAffine, boxThrough } from '../model/affine';
 import { acadNumber, type CommandId, type CommandOption, type Point } from '../model/cad-commands';
 import {
@@ -1431,14 +1430,6 @@ function tolerance<R extends ExtraRun>(ctx: ExtraContext<R>): number {
   return Math.max(1e-6, Math.hypot(e.maxX - e.minX, e.maxY - e.minY) * 1e-6);
 }
 
-function room<R extends ExtraRun>(ctx: ExtraContext<R>, count: number): boolean {
-  if (ctx.editCount + count > MAX_CORRECTIONS_PER_SAVE) {
-    ctx.say(ctx.msg('tooManyEdits', { count: MAX_CORRECTIONS_PER_SAVE }));
-    return false;
-  }
-  return true;
-}
-
 function curve<R extends ExtraRun>(ctx: ExtraContext<R>, points: Pt[], closed: boolean): void {
   ctx.add([pointsCurveEdit(ctx.drawLayer, points, closed)]);
   ctx.finish();
@@ -1529,7 +1520,6 @@ function divideOrMeasure<R extends ExtraRun>(
     })();
   if (!geom) return ctx.finish();
   const points = make(geom);
-  if (!room(ctx, points.length)) return;
   ctx.add(
     points.map(
       (p) =>
@@ -1549,8 +1539,6 @@ function arrayDone<R extends ExtraRun>(ctx: ExtraContext<R>, d: ExtraData): void
   const columns = d.columns ?? 4;
   const rows = d.rows ?? 3;
   const offsets = arrayOffsets(columns, rows, d.columnSpacing ?? 0, d.rowSpacing ?? 0);
-  const count = offsets.length * ctx.handles.length;
-  if (!room(ctx, count)) return;
   ctx.add(
     offsets.flatMap(([dx, dy]) =>
       ctx.handles.map(

@@ -258,7 +258,10 @@ describe('Undo / Redo for everything on the drawing (item 13)', { timeout: 20_00
     await user.type(screen.getByLabelText('Command'), 'L{Enter}0,0{Enter}10,0{Enter}{Enter}');
     await user.click(screen.getByRole('button', { name: /^Save \(/ }));
     await waitFor(() => expect(api.createCorrections).toHaveBeenCalled());
-    await user.click(await screen.findByRole('button', { name: 'Edit the drawing' }));
+    // QSAVE: the edit mode stays open after the save.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^Save \(/ })).not.toBeInTheDocument(),
+    );
     ctrl(canvas, 'z');
     expect(screen.getByRole('log', { name: 'Command history' }).textContent).toMatch(
       /Everything has been undone/,

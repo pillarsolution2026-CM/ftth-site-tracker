@@ -5,6 +5,8 @@ import type { MessageKey } from '@ftth/i18n';
 import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useSaveCorrections } from '../api/queries';
+import { MAX_CORRECTIONS_PER_SAVE } from '@ftth/shared';
+import { saveInChunks } from '../model/save-chunks';
 import {
   applyAffine,
   mirrorAcross,
@@ -721,6 +723,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const { t } = useI18n();
   const saveMutation = useSaveCorrections(projectId, cadFileId);
   const [editing, setEditing] = useState(false);
+  /** A «حفظ» in chunks is under way (ADR-061). */
+  const [chunking, setChunking] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
   const [lastCmd, setLastCmd] = useState<CommandId | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<number>>(NONE);
@@ -3517,29 +3521,43 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     canUndo: undoHistory.canUndo || (run !== null && run.points.length > 1),
     redo,
     canRedo: undoHistory.canRedo,
+    // AutoCAD's QSAVE (owner default): «حفظ» / Ctrl+S saves and the edit mode stays open; only
+    // its own button leaves it. Over MAX_CORRECTIONS_PER_SAVE edits go in chunks, in order (ADR-061).
     save: () => {
-      if (edits.length === 0) {
-        setEditing(false);
-        finish();
-        return;
-      }
+      finish();
+      if (edits.length === 0 || chunking) return;
       setError(null);
-      saveMutation.mutate(
-        { items: editRequests(edits) },
-        {
-          onSuccess: () => {
-            setEdits([]);
-            undoHistory.clear();
-            setEditing(false);
-            finish();
-            setHistory([]);
-          },
-          onError: (caught) =>
-            setError(correctionError(errorCodeOf(caught), errorReasonOf(caught))),
+      const requests = editRequests(edits);
+      const total = requests.length;
+      const many = total > MAX_CORRECTIONS_PER_SAVE;
+      let progressShown = false;
+      const progress = (line: string) =>
+        setHistory((previous) => {
+          const out = progressShown ? previous.slice(0, -1) : [...previous];
+          progressShown = true;
+          return [...out, line].slice(-HISTORY_LINES);
+        });
+      if (many) progress(msg('saveProgress', { saved: 0, total }));
+      setChunking(true);
+      void saveInChunks(
+        requests,
+        (body) => saveMutation.mutateAsync(body),
+        (done) => {
+          if (many) progress(msg('saveProgress', { saved: done, total }));
         },
-      );
+      ).then(({ saved: done, rewrite, error: caught }) => {
+        setChunking(false);
+        if (done > 0) {
+          // What was saved is no longer an edit; what is left names the saved items FIX-<id>.
+          setEdits((current) => current.slice(done).map((edit) => rewrite(edit) as CanvasEdit));
+          undoHistory.clear();
+        }
+        if (caught === undefined) return;
+        if (done > 0) say(msg('savePartial', { saved: done, total, left: total - done }));
+        setError(correctionError(errorCodeOf(caught), errorReasonOf(caught)));
+      });
     },
-    saving: saveMutation.isPending,
+    saving: chunking || saveMutation.isPending,
     cancel: () => {
       setEdits([]);
       undoHistory.clear();
