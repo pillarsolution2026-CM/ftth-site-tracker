@@ -9,10 +9,12 @@ import { Notice } from '@/shared/ui/notice';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { TrenchMarksPanel } from '@/features/installation/components/trench-marks-panel';
 import { useDrawingViewer, type ShowPlace } from '../hooks/use-drawing-viewer';
-import { CadCommandLine, CadRibbon, CanvasButton, PenButton } from './cad-ribbon';
+import { useCrosshairSize } from '../hooks/use-crosshair-size';
+import { CadCommandLine, CadRibbon } from './cad-ribbon';
 import { CanvasPopover } from './canvas-popover';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
+import { PropertiesPalette } from './properties-palette';
 import { WorkspaceDialogs } from './workspace-dialogs';
 
 /**
@@ -147,14 +149,14 @@ export function DrawingViewer({
   );
 }
 
-type PaletteKey = 'problems' | 'corrections';
+type PaletteKey = 'problems' | 'corrections' | 'properties';
 type DrawingViewerState = ReturnType<typeof useDrawingViewer>;
 
 /**
- * The AutoCAD-like workspace (ADR-051): the ribbon (edit mode), the black canvas across the whole
- * width, the command line under it, palettes (errors, corrections) that open and close beside the
- * drawing, and AutoCAD's Layer Properties Manager as a pop-up (owner 2026-11-19).
- * beside the drawing.
+ * The AutoCAD-like workspace (ADR-051): the tab strip (always) and the ribbon (edit mode), the
+ * black canvas across the whole width, the command line under it, palettes (errors, corrections)
+ * that open and close beside the drawing, and AutoCAD's Layer Properties Manager as a pop-up
+ * (owner 2026-11-19). The view buttons sit on the tab strip (owner 2026-11-26).
  */
 function Workspace({
   viewer,
@@ -184,21 +186,37 @@ function Workspace({
     setSeenNonce(layersNonce);
     setManagerOpen(true);
   }
-  // Full screen (owner 2026-11-24): the whole workspace takes the screen, as a desktop program.
-  const rootRef = useRef<HTMLDivElement>(null);
+  // Full screen (owner 2026-11-26): an in-page full window that Esc never leaves (Esc cancels the
+  // command, as in AutoCAD); only its button leaves it. The browser's own F11 hides its bars.
   const [full, setFull] = useState(false);
-  const [canFullScreen, setCanFullScreen] = useState(false);
   useEffect(() => {
-    setCanFullScreen(typeof document.documentElement.requestFullscreen === 'function');
-    const onChange = () =>
-      setFull(rootRef.current !== null && document.fullscreenElement === rootRef.current);
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
-  const toggleFull = () => {
-    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
-    else void rootRef.current?.requestFullscreen?.().catch(() => undefined);
-  };
+    if (!full) return;
+    const before = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = before;
+    };
+  }, [full]);
+  // In full screen while editing the errors palette starts hidden (owner 2026-11-25); the strip
+  // button shows it again.
+  const fullEdit = full && edit.editing;
+  const [seenFullEdit, setSeenFullEdit] = useState(fullEdit);
+  if (fullEdit !== seenFullEdit) {
+    setSeenFullEdit(fullEdit);
+    if (fullEdit && open.has('problems')) {
+      const next = new Set(open);
+      next.delete('problems');
+      setOpen(next);
+    }
+  }
+  // Right-click «Properties» and Ctrl+1 open AutoCAD's Properties palette.
+  const { propertiesNonce } = viewer;
+  const [seenProperties, setSeenProperties] = useState(propertiesNonce);
+  if (propertiesNonce !== seenProperties) {
+    setSeenProperties(propertiesNonce);
+    if (!open.has('properties')) setOpen(new Set([...open, 'properties']));
+  }
+  const crosshair = useCrosshairSize();
   const palettes: { key: PaletteKey; title: string; body: ReactNode }[] = [];
   if (problems) {
     palettes.push({ key: 'problems', title: t('design.cad.palette.problems'), body: problems });
@@ -210,12 +228,29 @@ function Workspace({
       body: corrections,
     });
   }
+  if (edit.available && viewer.scene && edit.preview) {
+    palettes.push({
+      key: 'properties',
+      title: t('design.cad.prop.title'),
+      body: (
+        <PropertiesPalette
+          scene={viewer.scene}
+          preview={edit.preview}
+          chosen={edit.chosen}
+          layers={edit.layers}
+          editing={edit.editing}
+          onApply={edit.apply}
+        />
+      ),
+    });
+  }
   if (!model) return null;
   const shownPalettes = palettes.filter((p) => open.has(p.key));
   return (
     <div
-      ref={rootRef}
-      className={`flex flex-col ${full ? 'h-screen w-screen overflow-auto bg-[#1f2328]' : ''}`}
+      data-testid="cad-workspace"
+      data-full={full ? 'true' : undefined}
+      className={`flex flex-col ${full ? 'fixed inset-0 z-50 overflow-auto bg-[#1f2328]' : ''}`}
     >
       <CadRibbon
         edit={edit}
@@ -231,68 +266,27 @@ function Workspace({
           onToggle: () => viewer.osm.setShown(!viewer.osm.shown),
         }}
         layerScreen={viewer.layerScreen}
+        view={{
+          zoomIn: viewer.zoomIn,
+          zoomOut: viewer.zoomOut,
+          fit: viewer.fit,
+          full,
+          onToggleFull: () => setFull(!full),
+          layersOpen: managerOpen,
+          onToggleLayers: () => setManagerOpen(!managerOpen),
+          palettes: palettes.map((p) => ({
+            key: p.key,
+            title: p.title,
+            open: open.has(p.key),
+            onToggle: () => toggle(p.key),
+          })),
+          crosshair: crosshair.size,
+          onToggleCrosshair: crosshair.toggle,
+        }}
       />
       <div className={`flex flex-col gap-3 lg:flex-row lg:gap-0 ${full ? 'min-h-0 flex-1' : ''}`}>
         <div className={`min-w-0 flex-1 ${full ? 'flex min-h-0 flex-col' : ''}`}>
-          <DrawingCanvas viewer={viewer} model={model} fill={full}>
-            <div
-              dir="ltr"
-              role="group"
-              aria-label={t('design.viewer.toolbar')}
-              className="absolute right-2 top-2 flex flex-wrap justify-end gap-1"
-            >
-              <CanvasButton label={t('design.viewer.zoomIn')} onClick={viewer.zoomIn}>
-                +
-              </CanvasButton>
-              <CanvasButton label={t('design.viewer.zoomOut')} onClick={viewer.zoomOut}>
-                −
-              </CanvasButton>
-              <CanvasButton label={t('design.viewer.fit')} onClick={viewer.fit}>
-                ⤢
-              </CanvasButton>
-              {canFullScreen ? (
-                <CanvasButton
-                  label={full ? t('design.cad.fullScreenExit') : t('design.cad.fullScreen')}
-                  pressed={full}
-                  onClick={toggleFull}
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    className="size-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    {full ? (
-                      <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
-                    ) : (
-                      <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
-                    )}
-                  </svg>
-                </CanvasButton>
-              ) : null}
-              <CanvasButton
-                label={t('design.cad.palette.layers')}
-                pressed={managerOpen}
-                onClick={() => setManagerOpen(!managerOpen)}
-              >
-                <span className="text-xs">{t('design.cad.palette.layers')}</span>
-              </CanvasButton>
-              {palettes.map((p) => (
-                <CanvasButton
-                  key={p.key}
-                  label={p.title}
-                  pressed={open.has(p.key)}
-                  onClick={() => toggle(p.key)}
-                >
-                  <span className="text-xs">{p.title}</span>
-                </CanvasButton>
-              ))}
-              <PenButton edit={edit} />
-            </div>
+          <DrawingCanvas viewer={viewer} model={model} fill={full} crosshair={crosshair.size}>
             <CanvasPopover viewer={viewer} />
             <WorkspaceDialogs viewer={viewer} />
           </DrawingCanvas>
@@ -318,7 +312,7 @@ function Workspace({
               <aside
                 key={p.key}
                 aria-label={p.title}
-                className="flex max-h-[75vh] min-h-0 flex-col rounded-md border border-(--color-border)"
+                className="flex max-h-[75vh] min-h-0 flex-col rounded-md border border-(--color-border) bg-(--color-surface) text-(--color-text) dark:bg-(--color-surfaceDark) dark:text-(--color-textDark)"
               >
                 <div className="flex items-center justify-between gap-2 border-b border-(--color-border) bg-[#2b2f36] px-2 py-1 text-[#e8eaed]">
                   <span className="text-sm font-semibold">{p.title}</span>

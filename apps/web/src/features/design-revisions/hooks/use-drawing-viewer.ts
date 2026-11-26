@@ -31,6 +31,7 @@ import {
   fitTransform,
   panBy,
   scaleLimits,
+  toScreen,
   toWorld,
   windowTransform,
   zoomAt,
@@ -42,6 +43,7 @@ import { useMapping } from '@/features/cad-mapping/api/queries';
 import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useLayerScreen, type LayerScreen } from './use-layer-screen';
+import { hitGrip, type Grip } from '../model/grips';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
 export type WorkspaceDialog =
@@ -64,6 +66,8 @@ export const FOCUS_WINDOW_M = 60;
 export const FOCUS_WINDOW_UNITS = 60;
 const MARKER_HIT_PX = 14;
 const ENTITY_HIT_PX = 6;
+/** A grip is hit within this many px of its centre (a little more than its half side). */
+const GRIP_HIT_PX = 6;
 
 export type ViewerStatus =
   'loading' | 'error' | 'none' | 'failed' | 'queued' | 'loadingView' | 'viewError' | 'ready';
@@ -155,8 +159,13 @@ export interface DrawingViewer {
   };
   /** A right click in the edit mode: with nothing picked it picks the object under the pointer. */
   pickForMenu: (sx: number, sy: number) => void;
+  /** The pointer over the canvas (screen px): the grip under it takes AutoCAD's hover colour. */
+  hoverAt: (sx: number, sy: number) => void;
   /** The details panel of an object (the right-click «Properties»). */
   showProperties: (index: number) => void;
+  /** Changes when AutoCAD's Properties palette should open (right-click «Properties», Ctrl+1). */
+  propertiesNonce: number;
+  openProperties: () => void;
   /** OpenStreetMap under the drawing (owner 2026-11-24): loaded only once turned on. */
   osm: {
     /** Drawing point → Lon/Lat; null when the file has no CRS / unit mapping yet. */
@@ -413,6 +422,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const transform = custom ?? fitted;
 
   // Selection, highlight and the floating panel.
+  const [hoverGrip, setHoverGrip] = useState<Grip | null>(null);
+  const [propertiesNonce, setPropertiesNonce] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [popover, setPopover] = useState<ViewerPopover | null>(null);
   const [highlightNonce, setHighlightNonce] = useState<number | null>(null);
@@ -469,6 +480,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             trench: trenchLabels,
             boxLabels: showBoxTypes ? boxLabels : [],
             chosen: edit.chosen,
+            grips: edit.grips,
+            groupBoxes: edit.groupBoxes,
+            hotGrip: edit.hotGrip,
+            hoverGrip,
             band: edit.band,
             ghost: edit.ghost,
             sketch: edit.sketch,
@@ -491,6 +506,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       layerColor,
       textHeight,
       edit.chosen,
+      edit.grips,
+      edit.groupBoxes,
+      edit.hotGrip,
+      hoverGrip,
       edit.band,
       edit.ghost,
       edit.sketch,
@@ -506,8 +525,19 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     ],
   );
 
+  const gripAt = (sx: number, sy: number) =>
+    hitGrip(edit.grips, (x, y) => toScreen(transform, size, x, y), sx, sy, GRIP_HIT_PX);
   const click = (sx: number, sy: number, additive = false) => {
     if (!scene || !shownPreview) return;
+    // AutoCAD: a click on a grip of the picked objects makes it hot («** STRETCH **»).
+    if (edit.editing && edit.command === null && edit.hotGrip === null && !additive) {
+      const grip = gripAt(sx, sy);
+      if (grip) {
+        edit.startGrip(grip);
+        setPopover(null);
+        return;
+      }
+    }
     // Between commands an error mark still opens its fix tools.
     const onMarker =
       edit.editing && edit.command === null
@@ -668,6 +698,14 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         setHiddenObjects(NO_ENTITIES);
       },
     },
+    hoverAt: (sx, sy) => {
+      const grip = edit.grips.length > 0 ? gripAt(sx, sy) : null;
+      if (
+        grip !== hoverGrip &&
+        (grip === null || hoverGrip === null || grip.x !== hoverGrip.x || grip.y !== hoverGrip.y)
+      )
+        setHoverGrip(grip);
+    },
     pickForMenu: (sx, sy) => {
       if (!scene || !shownPreview || !edit.editing || edit.command !== null) return;
       if (edit.chosenCount > 0) return;
@@ -686,8 +724,17 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       );
       if (hit !== null) edit.pick(hit, world, false);
     },
+    propertiesNonce,
+    openProperties: () => setPropertiesNonce((n) => n + 1),
     showProperties: (index) => {
       if (!scene) return;
+      // AutoCAD's Properties palette for the picked objects (owner 2026-11-26).
+      if (edit.editing) {
+        if (!edit.chosen.has(index)) edit.pick(index, { x: 0, y: 0 }, false);
+        setPopover(null);
+        setPropertiesNonce((n) => n + 1);
+        return;
+      }
       const box = boxOf(scene, index);
       setSelected(index);
       setPopover({

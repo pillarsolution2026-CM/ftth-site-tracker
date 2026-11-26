@@ -135,6 +135,9 @@ def test_entities_are_grouped_by_top_level_handle(drawing: tuple[Path, dict[str,
 
     nested = entities[h["nested"]]  # a block in a block: still one entity, the outer handle
     assert nested.kind == "INSERT" and len(nested.paths) == 2
+    assert nested.insert is not None and nested.insert.name == "OUTER"
+    assert (nested.insert.x, nested.insert.y) == (0, 100)
+    assert entities[h["text"]].insert is None
     assert [t.text for t in nested.texts] == ["IN"]
     assert (nested.texts[0].x, nested.texts[0].y) == (0, 105)
     assert all(x == pytest.approx(10, abs=1.01) for x, _ in _points(nested.paths[0]))
@@ -268,12 +271,23 @@ def test_gzip_json_mirrors_the_contract(drawing: tuple[Path, dict[str, str]]) ->
     assert data["version"] == 1 and data["cadFileId"] == FILE_ID and data["truncated"] is False
     assert data["extents"] == {"minX": -20, "minY": -30, "maxX": 200, "maxY": 300}
     for entity in data["entities"]:
-        assert set(entity) == {"handle", "layer", "color", "kind", "paths", "texts"}
+        base = {"handle", "layer", "color", "kind", "paths", "texts"}
+        assert set(entity) in (base, base | {"insert"})
+        assert ("insert" in entity) == (entity["kind"] == "INSERT")
         assert 0 <= entity["layer"] < len(data["layers"])
         assert entity["color"] is None or HEX.match(entity["color"])
         assert all(len(p) >= 4 and len(p) % 2 == 0 for p in entity["paths"])
         for t in entity["texts"]:
             assert set(t) == {"x", "y", "height", "rotation", "text"}
+    insert = next(e for e in data["entities"] if e["handle"] == h["insert"])
+    assert insert["insert"] == {
+        "x": 100.0,
+        "y": 50.0,
+        "rotation": 90.0,
+        "scaleX": 2.0,
+        "scaleY": 2.0,
+        "name": "SYM",
+    }
     text = next(e for e in data["entities"] if e["handle"] == h["text"])
     assert text["texts"] == [
         {"x": 10.0, "y": 20.0, "height": 2.5, "rotation": 30.0, "text": "Hello"}

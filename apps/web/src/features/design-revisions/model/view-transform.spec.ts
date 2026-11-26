@@ -55,6 +55,15 @@ describe('view transform', () => {
     expect(zoomAt({ cx: 0, cy: 0, scale: 2 }, size, 0, 0, 1e9, limits).scale).toBe(limits.max);
   });
 
+  it('zooms out with no practical limit, as AutoCAD: down to 1/100000 of the fit scale', () => {
+    const limits = scaleLimits({ cx: 0, cy: 0, scale: 2 });
+    expect(limits.min).toBeCloseTo(2 / 100_000);
+    let tf = { cx: 0, cy: 0, scale: 2 };
+    for (let i = 0; i < 20; i++) tf = zoomAt(tf, size, 400, 300, 1 / 1.5, limits);
+    // 20 steps of the − button reach far below the old 1/20 stop.
+    expect(tf.scale).toBeLessThan(2 / 20 / 100);
+  });
+
   it('pans so the content follows the pointer', () => {
     const tf = { cx: 0, cy: 0, scale: 2 };
     const moved = panBy(tf, 20, 10);

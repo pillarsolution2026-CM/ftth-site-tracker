@@ -33,6 +33,7 @@ from cad_worker.adapters.ezdxf_curves import to_wcs
 from cad_worker.adapters.ezdxf_reader import _clean, _rgb, _text_anchor
 from cad_worker.application.ports import RenderOutput, ViewFailure
 from cad_worker.domain.drawing_view import (
+    BLOCK_NAME_MAX_LENGTH,
     DRAWING_VIEW_MAX_JSON_BYTES,
     DRAWING_VIEW_MAX_PARTS,
     DRAWING_VIEW_MAX_TEXTS,
@@ -42,10 +43,12 @@ from cad_worker.domain.drawing_view import (
     EntityShapes,
     RenderedView,
     RenderStats,
+    ViewInsert,
     ViewLayer,
     ViewTooLargeError,
     hex_color,
     shape_sagitta,
+    utf16_cut,
     utf16_length,
     view_sagitta,
     write_view_gzip,
@@ -213,6 +216,28 @@ class _EntityRenderer:
         return True
 
 
+def _insert_of(entity: Any, kind: str) -> ViewInsert | None:
+    """An INSERT's insertion point (WCS), rotation, scale and block name; None when unreadable."""
+    if kind != "INSERT":
+        return None
+    try:
+        x, y, z = Vec3(entity.dxf.insert)
+        x, y, _ = to_wcs(entity, [(x, y, z)])[0]
+        values = (
+            float(x),
+            float(y),
+            float(entity.dxf.get("rotation", 0.0)),
+            float(entity.dxf.get("xscale", 1.0)),
+            float(entity.dxf.get("yscale", 1.0)),
+        )
+        if not all(math.isfinite(v) for v in values):
+            return None
+        name = utf16_cut(_clean(str(entity.dxf.get("name", ""))), BLOCK_NAME_MAX_LENGTH)
+        return ViewInsert(*values, name=name)
+    except Exception:  # a broken insert keeps its shapes, only without the grip
+        return None
+
+
 class EzdxfViewRenderer:
     """In-process renderer (tests, and the child process of `SubprocessViewRenderer`)."""
 
@@ -322,7 +347,7 @@ class EzdxfViewRenderer:
                 stats.skip("unsupported", kind)
             else:
                 stats.empty += 1  # e.g. a POINT, an empty block, a blank text
-        elif builder.add(handle, layer, color, kind, shapes):
+        elif builder.add(handle, layer, color, kind, shapes, _insert_of(entity, kind)):
             stats.rendered += 1
         else:
             stats.dropped += 1  # over the caps (the view is `truncated`)
