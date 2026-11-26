@@ -70,6 +70,11 @@ export interface DrawModel {
   preview: DrawingPreview;
   /** Is the layer (index, -1 = unknown layer) switched on. */
   layerShown: (layerIndex: number) => boolean;
+  /**
+   * The index of a layer made on the page (after the drawing's layers; audit 7), so an item on
+   * it follows that layer's screen state and colour; -1 when unknown.
+   */
+  pageLayer?: (name: string) => number;
   markers: readonly ProblemMarker[];
   /** Entities to highlight with a halo (the place the user asked to see). */
   highlighted: ReadonlySet<number>;
@@ -123,6 +128,10 @@ function colorOf(model: DrawModel, index: number): string {
   if (override && (moved || entity.color === null)) return screenColor(override);
   return screenColor(resolveColor(entity, scene.view.layers, layer, moved));
 }
+
+/** A page item's layer: its view index, else the page layer of its name (audit 7). */
+const layerAt = (model: DrawModel, layer: number, name: string) =>
+  layer >= 0 ? layer : (model.pageLayer?.(name) ?? -1);
 
 /** Colour of a layer (by index) on screen: the user's choice, else the drawing's. */
 function layerColorOf(model: DrawModel, layer: number, fallback: string): string {
@@ -260,8 +269,9 @@ function drawTables(
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
   for (const table of tables) {
-    if (!model.layerShown(table.layer)) continue;
-    const color = layerColorOf(model, table.layer, table.color);
+    const tableLayer = layerAt(model, table.layer, table.layerName);
+    if (!model.layerShown(tableLayer)) continue;
+    const color = layerColorOf(model, tableLayer, table.color);
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
@@ -427,8 +437,9 @@ export function drawBase(
   }
   ctx.globalAlpha = 1;
   for (const extra of preview.extraTexts) {
-    if (!model.layerShown(extra.layer)) continue;
-    ctx.fillStyle = layerColorOf(model, extra.layer, extra.color);
+    const extraLayer = layerAt(model, extra.layer, extra.layerName);
+    if (!model.layerShown(extraLayer)) continue;
+    ctx.fillStyle = layerColorOf(model, extraLayer, extra.color);
     fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
   }
   // A wipeout hides what is under it with the background.
@@ -454,8 +465,9 @@ function drawShapes(
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
   for (const shape of shapes) {
-    if (shapePass(shape) !== pass || !model.layerShown(shape.layer)) continue;
-    const color = shape.color ?? layerColorOf(model, shape.layer, shape.layerColor);
+    const shapeLayer = layerAt(model, shape.layer, shape.layerName);
+    if (shapePass(shape) !== pass || !model.layerShown(shapeLayer)) continue;
+    const color = shape.color ?? layerColorOf(model, shapeLayer, shape.layerColor);
     ctx.save();
     drawShape(ctx, model, tf, vp, shape, color);
     ctx.restore();
@@ -687,8 +699,9 @@ function drawAdded(
   }
   const { x: ox, y: oy } = scene.origin;
   for (const curve of preview.extraCurves) {
-    if (!model.layerShown(curve.layer)) continue;
-    ctx.strokeStyle = layerColorOf(model, curve.layer, curve.color);
+    const curveLayer = layerAt(model, curve.layer, curve.layerName);
+    if (!model.layerShown(curveLayer)) continue;
+    ctx.strokeStyle = layerColorOf(model, curveLayer, curve.color);
     ctx.beginPath();
     for (let i = 0; i + 1 < curve.path.length; i += 2) {
       const x = (curve.path[i] as number) - ox;
@@ -721,7 +734,8 @@ function drawAdded(
     }
   }
   for (const note of notes) {
-    if (model.layerShown(note.layer)) drawNote(ctx, model, tf, vp, note);
+    if (model.layerShown(layerAt(model, note.layer, note.layerName)))
+      drawNote(ctx, model, tf, vp, note);
   }
 }
 
@@ -1021,9 +1035,10 @@ export function drawOverlay(
   if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
 
   for (const item of preview.extraItems) {
-    if (!model.layerShown(item.layer)) continue;
+    const itemLayer = layerAt(model, item.layer, item.layerName);
+    if (!model.layerShown(itemLayer)) continue;
     const p = toScreen(tf, vp, item.x, item.y);
-    ctx.strokeStyle = layerColorOf(model, item.layer, item.color);
+    ctx.strokeStyle = layerColorOf(model, itemLayer, item.color);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);

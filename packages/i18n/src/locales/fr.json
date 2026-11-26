@@ -2278,6 +2278,7 @@
         "layersOff": "Le calque « {layers} » a été désactivé.",
         "layersIsolated": "Le calque « {layers} » a été isolé.",
         "layersFrozen": "Le calque « {layers} » a été gelé.",
+        "cannotFreezeCurrent": "Impossible de geler le calque « {layer} ». Il s'agit du calque COURANT.",
         "layersLocked": "Le calque « {layers} » a été verrouillé.",
         "layersUnlocked": "Le calque « {layers} » a été déverrouillé.",
         "layersRestored": "Calques restaurés.",

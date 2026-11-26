@@ -86,7 +86,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('MATCHPROP and the Properties panel (item 34)', { timeout: 20_000 }, () => {
+describe('MATCHPROP, the Properties panel and layers (Phase 2D)', { timeout: 20_000 }, () => {
   const size = { width: 800, height: 600 };
   const tf = fitTransform(testView().extents, size);
   const at = (x: number, y: number) => {
@@ -308,5 +308,48 @@ describe('MATCHPROP and the Properties panel (item 34)', { timeout: 20_000 }, ()
     await user.selectOptions(within(palette).getByLabelText('Color'), 'Blue');
     const ribbonColor = screen.getAllByLabelText('Color').find((el) => el.tagName === 'BUTTON');
     expect(ribbonColor).toHaveTextContent('Blue');
+  });
+
+  it('the current layer cannot be frozen (AutoCAD); page layers get their own screen state', async () => {
+    const { canvas, user } = await openWorkspace();
+    await user.click(screen.getByRole('button', { name: /^Layer: / }));
+    const list = screen.getByRole('dialog', { name: 'Layers of the drawing' });
+    await user.click(within(list).getByRole('button', { name: 'Route' }));
+    await type(user, 'layfrz');
+    await click(user, canvas, 75, 25);
+    expect(history()).toMatch(/Cannot freeze layer "Route"\.\s+It is the CURRENT layer\./);
+    await user.keyboard('{Escape}');
+    await type(user, 'la');
+    const manager = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
+    await user.click(within(manager).getByRole('button', { name: 'Freeze Route' }));
+    expect(within(manager).getByRole('alert')).toHaveTextContent(
+      /Cannot freeze layer "Route"\.\s+It is the CURRENT layer\./,
+    );
+    expect(within(manager).getByRole('button', { name: 'Freeze Route' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    // A layer made on the page has on / freeze / lock like the drawing's layers.
+    await user.click(within(manager).getByRole('button', { name: 'New layer' }));
+    const form = within(manager).getByRole('group', { name: 'New layer' });
+    await user.type(within(form).getByLabelText('Layer name'), 'HOUSES');
+    await user.selectOptions(
+      within(form).getByLabelText('Means for the build'),
+      'Drawing only (not counted)',
+    );
+    await user.click(within(form).getByRole('button', { name: 'Add the layer' }));
+    // HOUSES is current now: it cannot be frozen, Route can.
+    await user.click(within(manager).getByRole('button', { name: 'Freeze HOUSES' }));
+    expect(within(manager).getByRole('alert')).toHaveTextContent(/Cannot freeze layer "HOUSES"/);
+    await user.click(within(manager).getByRole('button', { name: 'Freeze Route' }));
+    expect(within(manager).getByRole('button', { name: 'Freeze Route' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(manager).getByRole('button', { name: 'Lock HOUSES' }));
+    expect(within(manager).getByRole('button', { name: 'Lock HOUSES' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });

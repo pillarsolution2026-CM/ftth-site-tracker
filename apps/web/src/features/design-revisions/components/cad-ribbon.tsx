@@ -1246,6 +1246,7 @@ export function CadRibbon({
   osm,
   layerScreen,
   view,
+  layerNotice = null,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
@@ -1260,6 +1261,8 @@ export function CadRibbon({
   layerScreen: LayerScreen;
   /** The view buttons and palettes on the tab strip. */
   view: StripView;
+  /** Why the last layer change was refused (the current layer cannot be frozen). */
+  layerNotice?: string | null;
 }) {
   const { t } = useI18n();
   const editing = edit.available && edit.editing;
@@ -1492,6 +1495,7 @@ export function CadRibbon({
                   onToggleLayer={onToggleLayer}
                   onToggleFrozen={onToggleFrozen}
                   onToggleLocked={onToggleLocked}
+                  notice={layerNotice}
                 />
                 <div className="flex flex-wrap items-center gap-0.5">
                   <IconTile edit={edit} id="layoff" />
@@ -1617,12 +1621,14 @@ function LayerDropdown({
   onToggleLayer,
   onToggleFrozen,
   onToggleLocked,
+  notice,
 }: {
   edit: CanvasEditState;
   rows: readonly LayerRow[];
   onToggleLayer: (index: number) => void;
   onToggleFrozen: (index: number) => void;
   onToggleLocked: (index: number) => void;
+  notice: string | null;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -1718,6 +1724,11 @@ function LayerDropdown({
               );
             })}
           </ul>
+          {notice ? (
+            <p role="alert" className="border-t border-[#4a505a] p-1.5 text-[11px] text-[#ffb4a8]">
+              {notice}
+            </p>
+          ) : null}
           <p className="border-t border-[#4a505a] p-1.5 text-[11px] text-[#aab0b8]" dir="auto">
             {t('design.cad.screenLayers')}
           </p>

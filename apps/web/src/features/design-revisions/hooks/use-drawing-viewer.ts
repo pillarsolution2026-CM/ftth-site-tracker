@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LonLat } from '@ftth/geo';
 import { ltr } from '@ftth/i18n';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
@@ -25,7 +25,12 @@ import {
 import { pendingPlaces, routePieces } from '../model/corrections';
 import { PathCache, type BoxLabel, type DrawModel } from '../model/drawing-draw';
 import { buildMarkers, hitEntity, hitMarker, type ProblemMarker } from '../model/drawing-hit';
-import { applyCorrections, defaultTextHeight, effectiveLayer } from '../model/drawing-preview';
+import {
+  applyCorrections,
+  defaultTextHeight,
+  effectiveLayer,
+  FALLBACK_COLOR,
+} from '../model/drawing-preview';
 import { boxOf, buildScene, type DrawingScene } from '../model/drawing-scene';
 import {
   fitTransform,
@@ -126,6 +131,10 @@ export interface DrawingViewer {
   toggleLayer: (index: number) => void;
   setShownForListed: (shown: boolean) => void;
   toggleFrozen: (index: number) => void;
+  /** Why the last layer change was refused (the current layer cannot be frozen), else null. */
+  layerMessage: string | null;
+  /** A layer's index: the drawing's, then those made on the page (-1: unknown). */
+  layerIndexOf: (name: string) => number;
   toggleLocked: (index: number) => void;
   setLayerColor: (index: number, color: string | null) => void;
   /** LAYER: the Layer Properties palette is asked for (changes on each request). */
@@ -330,6 +339,26 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const [layersNonce, setLayersNonce] = useState(0);
   const [layerQuery, setLayerQuery] = useState('');
   const layers = scene?.view.layers;
+  // Layers made on the page (audit 7): an index after the drawing's ones, kept by name, so they
+  // are turned off, frozen, locked and coloured on the screen like any other layer.
+  const [pageLayers, setPageLayers] = useState<readonly string[]>([]);
+  const viewCount = layers?.length ?? 0;
+  const layerIndexOf = useCallback(
+    (name: string) => {
+      const inView = scene?.layerByName.get(name);
+      if (inView !== undefined) return inView;
+      const at = pageLayers.indexOf(name);
+      return at < 0 ? -1 : viewCount + at;
+    },
+    [scene, pageLayers, viewCount],
+  );
+  const layerNameAt = useCallback(
+    (index: number) => layers?.[index]?.name ?? pageLayers[index - viewCount] ?? '',
+    [layers, pageLayers, viewCount],
+  );
+  /** The current layer's index, read when a layer is frozen (it never is). */
+  const currentLayerRef = useRef(-1);
+  const [layerMessage, setLayerMessage] = useState<string | null>(null);
   const isShown = useCallback(
     (index: number) => {
       if (index < 0) return true;
@@ -338,8 +367,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [overrides, layers, frozen],
   );
   const layerRows = useMemo<LayerRow[]>(
-    () =>
-      (layers ?? []).map((layer, index) => ({
+    () => [
+      ...(layers ?? []).map((layer, index) => ({
         index,
         name: layer.name,
         color: layerColor.get(index) ?? layer.color,
@@ -347,7 +376,19 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         frozen: frozen.has(index),
         locked: locked.has(index),
       })),
-    [layers, overrides, frozen, locked, layerColor],
+      ...pageLayers.map((name, at) => {
+        const index = viewCount + at;
+        return {
+          index,
+          name,
+          color: layerColor.get(index) ?? FALLBACK_COLOR,
+          shown: overrides.get(index) ?? true,
+          frozen: frozen.has(index),
+          locked: locked.has(index),
+        };
+      }),
+    ],
+    [layers, overrides, frozen, locked, layerColor, pageLayers, viewCount],
   );
   const toggleIn =
     (set: (update: (previous: ReadonlySet<number>) => ReadonlySet<number>) => void) =>
@@ -417,7 +458,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const remember = (label: string) => history.record(label, 'screen', screenNow());
   const layerScreen = useLayerScreen({
     cadFileId,
-    layerCount: layers?.length ?? 0,
+    layerCount: viewCount + pageLayers.length,
+    nameOf: layerNameAt,
+    indexOf: layerIndexOf,
+    currentLayer: () => currentLayerRef.current,
     snapshot: { overrides, frozen, locked },
     apply: (s) => {
       remember('LAYER');
@@ -461,6 +505,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     ruledLayers: tools.ruledLayers,
   });
   const shownPreview = canvasEdit.preview;
+  currentLayerRef.current = layerIndexOf(canvasEdit.currentLayer);
+  const newPageLayers = scene
+    ? canvasEdit.allLayers.filter((n) => !scene.layerByName.has(n) && !pageLayers.includes(n))
+    : [];
+  const newPageKey = newPageLayers.join('\u0000');
+  useEffect(() => {
+    if (!newPageKey) return;
+    const added = newPageKey.split('\u0000');
+    setPageLayers((previous) => [...previous, ...added.filter((n) => !previous.includes(n))]);
+  }, [newPageKey]);
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -560,6 +614,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             scene,
             preview: shownPreview,
             layerShown: isShown,
+            pageLayer: layerIndexOf,
             markers,
             highlighted,
             selected,
@@ -602,6 +657,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       scene,
       shownPreview,
       isShown,
+      layerIndexOf,
       markers,
       highlighted,
       selected,
@@ -729,6 +785,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       count: boxLabels.length,
     },
     layerRows,
+    layerMessage,
+    layerIndexOf,
     layerQuery,
     setLayerQuery,
     toggleLayer: (index) => {
@@ -740,6 +798,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       setShownForListed(shown);
     },
     toggleFrozen: (index) => {
+      // AutoCAD: «Cannot freeze layer "0".  It is the CURRENT layer.»
+      if (!frozen.has(index) && index === currentLayerRef.current) {
+        setLayerMessage(t('design.cad.msg.cannotFreezeCurrent', { layer: layerNameAt(index) }));
+        return;
+      }
+      setLayerMessage(null);
       remember('LAYER');
       toggleIn(setFrozen)(index);
     },

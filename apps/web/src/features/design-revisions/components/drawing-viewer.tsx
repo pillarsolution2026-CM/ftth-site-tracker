@@ -312,6 +312,7 @@ function Workspace({
           onToggleLayer={viewer.toggleLayer}
           onToggleFrozen={viewer.toggleFrozen}
           onToggleLocked={viewer.toggleLocked}
+          layerNotice={viewer.layerMessage}
           markersShown={viewer.markersShown}
           onToggleMarkers={() => viewer.setMarkersShown(!viewer.markersShown)}
           osm={{
@@ -366,6 +367,7 @@ function Workspace({
               onFreeze={viewer.toggleFrozen}
               onLock={viewer.toggleLocked}
               onColor={viewer.setLayerColor}
+              notice={viewer.layerMessage}
               edit={edit.editing ? edit : null}
               onClose={() => setManagerOpen(false)}
             />

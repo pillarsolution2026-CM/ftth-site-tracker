@@ -2278,6 +2278,7 @@
         "layersOff": "Layer \"{layers}\" has been turned off.",
         "layersIsolated": "Layer \"{layers}\" has been isolated.",
         "layersFrozen": "Layer \"{layers}\" has been frozen.",
+        "cannotFreezeCurrent": "Cannot freeze layer \"{layer}\".  It is the CURRENT layer.",
         "layersLocked": "Layer \"{layers}\" has been locked.",
         "layersUnlocked": "Layer \"{layers}\" has been unlocked.",
         "layersRestored": "Layers restored.",
