@@ -980,29 +980,26 @@ describe(
         }
       });
 
-      it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
-        // Each panel is 100 px wide open; the row is 800 px: the last ones shrink.
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
-          this: HTMLElement,
-        ) {
-          return this.getAttribute('role') === 'group' ? 100 : 0;
-        });
+      it('divides the ribbon equally between all panels; what does not fit goes under ▾ (items 31, 31b)', async () => {
+        // The row is 800 px (clientWidth): nine panels of 88 px; every tool is 60 px wide, so
+        // each panel keeps its first tool and none collapses to a bare title.
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(60);
         const { user } = await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        for (const name of ['Draw', 'Modify', 'Layers', 'Groups', 'Block', 'Properties']) {
+          expect(within(ribbon).getByRole('group', { name })).toHaveStyle({ width: '88px' });
+        }
         await waitFor(() =>
-          expect(
-            within(ribbon).getByRole('button', { name: 'Open the Properties panel' }),
-          ).toBeInTheDocument(),
+          expect(within(ribbon).queryByRole('button', { name: 'Polyline' })).toBeNull(),
         );
-        expect(within(ribbon).getByRole('group', { name: 'Draw' })).toBeInTheDocument();
         expect(tool('Line')).toBeInTheDocument();
-        expect(within(ribbon).queryByRole('button', { name: 'Open the Draw panel' })).toBeNull();
-        // A shrunk panel opens its tools under it.
-        expect(within(ribbon).queryByRole('button', { name: 'Match Properties' })).toBeNull();
-        await user.click(within(ribbon).getByRole('button', { name: 'Open the Properties panel' }));
         expect(
           within(ribbon).getByRole('button', { name: 'Match Properties' }),
         ).toBeInTheDocument();
+        expect(within(ribbon).queryByRole('button', { name: /^Open the .* panel$/ })).toBeNull();
+        // The ▾ next to «Draw» holds the tools that did not fit, then the slide-out.
+        await user.click(within(ribbon).getByRole('button', { name: 'More Draw tools' }));
+        expect(tool('Polyline')).toBeInTheDocument();
       });
     });
 
