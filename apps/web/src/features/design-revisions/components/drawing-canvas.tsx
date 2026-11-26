@@ -13,7 +13,14 @@ import {
 import { Ltr } from '@/shared/ui/ltr';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
-import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
+import {
+  CANVAS_BG,
+  drawBase,
+  drawOverlay,
+  SelectionLayer,
+  viewShift,
+  type DrawModel,
+} from '../model/drawing-draw';
 import { CanvasContextMenu } from './canvas-context-menu';
 import { SnapMenu } from './snap-menu';
 import type { CrosshairSize } from '../hooks/use-crosshair-size';
@@ -43,6 +50,9 @@ interface BaseState {
   height: number;
   dpr: number;
 }
+
+/** The crosshair before the pointer comes (a constant: React never resets what showHair set). */
+const HAIR_HIDDEN = { display: 'none' } as const;
 
 const sameFade = (a: DrawModel['lockedFade'], b: DrawModel['lockedFade']) =>
   a === b || (a !== undefined && b !== undefined && a.layers === b.layers && a.alpha === b.alpha);
@@ -88,9 +98,26 @@ export function DrawingCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<BaseState | null>(null);
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-  /** The pointer on screen: AutoCAD's crosshair is drawn there (ADR-051). */
-  const [hair, setHair] = useState<Pointer | null>(null);
+  /**
+   * The pointer on screen: AutoCAD's crosshair is drawn there (ADR-051), and its drawing
+   * coordinates. Moved by ref, not React state: a pointer move renders nothing (audit 10.6).
+   */
+  const hairRef = useRef<HTMLDivElement>(null);
+  const coordsRef = useRef<HTMLSpanElement>(null);
+  const showHair = (p: Pointer | null, world?: { x: number; y: number }) => {
+    const hair = hairRef.current;
+    if (hair) {
+      hair.style.display = p ? '' : 'none';
+      if (p) {
+        hair.style.setProperty('--hx', `${p.x}px`);
+        hair.style.setProperty('--hy', `${p.y}px`);
+      }
+    }
+    const coords = coordsRef.current;
+    if (coords) {
+      coords.textContent = world ? `X ${world.x.toFixed(2)}  Y ${world.y.toFixed(2)}` : '—';
+    }
+  };
   const [redrawTick, setRedrawTick] = useState(0);
   // The pointer a running command follows (ghost, rubber band): the canvas alone listens to it.
   const livePointer = useSyncExternalStore(
@@ -110,6 +137,10 @@ export function DrawingCanvas({
   const moved = useRef(false);
   const pinch = useRef<{ distance: number } | null>(null);
   const forceFull = useRef(false);
+  /** The picked objects, drawn once per selection / view (audit 10.1). */
+  const selectionRef = useRef<SelectionLayer | null>(null);
+  /** When the last wheel step came: a burst scales the cached base (audit 10.3). */
+  const wheelAt = useRef(-Infinity);
   const zoomRef = useRef(viewer.zoomBy);
   /** Edit mode, layer tool: a left drag draws a selection box instead of panning (ADR-047). */
   const bandFrom = useRef<{ x: number; y: number } | null>(null);
@@ -140,6 +171,7 @@ export function DrawingCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const selection = (selectionRef.current ??= new SelectionLayer());
     const frame = requestAnimationFrame(() => {
       const pixelW = Math.round(size.width * dpr);
       const pixelH = Math.round(size.height * dpr);
@@ -148,25 +180,32 @@ export function DrawingCanvas({
       const viewport = { width: size.width, height: size.height, dpr };
       const big = model.scene.view.entities.length > CACHE_FROM_ENTITIES;
       const base = baseRef.current;
-      const panned =
+      const kept =
         big &&
         !forceFull.current &&
         base !== null &&
-        sameBase(base, model, size.width, size.height, dpr) &&
+        sameBase(base, model, size.width, size.height, dpr);
+      const panned =
+        kept &&
         base.tf.scale === transform.scale &&
         (base.tf.cx !== transform.cx || base.tf.cy !== transform.cy);
-      if (panned && base) {
+      // A wheel burst scales the last picture (audit 10.3); the exact one follows at rest.
+      const zoomed =
+        kept &&
+        base.tf.scale !== transform.scale &&
+        performance.now() - wheelAt.current < SETTLE_MS;
+      if ((panned || zoomed) && base) {
         // Move the last picture; the exact one follows when the pointer rests.
-        const dx = (base.tf.cx - transform.cx) * transform.scale;
-        const dy = (transform.cy - base.tf.cy) * transform.scale;
+        const [r, , , , e, f] = viewShift(base.tf, transform, viewport);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         if (model.mapBehind) ctx.clearRect(0, 0, canvas.width, canvas.height);
         else {
           ctx.fillStyle = CANVAS_BG;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
-        ctx.drawImage(base.canvas, Math.round(dx * dpr), Math.round(dy * dpr));
-        drawOverlay(ctx, drawModel, cache, transform, viewport);
+        if (r === 1) ctx.drawImage(base.canvas, Math.round(e), Math.round(f));
+        else ctx.drawImage(base.canvas, e, f, base.canvas.width * r, base.canvas.height * r);
+        drawOverlay(ctx, drawModel, cache, transform, viewport, { selection, fast: true });
         return;
       }
       const reuse =
@@ -192,7 +231,7 @@ export function DrawingCanvas({
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(baseRef.current.canvas, 0, 0);
       }
-      drawOverlay(ctx, drawModel, cache, transform, viewport);
+      drawOverlay(ctx, drawModel, cache, transform, viewport, { selection });
     });
     // A pan of a big drawing is settled by a full redraw when the pointer rests.
     const settle = window.setTimeout(() => {
@@ -219,6 +258,7 @@ export function DrawingCanvas({
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+      wheelAt.current = performance.now();
       zoomRef.current(event.clientX - rect.left, event.clientY - rect.top, wheelFactor(delta));
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -293,8 +333,7 @@ export function DrawingCanvas({
   const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
     const p = local(event);
     const world = toWorld(transform, size, p.x, p.y);
-    setCursor({ x: world.x, y: world.y });
-    setHair(p);
+    showHair(p, world);
     queueHover(p);
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
@@ -421,8 +460,7 @@ export function DrawingCanvas({
         onPointerCancel={onPointerUp}
         onPointerLeave={() => {
           pendingHover.current = null;
-          setCursor(null);
-          setHair(null);
+          showHair(null);
         }}
         onKeyDown={onKeyDown}
         onContextMenu={(event) => {
@@ -442,36 +480,37 @@ export function DrawingCanvas({
           setMenu(p);
         }}
       />
-      {hair ? (
+      {/* Shown and placed by showHair (CSS --hx / --hy), hidden until the pointer comes. */}
+      <div
+        ref={hairRef}
+        aria-hidden="true"
+        data-testid="crosshair"
+        data-size={crosshair}
+        className="pointer-events-none"
+        style={HAIR_HIDDEN}
+      >
+        {crosshair === 'full' ? (
+          <>
+            <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: 'var(--hx)' }} />
+            <div className="absolute inset-x-0 h-px bg-white/70" style={{ top: 'var(--hy)' }} />
+          </>
+        ) : (
+          <>
+            <div
+              className="absolute w-px bg-white/80"
+              style={{ left: 'var(--hx)', top: `calc(var(--hy) - ${arm}px)`, height: arm * 2 }}
+            />
+            <div
+              className="absolute h-px bg-white/80"
+              style={{ top: 'var(--hy)', left: `calc(var(--hx) - ${arm}px)`, width: arm * 2 }}
+            />
+          </>
+        )}
         <div
-          aria-hidden="true"
-          data-testid="crosshair"
-          data-size={crosshair}
-          className="pointer-events-none"
-        >
-          {crosshair === 'full' ? (
-            <>
-              <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: hair.x }} />
-              <div className="absolute inset-x-0 h-px bg-white/70" style={{ top: hair.y }} />
-            </>
-          ) : (
-            <>
-              <div
-                className="absolute w-px bg-white/80"
-                style={{ left: hair.x, top: hair.y - arm, height: arm * 2 }}
-              />
-              <div
-                className="absolute h-px bg-white/80"
-                style={{ top: hair.y, left: hair.x - arm, width: arm * 2 }}
-              />
-            </>
-          )}
-          <div
-            className="absolute size-2.5 border border-white"
-            style={{ left: hair.x - 5, top: hair.y - 5 }}
-          />
-        </div>
-      ) : null}
+          className="absolute size-2.5 border border-white"
+          style={{ left: 'calc(var(--hx) - 5px)', top: 'calc(var(--hy) - 5px)' }}
+        />
+      </div>
       <p id="drawing-canvas-help" className="sr-only">
         {t('design.viewer.keysHelp')}
       </p>
@@ -480,7 +519,9 @@ export function DrawingCanvas({
         className="pointer-events-none absolute left-1 top-1 rounded bg-[#1d2127]/90 px-2 py-0.5 font-mono text-xs text-[#d7dbe0]"
       >
         <span className="font-sans">{t('design.viewer.coords')}: </span>
-        <Ltr>{cursor ? `X ${cursor.x.toFixed(2)}  Y ${cursor.y.toFixed(2)}` : '—'}</Ltr>
+        <Ltr>
+          <span ref={coordsRef}>—</span>
+        </Ltr>
       </div>
       {snapMenu ? (
         <SnapMenu

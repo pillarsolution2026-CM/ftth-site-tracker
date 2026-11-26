@@ -934,7 +934,8 @@ function drawMarker(
 
 /**
  * Cheap things drawn over the (possibly cached) base on every frame: highlight halos, the clicked
- * entity, merged pieces, added items and the problem markers (a fixed size on screen).
+ * entity, merged pieces, added items and the problem markers (a fixed size on screen). The picked
+ * objects come from `layers.selection` when given (drawn once, copied per frame; audit 10.1).
  */
 export function drawOverlay(
   ctx: CanvasRenderingContext2D,
@@ -942,6 +943,7 @@ export function drawOverlay(
   cache: PathCache,
   tf: ViewTransform,
   vp: Viewport,
+  layers?: OverlayLayers,
 ): void {
   const { scene, preview } = model;
   const bounds = visibleBounds(tf, vp);
@@ -1012,9 +1014,14 @@ export function drawOverlay(
     boxOutline(ctx, model, tf, vp, model.selected, SELECTED_COLOR);
   }
   if ((model.chosen && model.chosen.size > 0) || model.grips?.length)
-    drawChosen(ctx, model, cache, tf, vp);
+    drawChosen(ctx, model, cache, tf, vp, layers);
   if (model.band) drawBand(ctx, model.band, tf, vp);
-  if (model.ghost) drawGhost(ctx, model, cache, tf, vp, model.ghost);
+  if (model.ghost) {
+    const big = model.ghost.indexes.length > GHOST_MAX_STROKES;
+    if (!big || !layers?.selection?.drawGhost(ctx, model, tf, vp, model.ghost)) {
+      drawGhost(ctx, model, cache, tf, vp, model.ghost);
+    }
+  }
   if (model.sketch && model.sketch.points.length > 0) drawSketch(ctx, model.sketch, tf, vp);
 
   if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
@@ -1062,6 +1069,240 @@ const sameGrip = (a: Grip | null | undefined, b: Grip) =>
   a.x === b.x &&
   a.y === b.y;
 
+/** The most picked entities stroked into the selection layer (the nearest part of a bigger one). */
+export const CHOSEN_MAX_STROKES = 20_000;
+
+type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
+/**
+ * The picked entities dashed (AutoCAD's selection highlight), only those on the screen, at most
+ * CHOSEN_MAX_STROKES, sub-pixel ones skipped as the base does. Returns how many were stroked.
+ */
+function strokeChosen(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  tf: ViewTransform,
+  vp: Viewport,
+): number {
+  const { scene, preview } = model;
+  const view = visibleBounds(tf, vp);
+  setWorldTransform(ctx, scene, tf, vp);
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 2 / tf.scale;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
+  let stroked = 0;
+  for (const index of model.chosen ?? []) {
+    if (stroked >= CHOSEN_MAX_STROKES) break;
+    if (!scene.view.entities[index]?.paths.length) continue;
+    const box = shownBox(model, index);
+    if (
+      box.minX > view.maxX ||
+      box.maxX < view.minX ||
+      box.minY > view.maxY ||
+      box.maxY < view.minY
+    )
+      continue;
+    if (
+      !preview.curveOf.has(index) &&
+      (box.maxX - box.minX) * tf.scale < MIN_SHAPE_PX &&
+      (box.maxY - box.minY) * tf.scale < MIN_SHAPE_PX
+    )
+      continue;
+    strokeEntity(ctx, model, cache, index);
+    stroked++;
+  }
+  ctx.setLineDash([]);
+  return stroked;
+}
+
+/** Device-pixel affine (a, b, c, d, e, f) taking the picture drawn at `from` to where `to` puts it. */
+export function viewShift(from: ViewTransform, to: ViewTransform, vp: Viewport): Affine {
+  const r = to.scale / from.scale;
+  const e = (vp.width / 2 - (vp.width / 2) * r + (from.cx - to.cx) * to.scale) * vp.dpr;
+  const f = (vp.height / 2 - (vp.height / 2) * r + (to.cy - from.cy) * to.scale) * vp.dpr;
+  return [r, 0, 0, r, e, f];
+}
+
+/** Device-pixel affine of a drawing-space step: device ← world, step, world ← device. */
+function deviceStep(step: Affine, tf: ViewTransform, vp: Viewport): Affine {
+  const k = tf.scale * vp.dpr;
+  // device = D(world): x' = k(x − cx) + W/2·dpr, y' = −k(y − cy) + H/2·dpr.
+  const toDevice: Affine = [
+    k,
+    0,
+    0,
+    -k,
+    (vp.width / 2) * vp.dpr - k * tf.cx,
+    (vp.height / 2) * vp.dpr + k * tf.cy,
+  ];
+  const toWorld: Affine = [
+    1 / k,
+    0,
+    0,
+    -1 / k,
+    tf.cx - ((vp.width / 2) * vp.dpr) / k,
+    tf.cy + ((vp.height / 2) * vp.dpr) / k,
+  ];
+  return compose(compose(toWorld, step), toDevice);
+}
+
+/** An off-screen canvas for a cached layer; null where there is none (tests without canvas). */
+export type LayerCanvasFactory = () => HTMLCanvasElement | null;
+
+const defaultLayerCanvas: LayerCanvasFactory = () =>
+  typeof document === 'undefined' ? null : document.createElement('canvas');
+
+interface SelectionKey {
+  scene: DrawingScene;
+  preview: DrawingPreview;
+  chosen: ReadonlySet<number>;
+  tf: ViewTransform;
+  width: number;
+  height: number;
+  dpr: number;
+}
+
+/**
+ * The picked objects drawn once into their own bitmap (audit 10.1): on every overlay frame of a
+ * running command (ghost, rubber band) the bitmap is copied, not the selection re-stroked. It is
+ * redrawn when the selection, the preview, the view or the size change; during a pan or a wheel
+ * burst (`fast`) the last bitmap is moved / scaled, and redrawn exactly when the view rests.
+ */
+export class SelectionLayer {
+  /** Times the selection was stroked into the bitmap (for the performance tests). */
+  renders = 0;
+  private canvas: HTMLCanvasElement | null = null;
+  private key: SelectionKey | null = null;
+  /** The box of every picked entity where the preview draws it (the ghost's one box). */
+  private box: Box | null = null;
+
+  constructor(private readonly create: LayerCanvasFactory = defaultLayerCanvas) {}
+
+  /** Draws the picked objects onto `ctx`; false when no bitmap can be made (draw them directly). */
+  draw(
+    ctx: CanvasRenderingContext2D,
+    model: DrawModel,
+    cache: PathCache,
+    tf: ViewTransform,
+    vp: Viewport,
+    fast: boolean,
+  ): boolean {
+    const chosen = model.chosen;
+    if (!chosen || chosen.size === 0) return true;
+    const key = this.key;
+    const same =
+      key !== null &&
+      key.scene === model.scene &&
+      key.preview === model.preview &&
+      key.chosen === chosen &&
+      key.width === vp.width &&
+      key.height === vp.height &&
+      key.dpr === vp.dpr;
+    const exact = same && key.tf.scale === tf.scale && key.tf.cx === tf.cx && key.tf.cy === tf.cy;
+    if (!exact && !(same && fast)) {
+      if (!this.render(model, cache, tf, vp)) return false;
+    }
+    const canvas = this.canvas as HTMLCanvasElement;
+    const drawnAt = (this.key as SelectionKey).tf;
+    ctx.save();
+    if (exact || this.key?.tf === tf) ctx.setTransform(1, 0, 0, 1, 0, 0);
+    else ctx.setTransform(...viewShift(drawnAt, tf, vp));
+    ctx.drawImage(canvas, 0, 0);
+    ctx.restore();
+    return true;
+  }
+
+  /**
+   * The ghost of a big selection (more than GHOST_MAX_STROKES) as the bitmap carried by the step:
+   * one copy per frame whatever the size. False when the bitmap is not of these entities.
+   */
+  drawGhost(
+    ctx: CanvasRenderingContext2D,
+    model: DrawModel,
+    tf: ViewTransform,
+    vp: Viewport,
+    ghost: { indexes: readonly number[]; step: Affine },
+  ): boolean {
+    const key = this.key;
+    const chosen = model.chosen;
+    if (!this.canvas || !key || !chosen || key.chosen !== chosen) return false;
+    if (chosen.size !== ghost.indexes.length) return false;
+    if (key.tf.scale !== tf.scale || key.tf.cx !== tf.cx || key.tf.cy !== tf.cy) return false;
+    ctx.save();
+    ctx.setTransform(...deviceStep(ghost.step, tf, vp));
+    ctx.drawImage(this.canvas, 0, 0);
+    ctx.restore();
+    if (this.box) {
+      const box = boxThrough(ghost.step, this.box);
+      setScreenTransform(ctx, vp);
+      ctx.strokeStyle = CHOSEN_COLOR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      const a = toScreen(tf, vp, box.minX, box.maxY);
+      const b = toScreen(tf, vp, box.maxX, box.minY);
+      ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
+      ctx.setLineDash([]);
+    }
+    return true;
+  }
+
+  private render(model: DrawModel, cache: PathCache, tf: ViewTransform, vp: Viewport): boolean {
+    this.canvas ??= this.create();
+    const canvas = this.canvas;
+    const target = canvas?.getContext('2d');
+    if (!canvas || !target) {
+      this.canvas = null;
+      this.key = null;
+      return false;
+    }
+    const w = Math.round(vp.width * vp.dpr);
+    const h = Math.round(vp.height * vp.dpr);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.clearRect(0, 0, w, h);
+    strokeChosen(target, model, cache, tf, vp);
+    this.renders++;
+    const chosen = model.chosen as ReadonlySet<number>;
+    if (this.key?.chosen !== chosen || this.key.preview !== model.preview) {
+      let box: Box | null = null;
+      for (const index of chosen) {
+        if (!model.scene.view.entities[index]?.paths.length) continue;
+        const b = shownBox(model, index);
+        box = box
+          ? {
+              minX: Math.min(box.minX, b.minX),
+              minY: Math.min(box.minY, b.minY),
+              maxX: Math.max(box.maxX, b.maxX),
+              maxY: Math.max(box.maxY, b.maxY),
+            }
+          : { ...b };
+      }
+      this.box = box;
+    }
+    this.key = {
+      scene: model.scene,
+      preview: model.preview,
+      chosen,
+      tf,
+      width: vp.width,
+      height: vp.height,
+      dpr: vp.dpr,
+    };
+    return true;
+  }
+}
+
+/** What drawOverlay may reuse between frames (the canvas keeps them). */
+export interface OverlayLayers {
+  selection?: SelectionLayer;
+  /** A pan or wheel burst is under way: cached layers are moved, redrawn exactly at rest. */
+  fast?: boolean;
+}
+
 /** Picked items as AutoCAD shows them: dashed, with AutoCAD's grips of each object. */
 function drawChosen(
   ctx: CanvasRenderingContext2D,
@@ -1069,17 +1310,10 @@ function drawChosen(
   cache: PathCache,
   tf: ViewTransform,
   vp: Viewport,
+  layers?: OverlayLayers,
 ): void {
-  const { scene } = model;
-  const chosen = model.chosen ?? new Set<number>();
-  setWorldTransform(ctx, scene, tf, vp);
-  ctx.strokeStyle = CHOSEN_COLOR;
-  ctx.lineWidth = 2 / tf.scale;
-  ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
-  for (const index of chosen) {
-    if (scene.view.entities[index]?.paths.length) strokeEntity(ctx, model, cache, index);
-  }
-  ctx.setLineDash([]);
+  const drawn = layers?.selection?.draw(ctx, model, cache, tf, vp, layers.fast ?? false) ?? false;
+  if (!drawn && model.chosen && model.chosen.size > 0) strokeChosen(ctx, model, cache, tf, vp);
   setScreenTransform(ctx, vp);
   ctx.strokeStyle = CHOSEN_COLOR;
   ctx.lineWidth = 1;
@@ -1092,6 +1326,8 @@ function drawChosen(
   ctx.setLineDash([]);
   for (const grip of model.grips ?? []) {
     const p = toScreen(tf, vp, grip.x, grip.y);
+    if (p.x < -GRIP_HALF_PX * 2 || p.y < -GRIP_HALF_PX * 2) continue;
+    if (p.x > vp.width + GRIP_HALF_PX * 2 || p.y > vp.height + GRIP_HALF_PX * 2) continue;
     ctx.fillStyle = sameGrip(model.hotGrip, grip)
       ? GRIP_HOT_COLOR
       : sameGrip(model.hoverGrip, grip)
