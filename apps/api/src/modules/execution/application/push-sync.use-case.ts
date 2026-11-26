@@ -342,6 +342,13 @@ export class PushSyncUseCase {
     if (!(await tx.featureInScope(projectId, designRevisionId, featureId, scope))) {
       throw new Rejection('FEATURE_OUT_OF_SCOPE');
     }
+    // ADR-058: a cabinet shared by the General and a Secondary takes its work in one drawing.
+    if (
+      feature.featureType === 'cabinet' &&
+      (await tx.cabinetTakenByOtherDrawing(projectId, designRevisionId, featureId))
+    ) {
+      throw new Rejection('CABINET_RECORDED_IN_OTHER_DRAWING');
+    }
     return feature;
   }
 

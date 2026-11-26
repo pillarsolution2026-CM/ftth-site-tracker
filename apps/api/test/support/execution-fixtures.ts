@@ -72,6 +72,8 @@ export async function publishRevision(
     siteId?: string | null;
     /** How long ago it was published (a published revision is immutable: set it here). */
     publishedAgoSeconds?: number;
+    /** A new drawing of the kind with this ordinal even when the site has one (ADR-049). */
+    newDrawingOrdinal?: number;
   } = {},
 ): Promise<string> {
   // A later revision of the same kind is a newer revision of the same drawing (ADR-049 part B):
@@ -84,14 +86,14 @@ export async function publishRevision(
      ORDER BY f.created_at LIMIT 1`,
     [projectId, drawingKind, options.siteId !== undefined, options.siteId ?? null],
   );
-  let fileId = existing.rows[0]?.id;
+  let fileId = options.newDrawingOrdinal ? undefined : existing.rows[0]?.id;
   if (!fileId) {
     fileId = randomUUID();
     const drawingId = await insertDrawing(
       (text, values) => pool.query(text, values),
       projectId,
       drawingKind,
-      { siteId: options.siteId ?? null },
+      { siteId: options.siteId ?? null, ordinal: options.newDrawingOrdinal },
     );
     await pool.query(
       `INSERT INTO cad_files (id, project_id, original_name, format, size_bytes, sha256, storage_key,

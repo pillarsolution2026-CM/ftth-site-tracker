@@ -2870,7 +2870,8 @@
         "DRAWING_NOT_FOUND": "Le plan n’existe pas ou n’est pas publié",
         "DRAWING_OUT_OF_SCOPE": "Le plan est hors de vos sites",
         "WORK_DATE_IN_FUTURE": "La date des travaux est après aujourd'hui — enregistrez-la à aujourd'hui ou avant",
-        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "Le sous-traitant n'était pas inscrit à cette date — changez la date ou choisissez «l'entreprise elle-même»"
+        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "Le sous-traitant n'était pas inscrit à cette date — changez la date ou choisissez «l'entreprise elle-même»",
+        "CABINET_RECORDED_IN_OTHER_DRAWING": "Des travaux sur cette armoire sont déjà enregistrés sur l'autre plan — enregistrez-les là-bas"
       },
       "updateStatus": {
         "pending": "En attente de validation",

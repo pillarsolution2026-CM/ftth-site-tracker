@@ -131,12 +131,48 @@ export class DrizzleExecutionTx implements ExecutionTx {
           FROM design_features df
           JOIN design_revisions r ON r.project_id = df.project_id AND r.id = df.revision_id
           WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
-            AND df.feature_id = ${featureId} AND r.status = 'published'
-            AND r.drawing_kind = 'general'`,
+            AND df.feature_id = ${featureId} AND r.status = 'published'`,
     );
     return row
       ? { featureType: row.feature_type, revisionPublishedAt: new Date(row.published_at) }
       : null;
+  }
+
+  async cabinetTakenByOtherDrawing(
+    projectId: string,
+    revisionId: string,
+    featureId: string,
+  ): Promise<boolean> {
+    // Name key = `cabinetNameKey` of @ftth/shared: trimmed, upper case, no whitespace. A cabinet
+    // without a name matches nothing (publishing already refuses unnamed shared cabinets).
+    const [row] = await rowsOf<{ taken: boolean }>(
+      this.db,
+      sql`WITH mine AS (
+            SELECT upper(regexp_replace(df.code, '[[:space:]]', '', 'g')) AS name_key,
+                   r.drawing_id, d.site_id
+            FROM design_features df
+            JOIN design_revisions r ON r.project_id = df.project_id AND r.id = df.revision_id
+            JOIN site_drawings d ON d.project_id = r.project_id AND d.id = r.drawing_id
+            WHERE df.project_id = ${projectId} AND df.revision_id = ${revisionId}
+              AND df.feature_id = ${featureId} AND df.feature_type = 'cabinet'
+              AND df.code IS NOT NULL
+          )
+          SELECT EXISTS (
+            SELECT 1
+            FROM mine
+            JOIN execution_updates u ON u.project_id = ${projectId}
+            JOIN design_revisions ur ON ur.project_id = u.project_id AND ur.id = u.design_revision_id
+            JOIN site_drawings ud ON ud.project_id = ur.project_id AND ud.id = ur.drawing_id
+            JOIN design_features uf ON uf.project_id = u.project_id
+              AND uf.revision_id = u.design_revision_id AND uf.feature_id = u.feature_id
+            WHERE u.feature_type = 'cabinet' AND u.status <> 'rejected'
+              AND ur.drawing_id <> mine.drawing_id
+              AND ud.site_id IS NOT DISTINCT FROM mine.site_id
+              AND uf.code IS NOT NULL
+              AND upper(regexp_replace(uf.code, '[[:space:]]', '', 'g')) = mine.name_key
+          ) AS taken`,
+    );
+    return row?.taken === true;
   }
 
   async featureInScope(

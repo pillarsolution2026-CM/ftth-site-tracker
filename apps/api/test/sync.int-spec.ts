@@ -234,19 +234,7 @@ describe('POST /projects/:projectId/sync/push', () => {
     };
     await reject(op({ featureId: randomUUID() }), 'FEATURE_NOT_FOUND');
     await reject(op({ revisionId: randomUUID() }), 'REVISION_NOT_PUBLISHED');
-    // A published SECONDARY revision takes no updates until the supervisor's choice exists (ADR-040).
-    const secondaryFeature = randomUUID();
-    const secondary = await publishRevision(
-      ctx.pool,
-      fx.projectId,
-      [{ id: secondaryFeature, type: 'box', wkt: `POINT(${E0 + 50} ${N0 + 5})`, isNew: true }],
-      9,
-      'secondary',
-    );
-    await reject(
-      op({ featureId: secondaryFeature, revisionId: secondary }),
-      'REVISION_NOT_PUBLISHED',
-    );
+    // Secondary drawings take updates since ADR-058: see secondary-recording.int-spec.ts.
     await reject(
       op({
         lines: [

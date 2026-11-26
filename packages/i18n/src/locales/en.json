@@ -2870,7 +2870,8 @@
         "DRAWING_NOT_FOUND": "The drawing does not exist or is not published",
         "DRAWING_OUT_OF_SCOPE": "The drawing is outside your sites",
         "WORK_DATE_IN_FUTURE": "The work date is after today — record it on today or an earlier day",
-        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "The contractor was not registered on that date — change the date or pick «own company»"
+        "CONTRACTOR_NOT_REGISTERED_ON_DATE": "The contractor was not registered on that date — change the date or pick «own company»",
+        "CABINET_RECORDED_IN_OTHER_DRAWING": "Work on this cabinet is already recorded in the other drawing — record it there"
       },
       "updateStatus": {
         "pending": "Awaiting review",

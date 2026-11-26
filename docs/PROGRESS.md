@@ -348,6 +348,11 @@ Started 2026-10-30 at the owner's request, before Phase 2 (contract, BOQ, `type_
   - Security review: no High; the Medium (phone clock a few minutes fast at midnight) and the Lows on the phone fixed; open points in ADR-057 (old phones must update; year typo accepted as an earlier day).
   - Tests: shared work-date unit tests, API unit, mobile pass locally; CI green on PR #74 after the review fixes (integration tests included). Merged (068c6dc) and on staging 2026-11-25. Not tried on a real phone.
 
+- **Recording on the Secondary drawings; a shared cabinet in one drawing only (ADR-058), owner «نفذ» 2026-11-26; branch `claude/blissful-morse-a27f1c`:**
+  - Found before the Phase 2 trials: the phone offered Secondary drawings but the server refused every element on them. Now any published drawing of the supervisor's sites takes updates; a cabinet shared by the General and a Secondary (same name, same site) is refused in the drawing that did not get its work first (`CABINET_RECORDED_IN_OTHER_DRAWING`, ar/en/fr message on the phone).
+  - As-Built and GPS proposals stay General only.
+  - Tests: API unit (execution 76, 3 new), new `secondary-recording.int-spec.ts` 4 pass locally on PostGIS (Windows run with a local storage-path patch, not committed); full integration run: see the PR. Not tried on staging or a phone.
+
 ### Phase 4 — As-Built editing (rest of the phase, started 2026-11-01, owner request; ADR-029, ADR-030)
 Started with Phases 1b and 3 merged but **not approved** and Phase 2 still in progress (account `sabahyafro-sys`; PRs #20, #21). No phase is marked approved by this work. Contracts: `docs/phase-4-contracts.md`. Migration `0009_asbuilt.sql`. Built on `main` at `460b4aa`, delivered as one PR (not merged by the session).
 - **Done:**
