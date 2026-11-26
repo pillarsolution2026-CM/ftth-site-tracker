@@ -1520,6 +1520,7 @@
       "withdrawTitle": "Withdraw this correction?",
       "withdrawText": "It stays in the history but is no longer applied. Rebuild to see the effect.",
       "withdrawConfirm": "Withdraw",
+      "withdrawDependants": "It also withdraws {count} later edit(s) made on what it drew.",
       "rebuild": "Apply the corrections and rebuild",
       "rebuilding": "Rebuilding…",
       "rebuildText": "This discards the current draft and builds a new revision of the same file with the current mapping and the corrections in force.",

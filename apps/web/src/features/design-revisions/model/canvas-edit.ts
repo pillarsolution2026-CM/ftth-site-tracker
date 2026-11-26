@@ -231,7 +231,14 @@ export function arcOfPoints(
   const start = deg(ccw ? a : b);
   let end = deg(ccw ? b : a);
   if (end <= start) end += 360;
-  return { x: r(x), y: r(y), r: r(Math.hypot(a[0] - x, a[1] - y)), start: r(start), end: r(end) };
+  // (+ 0: no -0 in the request.)
+  return {
+    x: r(x) + 0,
+    y: r(y) + 0,
+    r: r(Math.hypot(a[0] - x, a[1] - y)),
+    start: r(start) + 0,
+    end: r(end),
+  };
 }
 
 /** ARC drawn on the page: a true arc (add_curve.arc, ADR-061) with its points. */

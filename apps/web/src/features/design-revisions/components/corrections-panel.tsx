@@ -1,7 +1,7 @@
 'use client';
 
 import { ltr } from '@ftth/i18n';
-import type { DrawingCorrection } from '@ftth/shared';
+import { dependantsOf, type DrawingCorrection } from '@ftth/shared';
 import { Button } from '@/shared/ui/button';
 import { ErrorNotice } from '@/shared/ui/error-notice';
 import { Ltr } from '@/shared/ui/ltr';
@@ -21,6 +21,21 @@ export function CorrectionsSection(props: Parameters<typeof useCorrectionsPanel>
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
 /**
+ * The corrections in force that withdrawing `id` withdraws too (ADR-061): later edits of the
+ * item it drew, copies of it and their edits, in the order the build applies them.
+ */
+function withdrawnWith(id: string, items: readonly DrawingCorrection[]): string[] {
+  const inForce = items
+    .filter((item) => item.withdrawnAt === null)
+    .sort(
+      (a, b) =>
+        Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  return dependantsOf(id, inForce);
+}
+
+/**
  * Corrections made on the program page for this drawing (ADR-038): newest first, who and when,
  * withdrawn ones kept in history, and the prominent rebuild button that applies them.
  */
@@ -37,6 +52,8 @@ export function CorrectionsPanel({
     new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(
       new Date(iso),
     );
+  const dependants =
+    state.withdrawingId === null ? 0 : withdrawnWith(state.withdrawingId, state.items).length;
   return (
     <section aria-labelledby="corrections-title" className="flex flex-col gap-3">
       <h2 id="corrections-title" className="text-lg font-semibold">
@@ -79,7 +96,17 @@ export function CorrectionsPanel({
             <span aria-hidden="true">⚠ </span>
             {t('design.corrections.withdrawTitle')}
           </h3>
-          <p id="withdraw-text">{t('design.corrections.withdrawText')}</p>
+          <p id="withdraw-text">
+            {t('design.corrections.withdrawText')}
+            {dependants > 0 ? (
+              <>
+                {' '}
+                <strong>
+                  {t('design.corrections.withdrawDependants', { count: ltr(dependants) })}
+                </strong>
+              </>
+            ) : null}
+          </p>
           <div className="flex flex-wrap gap-3">
             <Button onClick={state.withdraw} disabled={state.withdrawing}>
               {t('design.corrections.withdrawConfirm')}

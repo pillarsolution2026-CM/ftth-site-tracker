@@ -815,6 +815,8 @@ export function applyInputs(
       erased.add(fileCount + k);
       return;
     }
+    // Properties, MATCHPROP and the ribbon read a page row's style by its index, as the file's.
+    if (entry.style) styleOf.set(fileCount + k, entry.style);
     const color = entry.style?.color ?? null;
     const { item } = entry;
     switch (item.type) {

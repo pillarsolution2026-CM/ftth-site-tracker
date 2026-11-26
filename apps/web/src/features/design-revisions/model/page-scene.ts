@@ -126,7 +126,8 @@ function rowShape(
       const flat = [...v.path];
       if (v.closed && flat.length >= 6) {
         const n = flat.length;
-        if (flat[0] !== flat[n - 2] || flat[1] !== flat[n - 1]) flat.push(flat[0]!, flat[1]!);
+        const [x0, y0] = flat as [number, number];
+        if (x0 !== flat[n - 2] || y0 !== flat[n - 1]) flat.push(x0, y0);
       }
       return { paths: [atLeastTwo(flat)].filter((p) => p.length >= 4), texts: [], color: styled };
     }
