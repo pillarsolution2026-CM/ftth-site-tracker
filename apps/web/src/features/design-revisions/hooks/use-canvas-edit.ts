@@ -112,6 +112,7 @@ import {
   textSelectPrompt,
 } from './text-commands';
 import type { TableSpec } from '../model/table';
+import { hatchLoopCount, hatchPending, isHatchCommand, type HatchSettings } from './hatch-command';
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import type { LayerScreen } from './use-layer-screen';
 
@@ -482,6 +483,16 @@ export interface CanvasEditState {
   runWith: (id: CommandId, option: string) => void;
   /** TABLE: the Insert Table dialog's OK — the command line asks where the table goes. */
   placeTable: (spec: TableSpec) => void;
+  /**
+   * While HATCH / GRADIENT runs: the «Hatch Creation» tab's values (changed live, the preview
+   * follows), the boundaries picked so far, and «Close Hatch Creation» (= Enter).
+   */
+  hatch: {
+    settings: HatchSettings;
+    set: (patch: Partial<HatchSettings>) => void;
+    loops: number;
+    close: () => void;
+  } | null;
   prompt: CommandPrompt;
   /** Lines already on the command line (newest last). */
   history: readonly string[];
@@ -641,7 +652,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   }, [unsaved]);
 
   // What a running command shows before it is kept (a table being filled; ADR-055 part 7).
-  const pending = useMemo(() => (run ? textPending(run) : []), [run]);
+  const pending = useMemo(
+    () =>
+      run ? [...textPending(run), ...hatchPending(run, extraSettings.hatch, currentLayer)] : [],
+    [run, extraSettings.hatch, currentLayer],
+  );
   const shown = useMemo(
     () =>
       scene && saved
@@ -2802,6 +2817,25 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       setFocusNonce((n) => n + 1);
       tablePlace(ctx, spec, (step) => newRun('table', step as Step));
     },
+    hatch:
+      run && isHatchCommand(run.cmd)
+        ? {
+            settings: extraSettings.hatch,
+            set: (patch) =>
+              setExtraSettings((previous) => ({
+                ...previous,
+                hatch: { ...previous.hatch, ...patch },
+              })),
+            loops: hatchLoopCount(run),
+            close: () => {
+              const ctx = extraCtx();
+              if (ctx) {
+                say(`${promptLine(run)} `);
+                extraEnter(ctx, run);
+              }
+            },
+          }
+        : null,
     prompt: promptOf(run),
     history,
     input: text,

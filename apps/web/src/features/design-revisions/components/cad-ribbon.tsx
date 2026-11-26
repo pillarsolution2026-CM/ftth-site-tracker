@@ -9,6 +9,7 @@ import type { LayerRow } from '../hooks/use-drawing-viewer';
 import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
 import { TableTile, TextPanel } from './text-panel';
+import { HatchCreationTab } from './hatch-tab';
 import {
   ACI_COLORS,
   COMMANDS,
@@ -949,9 +950,16 @@ export function CadRibbon({
       className={`flex flex-col border ${DARK.bar}`}
     >
       <div className="flex items-end gap-1 bg-[#1f2328] px-2 pt-1 text-xs">
-        <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold">
+        <span
+          className={`rounded-t px-3 py-1 font-semibold ${edit.hatch ? 'text-[#aab0b8]' : 'bg-[#2b2f36]'}`}
+        >
           {t('design.cad.home')}
         </span>
+        {edit.hatch ? (
+          <span className="rounded-t bg-[#2b2f36] px-3 py-1 font-semibold text-[#9fd17a]">
+            {t('design.cad.hatch.tab')}
+          </span>
+        ) : null}
         <span aria-hidden="true" className="mx-1 mb-1 h-4 border-s border-[#454b55]" />
         <StripButton
           label={`${t('design.cad.undo')} (Ctrl+Z)`}
@@ -977,7 +985,8 @@ export function CadRibbon({
           )}
         </StripButton>
       </div>
-      <div className="flex flex-wrap items-stretch gap-y-2 py-1.5">
+      <HatchCreationTab edit={edit} />
+      <div hidden={edit.hatch !== null} className="flex flex-wrap items-stretch gap-y-2 py-1.5">
         <Panel
           title={t('design.cad.panel.draw')}
           more={

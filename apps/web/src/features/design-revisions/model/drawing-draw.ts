@@ -1,4 +1,4 @@
-import type { DrawingViewEntity } from '@ftth/shared';
+import type { DrawingViewEntity, HatchLinePattern } from '@ftth/shared';
 import {
   angleOf,
   applyAffine,
@@ -20,6 +20,7 @@ import {
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
 import { linearDimension, type Pt } from './geometry';
+import { familiesOf, familyGap, islandLoops, patternSegments } from './hatch-patterns';
 import { cellRects, cellTextHeight, styleOfRow } from './table';
 import { textLength, wrapLines } from './text-tools';
 import { toScreen, visibleBounds, type Size, type ViewTransform } from './view-transform';
@@ -302,7 +303,7 @@ export function drawBase(
     shown.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
   }
   // Hatches, gradients, donuts and construction lines lie under the drawing, as AutoCAD's.
-  drawShapes(ctx, model, tf, vp, false);
+  drawShapes(ctx, model, tf, vp, 'under');
 
   setWorldTransform(ctx, scene, tf, vp);
   ctx.lineWidth = 1 / tf.scale;
@@ -417,13 +418,11 @@ export function drawBase(
     fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
   }
   // A wipeout hides what is under it with the background.
-  drawShapes(ctx, model, tf, vp, true);
+  drawShapes(ctx, model, tf, vp, 'over');
   drawTables(ctx, model, tf, vp);
   drawAdded(ctx, model, cache, tf, vp);
 }
 
-/** Spacing of the hatch patterns at scale 1, drawing units (AutoCAD's ANSI31: 1/8″ = 3.175). */
-const HATCH_SPACING = 3.175;
 /** Under this spacing on screen (px) a pattern is shown as a light solid fill. */
 const MIN_HATCH_PX = 3;
 
@@ -433,7 +432,7 @@ function drawShapes(
   model: DrawModel,
   tf: ViewTransform,
   vp: Viewport,
-  wipeouts: boolean,
+  pass: 'under' | 'over',
 ): void {
   const { shapes } = model.preview;
   if (shapes.length === 0) return;
@@ -441,7 +440,7 @@ function drawShapes(
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
   for (const shape of shapes) {
-    if ((shape.shape === 'wipeout') !== wipeouts || !model.layerShown(shape.layer)) continue;
+    if (shapePass(shape) !== pass || !model.layerShown(shape.layer)) continue;
     const color = shape.color ?? layerColorOf(model, shape.layer, shape.layerColor);
     ctx.save();
     drawShape(ctx, model, tf, vp, shape, color);
@@ -497,71 +496,153 @@ function drawShape(
       ctx.stroke();
       return;
     }
-    case 'gradient': {
-      const xs = screen.map((p) => p.x);
-      const ys = screen.map((p) => p.y);
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      const half = Math.hypot(Math.max(...xs) - cx, Math.max(...ys) - cy) || 1;
-      const t = (-shape.angle * Math.PI) / 180;
-      const g = ctx.createLinearGradient(
-        cx - half * Math.cos(t),
-        cy - half * Math.sin(t),
-        cx + half * Math.cos(t),
-        cy + half * Math.sin(t),
-      );
-      g.addColorStop(0, color);
-      g.addColorStop(1, shape.color2 ?? '#ffffff');
-      outline();
-      ctx.fillStyle = g;
-      ctx.fill();
+    case 'gradient':
+    case 'hatch':
+      drawFill(ctx, model, tf, vp, shape, color);
       return;
-    }
-    case 'hatch': {
-      outline();
-      const pattern = shape.pattern ?? 'ANSI31';
-      const gap = HATCH_SPACING * shape.scale * tf.scale;
-      if (pattern === 'SOLID' || gap < MIN_HATCH_PX) {
-        ctx.globalAlpha = pattern === 'SOLID' ? 1 : 0.35;
-        ctx.fillStyle = color;
-        ctx.fill();
-        return;
-      }
-      ctx.clip();
-      const xs = screen.map((p) => p.x);
-      const ys = screen.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-      const maxX = Math.max(...xs);
-      const maxY = Math.max(...ys);
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      if (pattern === 'DOTS') {
-        for (let x = minX; x <= maxX; x += gap) {
-          for (let y = minY; y <= maxY; y += gap) ctx.fillRect(x, y, 1.2, 1.2);
-        }
-        return;
-      }
-      const reach = Math.hypot(maxX - minX, maxY - minY);
-      const cx = (minX + maxX) / 2;
-      const cy = (minY + maxY) / 2;
-      const families = pattern === 'ANSI37' ? [45, 135] : [45];
-      ctx.beginPath();
-      for (const base of families) {
-        const a = (-(base + shape.angle) * Math.PI) / 180;
-        const ux = Math.cos(a);
-        const uy = Math.sin(a);
-        for (let k = -reach; k <= reach; k += gap) {
-          const px = cx - uy * k;
-          const py = cy + ux * k;
-          ctx.moveTo(px - ux * reach, py - uy * reach);
-          ctx.lineTo(px + ux * reach, py + uy * reach);
-        }
-      }
-      ctx.stroke();
-      return;
-    }
   }
+}
+
+/**
+ * Where a shape is drawn (AutoCAD's HPDRAWORDER): a hatch behind its boundary or at the back lies
+ * under the drawing; one in front, above or of no order on top; wipeouts on top; donuts and
+ * construction lines under, as before.
+ */
+export function shapePass(shape: PreviewShape): 'under' | 'over' {
+  if (shape.shape === 'wipeout') return 'over';
+  if (shape.shape === 'hatch' || shape.shape === 'gradient') {
+    return shape.drawOrder === 'behind' || shape.drawOrder === 'back' ? 'under' : 'over';
+  }
+  return 'under';
+}
+
+/** A hatch or gradient (ADR-055 part 8): its loops by island detection, background, pattern. */
+function drawFill(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  tf: ViewTransform,
+  vp: Viewport,
+  shape: PreviewShape,
+  color: string,
+): void {
+  const { loops, rule } = islandLoops([shape.points, ...shape.loops], shape.island);
+  const screenLoops = loops.map((loop) => loop.map((p) => toScreen(tf, vp, p[0], p[1])));
+  const outline = () => {
+    ctx.beginPath();
+    for (const loop of screenLoops) {
+      loop.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.closePath();
+    }
+  };
+  const all = screenLoops.flat();
+  if (all.length === 0) return;
+  const xs = all.map((p) => p.x);
+  const ys = all.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  ctx.globalAlpha = 1 - shape.transparency / 100;
+  if (shape.shape === 'gradient') {
+    const c2 = shape.color2 ?? '#ffffff';
+    const name = shape.pattern ?? 'GR_LINEAR';
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const half = Math.hypot(maxX - cx, maxY - cy) || 1;
+    const t = (-shape.angle * Math.PI) / 180;
+    const radial = name.includes('SPH') || name.includes('HEM');
+    const g = radial
+      ? ctx.createRadialGradient(
+          cx,
+          name.includes('HEM') ? maxY : cy,
+          0,
+          cx,
+          name.includes('HEM') ? maxY : cy,
+          half * (name.includes('HEM') ? 2 : 1),
+        )
+      : ctx.createLinearGradient(
+          cx - half * Math.cos(t),
+          cy - half * Math.sin(t),
+          cx + half * Math.cos(t),
+          cy + half * Math.sin(t),
+        );
+    const inverse = name.includes('INV');
+    const [a, b] = inverse ? [c2, color] : [color, c2];
+    if (name.includes('CYL')) {
+      g.addColorStop(0, a);
+      g.addColorStop(0.5, b);
+      g.addColorStop(1, a);
+    } else if (radial) {
+      g.addColorStop(0, b);
+      g.addColorStop(1, a);
+    } else if (name.includes('CUR')) {
+      g.addColorStop(0, a);
+      g.addColorStop(0.75, b);
+      g.addColorStop(1, b);
+    } else {
+      g.addColorStop(0, a);
+      g.addColorStop(1, b);
+    }
+    outline();
+    ctx.fillStyle = g;
+    ctx.fill(rule);
+    return;
+  }
+  if (shape.background) {
+    outline();
+    ctx.fillStyle = shape.background;
+    ctx.fill(rule);
+  }
+  const pattern = (shape.pattern ?? 'ANSI31') as HatchLinePattern;
+  const families = familiesOf(pattern, shape.scale, shape.double);
+  const finest = Math.min(
+    ...families.map((f) => familyGap(f) * (pattern === 'USER' ? 1 : shape.scale)),
+  );
+  if (pattern === 'SOLID' || families.length === 0 || finest * tf.scale < MIN_HATCH_PX) {
+    // Too fine to draw line by line: a light fill, as a pattern seen from far.
+    ctx.globalAlpha *= pattern === 'SOLID' ? 1 : 0.35;
+    outline();
+    ctx.fillStyle = color;
+    ctx.fill(rule);
+    return;
+  }
+  // The pattern over what is on the screen of the hatch, clipped to its loops.
+  const view = visibleBounds(tf, vp);
+  const world = shape.points.concat(...shape.loops);
+  const box = {
+    minX: Math.max(view.minX, Math.min(...world.map((p) => p[0]))),
+    minY: Math.max(view.minY, Math.min(...world.map((p) => p[1]))),
+    maxX: Math.min(view.maxX, Math.max(...world.map((p) => p[0]))),
+    maxY: Math.min(view.maxY, Math.max(...world.map((p) => p[1]))),
+  };
+  if (box.minX > box.maxX || box.minY > box.maxY) return;
+  const segments = patternSegments(families, {
+    angle: shape.angle,
+    scale: pattern === 'USER' ? 1 : shape.scale,
+    origin: shape.origin ?? [0, 0],
+    box,
+  });
+  outline();
+  ctx.clip(rule);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  if (!segments) {
+    ctx.globalAlpha *= 0.35;
+    ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+    return;
+  }
+  ctx.beginPath();
+  for (const { a, b } of segments) {
+    const p = toScreen(tf, vp, a[0], a[1]);
+    const q = toScreen(tf, vp, b[0], b[1]);
+    if (p.x === q.x && p.y === q.y) {
+      ctx.rect(p.x - 0.6, p.y - 0.6, 1.2, 1.2);
+      continue;
+    }
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(q.x, q.y);
+  }
+  ctx.stroke();
 }
 
 /** Copies and lines added on the page (ADR-050), in their layers' colours. */

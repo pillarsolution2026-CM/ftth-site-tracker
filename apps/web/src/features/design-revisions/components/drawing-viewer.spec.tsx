@@ -1343,6 +1343,49 @@ describe(
         });
       });
 
+      it('HATCH as AutoCAD: the Hatch Creation tab, several boundaries with islands in ONE hatch (ADR-055 part 8)', async () => {
+        const { user } = await openWorkspace();
+        await chooseLayer(user, 'Sap');
+        await type(user, 'rec');
+        await type(user, '0,50');
+        await type(user, '30,80');
+        await type(user, 'rec');
+        await type(user, '10,60');
+        await type(user, '20,70');
+        await type(user, 'h');
+        const tab = screen.getByRole('tabpanel', { name: 'Hatch Creation' });
+        // The Home panels give way to the contextual tab while HATCH runs.
+        expect(screen.queryByRole('group', { name: 'Draw' })).not.toBeInTheDocument();
+        await user.click(within(tab).getByRole('option', { name: 'AR-B816' }));
+        await type(user, '5,55');
+        expect(history()).toMatch(/2 boundary loop\(s\) in the hatch/);
+        await type(user, '21,21');
+        expect(within(tab).getByText('3 boundaries')).toBeInTheDocument();
+        await type(user, 'u');
+        await type(user, '21,21');
+        await user.click(within(tab).getByRole('button', { name: 'Close Hatch Creation' }));
+        expect(screen.queryByRole('tabpanel', { name: 'Hatch Creation' })).not.toBeInTheDocument();
+        await save(user);
+        const hatch = sent().find((c) => c.kind === 'add_shape');
+        expect(hatch).toMatchObject({
+          kind: 'add_shape',
+          shape: 'hatch',
+          layer: 'Sap',
+          pattern: 'AR-B816',
+          island: 'normal',
+          drawOrder: 'behind',
+          transparency: 0,
+        });
+        expect((hatch?.points as number[][]).length).toBe(4);
+        expect((hatch?.loops as number[][][]).length).toBe(2);
+        expect(hatch?.loops).toContainEqual([
+          [10, 60],
+          [20, 60],
+          [20, 70],
+          [10, 70],
+        ]);
+      });
+
       it('DIVIDE puts points on the current layer along the picked line', async () => {
         const { canvas, user } = await openWorkspace();
         await chooseLayer(user, 'Sap');
