@@ -575,6 +575,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             mapBehind,
             objectShown,
             lineweights: drafting.settings.lineweight,
+            transparency: drafting.settings.transparency,
             lockedFade:
               layerScreen.fade.on && locked.size > 0
                 ? { layers: locked, alpha: 1 - layerScreen.fade.percent / 100 }
@@ -583,6 +584,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         : null,
     [
       drafting.settings.lineweight,
+      drafting.settings.transparency,
       layerScreen.fade.on,
       layerScreen.fade.percent,
       locked,

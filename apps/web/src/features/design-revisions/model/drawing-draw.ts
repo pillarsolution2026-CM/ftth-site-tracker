@@ -107,6 +107,8 @@ export interface DrawModel {
   mapBehind?: boolean;
   /** LWDISPLAY (status bar): false draws every line one pixel wide; undefined: at its weight. */
   lineweights?: boolean;
+  /** TRANSPARENCYDISPLAY (status bar): false draws hatches opaque; undefined: at their transparency. */
+  transparency?: boolean;
 }
 
 /** The colour an entity is drawn in now: its style, else its own, else its layer's (ADR-051). */
@@ -554,7 +556,7 @@ function drawFill(
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
   const maxY = Math.max(...ys);
-  ctx.globalAlpha = 1 - shape.transparency / 100;
+  ctx.globalAlpha = model.transparency === false ? 1 : 1 - shape.transparency / 100;
   if (shape.shape === 'gradient') {
     const c2 = shape.color2 ?? '#ffffff';
     const name = shape.pattern ?? 'GR_LINEAR';
