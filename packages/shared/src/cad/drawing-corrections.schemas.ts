@@ -341,6 +341,21 @@ export const DrawingCorrectionInputSchema = z.discriminatedUnion('kind', [
       .min(2)
       .max(MAX_CURVE_POINTS),
     closed: z.boolean().default(false),
+    /**
+     * A true circle or arc drawn on the page (ADR-061; owner default 2026-11-26): centre (x, y),
+     * radius r, from `start` to `end` degrees counter-clockwise (0 → 360 = a full circle). The
+     * screen picks, grips and snaps it as a circle / arc; `points` stay its flattened path, which
+     * the build reads as today.
+     */
+    arc: z
+      .strictObject({
+        x: Coord,
+        y: Coord,
+        r: z.number().refine(Number.isFinite).positive().max(MAX_CORRECTION_COORD),
+        start: z.number().refine(Number.isFinite).min(-360).max(720),
+        end: z.number().refine(Number.isFinite).min(-360).max(720),
+      })
+      .optional(),
   }),
   /**
    * A layer that means what `like` means in the mapping (ADR-050): items moved or drawn on it are
