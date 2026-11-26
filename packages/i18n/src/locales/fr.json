@@ -1709,7 +1709,8 @@
       "pickTarget": "Cliquez sur le nouvel emplacement. Les éléments suivent le pointeur.",
       "pickAngle": "Pointez dans la direction et cliquez, ou saisissez l'angle (sens antihoraire).",
       "angle": "Angle (degrés)",
-      "applyAngle": "Appliquer la rotation"
+      "applyAngle": "Appliquer la rotation",
+      "save": "Enregistrer"
     },
     "cad": {
       "ribbon": "Outils de dessin",
@@ -1764,7 +1765,8 @@
         "layers": "Calques",
         "properties": "Propriétés",
         "groups": "Groupes",
-        "block": "Bloc"
+        "block": "Bloc",
+        "map": "Carte"
       },
       "currentLayer": "Calque",
       "layerList": "Calques du dessin",
@@ -2276,7 +2278,13 @@
         "none": "Cette référence de bloc n'a pas de valeurs.",
         "apply": "Appliquer",
         "cancel": "Annuler"
-      }
+      },
+      "panelOpen": "Ouvrir le groupe {panel}",
+      "crosshairSmall": "Petit réticule avec la boîte de sélection (CURSORSIZE 5)",
+      "crosshairFull": "Réticule sur tout le dessin (CURSORSIZE 100)",
+      "paletteToggle": "Afficher / masquer la palette {name}",
+      "fullScreenHint": "Le dessin occupe toute la fenêtre. Échap annule seulement la commande ; sortez avec ce bouton.",
+      "quickAccess": "Accès rapide"
     }
   },
   "asbuilt": {

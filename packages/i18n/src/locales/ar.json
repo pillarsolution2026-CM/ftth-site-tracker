@@ -1709,7 +1709,8 @@
       "pickTarget": "اضغط على المكان الجديد. العناصر بتتحرك مع الماوس.",
       "pickAngle": "حرّك الماوس للاتجاه واضغط، أو اكتب الزاوية (عكس عقارب الساعة).",
       "angle": "الزاوية (درجة)",
-      "applyAngle": "طبّق التدوير"
+      "applyAngle": "طبّق التدوير",
+      "save": "حفظ"
     },
     "cad": {
       "ribbon": "أدوات الرسم",
@@ -1764,7 +1765,8 @@
         "layers": "Layers",
         "properties": "Properties",
         "groups": "Groups",
-        "block": "Block"
+        "block": "Block",
+        "map": "Map"
       },
       "currentLayer": "الـ Layer",
       "layerList": "Layers الرسمة",
@@ -2276,7 +2278,13 @@
         "none": "البلوك ده مالوش قيم.",
         "apply": "Apply",
         "cancel": "Cancel"
-      }
+      },
+      "panelOpen": "افتح لوحة {panel}",
+      "crosshairSmall": "مؤشر صغير بمربع الاختيار (CURSORSIZE 5)",
+      "crosshairFull": "مؤشر بعرض الرسمة كلها (CURSORSIZE 100)",
+      "paletteToggle": "اظهر / اخفي لوحة {name}",
+      "fullScreenHint": "الشاشة كلها للرسمة. Esc بيلغي الأمر بس؛ اخرج بنفس الزرار.",
+      "quickAccess": "شريط الأدوات السريعة"
     }
   },
   "asbuilt": {

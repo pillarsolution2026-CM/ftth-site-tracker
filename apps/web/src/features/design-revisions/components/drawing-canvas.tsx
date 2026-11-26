@@ -13,6 +13,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { CANVAS_BG, drawBase, drawOverlay, type DrawModel } from '../model/drawing-draw';
 import { CanvasContextMenu } from './canvas-context-menu';
+import type { CrosshairSize } from '../hooks/use-crosshair-size';
 import { OsmBackdrop } from './osm-backdrop';
 import { toWorld, wheelFactor, ZOOM_STEP, type ViewTransform } from '../model/view-transform';
 
@@ -58,12 +59,15 @@ export function DrawingCanvas({
   viewer,
   model,
   fill = false,
+  crosshair = 'full',
   children,
 }: {
   viewer: DrawingViewer;
   model: DrawModel;
   /** Full screen: the canvas takes the height left instead of 72 % of the window. */
   fill?: boolean;
+  /** AutoCAD's CURSORSIZE: across the drawing (100) or short arms (5) around the pick box. */
+  crosshair?: CrosshairSize;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
@@ -312,6 +316,8 @@ export function DrawingCanvas({
     event.preventDefault();
   };
 
+  // CURSORSIZE 5: each arm is 2.5 % of the canvas (5 % across), never shorter than the pick box.
+  const arm = Math.max(12, Math.round(0.025 * Math.max(size.width, size.height)));
   return (
     <div
       ref={containerRef}
@@ -352,9 +358,29 @@ export function DrawingCanvas({
         }}
       />
       {hair ? (
-        <div aria-hidden="true" data-testid="crosshair" className="pointer-events-none">
-          <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: hair.x }} />
-          <div className="absolute inset-x-0 h-px bg-white/70" style={{ top: hair.y }} />
+        <div
+          aria-hidden="true"
+          data-testid="crosshair"
+          data-size={crosshair}
+          className="pointer-events-none"
+        >
+          {crosshair === 'full' ? (
+            <>
+              <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: hair.x }} />
+              <div className="absolute inset-x-0 h-px bg-white/70" style={{ top: hair.y }} />
+            </>
+          ) : (
+            <>
+              <div
+                className="absolute w-px bg-white/80"
+                style={{ left: hair.x, top: hair.y - arm, height: arm * 2 }}
+              />
+              <div
+                className="absolute h-px bg-white/80"
+                style={{ top: hair.y, left: hair.x - arm, width: arm * 2 }}
+              />
+            </>
+          )}
           <div
             className="absolute size-2.5 border border-white"
             style={{ left: hair.x - 5, top: hair.y - 5 }}

@@ -1709,7 +1709,8 @@
       "pickTarget": "Click the new place. The items follow the pointer.",
       "pickAngle": "Point in the direction and click, or type the angle (counter-clockwise).",
       "angle": "Angle (degrees)",
-      "applyAngle": "Apply the rotation"
+      "applyAngle": "Apply the rotation",
+      "save": "Save"
     },
     "cad": {
       "ribbon": "Drawing tools",
@@ -1764,7 +1765,8 @@
         "layers": "Layers",
         "properties": "Properties",
         "groups": "Groups",
-        "block": "Block"
+        "block": "Block",
+        "map": "Map"
       },
       "currentLayer": "Layer",
       "layerList": "Layers of the drawing",
@@ -2276,7 +2278,13 @@
         "none": "This block reference has no values.",
         "apply": "Apply",
         "cancel": "Cancel"
-      }
+      },
+      "panelOpen": "Open the {panel} panel",
+      "crosshairSmall": "Small crosshair with the pick box (CURSORSIZE 5)",
+      "crosshairFull": "Crosshair across the whole drawing (CURSORSIZE 100)",
+      "paletteToggle": "Show / hide the {name} palette",
+      "fullScreenHint": "The drawing takes the whole window. Esc only cancels the command; leave with this button.",
+      "quickAccess": "Quick access"
     }
   },
   "asbuilt": {

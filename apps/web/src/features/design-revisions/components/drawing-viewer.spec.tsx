@@ -879,40 +879,167 @@ describe(
       expect(screen.queryByTestId('osm-backdrop')).not.toBeInTheDocument();
     });
 
-    it('full screen puts the whole workspace on the screen, and the same button leaves it', async () => {
-      const request = vi.fn(function (this: Element) {
-        Object.defineProperty(document, 'fullscreenElement', {
-          configurable: true,
-          value: this,
-        });
-        document.dispatchEvent(new Event('fullscreenchange'));
-        return Promise.resolve();
+    it('full screen is a full window that Esc never leaves; the same button leaves it', async () => {
+      const { canvas, user } = await openWorkspace();
+      const workspace = screen.getByTestId('cad-workspace');
+      expect(workspace).not.toHaveAttribute('data-full');
+      await user.click(screen.getByRole('button', { name: 'Full screen' }));
+      expect(workspace).toHaveAttribute('data-full', 'true');
+      expect(workspace).toHaveClass('fixed', 'inset-0');
+      expect(workspace).toContainElement(screen.getByRole('toolbar', { name: 'Drawing tools' }));
+      expect(workspace).toContainElement(screen.getByLabelText('Command'));
+      // Esc cancels the running command, as in AutoCAD, and the window stays full.
+      await user.click(tool('Line'));
+      expect(prompt()).toMatch(/^LINE/);
+      await user.click(canvas);
+      await user.keyboard('{Escape}');
+      expect(prompt()).toBe('Type a command');
+      expect(history()).toMatch(/\*Cancel\*/);
+      expect(workspace).toHaveAttribute('data-full', 'true');
+      await user.type(command(), '{Escape}');
+      expect(workspace).toHaveAttribute('data-full', 'true');
+      await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
+      expect(workspace).not.toHaveAttribute('data-full');
+      expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+    });
+
+    describe('tab strip and layout (owner 2026-11-26)', () => {
+      it('shows the tab strip before editing: pen, view buttons, palettes; none on the canvas', async () => {
+        renderViewer();
+        await screen.findByLabelText(/The drawing: drag to pan/);
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        for (const name of [
+          'Edit the drawing',
+          'Zoom in',
+          'Zoom out',
+          'Show the whole drawing',
+          'Full screen',
+          'Layers',
+          'Hide the error markers',
+        ]) {
+          expect(within(strip).getByRole('button', { name })).toBeInTheDocument();
+        }
+        expect(within(strip).getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeDisabled();
+        expect(within(strip).getByRole('button', { name: 'Redo (Ctrl+Y)' })).toBeDisabled();
+        // The canvas corner has no buttons any more, and no ribbon panels show before editing.
+        expect(screen.queryByRole('group', { name: 'View tools' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('group', { name: 'Draw' })).not.toBeInTheDocument();
       });
-      const exit = vi.fn(() => {
-        Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
-        document.dispatchEvent(new Event('fullscreenchange'));
-        return Promise.resolve();
+
+      it('the pen turns into Save and Cancel on the strip; the ribbon has no buttons at its end', async () => {
+        const { canvas, user } = await openWorkspace();
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        expect(within(strip).queryByRole('button', { name: 'Edit the drawing' })).toBeNull();
+        expect(within(strip).getByRole('button', { name: 'Save' })).toBeInTheDocument();
+        expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Delete}');
+        expect(within(strip).getByRole('button', { name: /^Save \(.?1.?\)$/ })).toBeInTheDocument();
+        await user.click(within(strip).getByRole('button', { name: 'Cancel' }));
+        expect(await screen.findByRole('button', { name: 'Edit the drawing' })).toBeInTheDocument();
+        expect(api.createCorrections).not.toHaveBeenCalled();
       });
-      Object.defineProperty(Element.prototype, 'requestFullscreen', {
-        configurable: true,
-        value: request,
-      });
-      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
-      try {
-        const { user } = await openWorkspace();
-        await user.click(screen.getByRole('button', { name: 'Full screen' }));
-        expect(request).toHaveBeenCalledTimes(1);
+
+      it('OpenStreetMap has its own Map panel among the panels', async () => {
+        await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
-        expect(request.mock.contexts[0]).toContainElement(ribbon);
-        expect(request.mock.contexts[0]).toContainElement(screen.getByLabelText('Command'));
-        await user.click(screen.getByRole('button', { name: 'Exit full screen' }));
-        expect(exit).toHaveBeenCalledTimes(1);
-        expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
-      } finally {
-        delete (Element.prototype as { requestFullscreen?: unknown }).requestFullscreen;
-        delete (document as { exitFullscreen?: unknown }).exitFullscreen;
-        delete (document as { fullscreenElement?: unknown }).fullscreenElement;
-      }
+        const map = within(ribbon).getByRole('group', { name: 'Map' });
+        expect(within(map).getByRole('button', { name: 'OpenStreetMap' })).toBeInTheDocument();
+        const annotation = within(ribbon).getByRole('group', { name: 'Annotation' });
+        expect(within(annotation).queryByRole('button', { name: 'OpenStreetMap' })).toBeNull();
+      });
+
+      it('the crosshair switches small ⇄ full and the browser keeps the choice', async () => {
+        window.localStorage.removeItem('ftth.cad.crosshair');
+        const { canvas, user } = await openWorkspace();
+        await user.pointer({ target: canvas, coords: at(40, 20) });
+        expect(screen.getByTestId('crosshair')).toHaveAttribute('data-size', 'full');
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        await user.click(within(strip).getByRole('button', { name: /^Small crosshair/ }));
+        expect(window.localStorage.getItem('ftth.cad.crosshair')).toBe('small');
+        await user.pointer({ target: canvas, coords: at(40, 21) });
+        expect(screen.getByTestId('crosshair')).toHaveAttribute('data-size', 'small');
+        const back = within(strip).getByRole('button', { name: /^Crosshair across/ });
+        expect(back).toHaveAttribute('aria-pressed', 'true');
+        await user.click(back);
+        expect(window.localStorage.getItem('ftth.cad.crosshair')).toBe('full');
+      });
+
+      it('remembers the small crosshair when the page opens again', async () => {
+        window.localStorage.setItem('ftth.cad.crosshair', 'small');
+        try {
+          const { canvas, user } = await openWorkspace();
+          await user.pointer({ target: canvas, coords: at(40, 20) });
+          expect(screen.getByTestId('crosshair')).toHaveAttribute('data-size', 'small');
+        } finally {
+          window.localStorage.removeItem('ftth.cad.crosshair');
+        }
+      });
+
+      it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
+        // Each panel is 200 px wide open; the row is 800 px: the last ones shrink.
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
+          this: HTMLElement,
+        ) {
+          return this.getAttribute('role') === 'group' ? 200 : 0;
+        });
+        const { user } = await openWorkspace();
+        const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        await waitFor(() =>
+          expect(
+            within(ribbon).getByRole('button', { name: 'Open the Properties panel' }),
+          ).toBeInTheDocument(),
+        );
+        expect(within(ribbon).getByRole('group', { name: 'Draw' })).toBeInTheDocument();
+        expect(tool('Line')).toBeInTheDocument();
+        expect(within(ribbon).queryByRole('button', { name: 'Open the Draw panel' })).toBeNull();
+        // A shrunk panel opens its tools under it.
+        expect(within(ribbon).queryByRole('button', { name: 'Match Properties' })).toBeNull();
+        await user.click(within(ribbon).getByRole('button', { name: 'Open the Properties panel' }));
+        expect(
+          within(ribbon).getByRole('button', { name: 'Match Properties' }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    describe('errors palette in full screen (owner 2026-11-25)', () => {
+      const withErrors = async () => {
+        renderScreen(
+          <DrawingViewer
+            projectId={PROJECT}
+            revisionId={REVISION}
+            cadFileId={FILE_ID}
+            enabled
+            canWrite
+            canFix
+            sidePanel={<p>The errors list</p>}
+            focus={null}
+          />,
+        );
+        const canvas = await screen.findByLabelText(/The drawing: drag to pan/);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
+        return { canvas, user };
+      };
+
+      it('starts hidden in full screen while editing; the strip button shows it, readable', async () => {
+        const { user } = await withErrors();
+        const strip = screen.getByRole('group', { name: 'Quick access' });
+        const errors = within(strip).getByRole('button', { name: 'Errors' });
+        expect(errors).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('complementary', { name: 'Errors' })).toBeInTheDocument();
+        await user.click(within(strip).getByRole('button', { name: 'Full screen' }));
+        expect(screen.queryByRole('complementary', { name: 'Errors' })).not.toBeInTheDocument();
+        expect(errors).toHaveAttribute('aria-pressed', 'false');
+        await user.click(errors);
+        const palette = screen.getByRole('complementary', { name: 'Errors' });
+        // Readable on the dark full window: the palette has the page's own surface and text.
+        expect(palette).toHaveClass('bg-(--color-surface)', 'text-(--color-text)');
+        expect(within(palette).getByText('The errors list')).toBeInTheDocument();
+        await user.click(errors);
+        expect(screen.queryByRole('complementary', { name: 'Errors' })).not.toBeInTheDocument();
+      });
     });
 
     describe('right-click menu on picked objects (owner 2026-11-24)', () => {
