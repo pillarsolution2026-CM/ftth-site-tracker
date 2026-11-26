@@ -408,7 +408,10 @@ export function transformPageItem(item: PageItemValue, t: Affine): PageItemValue
       };
     }
     case 'copy':
-      return { type: 'copy', value: { ...item.value, transform: compose(item.value.transform, t) } };
+      return {
+        type: 'copy',
+        value: { ...item.value, transform: compose(item.value.transform, t) },
+      };
   }
 }
 
@@ -902,5 +905,7 @@ export function effectiveLayer(
   if (!item) return -1;
   if (item.item.type !== 'copy') return item.item.value.layer;
   const copy = item.item.value;
-  return copy.layer ?? preview.layerOf.get(copy.index) ?? scene.view.entities[copy.index]?.layer ?? -1;
+  return (
+    copy.layer ?? preview.layerOf.get(copy.index) ?? scene.view.entities[copy.index]?.layer ?? -1
+  );
 }

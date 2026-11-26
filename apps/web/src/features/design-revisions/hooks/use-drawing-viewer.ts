@@ -460,6 +460,9 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     ruledLayers: tools.ruledLayers,
   });
   const shownPreview = canvasEdit.preview;
+  // Items drawn on the page are picked, snapped and shown picked like the file's (ADR-061).
+  // (Used only where `scene` was checked: the page scene is null only when the scene is.)
+  const pickScene = (canvasEdit.scene ?? scene) as DrawingScene;
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -480,9 +483,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     shownPreview !== null &&
     !shownPreview.erased.has(index) &&
     (objectShown === undefined || objectShown(index)) &&
-    isShown(effectiveLayer(scene, shownPreview, index));
+    isShown(effectiveLayer(pickScene, shownPreview, index));
   const drafting = useDrafting({
-    source: scene && shownPreview ? { scene, preview: shownPreview, isShown: drawnNow } : null,
+    source:
+      scene && shownPreview ? { scene: pickScene, preview: shownPreview, isShown: drawnNow } : null,
     scale: transform.scale,
     enabled: scene !== null,
   });
@@ -492,7 +496,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     // The objects under the pick, nearest first (AutoCAD's Selection Cycling list).
     for (let n = 0; n < 12; n++) {
       const hit = hitEntity(
-        scene,
+        pickScene,
         at.x,
         at.y,
         ENTITY_HIT_PX / transform.scale,
@@ -558,6 +562,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         ? {
             scene,
             preview: shownPreview,
+            pageScene: pickScene,
             layerShown: isShown,
             markers,
             highlighted,
@@ -599,6 +604,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       hoverGrip,
       edit.band,
       scene,
+      pickScene,
       shownPreview,
       isShown,
       markers,
@@ -631,12 +637,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     if (edit.editing && !onMarker) {
       const world = toWorld(transform, size, sx, sy);
       const hit = hitEntity(
-        scene,
+        pickScene,
         world.x,
         world.y,
         ENTITY_HIT_PX / transform.scale,
         (index) =>
-          !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
+          !shownPreview.erased.has(index) &&
+          isShown(effectiveLayer(pickScene, shownPreview, index)),
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
@@ -644,7 +651,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       // Between commands a click also shows the item and its error as in the normal view
       // (owner 2026-11-19); while a command runs the click only answers the command.
       if (edit.command === null && hit !== null) {
-        const handle = scene.view.entities[hit]?.handle ?? '';
+        const handle = pickScene.view.entities[hit]?.handle ?? '';
         const related =
           markers.find((m) => routePieces(m.handle).includes(handle) || m.handle === handle) ??
           null;
@@ -664,12 +671,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     }
     const world = toWorld(transform, size, sx, sy);
     const entity = hitEntity(
-      scene,
+      pickScene,
       world.x,
       world.y,
       ENTITY_HIT_PX / transform.scale,
       (index) =>
-        !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
+        !shownPreview.erased.has(index) && isShown(effectiveLayer(pickScene, shownPreview, index)),
       shownPreview.transformOf,
       shownPreview.curveOf,
     );
@@ -679,7 +686,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       setHighlightNonce(null);
       return;
     }
-    const handle = scene.view.entities[entity]?.handle ?? '';
+    const handle = pickScene.view.entities[entity]?.handle ?? '';
     const related =
       markers.find((m) => routePieces(m.handle).includes(handle) || m.handle === handle) ?? null;
     setSelected(entity);
@@ -787,7 +794,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     setDialog,
     zoomToEntity: (index) => {
       if (!scene) return;
-      const box = boxOf(scene, index);
+      const box = boxOf(pickScene, index);
       const half = Math.max((box.maxX - box.minX) / 2, (box.maxY - box.minY) / 2, 1) * 3;
       setCustom(windowTransform((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, half, size));
       setSelected(index);
@@ -822,14 +829,14 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       if (edit.chosenCount > 0) return;
       const world = toWorld(transform, size, sx, sy);
       const hit = hitEntity(
-        scene,
+        pickScene,
         world.x,
         world.y,
         ENTITY_HIT_PX / transform.scale,
         (index) =>
           !shownPreview.erased.has(index) &&
           (objectShown === undefined || objectShown(index)) &&
-          isShown(effectiveLayer(scene, shownPreview, index)),
+          isShown(effectiveLayer(pickScene, shownPreview, index)),
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
@@ -846,7 +853,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         setPropertiesNonce((n) => n + 1);
         return;
       }
-      const box = boxOf(scene, index);
+      const box = boxOf(pickScene, index);
       setSelected(index);
       setPopover({
         x: (box.minX + box.maxX) / 2,

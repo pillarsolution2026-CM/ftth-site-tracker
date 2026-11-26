@@ -7,7 +7,13 @@ import {
   type PreviewArc,
 } from './drawing-preview';
 import { entityBox, type DrawingScene } from './drawing-scene';
-import { EntityGrid, entityGridOf, setEntityGrid, type Box, type SpatialIndex } from './entity-grid';
+import {
+  EntityGrid,
+  entityGridOf,
+  setEntityGrid,
+  type Box,
+  type SpatialIndex,
+} from './entity-grid';
 import { linearDimension } from './geometry';
 import { cellRects } from './table';
 
@@ -174,7 +180,9 @@ function rowShape(
         const uy = (second[1] - first[1]) / len;
         const back = v.shape === 'xline' ? far : 0;
         return {
-          paths: [[first[0] - ux * back, first[1] - uy * back, first[0] + ux * far, first[1] + uy * far]],
+          paths: [
+            [first[0] - ux * back, first[1] - uy * back, first[0] + ux * far, first[1] + uy * far],
+          ],
           texts: [],
           nodes: [first],
           color,
@@ -244,14 +252,20 @@ function rowShape(
               },
             }
           : {}),
-        color: styled ?? (copy.layer === undefined && !preview.layerOf.has(copy.index) ? source.color : null),
+        color:
+          styled ??
+          (copy.layer === undefined && !preview.layerOf.has(copy.index) ? source.color : null),
       };
     }
   }
 }
 
 /** The layer name of a page item (a copy of a file entity: its layer's). */
-function itemLayerName(file: DrawingScene, preview: DrawingPreview, entry: PageItem): string | null {
+function itemLayerName(
+  file: DrawingScene,
+  preview: DrawingPreview,
+  entry: PageItem,
+): string | null {
   if (entry.item.type !== 'copy') return entry.item.value.layerName;
   const copy = entry.item.value;
   const layer =

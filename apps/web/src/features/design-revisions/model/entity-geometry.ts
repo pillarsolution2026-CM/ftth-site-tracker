@@ -1,6 +1,7 @@
 import { angleOf, applyAffine, IDENTITY, scaleOf, type Affine } from './affine';
 import type { DrawingPreview } from './drawing-preview';
 import { boxOf, type DrawingScene } from './drawing-scene';
+import { isPageRow } from './page-scene';
 import type { Bounds } from './view-transform';
 
 /**
@@ -127,6 +128,24 @@ export function geometryOf(
   if (!entity) return null;
   const kind = entity.kind.toUpperCase();
   const moved = preview.transformOf.get(index) ?? IDENTITY;
+  // A circle / arc drawn on the page is a true one (add_curve.arc, ADR-061).
+  if (isPageRow(entity) && entity.arc) {
+    const { x, y, r, start, end } = entity.arc;
+    const center = { x, y };
+    const at = (deg: number): Xy => ({
+      x: x + r * Math.cos((deg * Math.PI) / 180),
+      y: y + r * Math.sin((deg * Math.PI) / 180),
+    });
+    if (end - start >= 360 - 1e-9) return { type: 'circle', center, radius: r };
+    return {
+      type: 'arc',
+      center,
+      radius: r,
+      start: at(start),
+      mid: at((start + end) / 2),
+      end: at(end),
+    };
+  }
   if (kind === 'TEXT' || kind === 'MTEXT') {
     const first = entity.texts[0];
     if (!first) return { type: 'other', kind, box: drawnBox(scene, preview, index) };
@@ -238,6 +257,8 @@ export function polygonArea(points: readonly Xy[]): number {
 
 /** AutoCAD's object name in the Properties palette. */
 export function objectName(geometry: EntityGeometry | null, kind: string): string {
+  // A donut is a polyline in AutoCAD.
+  if (kind.toUpperCase() === 'DONUT') return 'Polyline';
   switch (geometry?.type) {
     case 'line':
       return 'Line';
@@ -265,6 +286,7 @@ export function objectName(geometry: EntityGeometry | null, kind: string): strin
         MLEADER: 'Multileader',
         SOLID: '2D Solid',
         WIPEOUT: 'Wipeout',
+        ACAD_TABLE: 'Table',
       };
       return names[k] ?? k.charAt(0) + k.slice(1).toLowerCase();
     }

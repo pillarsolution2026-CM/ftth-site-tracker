@@ -1,4 +1,8 @@
-import type { CreateDrawingCorrectionRequest, DrawingCorrectionInput } from '@ftth/shared';
+import {
+  NEW_HANDLE_PREFIX,
+  type CreateDrawingCorrectionRequest,
+  type DrawingCorrectionInput,
+} from '@ftth/shared';
 import { boxThrough, type Affine } from './affine';
 import { applyInputs, stepOfInput, type DrawingPreview } from './drawing-preview';
 import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
@@ -39,9 +43,55 @@ export function addEdits(edits: readonly CanvasEdit[], added: readonly CanvasEdi
   return [...edits.filter((edit) => !replaced.has(key(edit) ?? '\u0001')), ...added];
 }
 
-/** The edits as correction requests, in the order made. */
+/** Edits that add an item to the page (an object a later edit may name, ADR-061). */
+const ADDING = new Set<CanvasEdit['kind']>([
+  'add_curve',
+  'add_text',
+  'add_item',
+  'add_note',
+  'add_shape',
+  'add_table',
+  'copy_item',
+]);
+
+export const addsItem = (edit: CanvasEdit): boolean => ADDING.has(edit.kind);
+
+/**
+ * The client's name of the item an unsaved edit adds (ADR-061): kept with the edit object itself
+ * (Undo / Redo bring the same objects back), so its page row keeps the handle `NEW-<ref>` until
+ * «حفظ», which sends the add with this `ref`.
+ */
+const refs = new WeakMap<CanvasEdit, string>();
+const REF_PREFIX = `w${Math.floor(Math.random() * 36 ** 4).toString(36)}`;
+let refCount = 0;
+
+/** The ref of an edit that adds an item (made the first time it is asked); null otherwise. */
+export function editRef(edit: CanvasEdit): string | null {
+  if (!addsItem(edit)) return null;
+  let ref = refs.get(edit);
+  if (ref === undefined) {
+    refCount += 1;
+    ref = `${REF_PREFIX}${refCount.toString(36)}`;
+    refs.set(edit, ref);
+  }
+  return ref;
+}
+
+/** The handle the item an unsaved edit adds has on the page (`NEW-<ref>`), or undefined. */
+export function editHandle(edit: CanvasEdit): string | undefined {
+  const ref = editRef(edit);
+  return ref === null ? undefined : `${NEW_HANDLE_PREFIX}${ref}`;
+}
+
+/**
+ * The edits as correction requests, in the order made. An edit that adds an item carries its
+ * `ref`, so a later request of the same save may name the item `NEW-<ref>` (ADR-061).
+ */
 export function editRequests(edits: readonly CanvasEdit[]): CreateDrawingCorrectionRequest[] {
-  return edits.map((edit) => ({ correction: { ...edit }, problem: null }));
+  return edits.map((edit) => {
+    const ref = editRef(edit);
+    return { correction: { ...edit }, problem: null, ...(ref === null ? {} : { ref }) };
+  });
 }
 
 /** Rounds a coordinate or angle to what a drawing keeps (micro-units), so requests stay short. */
@@ -142,6 +192,56 @@ export function pointsCurveEdit(
     points.map((p) => ({ x: p[0], y: p[1] })),
     closed,
   );
+}
+
+/** CIRCLE drawn on the page: a true circle (add_curve.arc, ADR-061) with its outline points. */
+export function circleCurveEdit(
+  layer: string,
+  center: readonly [number, number],
+  radius: number,
+  outline: readonly (readonly [number, number])[],
+): CanvasEdit {
+  const edit = pointsCurveEdit(layer, outline, true);
+  if (edit.kind !== 'add_curve' || !(radius > 0)) return edit;
+  return { ...edit, arc: { x: r(center[0]), y: r(center[1]), r: r(radius), start: 0, end: 360 } };
+}
+
+/**
+ * The true arc through drawn arc points (first, middle, last), counter-clockwise from `start` to
+ * `end` degrees as AutoCAD keeps arcs; null when the points are in a line.
+ */
+export function arcOfPoints(
+  points: readonly (readonly [number, number])[],
+): { x: number; y: number; r: number; start: number; end: number } | null {
+  const a = points[0];
+  const m = points[Math.floor(points.length / 2)];
+  const b = points[points.length - 1];
+  if (!a || !m || !b || points.length < 3) return null;
+  const d = 2 * (a[0] * (m[1] - b[1]) + m[0] * (b[1] - a[1]) + b[0] * (a[1] - m[1]));
+  if (Math.abs(d) < 1e-12) return null;
+  const sq = (p: readonly [number, number]) => p[0] * p[0] + p[1] * p[1];
+  const x = (sq(a) * (m[1] - b[1]) + sq(m) * (b[1] - a[1]) + sq(b) * (a[1] - m[1])) / d;
+  const y = (sq(a) * (b[0] - m[0]) + sq(m) * (a[0] - b[0]) + sq(b) * (m[0] - a[0])) / d;
+  const deg = (p: readonly [number, number]) => {
+    const out = ((((Math.atan2(p[1] - y, p[0] - x) * 180) / Math.PI) % 360) + 360) % 360;
+    return Math.abs(out - 360) < 1e-9 ? 0 : out;
+  };
+  // The turn first → middle → last: counter-clockwise keeps the order, clockwise swaps the ends.
+  const ccw = (m[0] - a[0]) * (b[1] - a[1]) - (m[1] - a[1]) * (b[0] - a[0]) > 0;
+  const start = deg(ccw ? a : b);
+  let end = deg(ccw ? b : a);
+  if (end <= start) end += 360;
+  return { x: r(x), y: r(y), r: r(Math.hypot(a[0] - x, a[1] - y)), start: r(start), end: r(end) };
+}
+
+/** ARC drawn on the page: a true arc (add_curve.arc, ADR-061) with its points. */
+export function arcCurveEdit(
+  layer: string,
+  points: readonly (readonly [number, number])[],
+): CanvasEdit {
+  const edit = pointsCurveEdit(layer, points, false);
+  const arc = arcOfPoints(points);
+  return edit.kind === 'add_curve' && arc ? { ...edit, arc } : edit;
 }
 
 /** The handles of chosen entities, each once (an INSERT's shapes share one handle). */
@@ -249,12 +349,22 @@ function tightBox(scene: DrawingScene, index: number): Bounds | null {
   return { minX, minY, maxX, maxY };
 }
 
-/** The saved corrections' preview with the unsaved edits drawn on top. */
+/**
+ * The saved corrections' preview with the unsaved edits drawn on top; the first `named` edits
+ * give their items `NEW-<ref>` handles (the rest are a command's preview, not yet kept).
+ */
 export function previewWithEdits(
   scene: DrawingScene,
   preview: DrawingPreview,
   edits: readonly CanvasEdit[],
   textHeight = 2.5,
+  named = edits.length,
 ): DrawingPreview {
-  return applyInputs(scene, preview, edits, textHeight);
+  return applyInputs(
+    scene,
+    preview,
+    edits,
+    textHeight,
+    edits.map((edit, i) => (i < named ? editHandle(edit) : undefined)),
+  );
 }
