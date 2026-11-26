@@ -170,7 +170,7 @@ export function modify2Option<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, ke
     case 'R':
       change([...geom.points].reverse(), geom.closed);
       return;
-    case 'U':
+    case 'U': {
       const back = d.before ?? [];
       if (back.length === 0) {
         ctx.say(ctx.msg('nothingToUndo'));
@@ -185,6 +185,7 @@ export function modify2Option<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, ke
         },
       });
       return;
+    }
     case 'J':
       // The build joins routes end to end (merge_routes): JOIN does that with AutoCAD's rules.
       ctx.say(ctx.msg('peditJoin'));
