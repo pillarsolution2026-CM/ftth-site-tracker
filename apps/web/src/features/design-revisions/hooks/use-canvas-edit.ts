@@ -20,6 +20,7 @@ import {
   PROMPTS_WITHOUT_OR,
   matchOption,
   resolveCommand,
+  TRANSPARENT,
   parseEntry,
   towards,
   type CommandId,
@@ -120,6 +121,8 @@ import { hatchLoopCount, hatchPending, isHatchCommand, type HatchSettings } from
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import { useHistory, type HistoryPart, type UndoHistory } from './use-history';
 import type { LayerScreen } from './use-layer-screen';
+import { moreTransparent, moreWord } from './more-commands';
+import { transparentLabel, type UndoControl, type ZoomView } from './view-commands';
 
 export type { Point } from '../model/cad-commands';
 
@@ -658,6 +661,8 @@ interface Input {
   joinTouch?: number;
   /** One Undo history for the edits and the screen states (item 13); its own when absent. */
   history?: UndoHistory;
+  /** ZOOM / PAN / REGEN typed: the viewer's view (set by the viewer after each render). */
+  view?: { readonly current: ZoomView | null };
   /** The screen states (layers, isolation…) the history puts back. */
   screen?: HistoryPart;
 }
@@ -775,6 +780,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   // AutoCAD's recent input (↑ / ↓ on the command line) and recent commands (right-click).
   const [recentInput, setRecentInput] = useState<readonly string[]>([]);
   const [recentCommands, setRecentCommands] = useState<readonly CommandId[]>([]);
+  /** UNDO Mark: how many history steps there were then; OOPS: the last ERASE's objects. */
+  const [undoMark, setUndoMark] = useState<number | null>(null);
+  const [lastErased, setLastErased] = useState<readonly string[]>([]);
   const rememberInput = (typed: string) => {
     const value = typed.trim();
     if (!value) return;
@@ -1265,7 +1273,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const promptLine = (r: Run | null) =>
-    formatPrompt(t, r ? COMMANDS[r.cmd].name : null, promptOf(r));
+    formatPrompt(t, r ? (transparentLabel(r) ?? COMMANDS[r.cmd].name) : null, promptOf(r));
 
   // ---------- running ----------
 
@@ -1310,8 +1318,45 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           usableLayers: layers,
           layerScreen: input.layerScreen,
           openDialog: input.openDialog,
+          view: input.view?.current ?? undefined,
+          undo: undoControl,
         }
       : null;
+
+  /** U / UNDO / REDO / OOPS typed share the one history (item 13). */
+  const undoControl: UndoControl = {
+    undo: (count) => undoHistory.undoMany(count, historyParts()),
+    redo: () => undoHistory.redo(historyParts()),
+    steps: () => undoHistory.steps.length,
+    mark: () => setUndoMark(undoHistory.steps.length),
+    markAt: () => undoMark,
+    clearMark: () => setUndoMark(null),
+    oops: () => {
+      // OOPS: the objects of the last ERASE come back (their unsaved erase edits are dropped).
+      const gone = new Set(lastErased);
+      if (gone.size === 0) return 0;
+      const kept = [...edits];
+      let count = 0;
+      for (let i = kept.length - 1; i >= 0 && gone.size > 0; i--) {
+        const edit = kept[i];
+        if (edit?.kind === 'erase_item' && gone.has(edit.handle)) {
+          gone.delete(edit.handle);
+          kept.splice(i, 1);
+          count++;
+        }
+      }
+      if (count === 0) return 0;
+      undoHistory.record('OOPS', 'edits', { edits, currentLayer });
+      setEdits(kept);
+      setLastErased([]);
+      return count;
+    },
+  };
+  /** ERASE (the command, Delete): OOPS can bring these back. */
+  const eraseNow = (picked: string[]) => {
+    add(eraseEdits(picked));
+    setLastErased(picked);
+  };
 
   const begin = (cmd: CommandId): Run | null | undefined => {
     if (!scene) return null;
@@ -1348,7 +1393,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return next('select');
       case 'erase':
         if (picked) {
-          add(eraseEdits(handles));
+          eraseNow(handles);
           finish();
           return;
         }
@@ -1559,7 +1604,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         clipSelected(r.cmd, r.base);
         return;
       case 'erase':
-        add(eraseEdits(handles));
+        eraseNow(handles);
         finish();
         return;
       case 'join':
@@ -2932,6 +2977,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       else feedText(run, typed);
       return;
     }
+    if (run && typed.trim().startsWith("'")) {
+      // A transparent command inside this one ('ZOOM, 'PAN), AutoCAD's «>>».
+      say(`${promptLine(run)} ${typed}`);
+      const id = resolveCommand(typed.trim());
+      const ctx = extraCtx();
+      if (id && TRANSPARENT.has(id) && ctx && !transparentLabel(run)) {
+        moreTransparent(ctx, id, (step) => newRun(id, step as Step), run);
+      } else say(msg('notTransparent'));
+      return;
+    }
     const last = run ? (run.points[run.points.length - 1] ?? run.base) : null;
     const entry = parseEntry(typed, last);
     if (!run) {
@@ -2953,7 +3008,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     } else if (entry.kind === 'number') feedNumber(run, entry.value);
     else if (entry.kind === 'word') {
       const key = matchOption(promptOf(run).options, entry.word);
+      const ctx = key ? null : extraFor(run);
       if (key) feedOption(run, key);
+      else if (ctx && moreWord(ctx, run, entry.word)) return;
       else if (!(run.step === 'select' && selectionWord(run, entry.word))) say(msg('badKeyword'));
     } else say(msg('badPoint'));
   };
@@ -3291,7 +3348,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return true;
       }
       if (k === 'Delete' && !run && handles.length > 0) {
-        add(eraseEdits(handles));
+        eraseNow(handles);
         setSelection(NONE);
         return true;
       }
@@ -3393,7 +3450,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       setPointer({ x: grip.x, y: grip.y });
       setFocusNonce((n) => n + 1);
     },
-    commandLabel: gripRun ? GRIP_NAME : null,
+    commandLabel: gripRun ? GRIP_NAME : transparentLabel(run),
     apply: (made) => {
       if (!editing || made.length === 0) return;
       setError(null);

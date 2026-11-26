@@ -93,7 +93,15 @@ export type CommandId =
   | 'tcircle'
   | 'textmask'
   | 'textunmask'
-  | 'table';
+  | 'table'
+  // View and undo, typed (round 3, audit 4.1 / 4.2)
+  | 'zoom'
+  | 'pan'
+  | 'regen'
+  | 'u'
+  | 'undo'
+  | 'redo'
+  | 'oops';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -183,7 +191,17 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   textmask: { name: 'TEXTMASK', aliases: [] },
   textunmask: { name: 'TEXTUNMASK', aliases: [] },
   table: { name: 'TABLE', aliases: ['TB'] },
+  zoom: { name: 'ZOOM', aliases: ['Z'] },
+  pan: { name: 'PAN', aliases: ['P'] },
+  regen: { name: 'REGEN', aliases: ['RE'] },
+  u: { name: 'U', aliases: [] },
+  undo: { name: 'UNDO', aliases: [] },
+  redo: { name: 'REDO', aliases: [] },
+  oops: { name: 'OOPS', aliases: [] },
 };
+
+/** Commands that may run inside another one, typed with an apostrophe (`'ZOOM`, AutoCAD). */
+export const TRANSPARENT: ReadonlySet<CommandId> = new Set<CommandId>(['zoom', 'pan']);
 
 const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
   (Object.entries(COMMANDS) as [CommandId, CommandDef][]).flatMap(([id, def]) =>
@@ -191,12 +209,12 @@ const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
   ),
 );
 
-/** The command a typed word names (AutoCAD's `_` and `.` prefixes allowed), or null. */
+/** The command a typed word names (AutoCAD's `_`, `.` and `'` prefixes allowed), or null. */
 export function lookupCommand(typed: string): CommandId | null {
   const word = typed
     .trim()
     .toUpperCase()
-    .replace(/^[_.]+/, '');
+    .replace(/^[_.']+/, '');
   return BY_NAME.get(word) ?? null;
 }
 
@@ -220,7 +238,7 @@ export function suggestCommands(typed: string): CommandSuggestion[] {
   const word = typed
     .trim()
     .toUpperCase()
-    .replace(/^[_.]+/, '');
+    .replace(/^[_.']+/, '');
   if (!/^[A-Z0-9]+$/.test(word) || !/[A-Z]/.test(word)) return [];
   const out: CommandSuggestion[] = [];
   const seen = new Set<CommandId>();
@@ -367,6 +385,10 @@ export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
   'splineMethod',
   'polygonMode',
   'orderOption',
+  // Round 3: their text already ends in «or» (AutoCAD's own wording) or is a question.
+  'zoomCorner',
+  'undoCount',
+  'undoEverything',
 ]);
 
 /** An angle as AutoCAD prints it in a default (AUPREC 0: whole degrees). */
