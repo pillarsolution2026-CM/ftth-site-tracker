@@ -203,3 +203,65 @@ describe('CadStatusBar', { timeout: 20_000 }, () => {
     expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toBeInTheDocument();
   });
 });
+
+describe('Undo / Redo for everything on the drawing (item 13)', { timeout: 20_000 }, () => {
+  const ctrl = (canvas: Element, key: string) =>
+    act(() => {
+      fireEvent.keyDown(canvas, { key, ctrlKey: true });
+    });
+  const unsaved = () => screen.queryByText(/edits? not saved yet/)?.textContent ?? '';
+
+  async function editing() {
+    const { canvas, user } = await open();
+    await user.click(screen.getByRole('button', { name: 'Edit the drawing' }));
+    await user.click(screen.getByRole('button', { name: /^Layer: / }));
+    const list = screen.getByRole('dialog', { name: 'Layers of the drawing' });
+    await user.click(within(list).getByRole('button', { name: 'Route' }));
+    return { canvas, user };
+  }
+
+  it('one Undo takes back a whole LINE command, as AutoCAD; Redo brings it back', async () => {
+    const { canvas, user } = await editing();
+    await user.type(
+      screen.getByLabelText('Command'),
+      'L{Enter}0,0{Enter}10,0{Enter}10,10{Enter}{Enter}',
+    );
+    expect(unsaved()).toMatch(/2/);
+    ctrl(canvas, 'z');
+    expect(unsaved()).toBe('');
+    expect(screen.getByRole('log', { name: 'Command history' }).textContent).toMatch(/LINE$/);
+    ctrl(canvas, 'y');
+    expect(unsaved()).toMatch(/2/);
+  });
+
+  it('screen states are steps too: Isolate Objects is undone and redone', async () => {
+    const { canvas, user } = await editing();
+    await click(user, canvas, 75, 25);
+    await user.click(within(bar()).getByRole('button', { name: 'Isolate Objects' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Isolate Objects' }));
+    await user.click(within(bar()).getByRole('button', { name: 'Isolate Objects' }));
+    expect(screen.getByRole('menuitem', { name: 'End Object Isolation' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    ctrl(canvas, 'z');
+    await user.click(within(bar()).getByRole('button', { name: 'Isolate Objects' }));
+    expect(
+      screen.queryByRole('menuitem', { name: 'End Object Isolation' }),
+    ).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    ctrl(canvas, 'y');
+    await user.click(within(bar()).getByRole('button', { name: 'Isolate Objects' }));
+    expect(screen.getByRole('menuitem', { name: 'End Object Isolation' })).toBeInTheDocument();
+  });
+
+  it('Undo stops at the last save', async () => {
+    const { canvas, user } = await editing();
+    await user.type(screen.getByLabelText('Command'), 'L{Enter}0,0{Enter}10,0{Enter}{Enter}');
+    await user.click(screen.getByRole('button', { name: /^Save \(/ }));
+    await waitFor(() => expect(api.createCorrections).toHaveBeenCalled());
+    await user.click(await screen.findByRole('button', { name: 'Edit the drawing' }));
+    ctrl(canvas, 'z');
+    expect(screen.getByRole('log', { name: 'Command history' }).textContent).toMatch(
+      /Everything has been undone/,
+    );
+  });
+});

@@ -103,6 +103,7 @@ import {
 } from './extra-commands';
 import { LAYER_TEXT_STEPS } from './layer-commands';
 import type { WorkspaceDialog } from './use-drawing-viewer';
+import { useHistory, type HistoryPart, type UndoHistory } from './use-history';
 import type { LayerScreen } from './use-layer-screen';
 
 export type { Point } from '../model/cad-commands';
@@ -569,7 +570,25 @@ interface Input {
   layerScreen?: LayerScreen;
   /** FIND, Layer Walk and Edit Attributes open a dialog. */
   openDialog?: (dialog: WorkspaceDialog | null) => void;
+  /** One Undo history for the edits and the screen states (item 13); its own when absent. */
+  history?: UndoHistory;
+  /** The screen states (layers, isolation…) the history puts back. */
+  screen?: HistoryPart;
 }
+
+/** AutoCAD's command name echoed when an edit made outside a command is undone. */
+const EDIT_LABEL: Readonly<Record<string, string>> = {
+  erase_item: 'ERASE',
+  move_layer: 'LAYER',
+  add_layer: 'LAYER',
+  rename_layer: 'RENAME',
+  delete_layer: 'LAYDEL',
+  set_style: 'PROPERTIES',
+  set_text: 'TEXTEDIT',
+  set_attribute: 'EATTEDIT',
+  set_order: 'DRAWORDER',
+  set_group: 'GROUP',
+};
 
 /** Degrees counter-clockwise from the base point to the point (0 = to the right, as CAD). */
 const directionOf = (base: Point, at: Point) =>
@@ -613,8 +632,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const [previous, setPrevious] = useState<ReadonlySet<number>>(NONE);
   const [edits, setEdits] = useState<readonly CanvasEdit[]>([]);
   const [extraSettings, setExtraSettings] = useState<ExtraSettings>(DEFAULT_EXTRA_SETTINGS);
-  /** Edits taken back by Undo, the last one on top (Redo). */
-  const [undone, setUndone] = useState<readonly CanvasEdit[]>([]);
+  const ownHistory = useHistory();
+  const undoHistory = input.history ?? ownHistory;
   const [error, setError] = useState<ErrorMessage | null>(null);
 
   // Leaving the page with unsaved edits asks first.
@@ -783,8 +802,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   /** Adds edits; returns their positions in the list (for the command's Undo). */
   const add = (added: CanvasEdit[]): number[] => {
     const at = edits.length;
+    const label = run
+      ? COMMANDS[run.cmd].name
+      : (EDIT_LABEL[added[0]?.kind ?? ''] ?? added[0]?.kind.toUpperCase() ?? '');
+    undoHistory.record(label, 'edits', { edits, currentLayer }, run !== null);
     setEdits((previous) => addEdits(previous, added));
-    setUndone([]);
     setError(null);
     return added.map((_, i) => at + i);
   };
@@ -1070,6 +1092,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   // ---------- running ----------
 
   const finish = (keepSelection = false) => {
+    undoHistory.close();
     if (handles.length > 0) setPrevious(selection);
     setRun(null);
     setPointer(null);
@@ -2608,18 +2631,31 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       undoPoint(run);
       return;
     }
-    const last = edits[edits.length - 1];
-    if (last === undefined) return;
-    setEdits(edits.slice(0, -1));
-    setUndone((previous) => [...previous, last]);
+    const label = undoHistory.undo(historyParts());
+    if (label !== null) say(label);
+    else say(msg('nothingToUndo'));
   };
 
   const redo = () => {
-    const back = undone[undone.length - 1];
-    if (back === undefined) return;
-    setUndone(undone.slice(0, -1));
-    setEdits((previous) => [...previous, back]);
+    const label = undoHistory.redo(historyParts());
+    if (label !== null) say(label);
     setError(null);
+  };
+
+  /** What the history reads and puts back: the edits (and the current layer), the screen. */
+  const historyParts = (): Record<string, HistoryPart> => {
+    const parts: Record<string, HistoryPart> = {
+      edits: {
+        capture: () => ({ edits, currentLayer }),
+        apply: (state) => {
+          const s = state as { edits: readonly CanvasEdit[]; currentLayer: string };
+          setEdits(s.edits);
+          setCurrentLayer(s.currentLayer);
+        },
+      },
+    };
+    if (input.screen) parts.screen = input.screen;
+    return parts;
   };
 
   // ---------- what is drawn while a command runs ----------
@@ -2942,6 +2978,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         setSelection(NONE);
         return;
       }
+      if (value !== currentLayer) undoHistory.record('CLAYER', 'edits', { edits, currentLayer });
       setCurrentLayer(value);
       say(msg('currentNow', { layer: value }));
       if (!layers.includes(value)) say(msg('drawingOnly', { layer: value }));
@@ -2998,9 +3035,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     edits,
     preview: shown,
     undo,
-    canUndo: edits.length > 0 || (run !== null && run.points.length > 1),
+    canUndo: undoHistory.canUndo || (run !== null && run.points.length > 1),
     redo,
-    canRedo: undone.length > 0,
+    canRedo: undoHistory.canRedo,
     save: () => {
       if (edits.length === 0) {
         setEditing(false);
@@ -3013,7 +3050,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         {
           onSuccess: () => {
             setEdits([]);
-            setUndone([]);
+            undoHistory.clear();
             setEditing(false);
             finish();
             setHistory([]);
@@ -3026,7 +3063,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     saving: saveMutation.isPending,
     cancel: () => {
       setEdits([]);
-      setUndone([]);
+      undoHistory.clear();
       setEditing(false);
       setError(null);
       setHistory([]);

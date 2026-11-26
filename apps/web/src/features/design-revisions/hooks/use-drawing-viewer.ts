@@ -43,6 +43,7 @@ import { drawingToLonLat } from '../model/osm-backdrop';
 import { useCanvasEdit, type CanvasEditState } from './use-canvas-edit';
 import { useLayerScreen, type LayerScreen } from './use-layer-screen';
 import { draftedEdit, useDrafting, type Drafting } from './use-drafting';
+import { useHistory, type HistoryPart } from './use-history';
 import { useFixTools, type FixTools } from './use-fix-tools';
 
 export type WorkspaceDialog =
@@ -366,11 +367,47 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [layers, layerQuery],
   );
 
+  // One Undo history for the edits and these screen states (owner 2026-11-26, item 13).
+  const history = useHistory();
+  interface ScreenState {
+    overrides: ReadonlyMap<number, boolean>;
+    frozen: ReadonlySet<number>;
+    locked: ReadonlySet<number>;
+    layerColor: ReadonlyMap<number, string>;
+    isolatedTo: ReadonlySet<number> | null;
+    hiddenObjects: ReadonlySet<number>;
+    fade: { on: boolean; percent: number };
+  }
+  const screenNow = (): ScreenState => ({
+    overrides,
+    frozen,
+    locked,
+    layerColor,
+    isolatedTo,
+    hiddenObjects,
+    fade: layerScreen.fade,
+  });
+  const screenPart: HistoryPart = {
+    capture: screenNow,
+    apply: (state) => {
+      const s = state as ScreenState;
+      setOverrides(s.overrides);
+      setFrozen(s.frozen);
+      setLocked(s.locked);
+      setLayerColorMap(s.layerColor);
+      setIsolatedTo(s.isolatedTo);
+      setHiddenObjects(s.hiddenObjects);
+      layerScreen.setFade(s.fade);
+    },
+  };
+  /** A screen step is about to happen: the state now goes on the Undo history. */
+  const remember = (label: string) => history.record(label, 'screen', screenNow());
   const layerScreen = useLayerScreen({
     cadFileId,
     layerCount: layers?.length ?? 0,
     snapshot: { overrides, frozen, locked },
     apply: (s) => {
+      remember('LAYER');
       setOverrides(s.overrides);
       setFrozen(s.frozen);
       setLocked(s.locked);
@@ -380,7 +417,15 @@ export function useDrawingViewer(input: Input): DrawingViewer {
 
   const textHeight = defaultTextHeight(tools.metresPerUnit);
   const canvasEdit = useCanvasEdit({
-    layerScreen,
+    history,
+    screen: screenPart,
+    layerScreen: {
+      ...layerScreen,
+      setFade: (fade) => {
+        remember('LAYLOCKFADECTL');
+        layerScreen.setFade(fade);
+      },
+    },
     openDialog: setDialog,
     projectId,
     cadFileId,
@@ -652,17 +697,31 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     layerRows,
     layerQuery,
     setLayerQuery,
-    toggleLayer,
-    setShownForListed,
-    toggleFrozen: toggleIn(setFrozen),
-    toggleLocked: toggleIn(setLocked),
-    setLayerColor: (index, color) =>
+    toggleLayer: (index) => {
+      remember('LAYER');
+      toggleLayer(index);
+    },
+    setShownForListed: (shown) => {
+      remember('LAYER');
+      setShownForListed(shown);
+    },
+    toggleFrozen: (index) => {
+      remember('LAYER');
+      toggleIn(setFrozen)(index);
+    },
+    toggleLocked: (index) => {
+      remember('LAYER');
+      toggleIn(setLocked)(index);
+    },
+    setLayerColor: (index, color) => {
+      remember('LAYER');
       setLayerColorMap((previous) => {
         const next = new Map(previous);
         if (color === null) next.delete(index);
         else next.set(index, color);
         return next;
-      }),
+      });
+    },
     layersNonce,
     size,
     setSize,
@@ -684,7 +743,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     setMarkersShown,
     drafting,
     osm: { toLonLat, shown: mapBehind, setShown: setOsmShown },
-    layerScreen,
+    layerScreen: {
+      ...layerScreen,
+      setFade: (fade) => {
+        remember('LAYLOCKFADECTL');
+        layerScreen.setFade(fade);
+      },
+    },
     dialog,
     setDialog,
     zoomToEntity: (index) => {
@@ -697,11 +762,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     isolation: {
       active: objectShown !== undefined,
       isolate: (indexes) => {
+        remember('ISOLATEOBJECTS');
         setIsolatedTo(new Set(indexes));
         setHiddenObjects(NO_ENTITIES);
       },
-      hide: (indexes) => setHiddenObjects((previous) => new Set([...previous, ...indexes])),
+      hide: (indexes) => {
+        remember('HIDEOBJECTS');
+        setHiddenObjects((previous) => new Set([...previous, ...indexes]));
+      },
       end: () => {
+        remember('UNISOLATEOBJECTS');
         setIsolatedTo(null);
         setHiddenObjects(NO_ENTITIES);
       },
