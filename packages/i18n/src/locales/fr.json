@@ -1717,6 +1717,7 @@
       "save": "Enregistrer"
     },
     "cad": {
+      "qselectLater": "La sélection rapide n'est pas encore sur cet écran",
       "suggestions": "Suggestions de commandes",
       "recentCommands": "Commandes récentes",
       "noRecentCommands": "Aucune commande récente",
@@ -1903,6 +1904,8 @@
       "fullScreen": "Plein écran",
       "fullScreenExit": "Quitter le plein écran",
       "panel": {
+        "utilities": "Utilitaires",
+        "clipboard": "Presse-papiers",
         "draw": "Dessiner",
         "modify": "Modifier",
         "annotation": "Annotation",
@@ -1955,6 +1958,8 @@
         "bar": "Palettes"
       },
       "cmd": {
+        "extendPick": "Sélectionnez l'objet à prolonger ou appuyez sur Maj pour ajuster",
+        "extendEdges": "Sélectionnez les contours limites ... Choix des objets ou",
         "idPoint": "Spécifiez un point",
         "distFirst": "Spécifiez le premier point",
         "distSecond": "Spécifiez le deuxième point",
@@ -2181,6 +2186,8 @@
         "insertionPoint": "Spécifiez le point d’insertion"
       },
       "msg": {
+        "extendEdgesSettings": "Sélectionnez les contours limites (aucun = tous les objets).",
+        "explodeRefused": "{count} n'a pas pu être décomposé (seules les polylignes le sont ici : la vue du fichier n'a pas les définitions de blocs).",
         "idResult": "X = {x}     Y = {y}     Z = 0.0000",
         "distResult": "Distance = {distance},  Angle dans le plan XY = {angle},  Angle à partir du plan XY = 0",
         "distDelta": "Delta X = {dx},  Delta Y = {dy},  Delta Z = 0.0000",
@@ -2369,6 +2376,21 @@
         "clipboardEmpty": "Le Presse-papiers est vide."
       },
       "tool": {
+        "extend": "Prolonger",
+        "explode": "Décomposer",
+        "measuregeom": "Mesurer",
+        "measureDistance": "Distance",
+        "measureRadius": "Rayon",
+        "measureAngle": "Angle",
+        "measureArea": "Aire",
+        "id": "Point ID",
+        "list": "Liste",
+        "qselect": "Sélection rapide",
+        "selectall": "Sélectionner tout",
+        "pasteclip": "Coller",
+        "cutclip": "Couper",
+        "copyclip": "Copier dans le presse-papiers",
+        "copybase": "Copier avec point de base",
         "line": "Ligne",
         "pline": "Polyligne",
         "circle": "Cercle",
@@ -2461,6 +2483,14 @@
         "tjust": "Justifier"
       },
       "hint": {
+        "extend": "Prolonger des objets jusqu'aux bords d'autres objets",
+        "explode": "Décomposer une polyligne en ses segments",
+        "id": "Afficher les coordonnées d'un point",
+        "list": "Afficher les propriétés des objets choisis sur la ligne de commande",
+        "pasteclip": "Coller les objets du presse-papiers",
+        "cutclip": "Déplacer les objets choisis vers le presse-papiers",
+        "copyclip": "Copier les objets choisis dans le presse-papiers",
+        "copybase": "Copier les objets choisis avec un point de base",
         "line": "Ligne",
         "pline": "Polyligne",
         "circle": "Cercle",

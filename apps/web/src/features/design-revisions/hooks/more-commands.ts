@@ -18,6 +18,12 @@ import {
   type InquiryStep,
 } from './inquiry-commands';
 import {
+  isModify2Command,
+  modify2AfterSelect,
+  modify2Begin,
+  type Modify2PromptKey,
+} from './modify2-commands';
+import {
   isViewCommand,
   transparentLabel as viewTransparentLabel,
   VIEW_OBJECT_STEPS,
@@ -43,12 +49,13 @@ import {
  */
 
 export type MoreStep = ViewStep | InquiryStep;
-export type MorePromptKey = ViewPromptKey | InquiryPromptKey;
+export type MorePromptKey = ViewPromptKey | InquiryPromptKey | Modify2PromptKey;
 
 export const MORE_OBJECT_STEPS: readonly string[] = [...VIEW_OBJECT_STEPS, ...INQUIRY_OBJECT_STEPS];
 export const MORE_TRACKED: readonly string[] = [...VIEW_TRACKED, ...INQUIRY_TRACKED];
 
-export const isMoreCommand = (cmd: CommandId) => isViewCommand(cmd) || isInquiryCommand(cmd);
+export const isMoreCommand = (cmd: CommandId) =>
+  isViewCommand(cmd) || isInquiryCommand(cmd) || isModify2Command(cmd);
 
 /** The «>>» shown before the prompt of a transparent command, null otherwise. */
 export const transparentLabel = (r: ExtraRun | null): string | null =>
@@ -73,6 +80,7 @@ export function moreBegin<R extends ExtraRun>(
 ): R | null {
   if (isViewCommand(cmd)) return viewBegin(ctx, cmd, fresh);
   if (isInquiryCommand(cmd)) return inquiryBegin(ctx, cmd, fresh);
+  if (isModify2Command(cmd)) return modify2Begin(ctx, cmd, fresh);
   return null;
 }
 
@@ -91,6 +99,7 @@ export function moreTransparent<R extends ExtraRun>(
 export function moreAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): R | null {
   if (isViewCommand(r.cmd)) return viewAfterSelect(ctx);
   if (isInquiryCommand(r.cmd)) return inquiryAfterSelect(ctx, r);
+  if (isModify2Command(r.cmd)) return modify2AfterSelect(ctx, r);
   ctx.finish();
   return null;
 }

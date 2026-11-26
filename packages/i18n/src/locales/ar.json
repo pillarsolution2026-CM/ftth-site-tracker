@@ -1717,6 +1717,7 @@
       "save": "حفظ"
     },
     "cad": {
+      "qselectLater": "التحديد السريع غير متاح في هذه الشاشة بعد",
       "suggestions": "اقتراحات الأوامر",
       "recentCommands": "الأوامر الأخيرة",
       "noRecentCommands": "لا توجد أوامر حديثة",
@@ -1903,6 +1904,8 @@
       "fullScreen": "ملء الشاشة",
       "fullScreenExit": "اخرج من ملء الشاشة",
       "panel": {
+        "utilities": "Utilities",
+        "clipboard": "Clipboard",
         "draw": "Draw",
         "modify": "Modify",
         "annotation": "Annotation",
@@ -1955,6 +1958,8 @@
         "bar": "اللوحات"
       },
       "cmd": {
+        "extendPick": "Select object to extend or shift-select to trim",
+        "extendEdges": "Select boundary edges ... Select objects or",
         "idPoint": "Specify point",
         "distFirst": "Specify first point",
         "distSecond": "Specify second point",
@@ -2181,6 +2186,8 @@
         "insertionPoint": "Specify insertion point"
       },
       "msg": {
+        "extendEdgesSettings": "Select boundary edges (none picked = all objects).",
+        "explodeRefused": "{count} was not able to be exploded (only polylines are exploded here: the view of the file has no block definitions).",
         "idResult": "X = {x}     Y = {y}     Z = 0.0000",
         "distResult": "Distance = {distance},  Angle in XY Plane = {angle},  Angle from XY Plane = 0",
         "distDelta": "Delta X = {dx},  Delta Y = {dy},  Delta Z = 0.0000",
@@ -2369,6 +2376,21 @@
         "clipboardEmpty": "The clipboard is empty."
       },
       "tool": {
+        "extend": "Extend",
+        "explode": "Explode",
+        "measuregeom": "Measure",
+        "measureDistance": "Distance",
+        "measureRadius": "Radius",
+        "measureAngle": "Angle",
+        "measureArea": "Area",
+        "id": "ID Point",
+        "list": "List",
+        "qselect": "Quick Select",
+        "selectall": "Select All",
+        "pasteclip": "Paste",
+        "cutclip": "Cut",
+        "copyclip": "Copy Clip",
+        "copybase": "Copy with Base Point",
         "line": "Line",
         "pline": "Polyline",
         "circle": "Circle",
@@ -2461,6 +2483,14 @@
         "tjust": "Justify"
       },
       "hint": {
+        "extend": "مد العناصر حتى تلاقي حواف عناصر أخرى",
+        "explode": "تفكيك خط متعدد إلى قطعه",
+        "id": "عرض إحداثيات نقطة",
+        "list": "عرض بيانات العناصر المختارة في سطر الأوامر",
+        "pasteclip": "لصق عناصر الحافظة",
+        "cutclip": "نقل العناصر المختارة إلى الحافظة",
+        "copyclip": "نسخ العناصر المختارة إلى الحافظة",
+        "copybase": "نسخ العناصر المختارة مع نقطة أساس",
         "line": "خط",
         "pline": "خط متعدد",
         "circle": "دايرة",

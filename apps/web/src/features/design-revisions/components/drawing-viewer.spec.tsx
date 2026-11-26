@@ -978,7 +978,9 @@ describe(
       });
 
       it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
-        // Each panel is 100 px wide open; the row is 800 px: the last ones shrink.
+        // Each panel is 100 px wide open; the row is 1000 px (11 panels since round 3's
+        // Utilities and Clipboard): the last ones shrink.
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
         vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
           this: HTMLElement,
         ) {

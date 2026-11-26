@@ -1173,6 +1173,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'pointAt':
         return p('pointAt');
       case 'trimPick':
+        // EXTEND (round 3): the same pick with the other default; Shift trims.
+        if (r.cmd === 'extend')
+          return p('extendPick', [
+            opt('Boundary edges', 'B'),
+            ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
+          ]);
         // Undo is offered once something was trimmed (AutoCAD).
         return p('trimPick', [
           opt('cuTting edges', 'T'),
@@ -1180,7 +1186,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
         ]);
       case 'trimEdges':
-        return p('trimEdges', [], 'select all');
+        return p(r.cmd === 'extend' ? 'extendEdges' : 'trimEdges', [], 'select all');
       case 'trimErase':
         return p('trimErase', [], 'exit');
       case 'filletFirst':
@@ -1430,6 +1436,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         say(msg('pointModes'));
         return next('pointAt');
       case 'trim':
+      case 'extend':
         setSelection(NONE);
         say(msg('trimSettings'));
         return next('trimPick');
@@ -2142,16 +2149,20 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
+        const extending = shift !== (r.cmd === 'extend');
+        // Cutting edges cross the object's box; boundary edges to extend to may lie anywhere.
+        const everywhere = { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
         const edgeList = r.flags.edges
           ? r.flags.edges.flatMap((i) => {
               const g = curveGeom(i);
               return g && i !== index ? [g] : [];
             })
-          : edgesNear(boxAround(geom.points), index);
+          : edgesNear(extending ? everywhere : boxAround(geom.points), index);
         try {
           const out: CanvasEdit[] = [];
-          if (shift) {
-            // Shift-select extends the picked end to the nearest edge (AutoCAD).
+          // TRIM: Shift-select extends; EXTEND: a plain pick extends, Shift-select trims.
+          if (extending) {
+            // The picked end goes to the nearest edge (AutoCAD).
             if (geom.closed) {
               say(msg('notCurve'));
               return;
@@ -2609,8 +2620,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         go(r, key === 'W' ? 'rectAreaWidth' : 'rectAreaLength');
         return;
       case 'trimPick':
-        if (key === 'T') {
-          say(msg('trimEdgesSettings'));
+        if (key === 'T' || key === 'B') {
+          say(msg(r.cmd === 'extend' ? 'extendEdgesSettings' : 'trimEdgesSettings'));
           flag(r, { edges: [] }, 'trimEdges');
         } else if (key === 'R') go(r, 'trimErase');
         else if (key === 'U') undoMade(r);

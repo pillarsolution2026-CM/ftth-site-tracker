@@ -107,7 +107,10 @@ export type CommandId =
   | 'dist'
   | 'area'
   | 'list'
-  | 'measuregeom';
+  | 'measuregeom'
+  // Modify (round 3, audit 4.2)
+  | 'extend'
+  | 'explode';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -209,6 +212,8 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   area: { name: 'AREA', aliases: ['AA'] },
   list: { name: 'LIST', aliases: ['LI', 'LS'] },
   measuregeom: { name: 'MEASUREGEOM', aliases: ['MEA'] },
+  extend: { name: 'EXTEND', aliases: ['EX'] },
+  explode: { name: 'EXPLODE', aliases: ['X'] },
 };
 
 /** Commands that may run inside another one, typed with an apostrophe (`'ZOOM`, AutoCAD). */
@@ -302,6 +307,8 @@ export const SELECTING: readonly CommandId[] = [
   'overkill',
   'draworder',
   'region',
+  'explode',
+  'list',
   'copyclip',
   'cutclip',
   'copybase',

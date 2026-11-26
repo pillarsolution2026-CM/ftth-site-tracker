@@ -100,7 +100,9 @@ type IconKey =
   | 'paletteLayers'
   | 'paletteProblems'
   | 'paletteCorrections'
-  | 'paletteProperties';
+  | 'paletteProperties'
+  | 'qselect'
+  | 'selectall';
 const ICONS: Partial<Record<IconKey, ReactNode>> = {
   line: (
     <>
@@ -586,6 +588,77 @@ const ICONS: Partial<Record<IconKey, ReactNode>> = {
       <circle cx="8" cy="17" r="2" />
     </>
   ),
+  // Round 3: Utilities, Clipboard and the added Modify tools.
+  measuregeom: (
+    <>
+      <path d="M3 17 17 3l4 4L7 21z" />
+      <path d="M7 13l2 2M10 10l2 2M13 7l2 2" />
+    </>
+  ),
+  id: (
+    <>
+      <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+      <circle cx="12" cy="12" r="2" />
+    </>
+  ),
+  list: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="1" />
+      <path d="M8 8h8M8 12h8M8 16h5" />
+    </>
+  ),
+  extend: (
+    <>
+      <path d="M20 3v18" />
+      <path d="M3 12h9" />
+      <path d="M12 12h8" strokeDasharray="2 2" />
+      <path d="M15 9l3 3-3 3" />
+    </>
+  ),
+  explode: (
+    <>
+      <path d="M4 14l5-5M11 5l4 4M19 11l-4 6" />
+      <path d="M3 4l2 2M21 4l-2 2M3 20l2-2M21 20l-2-2" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  pasteclip: (
+    <>
+      <rect x="5" y="4" width="14" height="17" rx="1" />
+      <rect x="9" y="2.5" width="6" height="3" rx="0.5" />
+      <path d="M9 11h6M9 15h6" />
+    </>
+  ),
+  cutclip: (
+    <>
+      <circle cx="7" cy="18" r="3" />
+      <circle cx="17" cy="18" r="3" />
+      <path d="M9 16 18 3M15 16 6 3" />
+    </>
+  ),
+  copyclip: (
+    <>
+      <rect x="8" y="8" width="12" height="13" rx="1" />
+      <path d="M16 8V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
+    </>
+  ),
+  copybase: (
+    <>
+      <rect x="8" y="8" width="12" height="13" rx="1" />
+      <path d="M16 8V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
+      <circle cx="8" cy="21" r="1.5" />
+    </>
+  ),
+  qselect: (
+    <>
+      <path d="M4 5h16l-6 7v6l-4 2v-8z" />
+    </>
+  ),
+  selectall: (
+    <>
+      <rect x="3" y="3" width="18" height="18" strokeDasharray="2 2" />
+      <path d="M8 12l3 3 5-6" />
+    </>
+  ),
 };
 
 /** Palette key → its icon on the tab strip (icons only, owner 2026-11-26). */
@@ -1025,6 +1098,8 @@ export const PANEL_ORDER = [
   'groups',
   'block',
   'properties',
+  'utilities',
+  'clipboard',
 ] as const satisfies readonly string[];
 
 const RibbonFit = createContext<{
@@ -1358,6 +1433,8 @@ export function CadRibbon({
               title={t('design.cad.panel.modify')}
               more={
                 <>
+                  <Tile edit={edit} id="extend" />
+                  <Tile edit={edit} id="explode" />
                   <Tile edit={edit} id="break" />
                   <Tile edit={edit} id="breakatpoint" />
                   <Tile edit={edit} id="lengthen" />
@@ -1542,6 +1619,68 @@ export function CadRibbon({
             <Panel id="properties" title={t('design.cad.panel.properties')}>
               <Tile edit={edit} id="matchprop" big />
               <PropertiesControls edit={edit} />
+            </Panel>
+            <Panel id="utilities" title={t('design.cad.panel.utilities')}>
+              <SplitTool
+                edit={edit}
+                label={t('design.cad.tool.measuregeom')}
+                icon="measuregeom"
+                items={[
+                  {
+                    label: t('design.cad.tool.measureDistance'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'D',
+                  },
+                  {
+                    label: t('design.cad.tool.measureRadius'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'R',
+                  },
+                  {
+                    label: t('design.cad.tool.measureAngle'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'A',
+                  },
+                  {
+                    label: t('design.cad.tool.measureArea'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'AR',
+                  },
+                ]}
+              />
+              <Rows>
+                <Unavailable
+                  icon="qselect"
+                  label={t('design.cad.tool.qselect')}
+                  reason={t('design.cad.qselectLater')}
+                />
+                <button
+                  type="button"
+                  aria-label={t('design.cad.tool.selectall')}
+                  title={`${t('design.cad.tool.selectall')} — Ctrl+A`}
+                  onClick={edit.selectAll}
+                  className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs ${DARK.tile}`}
+                >
+                  <Svg size="size-4">{ICONS.selectall}</Svg>
+                  <span dir="ltr" className="whitespace-nowrap">
+                    {t('design.cad.tool.selectall')}
+                  </span>
+                </button>
+                <Tile edit={edit} id="id" />
+                <Tile edit={edit} id="list" />
+              </Rows>
+            </Panel>
+            <Panel id="clipboard" title={t('design.cad.panel.clipboard')}>
+              <Tile edit={edit} id="pasteclip" big />
+              <Rows>
+                <Tile edit={edit} id="cutclip" />
+                <Tile edit={edit} id="copyclip" />
+                <Tile edit={edit} id="copybase" />
+              </Rows>
             </Panel>
           </div>
         </RibbonFit.Provider>
