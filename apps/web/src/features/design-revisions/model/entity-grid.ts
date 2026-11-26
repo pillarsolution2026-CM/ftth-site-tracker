@@ -18,7 +18,12 @@ export interface Box {
 const MAX_CELLS_PER_ENTITY = 16;
 const MAX_SIDE_CELLS = 512;
 
-export class EntityGrid {
+/** What the hit test and the snaps ask of a spatial index. */
+export interface SpatialIndex {
+  query(box: Box, near?: { at: readonly [number, number]; limit: number }): Int32Array;
+}
+
+export class EntityGrid implements SpatialIndex {
   private readonly cells: (number[] | undefined)[];
   private readonly large: number[] = [];
   private readonly stamp: Int32Array;
@@ -128,10 +133,15 @@ export class EntityGrid {
   }
 }
 
-const grids = new WeakMap<DrawingScene, EntityGrid>();
+const grids = new WeakMap<DrawingScene, SpatialIndex>();
+
+/** Gives a scene its index (a page scene: the file's grid plus one of the page rows, ADR-061). */
+export function setEntityGrid(scene: DrawingScene, grid: SpatialIndex): void {
+  grids.set(scene, grid);
+}
 
 /** The (cached) grid of a scene. */
-export function entityGridOf(scene: DrawingScene): EntityGrid {
+export function entityGridOf(scene: DrawingScene): SpatialIndex {
   let grid = grids.get(scene);
   if (!grid) {
     grid = new EntityGrid(scene);

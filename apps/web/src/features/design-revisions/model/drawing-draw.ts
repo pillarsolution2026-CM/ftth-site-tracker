@@ -114,6 +114,11 @@ export interface DrawModel {
   lineweights?: boolean;
   /** TRANSPARENCYDISPLAY (status bar): false draws hatches opaque; undefined: at their transparency. */
   transparency?: boolean;
+  /**
+   * The page scene (ADR-061): picked items, grips and ghosts of the overlay are looked up in it,
+   * so items drawn on the page show picked like the file's. The base stays on `scene`.
+   */
+  pageScene?: DrawingScene;
 }
 
 /** The colour an entity is drawn in now: its style, else its own, else its layer's (ADR-051). */
@@ -145,12 +150,25 @@ export interface Viewport extends Size {
 /** Path2D of each entity, built when first drawn, in coordinates relative to the scene origin. */
 export class PathCache {
   private readonly paths: (Path2D | undefined)[];
+  private child: PathCache | null = null;
 
-  constructor(private readonly scene: DrawingScene) {
+  constructor(
+    private readonly scene: DrawingScene,
+    /** The file's cache, for the file's entities of a page scene (ADR-061). */
+    private readonly base: PathCache | null = null,
+  ) {
     this.paths = new Array<Path2D | undefined>(scene.view.entities.length);
   }
 
+  /** The cache of a page scene of this file: the file's paths shared, the page rows' its own. */
+  over(scene: DrawingScene): PathCache {
+    if (scene === this.scene) return this;
+    if (this.child?.scene !== scene) this.child = new PathCache(scene, this);
+    return this.child;
+  }
+
   get(index: number): Path2D {
+    if (this.base && index < this.base.paths.length) return this.base.get(index);
     const cached = this.paths[index];
     if (cached) return cached;
     const entity = this.scene.view.entities[index] as DrawingViewEntity;
@@ -452,7 +470,7 @@ export function drawBase(
     const extraLayer = layerAt(model, extra.layer, extra.layerName);
     if (!model.layerShown(extraLayer)) continue;
     ctx.fillStyle = layerColorOf(model, extraLayer, extra.color);
-    fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
+    fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, extra.rotation ?? 0, extra.text);
   }
   // A wipeout hides what is under it with the background.
   drawShapes(ctx, model, tf, vp, 'over');
@@ -971,6 +989,10 @@ export function drawOverlay(
   vp: Viewport,
   layers?: OverlayLayers,
 ): void {
+  if (model.pageScene && model.pageScene !== model.scene) {
+    model = { ...model, scene: model.pageScene };
+    cache = cache.over(model.pageScene as DrawingScene);
+  }
   const { scene, preview } = model;
   const bounds = visibleBounds(tf, vp);
   const inView = (index: number) => {

@@ -376,7 +376,8 @@ function loopsWhere<R extends ExtraRun>(
     const loop = loopOf(ctx, index, gap);
     if (loop) out.push(loop);
   });
-  for (const extra of ctx.shown.extraCurves) {
+  // A page scene already has the lines drawn on the page as rows (ADR-061).
+  for (const extra of ctx.scene.file ? [] : ctx.shown.extraCurves) {
     const points: Pt[] = [];
     for (let i = 0; i + 1 < extra.path.length; i += 2) {
       points.push([extra.path[i] as number, extra.path[i + 1] as number]);

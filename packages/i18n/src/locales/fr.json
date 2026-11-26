@@ -1520,6 +1520,7 @@
       "withdrawTitle": "Retirer cette correction ?",
       "withdrawText": "Elle reste dans l'historique mais n'est plus appliquée. Reconstruisez pour voir l'effet.",
       "withdrawConfirm": "Retirer",
+      "withdrawDependants": "Elle retire aussi {count} modification(s) faite(s) ensuite sur ce qu’elle a dessiné.",
       "rebuild": "Appliquer les corrections et reconstruire",
       "rebuilding": "Reconstruction…",
       "rebuildText": "Cela abandonne le brouillon actuel et construit une nouvelle révision du même fichier avec l'association actuelle et les corrections en vigueur.",

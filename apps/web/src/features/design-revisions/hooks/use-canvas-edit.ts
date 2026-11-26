@@ -30,8 +30,11 @@ import {
 } from '../model/cad-commands';
 import {
   addEdits,
+  arcCurveEdit,
+  circleCurveEdit,
   copyEdits,
   curveEdit,
+  editHandle,
   editRequests,
   entitiesInBand,
   eraseEdits,
@@ -51,6 +54,7 @@ import {
 import { correctionError } from '../model/corrections';
 import { effectiveLayer, type DrawingPreview, type PreviewStyle } from '../model/drawing-preview';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
+import { isPageRow, pageSceneOf } from '../model/page-scene';
 import { joinProblem, type JoinPiece } from '../model/join';
 import {
   arcThrough,
@@ -551,6 +555,11 @@ export interface CanvasEditState {
   focusNonce: number;
   /** A key on the canvas; true when it was used. */
   key: (key: string, ctrl: boolean) => boolean;
+  /**
+   * The page scene (ADR-061): the file's entities, then the items drawn, pasted or copied on the
+   * page as objects with FIX- / NEW- handles. Picking, grips, snaps and Properties use it.
+   */
+  scene: DrawingScene | null;
   // Selection
   chosen: ReadonlySet<number>;
   chosenCount: number;
@@ -741,7 +750,15 @@ export function createPointStore(): PointStore {
 }
 
 export function useCanvasEdit(input: Input): CanvasEditState {
-  const { projectId, cadFileId, available, scene, preview: saved, layers: mapped, isShown } = input;
+  const {
+    projectId,
+    cadFileId,
+    available,
+    scene: fileScene,
+    preview: saved,
+    layers: mapped,
+    isShown,
+  } = input;
   const isLocked = input.isLocked ?? (() => false);
   const textHeight = input.textHeight ?? 2.5;
   const { t } = useI18n();
@@ -817,15 +834,22 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   );
   const shown = useMemo(
     () =>
-      scene && saved
+      fileScene && saved
         ? previewWithEdits(
-            scene,
+            fileScene,
             saved,
             pending.length > 0 ? [...edits, ...pending] : edits,
             textHeight,
+            edits.length,
           )
         : null,
-    [scene, saved, edits, pending, textHeight],
+    [fileScene, saved, edits, pending, textHeight],
+  );
+  // Items drawn, pasted or copied on the page are objects (ADR-061, owner item 36): every
+  // command below works on the page scene, the file's entities with the page's rows after them.
+  const scene = useMemo(
+    () => (fileScene && shown ? pageSceneOf(fileScene, shown) : fileScene),
+    [fileScene, shown],
   );
 
   // Layers added or renamed (saved and unsaved) take the meaning of their source.
@@ -944,7 +968,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       }
       const moved = shown.transformOf.get(index);
-      if (!moved && !meets(boxOf(scene, index))) return;
+      // Lines drawn on the page are always edges (EXTEND reaches past the box), as before.
+      if (!moved && !isPageRow(entity) && !meets(boxOf(scene, index))) return;
       for (const flat of entity.paths) {
         const points: Pt[] = [];
         for (let i = 0; i + 1 < flat.length; i += 2) {
@@ -954,13 +979,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (points.length >= 2) out.push({ points, closed: false });
       }
     });
-    for (const curve of shown.extraCurves) {
-      const points: Pt[] = [];
-      for (let i = 0; i + 1 < curve.path.length; i += 2) {
-        points.push([curve.path[i] as number, curve.path[i + 1] as number]);
-      }
-      out.push({ points, closed: curve.closed });
-    }
     return out;
   };
 
@@ -977,7 +995,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   /** Adds edits; returns their positions in the list (for the command's Undo). */
-  const add = (added: CanvasEdit[]): number[] => {
+  const add = (made: CanvasEdit[]): number[] => {
+    // A new object is drawn with the current properties (CECOLOR / CELTYPE / CELWEIGHT); a copy
+    // keeps its source's (AutoCAD).
+    const added = made.flatMap((edit) => {
+      const handle = edit.kind === 'copy_item' ? undefined : editHandle(edit);
+      return handle === undefined ? [edit] : [edit, ...currentStyleEdits(currentStyle, handle)];
+    });
     const at = edits.length;
     const label = run
       ? COMMANDS[run.cmd].name
@@ -1958,7 +1982,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const drawArc = (make: () => Pt[]) => {
     try {
-      add([pointsCurveEdit(drawLayer, make(), false)]);
+      add([arcCurveEdit(drawLayer, make())]);
       finish();
     } catch (caught) {
       geometryMessage(caught);
@@ -1998,7 +2022,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const circle = (center: Point, radius: number) => {
     try {
-      add([pointsCurveEdit(drawLayer, circlePoints(pt(center), radius), true)]);
+      add([circleCurveEdit(drawLayer, pt(center), radius, circlePoints(pt(center), radius))]);
       setLastRadius(radius);
       finish();
     } catch (caught) {
@@ -3290,6 +3314,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       return false;
     },
+    scene,
     chosen: selection,
     chosenCount: handles.length,
     clearChosen: () => setSelection(NONE),

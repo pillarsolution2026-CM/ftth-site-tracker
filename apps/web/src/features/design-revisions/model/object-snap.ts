@@ -2,6 +2,7 @@ import { applyAffine, type Affine } from './affine';
 import type { DrawingPreview } from './drawing-preview';
 import type { DrawingScene } from './drawing-scene';
 import { entityGridOf } from './entity-grid';
+import { isPageRow } from './page-scene';
 
 /**
  * AutoCAD's object snaps, 2D only (owner 2026-11-26, item 14): the 14 modes of the Object Snap
@@ -351,6 +352,22 @@ function entityShapes(
     return [{ kind: 'path', points, closed: replaced.closed }];
   }
   const out: SnapShape[] = [];
+  // Items of the page (ADR-061): a true circle / arc, and their nodes (points, dimensions).
+  if (isPageRow(entity)) {
+    for (const at of entity.nodes ?? []) {
+      if (entity.kind !== 'POINT') out.push({ kind: 'node', at: [at[0], at[1]] });
+    }
+    if (entity.arc) {
+      const { x, y, r, start, end } = entity.arc;
+      const rad = (d: number) => (d * Math.PI) / 180;
+      out.push(
+        end - start >= 360 - 1e-9
+          ? { kind: 'circle', center: [x, y], radius: r }
+          : { kind: 'arc', center: [x, y], radius: r, start: rad(start), end: rad(end) },
+      );
+      return out;
+    }
+  }
   if (entity.kind === 'TEXT' || entity.kind === 'MTEXT') {
     const text = entity.texts[0];
     if (text) {
@@ -386,6 +403,10 @@ interface BoundedShape {
 const plainShapes = new WeakMap<DrawingScene, (BoundedShape[] | undefined)[]>();
 
 function boundedPlain(scene: DrawingScene, preview: DrawingPreview, index: number): BoundedShape[] {
+  // The file's objects keep the shapes made for the file's scene (a page scene is new per edit).
+  if (scene.file && index < scene.file.view.entities.length) {
+    return boundedPlain(scene.file, preview, index);
+  }
   let cache = plainShapes.get(scene);
   if (!cache) {
     cache = new Array<BoundedShape[] | undefined>(scene.view.entities.length);
@@ -456,6 +477,8 @@ export function shapesNear(source: SnapSource, box: Bounds, around?: Pt): SnapSh
       if (meets(shapeBounds(shape), box)) out.push(shape);
     }
   }
+  // A page scene has the page's items as rows (ADR-061): they came from the index above.
+  if (scene.file) return out;
   for (const copy of preview.copies) {
     if (!isShown(copy.index)) continue;
     for (const shape of entityShapes(scene, preview, copy.index, copy.transform)) {

@@ -2414,7 +2414,8 @@ describe(
         await type(user, 'Sap');
         await type(user, 'm');
         await type(user, 'all');
-        expect(history()).toMatch(/4 found/);
+        // The dimension just drawn is an object too (ADR-061): ALL picks it as AutoCAD does.
+        expect(history()).toMatch(/5 found/);
         await type(user, 'r');
         expect(prompt()).toBe('MOVE Remove objects:');
         await click(user, canvas, 75, 25);
@@ -2438,6 +2439,7 @@ describe(
           { kind: 'move_item', handle: 'A', dx: 1, dy: 0 },
           { kind: 'move_item', handle: 'A1', dx: 1, dy: 0 },
           { kind: 'move_item', handle: 'T1', dx: 1, dy: 0 },
+          { kind: 'move_item', handle: expect.stringMatching(/^NEW-/), dx: 1, dy: 0 },
         ]);
       });
     });

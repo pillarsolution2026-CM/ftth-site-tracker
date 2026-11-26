@@ -241,7 +241,7 @@ function Workspace({
       title: t('design.cad.prop.title'),
       body: (
         <PropertiesPalette
-          scene={viewer.scene}
+          scene={edit.scene ?? viewer.scene}
           preview={edit.preview}
           chosen={edit.chosen}
           layers={edit.layers}
