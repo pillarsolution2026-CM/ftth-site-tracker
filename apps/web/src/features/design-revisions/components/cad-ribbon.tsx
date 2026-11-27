@@ -1036,7 +1036,7 @@ function LockedFading({ screen }: { screen: LayerScreen }) {
   );
 }
 
-function Tile({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId; big?: boolean }) {
+function Tile({ edit, id }: { edit: CanvasEditState; id: CommandId }) {
   const { t } = useI18n();
   const on = edit.command === id;
   const label = t(`design.cad.tool.${id}` as MessageKey);
@@ -1048,13 +1048,11 @@ function Tile({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId;
       aria-pressed={on}
       title={hint}
       onClick={() => edit.run(id)}
-      className={`flex items-center rounded focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
-        big
-          ? 'min-h-16 min-w-14 flex-col justify-center gap-1 px-1.5 py-1 text-[11px]'
-          : 'min-h-8 gap-1.5 px-1.5 text-xs'
-      } ${on ? DARK.on : DARK.tile}`}
+      className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
+        on ? DARK.on : DARK.tile
+      }`}
     >
-      <Svg size={big ? 'size-7' : 'size-4'}>{ICONS[id]}</Svg>
+      <Svg size="size-4">{ICONS[id]}</Svg>
       <span dir="ltr" className="whitespace-nowrap">
         {label}
       </span>
@@ -1444,11 +1442,11 @@ export function CadRibbon({
                 </>
               }
             >
-              <Tile edit={edit} id="line" big />
-              <Tile edit={edit} id="pline" big />
-              <Tile edit={edit} id="circle" big />
-              <Tile edit={edit} id="arc" big />
               <Rows>
+                <Tile edit={edit} id="line" />
+                <Tile edit={edit} id="pline" />
+                <Tile edit={edit} id="circle" />
+                <Tile edit={edit} id="arc" />
                 <Tile edit={edit} id="rectang" />
                 <SplitTool
                   edit={edit}
@@ -1548,9 +1546,9 @@ export function CadRibbon({
               </Rows>
             </Panel>
             <Panel id="annotation" title={t('design.cad.panel.annotation')}>
-              <Tile edit={edit} id="text" big />
-              <Tile edit={edit} id="dimlinear" big />
               <Rows>
+                <Tile edit={edit} id="text" />
+                <Tile edit={edit} id="dimlinear" />
                 <Tile edit={edit} id="leader" />
                 <Tile edit={edit} id="textedit" />
                 <TableTile edit={edit} />
@@ -1560,22 +1558,24 @@ export function CadRibbon({
               <TextTools edit={edit} />
             </Panel>
             <Panel id="map" title={t('design.cad.panel.map')}>
-              <button
-                type="button"
-                aria-label={t('design.cad.osm')}
-                aria-pressed={osm.shown}
-                title={osm.available ? t('design.cad.osmHint') : t('design.cad.osmNoCrs')}
-                disabled={!osm.available}
-                onClick={osm.onToggle}
-                className={`flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-40 ${
-                  osm.shown ? DARK.on : DARK.tile
-                }`}
-              >
-                <Svg size="size-7">{ICONS.osm}</Svg>
-                <span dir="ltr" className="whitespace-nowrap">
-                  {t('design.cad.osm')}
-                </span>
-              </button>
+              <Rows>
+                <button
+                  type="button"
+                  aria-label={t('design.cad.osm')}
+                  aria-pressed={osm.shown}
+                  title={osm.available ? t('design.cad.osmHint') : t('design.cad.osmNoCrs')}
+                  disabled={!osm.available}
+                  onClick={osm.onToggle}
+                  className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs focus-visible:outline-2 focus-visible:outline-(--color-focus) disabled:opacity-40 ${
+                    osm.shown ? DARK.on : DARK.tile
+                  }`}
+                >
+                  <Svg size="size-4">{ICONS.osm}</Svg>
+                  <span dir="ltr" className="whitespace-nowrap">
+                    {t('design.cad.osm')}
+                  </span>
+                </button>
+              </Rows>
             </Panel>
             <Panel
               id="layers"
@@ -1595,7 +1595,9 @@ export function CadRibbon({
                 </div>
               }
             >
-              <Tile edit={edit} id="layer" big />
+              <Rows>
+                <Tile edit={edit} id="layer" />
+              </Rows>
               <div className="flex flex-col gap-1">
                 <LayerDropdown
                   edit={edit}
@@ -1623,8 +1625,8 @@ export function CadRibbon({
               </div>
             </Panel>
             <Panel id="groups" title={t('design.cad.panel.groups')}>
-              <Tile edit={edit} id="group" big />
               <Rows>
+                <Tile edit={edit} id="group" />
                 <IconTile edit={edit} id="ungroup" />
                 <IconTile edit={edit} id="groupedit" />
                 <button
@@ -1664,8 +1666,8 @@ export function CadRibbon({
                 </>
               }
             >
-              <Tile edit={edit} id="insert" big />
               <Rows>
+                <Tile edit={edit} id="insert" />
                 <Tile edit={edit} id="block" />
                 <Unavailable
                   icon="bedit"
@@ -1676,42 +1678,44 @@ export function CadRibbon({
               </Rows>
             </Panel>
             <Panel id="properties" title={t('design.cad.panel.properties')}>
-              <Tile edit={edit} id="matchprop" big />
+              <Rows>
+                <Tile edit={edit} id="matchprop" />
+              </Rows>
               <PropertiesControls edit={edit} />
             </Panel>
             <Panel id="utilities" title={t('design.cad.panel.utilities')}>
-              <SplitTool
-                edit={edit}
-                label={t('design.cad.tool.measuregeom')}
-                icon="measuregeom"
-                items={[
-                  {
-                    label: t('design.cad.tool.measureDistance'),
-                    icon: 'measuregeom',
-                    id: 'measuregeom',
-                    option: 'D',
-                  },
-                  {
-                    label: t('design.cad.tool.measureRadius'),
-                    icon: 'measuregeom',
-                    id: 'measuregeom',
-                    option: 'R',
-                  },
-                  {
-                    label: t('design.cad.tool.measureAngle'),
-                    icon: 'measuregeom',
-                    id: 'measuregeom',
-                    option: 'A',
-                  },
-                  {
-                    label: t('design.cad.tool.measureArea'),
-                    icon: 'measuregeom',
-                    id: 'measuregeom',
-                    option: 'AR',
-                  },
-                ]}
-              />
               <Rows>
+                <SplitTool
+                  edit={edit}
+                  label={t('design.cad.tool.measuregeom')}
+                  icon="measuregeom"
+                  items={[
+                    {
+                      label: t('design.cad.tool.measureDistance'),
+                      icon: 'measuregeom',
+                      id: 'measuregeom',
+                      option: 'D',
+                    },
+                    {
+                      label: t('design.cad.tool.measureRadius'),
+                      icon: 'measuregeom',
+                      id: 'measuregeom',
+                      option: 'R',
+                    },
+                    {
+                      label: t('design.cad.tool.measureAngle'),
+                      icon: 'measuregeom',
+                      id: 'measuregeom',
+                      option: 'A',
+                    },
+                    {
+                      label: t('design.cad.tool.measureArea'),
+                      icon: 'measuregeom',
+                      id: 'measuregeom',
+                      option: 'AR',
+                    },
+                  ]}
+                />
                 <Tile edit={edit} id="qselect" />
                 <button
                   type="button"
@@ -1730,8 +1734,8 @@ export function CadRibbon({
               </Rows>
             </Panel>
             <Panel id="clipboard" title={t('design.cad.panel.clipboard')}>
-              <Tile edit={edit} id="pasteclip" big />
               <Rows>
+                <Tile edit={edit} id="pasteclip" />
                 <Tile edit={edit} id="cutclip" />
                 <Tile edit={edit} id="copyclip" />
                 <Tile edit={edit} id="copybase" />
