@@ -698,26 +698,16 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         world.x,
         world.y,
         ENTITY_HIT_PX / transform.scale,
-        (index) =>
-          !shownPreview.erased.has(index) &&
-          isShown(effectiveLayer(pickScene, shownPreview, index)),
+        // A hidden object (HIDEOBJECTS / ISOLATEOBJECTS) is not under the pick at all.
+        drawnNow,
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
       edit.pick(hit, world, additive);
-      // Between commands a click also shows the item and its error as in the normal view
-      // (owner 2026-11-19); while a command runs the click only answers the command.
-      if (edit.command === null && hit !== null) {
-        const handle = pickScene.view.entities[hit]?.handle ?? '';
-        const related =
-          markers.find((m) => routePieces(m.handle).includes(handle) || m.handle === handle) ??
-          null;
-        setSelected(hit);
-        setPopover({ x: world.x, y: world.y, entity: hit, marker: related });
-      } else {
-        setPopover(null);
-        setSelected(null);
-      }
+      // AutoCAD (item 35): a pick shows the grips only (Quick Properties when QPMODE is on);
+      // the details stay one Ctrl+1 / right-click «Properties» away. Error marks open above.
+      setPopover(null);
+      setSelected(null);
       return;
     }
     const marker = hitMarker(markers, transform, size, sx, sy, MARKER_HIT_PX);
