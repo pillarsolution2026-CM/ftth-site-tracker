@@ -31,6 +31,7 @@ export * from './cad/installation.schemas.js';
 export * from './cad/box-types.schemas.js';
 export * from './cad/gps-proposal.schemas.js';
 export * from './cad/drawing-corrections.schemas.js';
+export * from './cad/drawing-item-handles.js';
 export * from './cad/drawing-view.schemas.js';
 export * from './design/feature-types.js';
 export * from './design/drawing-problems.js';

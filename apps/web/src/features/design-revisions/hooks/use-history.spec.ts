@@ -56,6 +56,43 @@ describe('useHistory', () => {
     expect(result.current.steps).toEqual(['LINE', 'LINE']);
   });
 
+  it('UNDO n takes back n steps at once; Redo brings them back one by one, oldest first', () => {
+    const { result } = renderHook(() => useHistory());
+    const edits = part(0);
+    const screen = part(10);
+    const parts = { edits: edits.p, screen: screen.p };
+    act(() => result.current.record('LINE', 'edits', 0));
+    edits.box.value = 1;
+    act(() => result.current.record('LAYER', 'screen', 10));
+    screen.box.value = 11;
+    act(() => result.current.record('MOVE', 'edits', 1));
+    edits.box.value = 2;
+    let labels: string[] = [];
+    act(() => {
+      labels = result.current.undoMany(3, parts);
+    });
+    expect(labels).toEqual(['MOVE', 'LAYER', 'LINE']);
+    expect(edits.box.value).toBe(0);
+    expect(screen.box.value).toBe(10);
+    expect(result.current.canUndo).toBe(false);
+    act(() => {
+      result.current.redo(parts);
+    });
+    expect(edits.box.value).toBe(1);
+    act(() => {
+      result.current.redo(parts);
+    });
+    expect(screen.box.value).toBe(11);
+    act(() => {
+      result.current.redo(parts);
+    });
+    expect(edits.box.value).toBe(2);
+    act(() => {
+      labels = result.current.undoMany(5, parts);
+    });
+    expect(labels).toEqual(['MOVE', 'LAYER', 'LINE']);
+  });
+
   it('a new step empties Redo; clear (save / cancel) empties everything', () => {
     const { result } = renderHook(() => useHistory());
     const edits = part(0);

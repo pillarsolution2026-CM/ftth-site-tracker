@@ -554,6 +554,153 @@ describe('withdrawing a correction', () => {
   });
 });
 
+describe('items drawn on the page are objects (ADR-061)', () => {
+  const LINE: [number, number][] = [
+    [0, 0],
+    [5, 0],
+  ];
+  const many = (
+    requests: Parameters<CreateDrawingCorrectionUseCase['executeMany']>[0]['requests'],
+  ) =>
+    new CreateDrawingCorrectionUseCase(uow, clock, ids).executeMany({
+      projectId: PROJECT,
+      cadFileId: FILE,
+      actorId: ACTOR,
+      requests,
+    });
+  const addCurve = () =>
+    add({
+      correction: { kind: 'add_curve', layer: 'N_DUC_CBL', points: LINE, closed: false },
+      problem: null,
+    });
+  const addNote = () =>
+    add({
+      correction: { kind: 'add_note', note: 'leader', layer: 'ANY', points: LINE, text: 'ODB' },
+      problem: null,
+    });
+  const move = (handle: string) =>
+    add({ correction: { kind: 'move_item', handle, dx: 1, dy: 1 }, problem: null });
+
+  beforeEach(async () => {
+    await save();
+  });
+
+  it('accepts a move of a saved added curve, refuses set_text on it', async () => {
+    const curve = await addCurve();
+    await expect(move(`FIX-${curve.id}`)).resolves.toBeDefined();
+    await expect(setText(`FIX-${curve.id}`)).rejects.toMatchObject({
+      details: { reason: 'HANDLE_NOT_FOUND', handles: [`FIX-${curve.id}`] },
+    });
+  });
+
+  it('refuses the FIX handle of a withdrawn, erased or unknown item', async () => {
+    const withdrawn = await addCurve();
+    await withdraw(withdrawn.id);
+    await expect(move(`FIX-${withdrawn.id}`)).rejects.toMatchObject({ httpStatus: 422 });
+    const erased = await addCurve();
+    await add({ correction: { kind: 'erase_item', handle: `FIX-${erased.id}` }, problem: null });
+    await expect(move(`FIX-${erased.id}`)).rejects.toMatchObject({
+      details: { reason: 'HANDLE_NOT_FOUND' },
+    });
+    await expect(move('FIX-00000000-0000-4000-8000-0000000eeeee')).rejects.toMatchObject({
+      httpStatus: 422,
+    });
+  });
+
+  it('resolves NEW-<ref> inside one save and stores FIX-<id>', async () => {
+    const saved = await many([
+      {
+        ref: 'a',
+        correction: { kind: 'add_curve', layer: 'N_DUC_CBL', points: LINE, closed: false },
+        problem: null,
+      },
+      { correction: { kind: 'move_item', handle: 'NEW-a', dx: 1, dy: 2 }, problem: null },
+    ]);
+    expect(saved[1]?.correction).toMatchObject({ handle: `FIX-${saved[0]?.id}` });
+    expect(JSON.stringify(saved[0])).not.toContain('"ref"');
+  });
+
+  it('refuses an unknown or later NEW-<ref>, and an item erased earlier in the batch', async () => {
+    await expect(
+      many([{ correction: { kind: 'move_item', handle: 'NEW-zz', dx: 1, dy: 1 }, problem: null }]),
+    ).rejects.toMatchObject({ details: { reason: 'HANDLE_NOT_FOUND', handles: ['NEW-zz'] } });
+    await expect(
+      many([
+        { correction: { kind: 'move_item', handle: 'NEW-a', dx: 1, dy: 1 }, problem: null },
+        {
+          ref: 'a',
+          correction: { kind: 'add_curve', layer: 'N_DUC_CBL', points: LINE, closed: false },
+          problem: null,
+        },
+      ]),
+    ).rejects.toMatchObject({ httpStatus: 422 });
+    await expect(
+      many([
+        {
+          ref: 'a',
+          correction: { kind: 'add_curve', layer: 'N_DUC_CBL', points: LINE, closed: false },
+          problem: null,
+        },
+        { correction: { kind: 'erase_item', handle: 'NEW-a' }, problem: null },
+        { correction: { kind: 'move_item', handle: 'NEW-a', dx: 1, dy: 1 }, problem: null },
+      ]),
+    ).rejects.toMatchObject({ httpStatus: 422 });
+    expect(uow.corrections.rows.size).toBe(0);
+  });
+
+  it('a saved note can be moved but is not a row: no layer move, no text', async () => {
+    const note = await addNote();
+    await expect(move(`FIX-${note.id}`)).resolves.toBeDefined();
+    await expect(
+      add({
+        correction: { kind: 'move_layer', handle: `FIX-${note.id}`, toLayer: 'L' },
+        problem: null,
+      }),
+    ).rejects.toMatchObject({ httpStatus: 422 });
+  });
+
+  it('a copy of an extracted curve or of an added item is an item too', async () => {
+    const copy = await add({
+      correction: { kind: 'copy_item', handle: 'C1', dx: 1, dy: 0, toLayer: null },
+      problem: null,
+    });
+    await expect(move(`FIX-${copy.id}`)).resolves.toBeDefined();
+    await expect(setText(`FIX-${copy.id}`)).rejects.toMatchObject({ httpStatus: 422 });
+    const text = await add({
+      correction: { kind: 'copy_item', handle: 'A1', dx: 1, dy: 0, toLayer: null },
+      problem: null,
+    });
+    await expect(setText(`FIX-${text.id}`)).resolves.toBeDefined();
+  });
+
+  it('withdrawing takes the dependants with it, newest first, each with its event', async () => {
+    const curve = await addCurve();
+    const first = await move(`FIX-${curve.id}`);
+    const copy = await add({
+      correction: { kind: 'copy_item', handle: `FIX-${curve.id}`, dx: 3, dy: 0, toLayer: null },
+      problem: null,
+    });
+    const second = await move(`FIX-${copy.id}`);
+    const other = await move('C1');
+    uow.events.events.length = 0;
+    const done = await withdraw(curve.id);
+    expect(done.id).toBe(curve.id);
+    const rows = uow.corrections.rows;
+    for (const id of [curve.id, first.id, copy.id, second.id]) {
+      expect(rows.get(id)?.withdrawnAt).not.toBeNull();
+    }
+    expect(rows.get(other.id)?.withdrawnAt).toBeNull();
+    expect(uow.events.events.map((event) => event.entityId)).toEqual([
+      second.id,
+      copy.id,
+      first.id,
+      curve.id,
+    ]);
+    expect(uow.events.events[0]?.payload).toMatchObject({ because: curve.id });
+    expect(uow.events.events[3]?.payload).not.toHaveProperty('because');
+  });
+});
+
 describe('listing', () => {
   it('lists newest first with the number in force', async () => {
     const a = await setText('A1', 'a');

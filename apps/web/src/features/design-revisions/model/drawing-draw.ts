@@ -20,7 +20,7 @@ import {
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
 import { linearDimension, type Pt } from './geometry';
-import type { Grip } from './grips';
+import { sameGrip, type Grip } from './grips';
 import { familiesOf, familyGap, islandLoops, patternSegments } from './hatch-patterns';
 import { cellRects, cellTextHeight, styleOfRow } from './table';
 import { textLength, wrapLines } from './text-tools';
@@ -70,6 +70,11 @@ export interface DrawModel {
   preview: DrawingPreview;
   /** Is the layer (index, -1 = unknown layer) switched on. */
   layerShown: (layerIndex: number) => boolean;
+  /**
+   * The index of a layer made on the page (after the drawing's layers; audit 7), so an item on
+   * it follows that layer's screen state and colour; -1 when unknown.
+   */
+  pageLayer?: (name: string) => number;
   markers: readonly ProblemMarker[];
   /** Entities to highlight with a halo (the place the user asked to see). */
   highlighted: ReadonlySet<number>;
@@ -89,6 +94,8 @@ export interface DrawModel {
   hoverGrip?: Grip | null;
   /** The hot grip of a grip STRETCH (red). */
   hotGrip?: Grip | null;
+  /** Every hot grip (Shift+click made several hot), drawn red like the hot one. */
+  hotGrips?: readonly Grip[];
   /** The selection box being dragged in the edit mode, in drawing coordinates. */
   band?: Band | null;
   /** Picked entities shown where a move / turn in progress would put them (ADR-047). */
@@ -109,6 +116,11 @@ export interface DrawModel {
   lineweights?: boolean;
   /** TRANSPARENCYDISPLAY (status bar): false draws hatches opaque; undefined: at their transparency. */
   transparency?: boolean;
+  /**
+   * The page scene (ADR-061): picked items, grips and ghosts of the overlay are looked up in it,
+   * so items drawn on the page show picked like the file's. The base stays on `scene`.
+   */
+  pageScene?: DrawingScene;
 }
 
 /** The colour an entity is drawn in now: its style, else its own, else its layer's (ADR-051). */
@@ -124,6 +136,10 @@ function colorOf(model: DrawModel, index: number): string {
   return screenColor(resolveColor(entity, scene.view.layers, layer, moved));
 }
 
+/** A page item's layer: its view index, else the page layer of its name (audit 7). */
+const layerAt = (model: DrawModel, layer: number, name: string) =>
+  layer >= 0 ? layer : (model.pageLayer?.(name) ?? -1);
+
 /** Colour of a layer (by index) on screen: the user's choice, else the drawing's. */
 function layerColorOf(model: DrawModel, layer: number, fallback: string): string {
   return screenColor(model.layerColor?.get(layer) ?? fallback);
@@ -136,12 +152,25 @@ export interface Viewport extends Size {
 /** Path2D of each entity, built when first drawn, in coordinates relative to the scene origin. */
 export class PathCache {
   private readonly paths: (Path2D | undefined)[];
+  private child: PathCache | null = null;
 
-  constructor(private readonly scene: DrawingScene) {
+  constructor(
+    private readonly scene: DrawingScene,
+    /** The file's cache, for the file's entities of a page scene (ADR-061). */
+    private readonly base: PathCache | null = null,
+  ) {
     this.paths = new Array<Path2D | undefined>(scene.view.entities.length);
   }
 
+  /** The cache of a page scene of this file: the file's paths shared, the page rows' its own. */
+  over(scene: DrawingScene): PathCache {
+    if (scene === this.scene) return this;
+    if (this.child?.scene !== scene) this.child = new PathCache(scene, this);
+    return this.child;
+  }
+
   get(index: number): Path2D {
+    if (this.base && index < this.base.paths.length) return this.base.get(index);
     const cached = this.paths[index];
     if (cached) return cached;
     const entity = this.scene.view.entities[index] as DrawingViewEntity;
@@ -260,8 +289,9 @@ function drawTables(
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
   for (const table of tables) {
-    if (!model.layerShown(table.layer)) continue;
-    const color = layerColorOf(model, table.layer, table.color);
+    const tableLayer = layerAt(model, table.layer, table.layerName);
+    if (!model.layerShown(tableLayer)) continue;
+    const color = layerColorOf(model, tableLayer, table.color);
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
@@ -298,11 +328,23 @@ export function drawBase(
     ctx.fillRect(0, 0, vp.width * vp.dpr, vp.height * vp.dpr);
   }
 
-  const candidates = cullEntities(scene, visibleBounds(tf, vp));
-  // Moved entities are culled by where they were drawn: add them so they show where they are now.
+  const view = visibleBounds(tf, vp);
+  const candidates = cullEntities(scene, view);
+  // Moved entities are culled by where they were drawn: add those now on the screen (audit 10.2).
   if (preview.transformOf.size > 0) {
     const seen = new Set(candidates);
-    for (const index of preview.transformOf.keys()) if (!seen.has(index)) candidates.push(index);
+    for (const [index, moved] of preview.transformOf) {
+      if (seen.has(index)) continue;
+      const box = boxThrough(moved, boxOf(scene, index));
+      if (
+        box.minX > view.maxX ||
+        box.maxX < view.minX ||
+        box.minY > view.maxY ||
+        box.maxY < view.minY
+      )
+        continue;
+      candidates.push(index);
+    }
   }
   const shown: number[] = [];
   for (const index of candidates) {
@@ -427,9 +469,10 @@ export function drawBase(
   }
   ctx.globalAlpha = 1;
   for (const extra of preview.extraTexts) {
-    if (!model.layerShown(extra.layer)) continue;
-    ctx.fillStyle = layerColorOf(model, extra.layer, extra.color);
-    fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, 0, extra.text);
+    const extraLayer = layerAt(model, extra.layer, extra.layerName);
+    if (!model.layerShown(extraLayer)) continue;
+    ctx.fillStyle = layerColorOf(model, extraLayer, extra.color);
+    fillTextAt(ctx, tf, vp, extra.x, extra.y, extra.height, extra.rotation ?? 0, extra.text);
   }
   // A wipeout hides what is under it with the background.
   drawShapes(ctx, model, tf, vp, 'over');
@@ -454,8 +497,9 @@ function drawShapes(
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
   for (const shape of shapes) {
-    if (shapePass(shape) !== pass || !model.layerShown(shape.layer)) continue;
-    const color = shape.color ?? layerColorOf(model, shape.layer, shape.layerColor);
+    const shapeLayer = layerAt(model, shape.layer, shape.layerName);
+    if (shapePass(shape) !== pass || !model.layerShown(shapeLayer)) continue;
+    const color = shape.color ?? layerColorOf(model, shapeLayer, shape.layerColor);
     ctx.save();
     drawShape(ctx, model, tf, vp, shape, color);
     ctx.restore();
@@ -687,8 +731,9 @@ function drawAdded(
   }
   const { x: ox, y: oy } = scene.origin;
   for (const curve of preview.extraCurves) {
-    if (!model.layerShown(curve.layer)) continue;
-    ctx.strokeStyle = layerColorOf(model, curve.layer, curve.color);
+    const curveLayer = layerAt(model, curve.layer, curve.layerName);
+    if (!model.layerShown(curveLayer)) continue;
+    ctx.strokeStyle = layerColorOf(model, curveLayer, curve.color);
     ctx.beginPath();
     for (let i = 0; i + 1 < curve.path.length; i += 2) {
       const x = (curve.path[i] as number) - ox;
@@ -721,7 +766,8 @@ function drawAdded(
     }
   }
   for (const note of notes) {
-    if (model.layerShown(note.layer)) drawNote(ctx, model, tf, vp, note);
+    if (model.layerShown(layerAt(model, note.layer, note.layerName)))
+      drawNote(ctx, model, tf, vp, note);
   }
 }
 
@@ -934,7 +980,8 @@ function drawMarker(
 
 /**
  * Cheap things drawn over the (possibly cached) base on every frame: highlight halos, the clicked
- * entity, merged pieces, added items and the problem markers (a fixed size on screen).
+ * entity, merged pieces, added items and the problem markers (a fixed size on screen). The picked
+ * objects come from `layers.selection` when given (drawn once, copied per frame; audit 10.1).
  */
 export function drawOverlay(
   ctx: CanvasRenderingContext2D,
@@ -942,7 +989,12 @@ export function drawOverlay(
   cache: PathCache,
   tf: ViewTransform,
   vp: Viewport,
+  layers?: OverlayLayers,
 ): void {
+  if (model.pageScene && model.pageScene !== model.scene) {
+    model = { ...model, scene: model.pageScene };
+    cache = cache.over(model.pageScene as DrawingScene);
+  }
   const { scene, preview } = model;
   const bounds = visibleBounds(tf, vp);
   const inView = (index: number) => {
@@ -1012,18 +1064,24 @@ export function drawOverlay(
     boxOutline(ctx, model, tf, vp, model.selected, SELECTED_COLOR);
   }
   if ((model.chosen && model.chosen.size > 0) || model.grips?.length)
-    drawChosen(ctx, model, cache, tf, vp);
+    drawChosen(ctx, model, cache, tf, vp, layers);
   if (model.band) drawBand(ctx, model.band, tf, vp);
-  if (model.ghost) drawGhost(ctx, model, cache, tf, vp, model.ghost);
+  if (model.ghost) {
+    const big = model.ghost.indexes.length > GHOST_MAX_STROKES;
+    if (!big || !layers?.selection?.drawGhost(ctx, model, tf, vp, model.ghost)) {
+      drawGhost(ctx, model, cache, tf, vp, model.ghost);
+    }
+  }
   if (model.sketch && model.sketch.points.length > 0) drawSketch(ctx, model.sketch, tf, vp);
 
   if (model.trench && model.trench.size > 0) drawTrenchLabels(ctx, model, tf, vp, inView, shown);
   if (model.boxLabels && model.boxLabels.length > 0) drawBoxLabels(ctx, model.boxLabels, tf, vp);
 
   for (const item of preview.extraItems) {
-    if (!model.layerShown(item.layer)) continue;
+    const itemLayer = layerAt(model, item.layer, item.layerName);
+    if (!model.layerShown(itemLayer)) continue;
     const p = toScreen(tf, vp, item.x, item.y);
-    ctx.strokeStyle = layerColorOf(model, item.layer, item.color);
+    ctx.strokeStyle = layerColorOf(model, itemLayer, item.color);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
@@ -1053,14 +1111,239 @@ export const GRIP_HOT_COLOR = '#ff0000';
 /** Half the side of a grip on screen (GRIPSIZE 5 at 96 dpi). */
 export const GRIP_HALF_PX = 4.5;
 
-const sameGrip = (a: Grip | null | undefined, b: Grip) =>
-  a !== null &&
-  a !== undefined &&
-  a.index === b.index &&
-  a.kind === b.kind &&
-  a.vertex === b.vertex &&
-  a.x === b.x &&
-  a.y === b.y;
+/** The most picked entities stroked into the selection layer (the nearest part of a bigger one). */
+export const CHOSEN_MAX_STROKES = 20_000;
+
+type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
+/**
+ * The picked entities dashed (AutoCAD's selection highlight), only those on the screen, at most
+ * CHOSEN_MAX_STROKES, sub-pixel ones skipped as the base does. Returns how many were stroked.
+ */
+function strokeChosen(
+  ctx: CanvasRenderingContext2D,
+  model: DrawModel,
+  cache: PathCache,
+  tf: ViewTransform,
+  vp: Viewport,
+): number {
+  const { scene, preview } = model;
+  const view = visibleBounds(tf, vp);
+  setWorldTransform(ctx, scene, tf, vp);
+  ctx.strokeStyle = CHOSEN_COLOR;
+  ctx.lineWidth = 2 / tf.scale;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
+  let stroked = 0;
+  for (const index of model.chosen ?? []) {
+    if (stroked >= CHOSEN_MAX_STROKES) break;
+    if (!scene.view.entities[index]?.paths.length) continue;
+    const box = shownBox(model, index);
+    if (
+      box.minX > view.maxX ||
+      box.maxX < view.minX ||
+      box.minY > view.maxY ||
+      box.maxY < view.minY
+    )
+      continue;
+    if (
+      !preview.curveOf.has(index) &&
+      (box.maxX - box.minX) * tf.scale < MIN_SHAPE_PX &&
+      (box.maxY - box.minY) * tf.scale < MIN_SHAPE_PX
+    )
+      continue;
+    strokeEntity(ctx, model, cache, index);
+    stroked++;
+  }
+  ctx.setLineDash([]);
+  return stroked;
+}
+
+/** Device-pixel affine (a, b, c, d, e, f) taking the picture drawn at `from` to where `to` puts it. */
+export function viewShift(from: ViewTransform, to: ViewTransform, vp: Viewport): Affine {
+  const r = to.scale / from.scale;
+  const e = (vp.width / 2 - (vp.width / 2) * r + (from.cx - to.cx) * to.scale) * vp.dpr;
+  const f = (vp.height / 2 - (vp.height / 2) * r + (to.cy - from.cy) * to.scale) * vp.dpr;
+  return [r, 0, 0, r, e, f];
+}
+
+/** Device-pixel affine of a drawing-space step: device ← world, step, world ← device. */
+function deviceStep(step: Affine, tf: ViewTransform, vp: Viewport): Affine {
+  const k = tf.scale * vp.dpr;
+  // device = D(world): x' = k(x − cx) + W/2·dpr, y' = −k(y − cy) + H/2·dpr.
+  const toDevice: Affine = [
+    k,
+    0,
+    0,
+    -k,
+    (vp.width / 2) * vp.dpr - k * tf.cx,
+    (vp.height / 2) * vp.dpr + k * tf.cy,
+  ];
+  const toWorld: Affine = [
+    1 / k,
+    0,
+    0,
+    -1 / k,
+    tf.cx - ((vp.width / 2) * vp.dpr) / k,
+    tf.cy + ((vp.height / 2) * vp.dpr) / k,
+  ];
+  return compose(compose(toWorld, step), toDevice);
+}
+
+/** An off-screen canvas for a cached layer; null where there is none (tests without canvas). */
+export type LayerCanvasFactory = () => HTMLCanvasElement | null;
+
+const defaultLayerCanvas: LayerCanvasFactory = () =>
+  typeof document === 'undefined' ? null : document.createElement('canvas');
+
+interface SelectionKey {
+  scene: DrawingScene;
+  preview: DrawingPreview;
+  chosen: ReadonlySet<number>;
+  tf: ViewTransform;
+  width: number;
+  height: number;
+  dpr: number;
+}
+
+/**
+ * The picked objects drawn once into their own bitmap (audit 10.1): on every overlay frame of a
+ * running command (ghost, rubber band) the bitmap is copied, not the selection re-stroked. It is
+ * redrawn when the selection, the preview, the view or the size change; during a pan or a wheel
+ * burst (`fast`) the last bitmap is moved / scaled, and redrawn exactly when the view rests.
+ */
+export class SelectionLayer {
+  /** Times the selection was stroked into the bitmap (for the performance tests). */
+  renders = 0;
+  private canvas: HTMLCanvasElement | null = null;
+  private key: SelectionKey | null = null;
+  /** The box of every picked entity where the preview draws it (the ghost's one box). */
+  private box: Box | null = null;
+
+  constructor(private readonly create: LayerCanvasFactory = defaultLayerCanvas) {}
+
+  /** Draws the picked objects onto `ctx`; false when no bitmap can be made (draw them directly). */
+  draw(
+    ctx: CanvasRenderingContext2D,
+    model: DrawModel,
+    cache: PathCache,
+    tf: ViewTransform,
+    vp: Viewport,
+    fast: boolean,
+  ): boolean {
+    const chosen = model.chosen;
+    if (!chosen || chosen.size === 0) return true;
+    const key = this.key;
+    const same =
+      key !== null &&
+      key.scene === model.scene &&
+      key.preview === model.preview &&
+      key.chosen === chosen &&
+      key.width === vp.width &&
+      key.height === vp.height &&
+      key.dpr === vp.dpr;
+    const exact = same && key.tf.scale === tf.scale && key.tf.cx === tf.cx && key.tf.cy === tf.cy;
+    if (!exact && !(same && fast)) {
+      if (!this.render(model, cache, tf, vp)) return false;
+    }
+    const canvas = this.canvas as HTMLCanvasElement;
+    const drawnAt = (this.key as SelectionKey).tf;
+    ctx.save();
+    if (exact || this.key?.tf === tf) ctx.setTransform(1, 0, 0, 1, 0, 0);
+    else ctx.setTransform(...viewShift(drawnAt, tf, vp));
+    ctx.drawImage(canvas, 0, 0);
+    ctx.restore();
+    return true;
+  }
+
+  /**
+   * The ghost of a big selection (more than GHOST_MAX_STROKES) as the bitmap carried by the step:
+   * one copy per frame whatever the size. False when the bitmap is not of these entities.
+   */
+  drawGhost(
+    ctx: CanvasRenderingContext2D,
+    model: DrawModel,
+    tf: ViewTransform,
+    vp: Viewport,
+    ghost: { indexes: readonly number[]; step: Affine },
+  ): boolean {
+    const key = this.key;
+    const chosen = model.chosen;
+    if (!this.canvas || !key || !chosen || key.chosen !== chosen) return false;
+    if (chosen.size !== ghost.indexes.length) return false;
+    if (key.tf.scale !== tf.scale || key.tf.cx !== tf.cx || key.tf.cy !== tf.cy) return false;
+    ctx.save();
+    ctx.setTransform(...deviceStep(ghost.step, tf, vp));
+    ctx.drawImage(this.canvas, 0, 0);
+    ctx.restore();
+    if (this.box) {
+      const box = boxThrough(ghost.step, this.box);
+      setScreenTransform(ctx, vp);
+      ctx.strokeStyle = CHOSEN_COLOR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      const a = toScreen(tf, vp, box.minX, box.maxY);
+      const b = toScreen(tf, vp, box.maxX, box.minY);
+      ctx.strokeRect(a.x, a.y, Math.max(6, b.x - a.x), Math.max(6, b.y - a.y));
+      ctx.setLineDash([]);
+    }
+    return true;
+  }
+
+  private render(model: DrawModel, cache: PathCache, tf: ViewTransform, vp: Viewport): boolean {
+    this.canvas ??= this.create();
+    const canvas = this.canvas;
+    const target = canvas?.getContext('2d');
+    if (!canvas || !target) {
+      this.canvas = null;
+      this.key = null;
+      return false;
+    }
+    const w = Math.round(vp.width * vp.dpr);
+    const h = Math.round(vp.height * vp.dpr);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.clearRect(0, 0, w, h);
+    strokeChosen(target, model, cache, tf, vp);
+    this.renders++;
+    const chosen = model.chosen as ReadonlySet<number>;
+    if (this.key?.chosen !== chosen || this.key.preview !== model.preview) {
+      let box: Box | null = null;
+      for (const index of chosen) {
+        if (!model.scene.view.entities[index]?.paths.length) continue;
+        const b = shownBox(model, index);
+        box = box
+          ? {
+              minX: Math.min(box.minX, b.minX),
+              minY: Math.min(box.minY, b.minY),
+              maxX: Math.max(box.maxX, b.maxX),
+              maxY: Math.max(box.maxY, b.maxY),
+            }
+          : { ...b };
+      }
+      this.box = box;
+    }
+    this.key = {
+      scene: model.scene,
+      preview: model.preview,
+      chosen,
+      tf,
+      width: vp.width,
+      height: vp.height,
+      dpr: vp.dpr,
+    };
+    return true;
+  }
+}
+
+/** What drawOverlay may reuse between frames (the canvas keeps them). */
+export interface OverlayLayers {
+  selection?: SelectionLayer;
+  /** A pan or wheel burst is under way: cached layers are moved, redrawn exactly at rest. */
+  fast?: boolean;
+}
 
 /** Picked items as AutoCAD shows them: dashed, with AutoCAD's grips of each object. */
 function drawChosen(
@@ -1069,17 +1352,10 @@ function drawChosen(
   cache: PathCache,
   tf: ViewTransform,
   vp: Viewport,
+  layers?: OverlayLayers,
 ): void {
-  const { scene } = model;
-  const chosen = model.chosen ?? new Set<number>();
-  setWorldTransform(ctx, scene, tf, vp);
-  ctx.strokeStyle = CHOSEN_COLOR;
-  ctx.lineWidth = 2 / tf.scale;
-  ctx.setLineDash([6 / tf.scale, 4 / tf.scale]);
-  for (const index of chosen) {
-    if (scene.view.entities[index]?.paths.length) strokeEntity(ctx, model, cache, index);
-  }
-  ctx.setLineDash([]);
+  const drawn = layers?.selection?.draw(ctx, model, cache, tf, vp, layers.fast ?? false) ?? false;
+  if (!drawn && model.chosen && model.chosen.size > 0) strokeChosen(ctx, model, cache, tf, vp);
   setScreenTransform(ctx, vp);
   ctx.strokeStyle = CHOSEN_COLOR;
   ctx.lineWidth = 1;
@@ -1092,11 +1368,14 @@ function drawChosen(
   ctx.setLineDash([]);
   for (const grip of model.grips ?? []) {
     const p = toScreen(tf, vp, grip.x, grip.y);
-    ctx.fillStyle = sameGrip(model.hotGrip, grip)
-      ? GRIP_HOT_COLOR
-      : sameGrip(model.hoverGrip, grip)
-        ? GRIP_HOVER_COLOR
-        : GRIP_COLOR;
+    if (p.x < -GRIP_HALF_PX * 2 || p.y < -GRIP_HALF_PX * 2) continue;
+    if (p.x > vp.width + GRIP_HALF_PX * 2 || p.y > vp.height + GRIP_HALF_PX * 2) continue;
+    ctx.fillStyle =
+      sameGrip(model.hotGrip, grip) || model.hotGrips?.some((hot) => sameGrip(hot, grip))
+        ? GRIP_HOT_COLOR
+        : sameGrip(model.hoverGrip, grip)
+          ? GRIP_HOVER_COLOR
+          : GRIP_COLOR;
     // A polyline's segment grip is a thin rectangle, the others squares (AutoCAD).
     const w = grip.kind === 'segment' ? GRIP_HALF_PX * 1.4 : GRIP_HALF_PX;
     const h = grip.kind === 'segment' ? GRIP_HALF_PX * 0.6 : GRIP_HALF_PX;

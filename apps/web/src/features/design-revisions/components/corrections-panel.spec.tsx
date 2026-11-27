@@ -132,6 +132,67 @@ describe('CorrectionsSection', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 
+  it('withdrawing a drawn item says how many later edits of it go with it (ADR-061)', async () => {
+    const LINE = '55555555-5555-4555-8555-555555555561';
+    const MOVE = '55555555-5555-4555-8555-555555555562';
+    const COPY = '55555555-5555-4555-8555-555555555563';
+    const COPY_MOVE = '55555555-5555-4555-8555-555555555564';
+    const OTHER = '55555555-5555-4555-8555-555555555565';
+    api.listCorrections.mockResolvedValue({
+      items: [
+        // Newest first, as the API lists them.
+        item(OTHER, {
+          createdAt: '2026-11-09T10:05:00.000Z',
+          correction: { kind: 'move_item', handle: 'A1', dx: 1, dy: 0 },
+          problem: null,
+        }),
+        item(COPY_MOVE, {
+          createdAt: '2026-11-09T10:04:00.000Z',
+          correction: { kind: 'move_item', handle: `FIX-${COPY}`, dx: 0, dy: 2 },
+          problem: null,
+        }),
+        item(COPY, {
+          createdAt: '2026-11-09T10:03:00.000Z',
+          correction: { kind: 'copy_item', handle: `FIX-${LINE}`, dx: 5, dy: 0, toLayer: null },
+          problem: null,
+        }),
+        item(MOVE, {
+          createdAt: '2026-11-09T10:02:00.000Z',
+          correction: { kind: 'move_item', handle: `FIX-${LINE}`, dx: 1, dy: 1 },
+          problem: null,
+        }),
+        item(LINE, {
+          createdAt: '2026-11-09T10:01:00.000Z',
+          correction: {
+            kind: 'add_curve',
+            layer: 'Route',
+            points: [
+              [0, 0],
+              [10, 0],
+            ],
+            closed: false,
+          },
+          problem: null,
+        }),
+      ],
+      activeCount: 5,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    const buttons = await screen.findAllByRole('button', { name: 'Withdraw the correction' });
+    // The oldest (the line) is the last row.
+    await user.click(buttons[buttons.length - 1] as HTMLElement);
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(
+      /It also withdraws .*3.* later edit\(s\) made on what it drew\./,
+    );
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }),
+    );
+    // A correction nothing depends on says nothing more.
+    await user.click(buttons[0] as HTMLElement);
+    expect(screen.getByRole('alertdialog')).not.toHaveTextContent(/It also withdraws/);
+  });
+
   it('cancelling the confirmation withdraws nothing', async () => {
     const user = userEvent.setup();
     renderPanel();

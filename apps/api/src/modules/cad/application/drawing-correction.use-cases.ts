@@ -1,16 +1,22 @@
 import {
   EVENT_ENTITIES,
   EVENT_TYPES,
+  addedItemKinds,
+  correctionTargets,
+  dependantsOf,
+  isFixHandle,
+  resolveNewHandles,
   MAX_CORRECTION_ROWS_PER_FILE,
   MAX_CORRECTIONS_PER_FILE,
   moveLayerTargets,
   type CreateDrawingCorrectionRequest,
   type DrawingCorrectionInput,
+  type DrawingItemKind,
 } from '@ftth/shared';
 import { AppError } from '../../../common/app-error.js';
 import type { Clock, IdGenerator } from '../../../common/clock.js';
 import type { CadUnitOfWork } from '../domain/cad-file.repository.js';
-import type { DrawingCorrectionRecord, HandleKind } from '../domain/drawing-correction.js';
+import type { DrawingCorrectionRecord } from '../domain/drawing-correction.js';
 
 const handleNotFound = (handles: string[]) =>
   new AppError(
@@ -19,38 +25,6 @@ const handleNotFound = (handles: string[]) =>
     { reason: 'HANDLE_NOT_FOUND', handles },
     422,
   );
-
-/**
- * The handles a correction points at and the kinds of rows each may be (add_* point at none). A
- * note (`add_note`) is screen-only and names no item nor a layer rule (ADR-051).
- */
-function references(input: DrawingCorrectionInput): { handles: string[]; kinds: HandleKind[] } {
-  switch (input.kind) {
-    case 'move_layer':
-    case 'move_item':
-    case 'rotate_item':
-    case 'erase_item':
-    case 'copy_item':
-    case 'mirror_item':
-    case 'scale_item':
-    case 'set_style':
-    case 'set_order':
-      return { handles: [input.handle], kinds: ['insert', 'text', 'curve'] };
-    case 'set_curve':
-      return { handles: [input.handle], kinds: ['curve'] };
-    case 'set_text':
-    case 'set_text_format':
-      return { handles: [input.handle], kinds: ['text'] };
-    case 'set_attribute':
-      return { handles: [input.handle], kinds: ['insert'] };
-    case 'set_group':
-      return { handles: input.handles, kinds: ['insert', 'text', 'curve'] };
-    case 'merge_routes':
-      return { handles: input.handles, kinds: ['curve'] };
-    default:
-      return { handles: [], kinds: [] };
-  }
-}
 
 /**
  * Layers a correction moves an item to (or takes the meaning of): each needs a usable rule, so an
@@ -118,6 +92,10 @@ export class CreateDrawingCorrectionUseCase {
   }): Promise<DrawingCorrectionRecord[]> {
     const { projectId, cadFileId, actorId, requests } = input;
     const ids = requests.map(() => this.ids.next());
+    // `NEW-<ref>` names an item added earlier in this save; it is stored as `FIX-<id>` (ADR-061).
+    const resolved = resolveNewHandles(requests, ids);
+    if ('unknown' in resolved) throw handleNotFound(resolved.unknown);
+    const corrections = resolved.corrections;
     return this.uow.run(async (tx) => {
       // The file row lock serialises with revision creation (which freezes the corrections) and
       // with other additions (the cap).
@@ -145,35 +123,66 @@ export class CreateDrawingCorrectionUseCase {
         });
       }
 
-      const wanted = requests.map((request) => references(request.correction));
-      const allHandles = [...new Set(wanted.flatMap((ref) => ref.handles))];
-      if (allHandles.length > 0) {
-        const found = await tx.corrections.handleKinds(projectId, cadFileId, allHandles);
-        const missing = new Set<string>();
-        for (const { handles, kinds } of wanted) {
-          for (const handle of handles) {
+      // Handles: extracted rows (as read), and added items (`FIX-<id>`) that exist at the point the
+      // request applies: in force before, plus the earlier requests of this save (ADR-061).
+      const wanted = corrections.map((correction) => correctionTargets(correction));
+      const namesAdded = wanted.some(({ handles }) => handles.some(isFixHandle));
+      const inForceFrozen = namesAdded
+        ? await tx.corrections.listActiveFrozen(projectId, cadFileId)
+        : [];
+      const rowHandles = new Set<string>();
+      for (const { handles } of wanted) {
+        for (const handle of handles) if (!isFixHandle(handle)) rowHandles.add(handle);
+      }
+      // A copy takes the kind of its source: the sources of copies in force or in this save too.
+      for (const correction of [...inForceFrozen.map((item) => item.correction), ...corrections]) {
+        if (correction.kind === 'copy_item' && !isFixHandle(correction.handle)) {
+          rowHandles.add(correction.handle);
+        }
+      }
+      const found =
+        rowHandles.size > 0
+          ? await tx.corrections.handleKinds(projectId, cadFileId, [...rowHandles])
+          : new Map<string, Set<DrawingItemKind>>();
+      const extractedKind = (handle: string): DrawingItemKind | null => {
+        const have = found.get(handle);
+        if (!have) return null;
+        for (const kind of ['insert', 'text', 'curve'] as const) if (have.has(kind)) return kind;
+        return null;
+      };
+      const missing = new Set<string>();
+      for (const [i, { handles, kinds }] of wanted.entries()) {
+        const before = [
+          ...inForceFrozen,
+          ...corrections.slice(0, i).map((correction, j) => ({ id: ids[j] as string, correction })),
+        ];
+        const added = handles.some(isFixHandle) ? addedItemKinds(before, extractedKind) : null;
+        for (const handle of handles) {
+          if (isFixHandle(handle)) {
+            const kind = added?.get(handle);
+            if (!kind || !kinds.includes(kind)) missing.add(handle);
+          } else {
             const have = found.get(handle);
-            if (!have || !kinds.some((kind) => have.has(kind))) missing.add(handle);
+            if (!have || !kinds.some((kind) => kind !== 'screen' && have.has(kind))) {
+              missing.add(handle);
+            }
           }
         }
-        if (missing.size > 0) throw handleNotFound([...missing]);
       }
+      if (missing.size > 0) throw handleNotFound([...missing]);
 
       // Owner 2026-11-09: a move only to a layer whose saved rule makes it a feature type or a
       // label; otherwise the item would drop out before the checks and its error would vanish.
       // The same holds for a drawn line and for the source of an added layer (ADR-050); layers
       // added or renamed by corrections in force or in this save count with their source's rule.
-      const moves = requests.flatMap((request) => targetLayersOf(request.correction));
+      const moves = corrections.flatMap((correction) => targetLayersOf(correction));
       if (moves.length > 0) {
         const mapping = await tx.mappings.find(projectId, cadFileId);
         const inForce = (await tx.corrections.list(projectId, cadFileId))
           .filter((item) => item.withdrawnAt === null)
           .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
           .map((item) => item.correction);
-        const targets = moveLayerTargets(mapping?.rules ?? [], [
-          ...inForce,
-          ...requests.map((request) => request.correction),
-        ]);
+        const targets = moveLayerTargets(mapping?.rules ?? [], [...inForce, ...corrections]);
         const refused = moves.find((layer) => !targets.has(layer));
         if (refused !== undefined) {
           throw new AppError(
@@ -189,16 +198,17 @@ export class CreateDrawingCorrectionUseCase {
       const out: DrawingCorrectionRecord[] = [];
       for (const [i, request] of requests.entries()) {
         const id = ids[i] as string;
+        const correction = corrections[i] as DrawingCorrectionInput;
         // A dismissal is about one problem place (ADR-046): that place is its context.
         const problem =
-          request.correction.kind === 'dismiss_problem'
-            ? { code: request.correction.code, handle: request.correction.handle }
+          correction.kind === 'dismiss_problem'
+            ? { code: correction.code, handle: correction.handle }
             : request.problem;
         await tx.corrections.insert({
           id,
           projectId,
           cadFileId,
-          correction: request.correction,
+          correction,
           problem,
           createdAt: new Date(now + i),
           createdById: actorId,
@@ -211,8 +221,8 @@ export class CreateDrawingCorrectionUseCase {
           actorId,
           payload: {
             cadFileId,
-            kind: request.correction.kind,
-            correction: request.correction,
+            kind: correction.kind,
+            correction,
             problem,
           },
         });
@@ -247,16 +257,30 @@ export class WithdrawDrawingCorrectionUseCase {
         lock: true,
       });
       if (!current) throw new AppError('NOT_FOUND', 'Correction not found');
-      const done = await tx.corrections.withdraw(
-        projectId,
-        cadFileId,
+      // Withdrawing an added item takes its later edits with it (ADR-061): dependants first, the
+      // newest first, each with its own event.
+      const dependants = dependantsOf(
         correctionId,
-        actorId,
-        this.clock.now(),
-      );
+        await tx.corrections.listActiveFrozen(projectId, cadFileId),
+      ).reverse();
+      const now = this.clock.now();
+      const done = await tx.corrections.withdraw(projectId, cadFileId, correctionId, actorId, now);
       if (!done) {
         throw new AppError('CONFLICT', 'The correction was already withdrawn', {
           reason: 'ALREADY_WITHDRAWN',
+        });
+      }
+      for (const dependantId of dependants) {
+        const dependant = await tx.corrections.find(projectId, cadFileId, dependantId);
+        if (!dependant) continue;
+        await tx.corrections.withdraw(projectId, cadFileId, dependantId, actorId, now);
+        await tx.events.append({
+          projectId,
+          entity: EVENT_ENTITIES.drawingCorrection,
+          entityId: dependantId,
+          type: EVENT_TYPES.drawingCorrectionWithdrawn,
+          actorId,
+          payload: { cadFileId, kind: dependant.correction.kind, because: correctionId },
         });
       }
       await tx.events.append({

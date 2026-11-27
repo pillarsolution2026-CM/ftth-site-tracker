@@ -417,6 +417,64 @@ describe('corrections routes', () => {
     });
   });
 
+  it('items drawn on the page are objects; withdrawing takes the dependants (ADR-061)', async () => {
+    const fileId = await insertDrawing();
+    expect((await saveMapping(fileId)).status).toBe(200);
+    const line = [
+      [0, 0],
+      [4, 0],
+    ];
+    const created = async (correction: object) => {
+      const res = await addCorrection(fileId, { correction });
+      expect(res.status).toBe(201);
+      return DrawingCorrectionSchema.parse(res.body).id;
+    };
+    const status = async (correction: object) =>
+      (await addCorrection(fileId, { correction })).status;
+    const curve = await created({ kind: 'add_curve', layer: 'DIM', points: line, closed: false });
+    expect(await status({ kind: 'move_item', handle: `FIX-${curve}`, dx: 1, dy: 1 })).toBe(201);
+    expect(await status({ kind: 'set_text', handle: `FIX-${curve}`, text: 'x' })).toBe(422);
+    const note = await created({ kind: 'add_note', note: 'leader', layer: 'DIM', points: line });
+    expect(await status({ kind: 'move_item', handle: `FIX-${note}`, dx: 1, dy: 1 })).toBe(201);
+    expect(await status({ kind: 'move_layer', handle: `FIX-${note}`, toLayer: 'L' })).toBe(422);
+
+    // NEW-<ref> inside one save is stored as FIX-<id>.
+    const batch = await as(pm)(http().post(`${correctionsUrl(fileId)}/batch`)).send({
+      items: [
+        { ref: 'a', correction: { kind: 'add_curve', layer: 'DIM', points: line, closed: false } },
+        { correction: { kind: 'move_item', handle: 'NEW-a', dx: 1, dy: 2 } },
+      ],
+    });
+    expect(batch.status).toBe(201);
+    const [first, second] = DrawingCorrectionsSavedSchema.parse(batch.body).items;
+    expect(second?.correction).toMatchObject({ handle: `FIX-${first?.id}` });
+    const unknown = await as(pm)(http().post(`${correctionsUrl(fileId)}/batch`)).send({
+      items: [{ correction: { kind: 'move_item', handle: 'NEW-zz', dx: 1, dy: 2 } }],
+    });
+    expect(unknown.status).toBe(422);
+
+    // Withdrawing the curve takes its move, the copy and the copy's move with it.
+    const copy = await created({
+      kind: 'copy_item',
+      handle: `FIX-${curve}`,
+      dx: 3,
+      dy: 0,
+      toLayer: null,
+    });
+    const copyMove = await created({ kind: 'move_item', handle: `FIX-${copy}`, dx: 1, dy: 0 });
+    const done = await as(pm)(http().post(`${correctionsUrl(fileId)}/${curve}/withdraw`));
+    expect(done.status).toBe(200);
+    const list = DrawingCorrectionListSchema.parse(
+      (await as(pm)(http().get(correctionsUrl(fileId)))).body,
+    );
+    const active = list.items.filter((item) => item.withdrawnAt === null).map((item) => item.id);
+    expect(active).not.toContain(curve);
+    expect(active).not.toContain(copy);
+    expect(active).not.toContain(copyMove);
+    expect(active).toContain(note);
+    expect(await status({ kind: 'move_item', handle: `FIX-${curve}`, dx: 1, dy: 1 })).toBe(422);
+  });
+
   it('refuses a file that is not processed', async () => {
     const fileId = await insertFile('uploaded');
     const res = await addCorrection(fileId, {

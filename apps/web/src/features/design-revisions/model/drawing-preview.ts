@@ -9,16 +9,21 @@ import type {
   HatchPattern,
   TableCellStyle,
 } from '@ftth/shared';
+import { fixHandle } from '@ftth/shared';
 import {
+  angleOf,
+  applyAffine,
   compose,
   IDENTITY,
   mirrorAcross,
   rotationAbout,
   scaleAbout,
+  scaleOf,
   translation,
   type Affine,
 } from './affine';
-import type { DrawingScene } from './drawing-scene';
+import { transformVertices, type BulgeVertex } from './bulge';
+import { fileSceneOf, type DrawingScene } from './drawing-scene';
 
 /** Colour of a preview shape whose layer is not in the drawing view. */
 export const FALLBACK_COLOR = '#333333';
@@ -28,6 +33,8 @@ export interface PreviewText {
   y: number;
   height: number;
   text: string;
+  /** Degrees counter-clockwise, once turned by ROTATE (absent = 0). */
+  rotation?: number;
   /** Index into the view's layers; -1 when the layer is not in the view (always shown). */
   layer: number;
   color: string;
@@ -50,6 +57,73 @@ export interface PreviewCurve {
   layer: number;
   color: string;
   layerName: string;
+  /** A true circle / arc (add_curve.arc, ADR-061); `path` is its flattened outline. */
+  arc?: PreviewArc;
+  /** A polyline's real vertices with their bulges (ADR-062); `path` is its flattened outline. */
+  vertices?: readonly BulgeVertex[];
+}
+
+/** A curve's new shape (set_curve): its points, and its true arc or real vertices when sent. */
+export interface PreviewCurveShape {
+  points: readonly (readonly [number, number])[];
+  closed: boolean;
+  arc?: PreviewArc;
+  vertices?: readonly BulgeVertex[];
+}
+
+/** The true arc / real vertices a set_curve or add_curve carries (ADR-062), for the preview. */
+function shapeExtras(correction: {
+  arc?: PreviewArc | undefined;
+  vertices?: readonly (readonly [number, number, number])[] | undefined;
+}): { arc?: PreviewArc; vertices?: BulgeVertex[] } {
+  return {
+    ...(correction.arc ? { arc: { ...correction.arc } } : {}),
+    ...(correction.vertices
+      ? { vertices: correction.vertices.map(([x, y, bulge]) => ({ x, y, bulge })) }
+      : {}),
+  };
+}
+
+/** Centre, radius, counter-clockwise from `start` to `end` degrees (0 → 360: a circle). */
+export interface PreviewArc {
+  x: number;
+  y: number;
+  r: number;
+  start: number;
+  end: number;
+}
+
+/** A copy of an entity of the file (copy_item; ADR-050), drawn with its own transform. */
+export interface PreviewCopy {
+  index: number;
+  transform: Affine;
+  layer?: number;
+}
+
+/** What one item drawn, pasted or copied on the page is (ADR-061). */
+export type PageItemValue =
+  | { type: 'curve'; value: PreviewCurve }
+  | { type: 'text'; value: PreviewText }
+  | { type: 'point'; value: PreviewItem }
+  | { type: 'note'; value: PreviewNote }
+  | { type: 'shape'; value: PreviewShape }
+  | { type: 'table'; value: PreviewTable }
+  | { type: 'copy'; value: PreviewCopy };
+
+/**
+ * An item drawn, pasted or copied on the page, an object like the file's (ADR-061, owner item
+ * 36): `FIX-<correction id>` once saved, `NEW-<ref>` before («حفظ» sends its add with `ref`).
+ * Items keep their place in the list when erased, so the page rows keep their indexes.
+ */
+export interface PageItem {
+  /** '' when nothing can name it (a command's preview before it is kept). */
+  handle: string;
+  item: PageItemValue;
+  erased: boolean;
+  /** Its latest set_style (null = by layer). */
+  style: PreviewStyle | null;
+  /** Its latest set_order (null = unset). */
+  order: number | null;
 }
 
 /** A dimension or leader drawn on the page (add_note, ADR-051): screen only. */
@@ -138,7 +212,7 @@ export interface DrawingPreview {
   /** Entities erased (erase_item, delete_layer; ADR-050): not drawn, not picked. */
   erased: ReadonlySet<number>;
   /** Copies of entities (copy_item; ADR-050), drawn with their own transform (and layer). */
-  copies: readonly { index: number; transform: Affine; layer?: number }[];
+  copies: readonly PreviewCopy[];
   /** Lines and polylines drawn on the page (add_curve; ADR-050). */
   extraCurves: readonly PreviewCurve[];
   /** Layer added or renamed on the page → the view layer whose colour it takes (ADR-050). */
@@ -147,7 +221,7 @@ export interface DrawingPreview {
    * Entity → its new points in drawing units (set_curve: Trim, Fillet, Stretch; ADR-051), drawn
    * instead of its own path, after which `transformOf` moves it.
    */
-  curveOf: ReadonlyMap<number, { points: readonly (readonly [number, number])[]; closed: boolean }>;
+  curveOf: ReadonlyMap<number, PreviewCurveShape>;
   /** Dimensions and leaders (add_note; ADR-051). */
   notes: readonly PreviewNote[];
   /** Entity → its latest style (set_style; ADR-051). */
@@ -164,9 +238,19 @@ export interface DrawingPreview {
   textFormatOf: ReadonlyMap<number, PreviewTextFormat>;
   /** Tables drawn on the page (add_table). */
   tables: readonly PreviewTable[];
+  /**
+   * Every item drawn, pasted or copied on the page, in the order made (ADR-061). Page row `k` has
+   * the index `fileCount + k` in the page scene; `erased` holds the erased ones' indexes too.
+   * The lists above (`extraCurves`, `copies`, …) are the live ones, as drawn.
+   */
+  page: readonly PageItem[];
+  /** How many entities the file's view has (page rows come after them). */
+  fileCount: number;
 }
 
 export const EMPTY_PREVIEW: DrawingPreview = {
+  page: [],
+  fileCount: 0,
   layerOf: new Map(),
   textOf: new Map(),
   extraTexts: [],
@@ -219,45 +303,228 @@ export function applyCorrections(
   corrections: readonly DrawingCorrection[],
   textHeight: number,
 ): DrawingPreview {
+  // The API's order (created_at, then id): the order the build applies them in.
   const active = corrections
     .filter((item) => item.withdrawnAt === null)
-    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
-    .map((item) => item.correction);
-  return applyInputs(scene, EMPTY_PREVIEW, active, textHeight);
+    .sort(
+      (a, b) =>
+        Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  return applyInputs(
+    scene,
+    EMPTY_PREVIEW,
+    active.map((item) => item.correction),
+    textHeight,
+    active.map((item) => fixHandle(item.id)),
+  );
+}
+
+/** The handle each live page item has, for the rows of the page scene. */
+export function pageHandles(preview: DrawingPreview): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  preview.page.forEach((entry, k) => {
+    if (!entry.handle) return;
+    const list = out.get(entry.handle);
+    if (list) list.push(k);
+    else out.set(entry.handle, [k]);
+  });
+  return out;
+}
+
+const normalDegrees = (degrees: number) => {
+  const out = ((degrees % 360) + 360) % 360;
+  return Math.abs(out - 360) < 1e-9 ? 0 : out;
+};
+
+/** A circle / arc moved, turned, mirrored or scaled (a mirror runs it the other way round). */
+export function transformArc(arc: PreviewArc, t: Affine): PreviewArc {
+  const c = applyAffine(t, arc.x, arc.y);
+  const r = arc.r * scaleOf(t);
+  if (arc.end - arc.start >= 360 - 1e-9) return { x: c.x, y: c.y, r, start: 0, end: 360 };
+  const at = (degrees: number) => {
+    const rad = (degrees * Math.PI) / 180;
+    const p = applyAffine(t, arc.x + arc.r * Math.cos(rad), arc.y + arc.r * Math.sin(rad));
+    return normalDegrees((Math.atan2(p.y - c.y, p.x - c.x) * 180) / Math.PI);
+  };
+  const mirrored = t[0] * t[3] - t[1] * t[2] < 0;
+  const start = at(mirrored ? arc.end : arc.start);
+  let end = at(mirrored ? arc.start : arc.end);
+  if (end <= start) end += 360;
+  return { x: c.x, y: c.y, r, start, end };
+}
+
+const mapPoint = (t: Affine, p: readonly [number, number]): [number, number] => {
+  const q = applyAffine(t, p[0], p[1]);
+  return [q.x, q.y];
+};
+
+/** A page item where a move / turn / mirror / scale puts it (texts stay readable: MIRRTEXT 0). */
+export function transformPageItem(item: PageItemValue, t: Affine): PageItemValue {
+  const s = scaleOf(t);
+  const mirrored = t[0] * t[3] - t[1] * t[2] < 0;
+  switch (item.type) {
+    case 'curve': {
+      const path: number[] = [];
+      const flat = item.value.path;
+      for (let i = 0; i + 1 < flat.length; i += 2) {
+        const q = applyAffine(t, flat[i] as number, flat[i + 1] as number);
+        path.push(q.x, q.y);
+      }
+      const { arc, vertices, ...rest } = item.value;
+      return {
+        type: 'curve',
+        value: {
+          ...rest,
+          path,
+          ...(arc ? { arc: transformArc(arc, t) } : {}),
+          ...(vertices ? { vertices: transformVertices(vertices, t) } : {}),
+        },
+      };
+    }
+    case 'text': {
+      const q = applyAffine(t, item.value.x, item.value.y);
+      const rotation = normalDegrees((item.value.rotation ?? 0) + (mirrored ? 0 : angleOf(t)));
+      return {
+        type: 'text',
+        value: {
+          ...item.value,
+          x: q.x,
+          y: q.y,
+          height: item.value.height * s,
+          ...(rotation === 0 && item.value.rotation === undefined ? {} : { rotation }),
+        },
+      };
+    }
+    case 'point': {
+      const q = applyAffine(t, item.value.x, item.value.y);
+      return { type: 'point', value: { ...item.value, x: q.x, y: q.y } };
+    }
+    case 'note':
+      return {
+        type: 'note',
+        value: { ...item.value, points: item.value.points.map((p) => mapPoint(t, p)) },
+      };
+    case 'shape': {
+      const v = item.value;
+      return {
+        type: 'shape',
+        value: {
+          ...v,
+          points: v.points.map((p) => mapPoint(t, p)),
+          loops: v.loops.map((loop) => loop.map((p) => mapPoint(t, p))),
+          origin: v.origin ? mapPoint(t, v.origin) : null,
+          inner: v.inner === null ? null : v.inner * s,
+          outer: v.outer === null ? null : v.outer * s,
+          scale: v.pattern === 'SOLID' ? v.scale : v.scale * s,
+          angle: mirrored ? v.angle : normalDegrees(v.angle + angleOf(t)),
+        },
+      };
+    }
+    case 'table': {
+      // A table keeps its upright cells (the web draws no turned table): its corner moves.
+      const q = applyAffine(t, item.value.x, item.value.y);
+      return {
+        type: 'table',
+        value: {
+          ...item.value,
+          x: q.x,
+          y: q.y,
+          columns: item.value.columns.map((w) => w * s),
+          rows: item.value.rows.map((h) => h * s),
+          height: item.value.height * s,
+        },
+      };
+    }
+    case 'copy':
+      return {
+        type: 'copy',
+        value: { ...item.value, transform: compose(item.value.transform, t) },
+      };
+  }
 }
 
 /** `base` with more corrections applied on top, in order (saved ones, then unsaved edits). */
 export function applyInputs(
-  scene: DrawingScene,
+  sceneIn: DrawingScene,
   base: DrawingPreview,
   inputs: readonly DrawingCorrectionInput[],
   textHeight: number,
+  /**
+   * The handle of the item each input adds (ADR-061): `FIX-<id>` for saved ones, `NEW-<ref>` for
+   * unsaved ones; absent or '' = an item nothing can name.
+   */
+  handles: readonly (string | undefined)[] = [],
 ): DrawingPreview {
   if (inputs.length === 0) return base;
+  const scene = fileSceneOf(sceneIn);
+  const fileCount = scene.view.entities.length;
   const layerOf = new Map(base.layerOf);
   const textOf = new Map(base.textOf);
-  let extraTexts = [...base.extraTexts];
-  let extraItems = [...base.extraItems];
-  let extraCurves = [...base.extraCurves];
   const merged = new Set(base.merged);
   const transformOf = new Map(base.transformOf);
   const erased = new Set(base.erased);
-  const copies = [...base.copies];
   const aliases = new Map(base.aliases);
   const curveOf = new Map(base.curveOf);
-  let notes = [...base.notes];
   const styleOf = new Map(base.styleOf);
-  let shapes = [...base.shapes];
   const orderOf = new Map(base.orderOf);
   const groups = new Map(base.groups);
   const attrOf = new Map(base.attrOf);
   const textFormatOf = new Map(base.textFormatOf);
-  let tables = [...base.tables];
+  const page: PageItem[] = [...base.page];
+  const pageAt = pageHandles(base);
   const layers = scene.view.layers;
   const layerIndex = (name: string) =>
     scene.layerByName.get(name) ?? scene.layerByName.get(aliases.get(name) ?? '') ?? -1;
   const colorOf = (index: number) => layers[index]?.color ?? FALLBACK_COLOR;
   const indexes = (handle: string) => scene.byHandle.get(handle) ?? [];
+  /** The live page items a handle names (FIX- / NEW- handles). */
+  const own = (handle: string): number[] =>
+    (pageAt.get(handle) ?? []).filter((k) => !(page[k] as PageItem).erased);
+  const change = (k: number, next: Partial<PageItem>) => {
+    page[k] = { ...(page[k] as PageItem), ...next };
+  };
+  const push = (handle: string | undefined, item: PageItemValue, from?: PageItem) => {
+    const k = page.length;
+    page.push({
+      handle: handle ?? '',
+      item,
+      erased: false,
+      style: from?.style ?? null,
+      order: from?.order ?? null,
+    });
+    if (handle) {
+      const list = pageAt.get(handle);
+      if (list) list.push(k);
+      else pageAt.set(handle, [k]);
+    }
+  };
+  /** The layer (index) and its name of a copy of a file entity. */
+  const copyLayer = (copy: PreviewCopy) => {
+    const layer =
+      copy.layer ?? layerOf.get(copy.index) ?? scene.view.entities[copy.index]?.layer ?? -1;
+    return { layer, name: layers[layer]?.name ?? '' };
+  };
+  /** Every live page item's layer name passed through `rename`, with its layer index again. */
+  const relayer = (rename: (name: string) => string | null) => {
+    page.forEach((entry, k) => {
+      if (entry.erased) return;
+      if (entry.item.type === 'copy') {
+        const now = copyLayer(entry.item.value);
+        const to = rename(now.name);
+        if (to === null) return;
+        change(k, {
+          item: { type: 'copy', value: { ...entry.item.value, layer: layerIndex(to) } },
+        });
+        return;
+      }
+      const v = entry.item.value;
+      const to = rename(v.layerName);
+      if (to === null) return;
+      const layer = layerIndex(to);
+      change(k, { item: withLayer(entry.item, to, layer, colorOf(layer)) });
+    });
+  };
   /** Entities whose layer (after earlier moves) is `name`. */
   const onLayer = (name: string) => {
     const target = layerIndex(name);
@@ -269,45 +536,73 @@ export function applyInputs(
     return out;
   };
 
-  for (const correction of inputs) {
+  inputs.forEach((correction, at) => {
+    const adds = handles[at] || undefined;
     const step = stepOfInput(correction);
     if (step) {
-      for (const index of indexes('handle' in correction ? correction.handle : '')) {
+      const handle = 'handle' in correction ? correction.handle : '';
+      for (const k of own(handle)) {
+        change(k, { item: transformPageItem((page[k] as PageItem).item, step) });
+      }
+      for (const index of indexes(handle)) {
         transformOf.set(index, compose(transformOf.get(index) ?? IDENTITY, step));
       }
-      continue;
+      return;
     }
     switch (correction.kind) {
       case 'move_layer': {
         const target = layerIndex(correction.toLayer);
+        for (const k of own(correction.handle)) {
+          const entry = page[k] as PageItem;
+          change(k, {
+            item:
+              entry.item.type === 'copy'
+                ? { type: 'copy', value: { ...entry.item.value, layer: target } }
+                : withLayer(entry.item, correction.toLayer, target, colorOf(target)),
+          });
+        }
         if (target < 0) break;
         for (const index of indexes(correction.handle)) layerOf.set(index, target);
         break;
       }
       case 'set_text':
+        for (const k of own(correction.handle)) {
+          const entry = page[k] as PageItem;
+          if (entry.item.type === 'text') {
+            change(k, {
+              item: { type: 'text', value: { ...entry.item.value, text: correction.text } },
+            });
+          }
+        }
         for (const index of indexes(correction.handle)) textOf.set(index, correction.text);
         break;
       case 'add_text': {
         const layer = layerIndex(correction.layer);
-        extraTexts.push({
-          x: correction.x,
-          y: correction.y,
-          height: correction.height ?? textHeight,
-          text: correction.text,
-          layer,
-          color: colorOf(layer),
-          layerName: correction.layer,
+        push(adds, {
+          type: 'text',
+          value: {
+            x: correction.x,
+            y: correction.y,
+            height: correction.height ?? textHeight,
+            text: correction.text,
+            layer,
+            color: colorOf(layer),
+            layerName: correction.layer,
+          },
         });
         break;
       }
       case 'add_item': {
         const layer = layerIndex(correction.layer);
-        extraItems.push({
-          x: correction.x,
-          y: correction.y,
-          layer,
-          color: colorOf(layer),
-          layerName: correction.layer,
+        push(adds, {
+          type: 'point',
+          value: {
+            x: correction.x,
+            y: correction.y,
+            layer,
+            color: colorOf(layer),
+            layerName: correction.layer,
+          },
         });
         break;
       }
@@ -317,16 +612,32 @@ export function applyInputs(
         }
         break;
       case 'erase_item':
+        for (const k of own(correction.handle)) change(k, { erased: true });
         for (const index of indexes(correction.handle)) erased.add(index);
         break;
       case 'copy_item': {
         const shift = translation(correction.dx, correction.dy);
         const layer = correction.toLayer === null ? undefined : layerIndex(correction.toLayer);
+        // A copy of an item of the page is an item of its own, of the same kind (ADR-061).
+        for (const k of own(correction.handle)) {
+          const from = page[k] as PageItem;
+          let item = transformPageItem(from.item, shift);
+          if (correction.toLayer !== null && layer !== undefined) {
+            item =
+              item.type === 'copy'
+                ? { type: 'copy', value: { ...item.value, layer } }
+                : withLayer(item, correction.toLayer, layer, colorOf(layer));
+          }
+          push(adds, item, from);
+        }
         for (const index of indexes(correction.handle)) {
-          copies.push({
-            index,
-            transform: compose(transformOf.get(index) ?? IDENTITY, shift),
-            ...(layer === undefined ? {} : { layer }),
+          push(adds, {
+            type: 'copy',
+            value: {
+              index,
+              transform: compose(transformOf.get(index) ?? IDENTITY, shift),
+              ...(layer === undefined ? {} : { layer }),
+            },
           });
         }
         break;
@@ -335,16 +646,7 @@ export function applyInputs(
         // Every item of `from` goes to `to`; the target keeps its own colour and rule.
         const target = layerIndex(correction.to);
         for (const index of onLayer(correction.from)) layerOf.set(index, target);
-        const move = <T extends { layerName: string; layer: number }>(item: T): T =>
-          item.layerName === correction.from
-            ? { ...item, layerName: correction.to, layer: target }
-            : item;
-        extraTexts = extraTexts.map(move);
-        extraItems = extraItems.map(move);
-        extraCurves = extraCurves.map(move);
-        notes = notes.map(move);
-        shapes = shapes.map(move);
-        tables = tables.map(move);
+        relayer((name) => (name === correction.from ? correction.to : null));
         break;
       }
       case 'set_group':
@@ -364,12 +666,16 @@ export function applyInputs(
         break;
       case 'add_curve': {
         const layer = layerIndex(correction.layer);
-        extraCurves.push({
-          path: correction.points.flat(),
-          closed: correction.closed,
-          layer,
-          color: colorOf(layer),
-          layerName: correction.layer,
+        push(adds, {
+          type: 'curve',
+          value: {
+            path: correction.points.flat(),
+            closed: correction.closed,
+            layer,
+            color: colorOf(layer),
+            layerName: correction.layer,
+            ...shapeExtras(correction),
+          },
         });
         break;
       }
@@ -387,81 +693,117 @@ export function applyInputs(
         aliases.set(correction.to, aliases.get(correction.from) ?? correction.from);
         const target = layerIndex(correction.to);
         for (const index of moved) layerOf.set(index, target);
-        const rename = <T extends { layerName: string }>(item: T): T =>
-          item.layerName === correction.from ? { ...item, layerName: correction.to } : item;
-        extraTexts = extraTexts.map(rename);
-        extraItems = extraItems.map(rename);
-        extraCurves = extraCurves.map(rename);
-        notes = notes.map(rename);
-        shapes = shapes.map(rename);
-        tables = tables.map(rename);
+        relayer((name) => (name === correction.from ? correction.to : null));
         break;
       }
       case 'delete_layer': {
         for (const index of onLayer(correction.layer)) erased.add(index);
-        const keep = (item: { layerName: string }) => item.layerName !== correction.layer;
-        extraTexts = extraTexts.filter(keep);
-        extraItems = extraItems.filter(keep);
-        extraCurves = extraCurves.filter(keep);
-        notes = notes.filter(keep);
-        shapes = shapes.filter(keep);
-        tables = tables.filter(keep);
+        page.forEach((entry, k) => {
+          if (entry.erased) return;
+          const name =
+            entry.item.type === 'copy'
+              ? copyLayer(entry.item.value).name
+              : entry.item.value.layerName;
+          if (name === correction.layer) change(k, { erased: true });
+        });
         break;
       }
       case 'set_curve':
+        for (const k of own(correction.handle)) {
+          const entry = page[k] as PageItem;
+          const path = correction.points.flat();
+          if (entry.item.type === 'curve') {
+            // New points replace the curve (a trimmed circle is a polyline on the screen).
+            const rest = { ...entry.item.value };
+            delete rest.arc;
+            delete rest.vertices;
+            change(k, {
+              item: {
+                type: 'curve',
+                value: { ...rest, path, closed: correction.closed, ...shapeExtras(correction) },
+              },
+            });
+          } else if (entry.item.type === 'copy') {
+            const { layer, name } = copyLayer(entry.item.value);
+            change(k, {
+              item: {
+                type: 'curve',
+                value: {
+                  path,
+                  closed: correction.closed,
+                  layer,
+                  color: colorOf(layer),
+                  layerName: name,
+                },
+              },
+            });
+          }
+        }
         // New points replace the curve; moves made before are already in them.
         for (const index of indexes(correction.handle)) {
-          curveOf.set(index, { points: correction.points, closed: correction.closed });
+          curveOf.set(index, {
+            points: correction.points,
+            closed: correction.closed,
+            ...shapeExtras(correction),
+          });
           transformOf.delete(index);
         }
         break;
       case 'add_note': {
         const layer = layerIndex(correction.layer);
-        notes.push({
-          note: correction.note,
-          points: correction.points,
-          text: correction.text,
-          layer,
-          color: colorOf(layer),
-          layerName: correction.layer,
+        push(adds, {
+          type: 'note',
+          value: {
+            note: correction.note,
+            points: correction.points,
+            text: correction.text,
+            layer,
+            color: colorOf(layer),
+            layerName: correction.layer,
+          },
         });
         break;
       }
-      case 'set_style':
-        for (const index of indexes(correction.handle)) {
-          styleOf.set(index, {
-            color: correction.color,
-            linetype: correction.linetype,
-            lineweight: correction.lineweight,
-          });
-        }
+      case 'set_style': {
+        const style = {
+          color: correction.color,
+          linetype: correction.linetype,
+          lineweight: correction.lineweight,
+        };
+        for (const k of own(correction.handle)) change(k, { style });
+        for (const index of indexes(correction.handle)) styleOf.set(index, style);
         break;
+      }
       case 'add_shape': {
         const layer = layerIndex(correction.layer);
-        shapes.push({
-          shape: correction.shape,
-          points: correction.points,
-          pattern: correction.pattern,
-          scale: correction.scale,
-          angle: correction.angle,
-          color: correction.color,
-          color2: correction.color2,
-          inner: correction.inner,
-          outer: correction.outer,
-          loops: correction.loops,
-          island: correction.island,
-          background: correction.background,
-          transparency: correction.transparency,
-          origin: correction.origin,
-          double: correction.double,
-          drawOrder: correction.drawOrder,
-          layer,
-          layerColor: colorOf(layer),
-          layerName: correction.layer,
+        push(adds, {
+          type: 'shape',
+          value: {
+            shape: correction.shape,
+            points: correction.points,
+            pattern: correction.pattern,
+            scale: correction.scale,
+            angle: correction.angle,
+            color: correction.color,
+            color2: correction.color2,
+            inner: correction.inner,
+            outer: correction.outer,
+            loops: correction.loops,
+            island: correction.island,
+            background: correction.background,
+            transparency: correction.transparency,
+            origin: correction.origin,
+            double: correction.double,
+            drawOrder: correction.drawOrder,
+            layer,
+            layerColor: colorOf(layer),
+            layerName: correction.layer,
+          },
         });
         break;
       }
       case 'set_order':
+        for (const k of own(correction.handle)) change(k, { order: correction.order });
         for (const index of indexes(correction.handle)) orderOf.set(index, correction.order);
         break;
       case 'set_text_format':
@@ -476,24 +818,68 @@ export function applyInputs(
         break;
       case 'add_table': {
         const layer = layerIndex(correction.layer);
-        tables.push({
-          x: correction.x,
-          y: correction.y,
-          columns: correction.columns,
-          rows: correction.rows,
-          height: correction.height,
-          styles: correction.styles,
-          cells: correction.cells,
-          layer,
-          color: colorOf(layer),
-          layerName: correction.layer,
+        push(adds, {
+          type: 'table',
+          value: {
+            x: correction.x,
+            y: correction.y,
+            columns: correction.columns,
+            rows: correction.rows,
+            height: correction.height,
+            styles: correction.styles,
+            cells: correction.cells,
+            layer,
+            color: colorOf(layer),
+            layerName: correction.layer,
+          },
         });
         break;
       }
       case 'dismiss_problem':
         break; // changes nothing on the drawing (ADR-046)
     }
-  }
+  });
+  // The lists the canvas draws: the live page items, in the order made, in their style.
+  const extraTexts: PreviewText[] = [];
+  const extraItems: PreviewItem[] = [];
+  const extraCurves: PreviewCurve[] = [];
+  const notes: PreviewNote[] = [];
+  const shapes: PreviewShape[] = [];
+  const tables: PreviewTable[] = [];
+  const copies: PreviewCopy[] = [];
+  page.forEach((entry, k) => {
+    if (entry.erased) {
+      erased.add(fileCount + k);
+      return;
+    }
+    // Properties, MATCHPROP and the ribbon read a page row's style by its index, as the file's.
+    if (entry.style) styleOf.set(fileCount + k, entry.style);
+    const color = entry.style?.color ?? null;
+    const { item } = entry;
+    switch (item.type) {
+      case 'curve':
+        extraCurves.push(color ? { ...item.value, color } : item.value);
+        break;
+      case 'text':
+        extraTexts.push(color ? { ...item.value, color } : item.value);
+        break;
+      case 'point':
+        extraItems.push(color ? { ...item.value, color } : item.value);
+        break;
+      case 'note':
+        notes.push(color ? { ...item.value, color } : item.value);
+        break;
+      case 'table':
+        tables.push(color ? { ...item.value, color } : item.value);
+        break;
+      case 'shape':
+        shapes.push(color ? { ...item.value, color } : item.value);
+        break;
+      case 'copy':
+        copies.push(item.value);
+        break;
+    }
+  });
   return {
     layerOf,
     textOf,
@@ -514,7 +900,21 @@ export function applyInputs(
     attrOf,
     textFormatOf,
     tables,
+    page,
+    fileCount,
   };
+}
+
+/** The page item with this layer (name, index and the layer's colour). */
+function withLayer(item: PageItemValue, name: string, layer: number, color: string): PageItemValue {
+  switch (item.type) {
+    case 'shape':
+      return { type: 'shape', value: { ...item.value, layerName: name, layer, layerColor: color } };
+    case 'copy':
+      return { type: 'copy', value: { ...item.value, layer } };
+    default:
+      return { ...item, value: { ...item.value, layerName: name, layer, color } } as PageItemValue;
+  }
 }
 
 /** The entities of a handle get `step` after what moved them already. */
@@ -535,5 +935,16 @@ export function effectiveLayer(
   preview: DrawingPreview,
   index: number,
 ): number {
-  return preview.layerOf.get(index) ?? (scene.view.entities[index]?.layer as number);
+  const moved = preview.layerOf.get(index);
+  if (moved !== undefined) return moved;
+  const entity = scene.view.entities[index];
+  if (entity) return entity.layer;
+  // An item of the page asked of the file's scene: its own layer (-1: not in the view).
+  const item = preview.page[index - preview.fileCount];
+  if (!item) return -1;
+  if (item.item.type !== 'copy') return item.item.value.layer;
+  const copy = item.item.value;
+  return (
+    copy.layer ?? preview.layerOf.get(copy.index) ?? scene.view.entities[copy.index]?.layer ?? -1
+  );
 }

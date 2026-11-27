@@ -127,9 +127,14 @@ describe('grips (owner 2026-11-26)', () => {
     ]);
     // A view rendered before the placement was added: no grip rather than a made-up one.
     expect(gripsOf(s, EMPTY_PREVIEW, new Set([2]), true).grips).toEqual([]);
-    // An arc's ends and middle are shown but the web view cannot stretch them.
+    // An arc's ends, middle and centre are all stretchable (round 3, audit 3).
     const arc = gripsOf(s, EMPTY_PREVIEW, new Set([6]), true).grips;
-    expect(arc.filter((g) => g.editable).map((g) => g.kind)).toEqual(['center']);
+    expect(arc.filter((g) => g.editable).map((g) => g.kind)).toEqual([
+      'end',
+      'mid',
+      'end',
+      'center',
+    ]);
   });
 
   it('a picked group or page block is one object with one grip in the middle of its box', () => {
@@ -220,10 +225,17 @@ describe('grips (owner 2026-11-26)', () => {
       gripStretchEdits(s, EMPTY_PREVIEW, quadrant, quadrant, { x: 20, y: 10 }, false, '') ?? [];
     expect(edit?.kind).toBe('scale_item');
     if (edit?.kind === 'scale_item') expect(edit.factor).toBeCloseTo(2, 2);
+    // An arc end: the arc now runs through the new end, its middle and its other end.
     const arcEnd = gripsOf(s, EMPTY_PREVIEW, new Set([6]), true).grips[0];
     if (!arcEnd) throw new Error('arc');
-    expect(
-      gripStretchEdits(s, EMPTY_PREVIEW, arcEnd, arcEnd, { x: 0, y: 0 }, false, ''),
-    ).toBeNull();
+    const [arcEdit] =
+      gripStretchEdits(s, EMPTY_PREVIEW, arcEnd, arcEnd, { x: 20, y: 10 }, false, '') ?? [];
+    expect(arcEdit).toMatchObject({ kind: 'set_curve', handle: 'R1', closed: false });
+    if (arcEdit?.kind === 'set_curve') {
+      expect(arcEdit.arc).toBeDefined();
+      expect(arcEdit.points[0]).toEqual([20, 10]);
+      expect(arcEdit.points[arcEdit.points.length - 1]?.[0]).toBeCloseTo(10, 6);
+      expect(arcEdit.points[arcEdit.points.length - 1]?.[1]).toBeCloseTo(15, 6);
+    }
   });
 });

@@ -336,7 +336,11 @@ function layerByPick<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, index: numb
     case 'l_offPick':
     case 'l_frzPick':
       if (r.step === 'l_offPick') screen?.off(layers);
-      else screen?.freeze(layers);
+      else if (screen && !screen.freeze(layers)) {
+        // AutoCAD never freezes the current layer.
+        ctx.say(ctx.msg('cannotFreezeCurrent', { layer: said.layers }));
+        return;
+      }
       ctx.say(ctx.msg(r.step === 'l_offPick' ? 'layersOff' : 'layersFrozen', said));
       ctx.setRun({ ...r, made: [...r.made, 0] });
       return;
@@ -376,9 +380,14 @@ export function layerAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
     case 'layiso':
       screen?.isolate(layers);
       return done('layersIsolated');
-    case 'layfrz':
-      screen?.freeze(layers);
-      return done('layersFrozen');
+    case 'layfrz': {
+      if (!screen || screen.freeze(layers)) return done('layersFrozen');
+      ctx.say(ctx.msg('cannotFreezeCurrent', { layer: ctx.drawLayer }));
+      const others = layers.filter((i) => ctx.scene.view.layers[i]?.name !== ctx.drawLayer);
+      if (others.length > 0) ctx.say(ctx.msg('layersFrozen', { layers: layerNames(ctx, others) }));
+      ctx.finish();
+      return null;
+    }
     case 'laylck':
       screen?.lock(layers);
       return done('layersLocked');

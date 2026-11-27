@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MessageKey } from '@ftth/i18n';
 import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import { useSaveCorrections } from '../api/queries';
+import { MAX_CORRECTIONS_PER_SAVE } from '@ftth/shared';
+import { saveInChunks } from '../model/save-chunks';
 import {
   applyAffine,
   mirrorAcross,
@@ -18,8 +20,9 @@ import {
   acadNumber,
   COMMANDS,
   PROMPTS_WITHOUT_OR,
-  lookupCommand,
   matchOption,
+  resolveCommand,
+  TRANSPARENT,
   parseEntry,
   towards,
   type CommandId,
@@ -28,8 +31,11 @@ import {
 } from '../model/cad-commands';
 import {
   addEdits,
+  arcCurveEdit,
+  circleCurveEdit,
   copyEdits,
   curveEdit,
+  editHandle,
   editRequests,
   entitiesInBand,
   eraseEdits,
@@ -49,6 +55,7 @@ import {
 import { correctionError } from '../model/corrections';
 import { effectiveLayer, type DrawingPreview, type PreviewStyle } from '../model/drawing-preview';
 import { boxOf, type DrawingScene } from '../model/drawing-scene';
+import { isPageRow, pageSceneOf } from '../model/page-scene';
 import { joinProblem, type JoinPiece } from '../model/join';
 import {
   arcThrough,
@@ -104,8 +111,32 @@ import {
   type ExtraSettings,
   type ExtraStep,
 } from './extra-commands';
-import { gripSketch, gripsOf, gripStretchEdits, type Grip } from '../model/grips';
+import {
+  addVertexEdits,
+  gripMenuOf,
+  gripSketches,
+  gripsOf,
+  gripsStretchEdits,
+  removeVertexEdits,
+  sameGrip,
+  segmentBulgeEdits,
+  type Grip,
+  type GripMenuItem,
+} from '../model/grips';
 import { LAYER_TEXT_STEPS } from './layer-commands';
+import {
+  activeSettings,
+  matchDestinations,
+  matchOption as matchOptionKey,
+  matchPrompt,
+  type MatchSettings,
+} from './match-commands';
+import {
+  BY_LAYER_STYLE,
+  currentStyleEdits,
+  objectStyle,
+  type CurrentStyle,
+} from '../model/properties';
 import {
   isTextCommand,
   tablePlace,
@@ -119,7 +150,10 @@ import type { TableSpec } from '../model/table';
 import { hatchLoopCount, hatchPending, isHatchCommand, type HatchSettings } from './hatch-command';
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import { useHistory, type HistoryPart, type UndoHistory } from './use-history';
+import { loadUnsaved, saveUnsaved } from '../model/edit-autosave';
 import type { LayerScreen } from './use-layer-screen';
+import { moreTransparent, moreWord, transparentLabel } from './more-commands';
+import type { UndoControl, ZoomView } from './view-commands';
 
 export type { Point } from '../model/cad-commands';
 
@@ -135,6 +169,16 @@ export type { Point } from '../model/cad-commands';
 export type PromptKey =
   | 'command'
   | 'gripStretch'
+  | 'gripMove'
+  | 'gripRotate'
+  | 'gripScale'
+  | 'gripMirror'
+  | 'gripAddVertex'
+  | 'gripArcMid'
+  | 'gripRefAngle'
+  | 'gripNewAngle'
+  | 'gripRefLength'
+  | 'gripNewLength'
   | 'gripBase'
   | 'selectObjects'
   | 'stretchSelect'
@@ -278,8 +322,6 @@ type Step =
   | 'leaderStart'
   | 'leaderNext'
   | 'leaderText'
-  | 'source'
-  | 'dest'
   | 'laymcurPick'
   | 'laymchDest'
   | 'displacement'
@@ -445,8 +487,6 @@ const OBJECT_STEPS: readonly Step[] = [
   'filletSecond',
   'offsetPick',
   'editPick',
-  'source',
-  'dest',
   'laymcurPick',
   'laymchDest',
   'trimEdges',
@@ -482,19 +522,61 @@ const DRAW_LIKE: Readonly<Record<string, CommandId>> = {
 const NONE: ReadonlySet<number> = new Set();
 /** AutoCAD's grip editing in progress (a hot grip, owner 2026-11-26). */
 interface GripRun {
+  /** The hot grip that is the base. */
   grip: Grip;
+  /** Every hot grip (Shift+click made several hot; STRETCH moves them all). */
+  hot: readonly Grip[];
   base: Point;
   copy: boolean;
-  step: 'stretch' | 'base';
+  /** AutoCAD's grip modes, cycled by Enter / Space (or typed ST / MO / RO / SC / MI). */
+  mode: GripMode;
+  step: 'point' | 'base' | 'refAngle' | 'newAngle' | 'refLength' | 'newLength';
+  /** The Reference angle (degrees) or length given. */
+  ref: number;
 }
-const GRIP_NAME = '** STRETCH **';
+type GripMode = 'stretch' | 'move' | 'rotate' | 'scale' | 'mirror' | 'addVertex' | 'toArc';
+const GRIP_MODES: readonly GripMode[] = ['stretch', 'move', 'rotate', 'scale', 'mirror'];
+const GRIP_NAMES: Record<GripMode, string> = {
+  stretch: '** STRETCH **',
+  move: '** MOVE **',
+  rotate: '** ROTATE **',
+  scale: '** SCALE **',
+  mirror: '** MIRROR **',
+  addVertex: '** ADD VERTEX **',
+  toArc: '** CONVERT TO ARC **',
+};
+const GRIP_MODE_WORDS: Record<string, GripMode> = {
+  ST: 'stretch',
+  MO: 'move',
+  RO: 'rotate',
+  SC: 'scale',
+  MI: 'mirror',
+};
 const GRIP_OPTIONS: readonly CommandOption[] = [
   { word: 'Base point', key: 'B' },
   { word: 'Copy', key: 'C' },
   { word: 'Undo', key: 'U' },
   { word: 'eXit', key: 'X' },
 ];
+const GRIP_REF_OPTIONS: readonly CommandOption[] = [
+  { word: 'Base point', key: 'B' },
+  { word: 'Copy', key: 'C' },
+  { word: 'Undo', key: 'U' },
+  { word: 'Reference', key: 'R' },
+  { word: 'eXit', key: 'X' },
+];
+const GRIP_PROMPTS: Record<GripMode, PromptKey> = {
+  stretch: 'gripStretch',
+  move: 'gripMove',
+  rotate: 'gripRotate',
+  scale: 'gripScale',
+  mirror: 'gripMirror',
+  addVertex: 'gripAddVertex',
+  toArc: 'gripArcMid',
+};
 const HISTORY_LINES = 50;
+/** AutoCAD's CMDINPUTHISTORYMAX: how many inputs ↑ / ↓ and the recent lists keep. */
+const INPUT_HISTORY_MAX = 20;
 const opt = (word: string, key: string): CommandOption => ({ word, key });
 
 /** The drawing's edit mode (ADR-047, ADR-050, ADR-051). */
@@ -529,6 +611,10 @@ export interface CanvasEditState {
   prompt: CommandPrompt;
   /** Lines already on the command line (newest last). */
   history: readonly string[];
+  /** What was typed on the command line, newest last (↑ / ↓ recall it, AutoCAD). */
+  recentInput: readonly string[];
+  /** Commands started, newest first (the command line's right-click «Recent Commands»). */
+  recentCommands: readonly CommandId[];
   input: string;
   setInput: (value: string) => void;
   /** Enter on the command line. */
@@ -540,6 +626,11 @@ export interface CanvasEditState {
   focusNonce: number;
   /** A key on the canvas; true when it was used. */
   key: (key: string, ctrl: boolean) => boolean;
+  /**
+   * The page scene (ADR-061): the file's entities, then the items drawn, pasted or copied on the
+   * page as objects with FIX- / NEW- handles. Picking, grips, snaps and Properties use it.
+   */
+  scene: DrawingScene | null;
   // Selection
   chosen: ReadonlySet<number>;
   chosenCount: number;
@@ -548,6 +639,10 @@ export interface CanvasEditState {
   selectSimilar: () => void;
   /** Ctrl+A: every shown, unlocked object (AutoCAD's «All»). */
   selectAll: () => void;
+  /** QSELECT: every object that may be picked now (shown, unlocked, not erased). */
+  selectable: () => number[];
+  /** QSELECT's OK: these objects are picked (`append`: added to the picked ones). */
+  selectIndexes: (indexes: readonly number[], append: boolean) => void;
   /** The objects COPYCLIP / CUTCLIP / COPYBASE keep for PASTECLIP (Ctrl+C / X / Shift+C / V). */
   clipboardCount: number;
   /** The draw command ADDSELECTED would start for the one picked object; null when none fits. */
@@ -562,6 +657,13 @@ export interface CanvasEditState {
   groupBoxes: readonly { minX: number; minY: number; maxX: number; maxY: number }[];
   /** The hot grip of a grip STRETCH, null otherwise. */
   hotGrip: Grip | null;
+  /** Every hot grip: those of the grip edit running, or those Shift+click made hot. */
+  hotGrips: readonly Grip[];
+  /** Shift+click on a grip: hot (again: cold) without starting. */
+  armGrip: (grip: Grip) => void;
+  /** The multifunctional grip menu of a hovered grip (a polyline's vertex / segment). */
+  gripMenuOf: (grip: Grip) => GripMenuItem[];
+  chooseGripMenu: (grip: Grip, item: GripMenuItem) => void;
   /** A click on a grip: AutoCAD's «** STRETCH **» starts from it. */
   startGrip: (grip: Grip) => void;
   /** Edits made outside the command line (the Properties palette). */
@@ -608,9 +710,24 @@ export interface CanvasEditState {
   renameLayer: (from: string, to: string) => string | null;
   deleteLayer: (name: string) => void;
   // Properties (screen only, ADR-051)
-  /** The style of the first picked object (null fields: by layer); null with nothing picked. */
+  /**
+   * How the first picked object is drawn (its own colour in the file too; null fields: by layer);
+   * null with nothing picked.
+   */
   selectionStyle: PreviewStyle | null;
+  /** With objects picked they change (set_style); with nothing picked the current properties do. */
   setStyle: (patch: Partial<PreviewStyle>) => void;
+  /** AutoCAD's current properties (CECOLOR, CELTYPE, CELWEIGHT, CETRANSPARENCY; item 34). */
+  currentStyle: CurrentStyle;
+  setCurrentStyle: (patch: Partial<CurrentStyle>) => void;
+  /**
+   * The `set_style` a new object needs to be drawn with the current properties (none when all are
+   * ByLayer): every draw command adds it naming its new item (`NEW-<ref>`, ADR-061).
+   */
+  currentStyleEdits: (newItemHandle: string) => CanvasEdit[];
+  /** MATCHPROP's Property Settings (the dialog of its Settings option). */
+  matchSettings: MatchSettings;
+  setMatchSettings: (settings: MatchSettings) => void;
   // Unsaved edits
   edits: readonly CanvasEdit[];
   /** The saved corrections with the unsaved edits on top. */
@@ -652,6 +769,8 @@ interface Input {
   joinTouch?: number;
   /** One Undo history for the edits and the screen states (item 13); its own when absent. */
   history?: UndoHistory;
+  /** ZOOM / PAN / REGEN typed: the viewer's view (set by the viewer after each render). */
+  view?: { readonly current: ZoomView | null };
   /** The screen states (layers, isolation…) the history puts back. */
   screen?: HistoryPart;
 }
@@ -715,12 +834,22 @@ export function createPointStore(): PointStore {
 }
 
 export function useCanvasEdit(input: Input): CanvasEditState {
-  const { projectId, cadFileId, available, scene, preview: saved, layers: mapped, isShown } = input;
+  const {
+    projectId,
+    cadFileId,
+    available,
+    scene: fileScene,
+    preview: saved,
+    layers: mapped,
+    isShown,
+  } = input;
   const isLocked = input.isLocked ?? (() => false);
   const textHeight = input.textHeight ?? 2.5;
   const { t } = useI18n();
   const saveMutation = useSaveCorrections(projectId, cadFileId);
   const [editing, setEditing] = useState(false);
+  /** A «حفظ» in chunks is under way (ADR-061). */
+  const [chunking, setChunking] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
   const [lastCmd, setLastCmd] = useState<CommandId | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<number>>(NONE);
@@ -733,6 +862,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const [history, setHistory] = useState<readonly string[]>([]);
   const [focusNonce, setFocusNonce] = useState(0);
   const [currentLayer, setCurrentLayer] = useState('');
+  /** CECOLOR / CELTYPE / CELWEIGHT / CETRANSPARENCY: new objects are drawn with them (item 34). */
+  const [currentStyle, setCurrentStyle] = useState<CurrentStyle>(BY_LAYER_STYLE);
   const [filletRadius, setFilletRadius] = useState(0);
   const [offsetDist, setOffsetDist] = useState(1);
   // AutoCAD keeps these settings from one use of a command to the next.
@@ -766,6 +897,21 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const undoHistory = input.history ?? ownHistory;
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [gripRun, setGripRun] = useState<GripRun | null>(null);
+  /** Grips made hot by Shift+click before one of them starts STRETCH (AutoCAD). */
+  const [armedGrips, setArmedGrips] = useState<readonly Grip[]>([]);
+  // AutoCAD's recent input (↑ / ↓ on the command line) and recent commands (right-click).
+  const [recentInput, setRecentInput] = useState<readonly string[]>([]);
+  const [recentCommands, setRecentCommands] = useState<readonly CommandId[]>([]);
+  /** UNDO Mark: how many history steps there were then; OOPS: the last ERASE's objects. */
+  const [undoMark, setUndoMark] = useState<number | null>(null);
+  const [lastErased, setLastErased] = useState<readonly string[]>([]);
+  const rememberInput = (typed: string) => {
+    const value = typed.trim();
+    if (!value) return;
+    setRecentInput((before) =>
+      [...before.filter((v) => v !== value), value].slice(-INPUT_HISTORY_MAX),
+    );
+  };
 
   // Leaving the page with unsaved edits asks first.
   const unsaved = edits.length > 0;
@@ -787,15 +933,22 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   );
   const shown = useMemo(
     () =>
-      scene && saved
+      fileScene && saved
         ? previewWithEdits(
-            scene,
+            fileScene,
             saved,
             pending.length > 0 ? [...edits, ...pending] : edits,
             textHeight,
+            edits.length,
           )
         : null,
-    [scene, saved, edits, pending, textHeight],
+    [fileScene, saved, edits, pending, textHeight],
+  );
+  // Items drawn, pasted or copied on the page are objects (ADR-061, owner item 36): every
+  // command below works on the page scene, the file's entities with the page's rows after them.
+  const scene = useMemo(
+    () => (fileScene && shown ? pageSceneOf(fileScene, shown) : fileScene),
+    [fileScene, shown],
   );
 
   // Layers added or renamed (saved and unsaved) take the meaning of their source.
@@ -914,7 +1067,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       }
       const moved = shown.transformOf.get(index);
-      if (!moved && !meets(boxOf(scene, index))) return;
+      // Lines drawn on the page are always edges (EXTEND reaches past the box), as before.
+      if (!moved && !isPageRow(entity) && !meets(boxOf(scene, index))) return;
       for (const flat of entity.paths) {
         const points: Pt[] = [];
         for (let i = 0; i + 1 < flat.length; i += 2) {
@@ -924,13 +1078,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (points.length >= 2) out.push({ points, closed: false });
       }
     });
-    for (const curve of shown.extraCurves) {
-      const points: Pt[] = [];
-      for (let i = 0; i + 1 < curve.path.length; i += 2) {
-        points.push([curve.path[i] as number, curve.path[i + 1] as number]);
-      }
-      out.push({ points, closed: curve.closed });
-    }
     return out;
   };
 
@@ -947,7 +1094,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   /** Adds edits; returns their positions in the list (for the command's Undo). */
-  const add = (added: CanvasEdit[]): number[] => {
+  const add = (made: CanvasEdit[]): number[] => {
+    // A new object is drawn with the current properties (CECOLOR / CELTYPE / CELWEIGHT); a copy
+    // keeps its source's (AutoCAD).
+    const added = made.flatMap((edit) => {
+      const handle = edit.kind === 'copy_item' ? undefined : editHandle(edit);
+      return handle === undefined ? [edit] : [edit, ...currentStyleEdits(currentStyle, handle)];
+    });
     const at = edits.length;
     const label = run
       ? COMMANDS[run.cmd].name
@@ -956,6 +1109,30 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     setEdits((previous) => addEdits(previous, added));
     setError(null);
     return added.map((_, i) => at + i);
+  };
+
+  // ---------- autosave (phase 3E, AutoCAD's SAVETIME + Drawing Recovery) ----------
+  // Off until edit mode is entered, so the empty list of a fresh page does not wipe what a closed
+  // tab left; from then on every change of the unsaved edits is kept (none: cleared).
+  const autosaveOn = useRef(false);
+  useEffect(() => {
+    if (autosaveOn.current) saveUnsaved(cadFileId, edits);
+  }, [cadFileId, edits]);
+  const recoverUnsaved = () => {
+    const armed = autosaveOn.current;
+    autosaveOn.current = true;
+    if (armed || edits.length > 0) return;
+    const back = loadUnsaved(cadFileId);
+    if (!back) return;
+    // One Undo step takes them back; «حفظ» keeps them.
+    undoHistory.record('RECOVER', 'edits', { edits, currentLayer });
+    setEdits(back.edits);
+    say(
+      msg('recovered', {
+        count: back.edits.length,
+        time: back.savedAt.slice(0, 16).replace('T', ' '),
+      }),
+    );
   };
 
   const geometryMessage = (caught: unknown) => {
@@ -988,7 +1165,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
             ? p('joinSelect')
             : r.cmd === 'laymch'
               ? p('laymchSelect')
-              : p('selectObjects');
+              : r.cmd === 'matchprop'
+                ? matchPrompt(r)
+                : p('selectObjects');
       case 'base':
         return r.cmd === 'copy'
           ? p('basePoint', [opt('Displacement', 'D'), opt('mOde', 'O')], 'Displacement')
@@ -1149,6 +1328,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'pointAt':
         return p('pointAt');
       case 'trimPick':
+        // EXTEND (round 3): the same pick with the other default; Shift trims.
+        if (r.cmd === 'extend')
+          return p('extendPick', [
+            opt('Boundary edges', 'B'),
+            ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
+          ]);
         // Undo is offered once something was trimmed (AutoCAD).
         return p('trimPick', [
           opt('cuTting edges', 'T'),
@@ -1156,7 +1341,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
         ]);
       case 'trimEdges':
-        return p('trimEdges', [], 'select all');
+        return p(r.cmd === 'extend' ? 'extendEdges' : 'trimEdges', [], 'select all');
       case 'trimErase':
         return p('trimErase', [], 'exit');
       case 'filletFirst':
@@ -1234,10 +1419,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           : p('nextPoint');
       case 'leaderText':
         return p('leaderText');
-      case 'source':
-        return p('matchSource');
-      case 'dest':
-        return p('matchDest');
       case 'laymcurPick':
         return p('laymcurPick');
       case 'laymchDest':
@@ -1249,7 +1430,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const promptLine = (r: Run | null) =>
-    formatPrompt(t, r ? COMMANDS[r.cmd].name : null, promptOf(r));
+    formatPrompt(t, r ? (transparentLabel(r) ?? COMMANDS[r.cmd].name) : null, promptOf(r));
 
   // ---------- running ----------
 
@@ -1294,13 +1475,53 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           usableLayers: layers,
           layerScreen: input.layerScreen,
           openDialog: input.openDialog,
+          view: input.view?.current ?? undefined,
+          undo: undoControl,
         }
       : null;
+
+  /** U / UNDO / REDO / OOPS typed share the one history (item 13). */
+  const undoControl: UndoControl = {
+    undo: (count) => undoHistory.undoMany(count, historyParts()),
+    redo: () => undoHistory.redo(historyParts()),
+    steps: () => undoHistory.steps.length,
+    mark: () => setUndoMark(undoHistory.steps.length),
+    markAt: () => undoMark,
+    clearMark: () => setUndoMark(null),
+    oops: () => {
+      // OOPS: the objects of the last ERASE come back (their unsaved erase edits are dropped).
+      const gone = new Set(lastErased);
+      if (gone.size === 0) return 0;
+      const kept = [...edits];
+      let count = 0;
+      for (let i = kept.length - 1; i >= 0 && gone.size > 0; i--) {
+        const edit = kept[i];
+        if (edit?.kind === 'erase_item' && gone.has(edit.handle)) {
+          gone.delete(edit.handle);
+          kept.splice(i, 1);
+          count++;
+        }
+      }
+      if (count === 0) return 0;
+      undoHistory.record('OOPS', 'edits', { edits, currentLayer });
+      setEdits(kept);
+      setLastErased([]);
+      return count;
+    },
+  };
+  /** ERASE (the command, Delete): OOPS can bring these back. */
+  const eraseNow = (picked: string[]) => {
+    add(eraseEdits(picked));
+    setLastErased(picked);
+  };
 
   const begin = (cmd: CommandId): Run | null | undefined => {
     if (!scene) return null;
     setError(null);
     setLastCmd(cmd);
+    setRecentCommands((before) =>
+      [cmd, ...before.filter((c) => c !== cmd)].slice(0, INPUT_HISTORY_MAX),
+    );
     setText('');
     setBand(null);
     setFocusNonce((n) => n + 1);
@@ -1329,7 +1550,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return next('select');
       case 'erase':
         if (picked) {
-          add(eraseEdits(handles));
+          eraseNow(handles);
           finish();
           return;
         }
@@ -1366,6 +1587,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         say(msg('pointModes'));
         return next('pointAt');
       case 'trim':
+      case 'extend':
         setSelection(NONE);
         say(msg('trimSettings'));
         return next('trimPick');
@@ -1408,19 +1630,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         input.onOpenLayers?.();
         finish(true);
         return;
-      case 'matchprop': {
-        const [only] = [...selection];
-        if (only !== undefined && selection.size === 1) {
-          const r = newRun(cmd, 'dest');
-          r.target = only;
-          setRun(r);
-          setSelection(NONE);
-          say(msg('matchSettings'));
-          return;
-        }
-        setSelection(NONE);
-        return next('source');
-      }
       case 'laymcur':
         return next('laymcurPick');
       case 'copyclip':
@@ -1540,7 +1749,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         clipSelected(r.cmd, r.base);
         return;
       case 'erase':
-        add(eraseEdits(handles));
+        eraseNow(handles);
         finish();
         return;
       case 'join':
@@ -1943,7 +2152,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const drawArc = (make: () => Pt[]) => {
     try {
-      add([pointsCurveEdit(drawLayer, make(), false)]);
+      add([arcCurveEdit(drawLayer, make())]);
       finish();
     } catch (caught) {
       geometryMessage(caught);
@@ -1983,7 +2192,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const circle = (center: Point, radius: number) => {
     try {
-      add([pointsCurveEdit(drawLayer, circlePoints(pt(center), radius), true)]);
+      add([circleCurveEdit(drawLayer, pt(center), radius, circlePoints(pt(center), radius))]);
       setLastRadius(radius);
       finish();
     } catch (caught) {
@@ -2066,7 +2275,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     }
     if (!scene) return;
     if (index === null || !pickable(index)) {
-      if (r.step === 'trimPick' || r.step === 'dest' || r.step === 'trimErase') return;
+      if (r.step === 'trimPick' || r.step === 'trimErase') return;
       say(msg('nothingThere'));
       return;
     }
@@ -2078,16 +2287,20 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
+        const extending = shift !== (r.cmd === 'extend');
+        // Cutting edges cross the object's box; boundary edges to extend to may lie anywhere.
+        const everywhere = { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
         const edgeList = r.flags.edges
           ? r.flags.edges.flatMap((i) => {
               const g = curveGeom(i);
               return g && i !== index ? [g] : [];
             })
-          : edgesNear(boxAround(geom.points), index);
+          : edgesNear(extending ? everywhere : boxAround(geom.points), index);
         try {
           const out: CanvasEdit[] = [];
-          if (shift) {
-            // Shift-select extends the picked end to the nearest edge (AutoCAD).
+          // TRIM: Shift-select extends; EXTEND: a plain pick extends, Shift-select trims.
+          if (extending) {
+            // The picked end goes to the nearest edge (AutoCAD).
             if (geom.closed) {
               say(msg('notCurve'));
               return;
@@ -2224,20 +2437,6 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         }
         editText(index, r);
         return;
-      case 'source':
-        go(r, 'dest', { target: index });
-        say(msg('matchSettings'));
-        return;
-      case 'dest': {
-        if (r.target === null) return;
-        const style = shown?.styleOf.get(r.target) ?? {
-          color: null,
-          linetype: null,
-          lineweight: null,
-        };
-        add([{ kind: 'set_style', handle, ...style }]);
-        return;
-      }
       case 'laymcurPick': {
         const layer = layerNameOf(index);
         setCurrentLayer(layer);
@@ -2425,6 +2624,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const feedOption = (r: Run, key: string) => {
+    if (r.step === 'select' && r.cmd === 'matchprop') {
+      const words = extraCtx();
+      if (words) matchOptionKey(words, r, key);
+      return;
+    }
     if (r.step === 'select' && isTextCommand(r.cmd)) {
       const words = extraCtx();
       if (words) textSelectOption(words, r, key);
@@ -2545,8 +2749,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         go(r, key === 'W' ? 'rectAreaWidth' : 'rectAreaLength');
         return;
       case 'trimPick':
-        if (key === 'T') {
-          say(msg('trimEdgesSettings'));
+        if (key === 'T' || key === 'B') {
+          say(msg(r.cmd === 'extend' ? 'extendEdgesSettings' : 'trimEdgesSettings'));
           flag(r, { edges: [] }, 'trimEdges');
         } else if (key === 'R') go(r, 'trimErase');
         else if (key === 'U') undoMade(r);
@@ -2905,11 +3109,22 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const typed = text;
     setText('');
     if (!editing) return;
+    rememberInput(typed);
     if (run && isTextStep(run.step)) {
       say(`${promptLine(run)} ${typed}`);
       const ctx = extraFor(run);
       if (ctx) extraText(ctx, run, typed);
       else feedText(run, typed);
+      return;
+    }
+    if (run && typed.trim().startsWith("'")) {
+      // A transparent command inside this one ('ZOOM, 'PAN), AutoCAD's «>>».
+      say(`${promptLine(run)} ${typed}`);
+      const id = resolveCommand(typed.trim());
+      const ctx = extraCtx();
+      if (id && TRANSPARENT.has(id) && ctx && !transparentLabel(run)) {
+        moreTransparent(ctx, id, (step) => newRun(id, step as Step), run);
+      } else say(msg('notTransparent'));
       return;
     }
     const last = run ? (run.points[run.points.length - 1] ?? run.base) : null;
@@ -2919,7 +3134,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (lastCmd) begin(lastCmd);
         return;
       }
-      const id = entry.kind === 'word' ? lookupCommand(entry.word) : null;
+      // AutoComplete (item 33): the exact name, else the first suggestion (`JO` → JOIN).
+      const id = entry.kind === 'word' ? resolveCommand(entry.word) : null;
       if (id) begin(id);
       else say(msg('unknownCommand', { name: typed.trim().toUpperCase() }));
       return;
@@ -2932,7 +3148,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     } else if (entry.kind === 'number') feedNumber(run, entry.value);
     else if (entry.kind === 'word') {
       const key = matchOption(promptOf(run).options, entry.word);
+      const ctx = key ? null : extraFor(run);
       if (key) feedOption(run, key);
+      else if (ctx && moreWord(ctx, run, entry.word)) return;
       else if (!(run.step === 'select' && selectionWord(run, entry.word))) say(msg('badKeyword'));
     } else say(msg('badPoint'));
   };
@@ -3070,19 +3288,49 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
     }
 
-    if (gripRun && pointer && scene && shown && gripRun.step === 'stretch') {
+    if (gripRun && pointer && scene && shown && gripRun.step !== 'base') {
       const g = gripRun.grip;
-      const moving =
-        g.kind === 'group' ||
-        g.kind === 'insert' ||
-        g.kind === 'center' ||
-        (g.kind === 'mid' && scene.view.entities[g.index]?.kind === 'LINE');
-      if (moving) {
-        ghost = {
-          indexes: g.handles.flatMap((h) => [...(scene.byHandle.get(h) ?? [])]),
-          step: translation(pointer.x - gripRun.base.x, pointer.y - gripRun.base.y),
-        };
-      } else sketch = gripSketch(scene, shown, g, gripRun.base, pointer);
+      const { base } = gripRun;
+      const all = [...selection];
+      const angle = (Math.atan2(pointer.y - base.y, pointer.x - base.x) * 180) / Math.PI;
+      const length = Math.hypot(pointer.x - base.x, pointer.y - base.y);
+      if (gripRun.mode === 'move')
+        ghost = { indexes: all, step: translation(pointer.x - base.x, pointer.y - base.y) };
+      else if (gripRun.mode === 'rotate' && gripRun.step !== 'refAngle') {
+        const turn = gripRun.step === 'newAngle' ? angle - gripRun.ref : angle;
+        ghost = { indexes: all, step: rotationAbout(base.x, base.y, turn) };
+        sketch = { points: [base, pointer], closed: false };
+      } else if (gripRun.mode === 'scale' && gripRun.step !== 'refLength' && length > 0) {
+        const factor = gripRun.step === 'newLength' ? length / gripRun.ref : length;
+        ghost = { indexes: all, step: scaleAbout(base.x, base.y, factor) };
+        sketch = { points: [base, pointer], closed: false };
+      } else if (gripRun.mode === 'mirror' && length > 0) {
+        ghost = { indexes: all, step: mirrorAcross(base.x, base.y, pointer.x, pointer.y) };
+        sketch = { points: [base, pointer], closed: false };
+      } else if (gripRun.mode === 'stretch') {
+        const moving =
+          gripRun.hot.length === 1 &&
+          (g.kind === 'group' ||
+            g.kind === 'insert' ||
+            g.kind === 'center' ||
+            (g.kind === 'mid' && scene.view.entities[g.index]?.kind === 'LINE'));
+        if (moving) {
+          ghost = {
+            indexes: g.handles.flatMap((h) => [...(scene.byHandle.get(h) ?? [])]),
+            step: translation(pointer.x - base.x, pointer.y - base.y),
+          };
+        } else sketch = gripSketches(scene, shown, gripRun.hot, base, pointer)[0] ?? null;
+      } else if (gripRun.mode === 'addVertex' || gripRun.mode === 'toArc') {
+        const to = { x: g.x + pointer.x - base.x, y: g.y + pointer.y - base.y };
+        const [edit] =
+          (gripRun.mode === 'addVertex'
+            ? addVertexEdits(scene, shown, g, to)
+            : segmentBulgeEdits(scene, shown, g, to)) ?? [];
+        sketch =
+          edit?.kind === 'set_curve'
+            ? { points: edit.points.map((q) => ({ x: q[0], y: q[1] })), closed: edit.closed }
+            : { points: [base, pointer], closed: false };
+      } else sketch = { points: [base, pointer], closed: false };
     }
     return { ghost, sketch };
   };
@@ -3091,7 +3339,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const selectStyle = (): PreviewStyle | null => {
     const [first] = [...selection];
     if (first === undefined) return null;
-    return shown?.styleOf.get(first) ?? { color: null, linetype: null, lineweight: null };
+    return scene && shown ? objectStyle(scene, shown, first) : null;
   };
 
   const selecting = run === null || run.step === 'select';
@@ -3109,21 +3357,130 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const endGrip = (cancelled: boolean) => {
     if (cancelled) say(msg('cancel'));
     setGripRun(null);
+    setArmedGrips([]);
     setPointer(null);
     setText('');
   };
-  const gripPrompt = (g: GripRun): CommandPrompt =>
-    g.step === 'base'
-      ? { key: 'gripBase', options: [], fallback: null }
-      : { key: 'gripStretch', options: GRIP_OPTIONS, fallback: null };
-  const gripPoint = (g: GripRun, p: Point) => {
-    if (!scene || !shown) return;
-    if (g.step === 'base') {
-      setGripRun({ ...g, base: p, step: 'stretch' });
+  const gripPrompt = (g: GripRun): CommandPrompt => {
+    switch (g.step) {
+      case 'base':
+        return { key: 'gripBase', options: [], fallback: null };
+      case 'refAngle':
+        return { key: 'gripRefAngle', options: [], fallback: '0' };
+      case 'newAngle':
+        return { key: 'gripNewAngle', options: [], fallback: null };
+      case 'refLength':
+        return { key: 'gripRefLength', options: [], fallback: '1.0000' };
+      case 'newLength':
+        return { key: 'gripNewLength', options: [], fallback: null };
+      default:
+        return {
+          key: GRIP_PROMPTS[g.mode],
+          options:
+            g.mode === 'rotate' || g.mode === 'scale'
+              ? GRIP_REF_OPTIONS
+              : g.mode === 'toArc'
+                ? []
+                : GRIP_OPTIONS,
+          fallback: null,
+        };
+    }
+  };
+  /** The objects MOVE / ROTATE / SCALE / MIRROR take: every picked one (AutoCAD). */
+  const gripHandles = (g: GripRun): string[] => {
+    const out = new Set<string>(handles);
+    for (const grip of g.hot) for (const h of grip.handles) out.add(h);
+    return [...out];
+  };
+  /** A grip mode's edits: with Copy each one is made on a copy and the mode goes on. */
+  const gripApply = (g: GripRun, transform: (handles: readonly string[]) => CanvasEdit[]) => {
+    const targets = gripHandles(g);
+    if (targets.length === 0) return;
+    if (g.copy) {
+      const copies = copyEdits(targets, 0, 0);
+      const named = copies.map((c) => editHandle(c)).filter((h): h is string => h !== undefined);
+      add([...copies, ...transform(named)]);
+      setGripRun({ ...g, step: 'point' });
       return;
     }
-    const layer = g.grip.index >= 0 ? layerNameOf(g.grip.index) : '';
-    const made = gripStretchEdits(scene, shown, g.grip, g.base, p, g.copy, layer);
+    add(transform(targets));
+    setGripRun(null);
+    setArmedGrips([]);
+    setPointer(null);
+  };
+  const gripAngle = (g: GripRun, p: Point) =>
+    (Math.atan2(p.y - g.base.y, p.x - g.base.x) * 180) / Math.PI;
+  const gripRotate = (g: GripRun, angle: number) =>
+    gripApply(g, (hs) => rotateEdits(hs, g.base.x, g.base.y, angle));
+  const gripScale = (g: GripRun, factor: number) => {
+    if (!(factor > 0)) {
+      say(msg('badFactor'));
+      return;
+    }
+    gripApply(g, (hs) => scaleEdits(hs, g.base.x, g.base.y, roundCoord(factor)));
+  };
+  const gripPoint = (g: GripRun, p: Point) => {
+    if (!scene || !shown) return;
+    switch (g.step) {
+      case 'base':
+        setGripRun({ ...g, base: p, step: 'point' });
+        return;
+      case 'refAngle':
+        setGripRun({ ...g, ref: gripAngle(g, p), step: 'newAngle' });
+        return;
+      case 'newAngle':
+        gripRotate(g, gripAngle(g, p) - g.ref);
+        return;
+      case 'refLength': {
+        const length = Math.hypot(p.x - g.base.x, p.y - g.base.y);
+        if (length > 0) setGripRun({ ...g, ref: length, step: 'newLength' });
+        return;
+      }
+      case 'newLength':
+        gripScale(g, Math.hypot(p.x - g.base.x, p.y - g.base.y) / g.ref);
+        return;
+      default:
+        break;
+    }
+    const dx = p.x - g.base.x;
+    const dy = p.y - g.base.y;
+    switch (g.mode) {
+      case 'move':
+        gripApply(g, (hs) => moveEdits(hs, dx, dy));
+        return;
+      case 'rotate':
+        gripRotate(g, gripAngle(g, p));
+        return;
+      case 'scale':
+        gripScale(g, Math.hypot(dx, dy));
+        return;
+      case 'mirror':
+        if (Math.hypot(dx, dy) === 0) {
+          say(msg('badPoint'));
+          return;
+        }
+        gripApply(g, (hs) => mirrorEdits(hs, g.base, p));
+        return;
+      case 'addVertex':
+      case 'toArc': {
+        // The new vertex / the arc's middle goes where the grip is dragged to.
+        const to = { x: g.grip.x + dx, y: g.grip.y + dy };
+        const edits =
+          g.mode === 'addVertex'
+            ? addVertexEdits(scene, shown, g.grip, to)
+            : segmentBulgeEdits(scene, shown, g.grip, to);
+        if (!edits) {
+          say(msg('badPoint'));
+          return;
+        }
+        add(edits);
+        if (!g.copy || g.mode === 'toArc') endGrip(false);
+        return;
+      }
+      default:
+        break;
+    }
+    const made = gripsStretchEdits(scene, shown, g.hot, g.base, p, g.copy, layerNameOf);
     if (!made) {
       say(msg('gripNotHere'));
       endGrip(false);
@@ -3132,35 +3489,82 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     add(made);
     if (!g.copy) {
       setGripRun(null);
+      setArmedGrips([]);
       setPointer(null);
     }
+  };
+  /** Enter / Space: the next grip mode (AutoCAD cycles STRETCH → MOVE → ROTATE → SCALE → MIRROR). */
+  const gripNextMode = (g: GripRun, to?: GripMode) => {
+    const mode =
+      to ?? (GRIP_MODES[(GRIP_MODES.indexOf(g.mode) + 1) % GRIP_MODES.length] as GripMode);
+    say(GRIP_NAMES[mode]);
+    setGripRun({ ...g, mode, step: 'point', ref: 0 });
   };
   const gripOption = (g: GripRun, key: string) => {
     if (key === 'B') setGripRun({ ...g, step: 'base' });
     else if (key === 'C') setGripRun({ ...g, copy: true });
     else if (key === 'U') undo();
+    else if (key === 'R' && g.mode === 'rotate') setGripRun({ ...g, step: 'refAngle' });
+    else if (key === 'R' && g.mode === 'scale') setGripRun({ ...g, step: 'refLength' });
     else if (key === 'X') endGrip(false);
+  };
+  const gripNumber = (g: GripRun, value: number) => {
+    switch (g.step) {
+      case 'refAngle':
+        setGripRun({ ...g, ref: value, step: 'newAngle' });
+        return;
+      case 'newAngle':
+        gripRotate(g, value - g.ref);
+        return;
+      case 'refLength':
+        if (value > 0) setGripRun({ ...g, ref: value, step: 'newLength' });
+        else say(msg('badFactor'));
+        return;
+      case 'newLength':
+        gripScale(g, value / g.ref);
+        return;
+      case 'point':
+        if (g.mode === 'rotate') gripRotate(g, value);
+        else if (g.mode === 'scale') gripScale(g, value);
+        // Direct distance entry: the distance toward the pointer.
+        else gripPoint(g, towards(g.base, pointerStore.get(), value));
+        return;
+      default:
+        say(msg('badPoint'));
+    }
   };
   const gripSubmit = (g: GripRun) => {
     const typed = text;
     setText('');
-    say(`${formatPrompt(t, GRIP_NAME, gripPrompt(g))} ${typed}`.trim());
+    say(`${formatPrompt(t, GRIP_NAMES[g.mode], gripPrompt(g))} ${typed}`.trim());
     const entry = parseEntry(typed, g.base);
-    if (entry.kind === 'empty') endGrip(false);
-    else if (entry.kind === 'point') gripPoint(g, entry.point);
-    else if (entry.kind === 'word' && g.step === 'stretch') {
-      const key = matchOption(GRIP_OPTIONS, entry.word);
-      if (key) gripOption(g, key);
+    if (entry.kind === 'empty') {
+      // Enter at a Reference prompt takes its default; at the mode prompt the next mode.
+      if (g.step === 'refAngle') setGripRun({ ...g, ref: 0, step: 'newAngle' });
+      else if (g.step === 'refLength') setGripRun({ ...g, ref: 1, step: 'newLength' });
+      else if (g.step === 'point' && (g.mode === 'addVertex' || g.mode === 'toArc')) endGrip(false);
+      else if (g.step === 'point') gripNextMode(g);
+      else say(msg('badPoint'));
+    } else if (entry.kind === 'point') gripPoint(g, entry.point);
+    else if (entry.kind === 'number') gripNumber(g, entry.value);
+    else if (entry.kind === 'word' && g.step === 'point') {
+      const mode = entry.word.length >= 2 ? GRIP_MODE_WORDS[entry.word.slice(0, 2)] : undefined;
+      const key = mode ? null : matchOption(gripPrompt(g).options, entry.word);
+      if (mode) gripNextMode(g, mode);
+      else if (key) gripOption(g, key);
       else say(msg('badPoint'));
     } else say(msg('badPoint'));
   };
   const submitAll = () => (gripRun ? gripSubmit(gripRun) : submit());
+  // Shift+click hot grips stay hot while their objects stay picked and unchanged.
+  const armed = armedGrips.filter((a) => gripSet.grips.some((g) => sameGrip(g, a)));
   const state: CanvasEditState = {
     available,
     editing,
     start: () => {
       setEditing(true);
       setError(null);
+      recoverUnsaved();
       setFocusNonce((n) => n + 1);
     },
     command: run?.cmd ?? null,
@@ -3226,12 +3630,14 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         : null,
     prompt: gripRun ? gripPrompt(gripRun) : promptOf(run),
     history,
+    recentInput,
+    recentCommands,
     input: text,
     setInput: setText,
     submit: submitAll,
     chooseOption: (key) => {
       if (gripRun) {
-        say(`${formatPrompt(t, GRIP_NAME, gripPrompt(gripRun))} ${key}`);
+        say(`${formatPrompt(t, GRIP_NAMES[gripRun.mode], gripPrompt(gripRun))} ${key}`);
         gripOption(gripRun, key);
         return;
       }
@@ -3268,7 +3674,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return true;
       }
       if (k === 'Delete' && !run && handles.length > 0) {
-        add(eraseEdits(handles));
+        eraseNow(handles);
         setSelection(NONE);
         return true;
       }
@@ -3284,6 +3690,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       }
       return false;
     },
+    scene,
     chosen: selection,
     chosenCount: handles.length,
     clearChosen: () => setSelection(NONE),
@@ -3295,6 +3702,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       });
       setSelection(all);
       say(msg('found', { count: all.size }));
+    },
+    selectable: () =>
+      scene ? scene.view.entities.flatMap((_, i) => (pickable(i) ? [i] : [])) : [],
+    selectIndexes: (indexes, append) => {
+      if (!editing || run) return;
+      setSelection((before) => new Set([...(append ? before : []), ...indexes]));
+      say(msg('qselectFound', { count: indexes.length }));
     },
     clipboardCount: clipboard?.handles.length ?? 0,
     selectSimilar: () => {
@@ -3347,6 +3761,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       const removing = run?.flags.removing === true;
       // PICKSTYLE on: one member of a group picks the whole group (AutoCAD).
       const members = groupMembers(entity);
+      if (run?.cmd === 'matchprop') {
+        // MATCHPROP: each destination changes at once and the prompt asks again (AutoCAD).
+        const words = extraCtx();
+        if (words) matchDestinations(words, run, members);
+        return;
+      }
       setSelection((before) => {
         const next = new Set(before);
         if ((additive || removing) && before.has(entity)) members.forEach((i) => next.delete(i));
@@ -3358,19 +3778,69 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     grips: gripSet.grips,
     groupBoxes: gripSet.groupBoxes,
     hotGrip: gripRun?.grip ?? null,
+    hotGrips: gripRun ? gripRun.hot : armed,
+    armGrip: (grip) => {
+      // AutoCAD: Shift+click makes a grip hot (again: cold) without starting; a click on one
+      // of the hot grips then starts STRETCH with all of them.
+      if (!editing || run || gripRun) return;
+      setArmedGrips((before) =>
+        before.some((g) => sameGrip(g, grip))
+          ? before.filter((g) => !sameGrip(g, grip))
+          : [...before, grip],
+      );
+    },
+    gripMenuOf: (grip) =>
+      scene && shown && !run && !gripRun ? gripMenuOf(scene, shown, grip) : [],
+    chooseGripMenu: (grip, item) => {
+      if (!editing || run || gripRun || !scene || !shown) return;
+      if (item === 'removeVertex' || item === 'toLine') {
+        const edits =
+          item === 'removeVertex'
+            ? removeVertexEdits(scene, shown, grip)
+            : segmentBulgeEdits(scene, shown, grip, null);
+        if (edits) add(edits);
+        else say(msg('gripNotHere'));
+        return;
+      }
+      const mode: GripMode =
+        item === 'addVertex' ? 'addVertex' : item === 'toArc' ? 'toArc' : 'stretch';
+      setError(null);
+      say(GRIP_NAMES[mode]);
+      setArmedGrips([]);
+      setGripRun({
+        grip,
+        hot: [grip],
+        base: { x: grip.x, y: grip.y },
+        copy: false,
+        mode,
+        step: 'point',
+        ref: 0,
+      });
+      setPointer({ x: grip.x, y: grip.y });
+      setFocusNonce((n) => n + 1);
+    },
     startGrip: (grip) => {
       if (!editing || run) return;
-      if (!grip.editable) {
+      const hot = armed.some((g) => sameGrip(g, grip)) ? armed : [grip];
+      if (hot.some((g) => !g.editable)) {
         say(msg('gripNotHere'));
         return;
       }
       setError(null);
-      say(GRIP_NAME);
-      setGripRun({ grip, base: { x: grip.x, y: grip.y }, copy: false, step: 'stretch' });
+      say(GRIP_NAMES.stretch);
+      setGripRun({
+        grip,
+        hot,
+        base: { x: grip.x, y: grip.y },
+        copy: false,
+        mode: 'stretch',
+        step: 'point',
+        ref: 0,
+      });
       setPointer({ x: grip.x, y: grip.y });
       setFocusNonce((n) => n + 1);
     },
-    commandLabel: gripRun ? GRIP_NAME : null,
+    commandLabel: gripRun ? GRIP_NAMES[gripRun.mode] : transparentLabel(run),
     apply: (made) => {
       if (!editing || made.length === 0) return;
       setError(null);
@@ -3410,6 +3880,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
             maxY: Math.max(box.y0, box.y1),
           },
         });
+      }
+      if (run?.cmd === 'matchprop') {
+        const words = extraCtx();
+        if (words) matchDestinations(words, run, found);
+        return;
       }
       // AutoCAD (PICKADD 2): a window adds to the selection; Shift + window takes off.
       setSelection((before) => {
@@ -3494,8 +3969,23 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       if (currentLayer === name) setCurrentLayer('');
     },
     selectionStyle: selectStyle(),
+    currentStyle,
+    setCurrentStyle: (patch) => setCurrentStyle((previous) => ({ ...previous, ...patch })),
+    currentStyleEdits: (newItemHandle) => currentStyleEdits(currentStyle, newItemHandle),
+    matchSettings: extraSettings.match,
+    setMatchSettings: (match) => {
+      setExtraSettings((previous) => ({ ...previous, match }));
+      if (run?.cmd === 'matchprop' && run.step === 'select') {
+        say(msg('matchSettings', { settings: activeSettings(match) }));
+      }
+    },
     setStyle: (patch) => {
-      if (!scene || handles.length === 0) return;
+      if (!scene) return;
+      // Nothing picked: the current properties for new objects (AutoCAD), not a disabled control.
+      if (handles.length === 0) {
+        setCurrentStyle((previous) => ({ ...previous, ...patch }));
+        return;
+      }
       const out: CanvasEdit[] = [];
       const seen = new Set<string>();
       for (const index of selection) {
@@ -3517,29 +4007,43 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     canUndo: undoHistory.canUndo || (run !== null && run.points.length > 1),
     redo,
     canRedo: undoHistory.canRedo,
+    // AutoCAD's QSAVE (owner default): «حفظ» / Ctrl+S saves and the edit mode stays open; only
+    // its own button leaves it. Over MAX_CORRECTIONS_PER_SAVE edits go in chunks, in order (ADR-061).
     save: () => {
-      if (edits.length === 0) {
-        setEditing(false);
-        finish();
-        return;
-      }
+      finish();
+      if (edits.length === 0 || chunking) return;
       setError(null);
-      saveMutation.mutate(
-        { items: editRequests(edits) },
-        {
-          onSuccess: () => {
-            setEdits([]);
-            undoHistory.clear();
-            setEditing(false);
-            finish();
-            setHistory([]);
-          },
-          onError: (caught) =>
-            setError(correctionError(errorCodeOf(caught), errorReasonOf(caught))),
+      const requests = editRequests(edits);
+      const total = requests.length;
+      const many = total > MAX_CORRECTIONS_PER_SAVE;
+      let progressShown = false;
+      const progress = (line: string) =>
+        setHistory((previous) => {
+          const out = progressShown ? previous.slice(0, -1) : [...previous];
+          progressShown = true;
+          return [...out, line].slice(-HISTORY_LINES);
+        });
+      if (many) progress(msg('saveProgress', { saved: 0, total }));
+      setChunking(true);
+      void saveInChunks(
+        requests,
+        (body) => saveMutation.mutateAsync(body),
+        (done) => {
+          if (many) progress(msg('saveProgress', { saved: done, total }));
         },
-      );
+      ).then(({ saved: done, rewrite, error: caught }) => {
+        setChunking(false);
+        if (done > 0) {
+          // What was saved is no longer an edit; what is left names the saved items FIX-<id>.
+          setEdits((current) => current.slice(done).map((edit) => rewrite(edit) as CanvasEdit));
+          undoHistory.clear();
+        }
+        if (caught === undefined) return;
+        if (done > 0) say(msg('savePartial', { saved: done, total, left: total - done }));
+        setError(correctionError(errorCodeOf(caught), errorReasonOf(caught)));
+      });
     },
-    saving: saveMutation.isPending,
+    saving: chunking || saveMutation.isPending,
     cancel: () => {
       setEdits([]);
       undoHistory.clear();

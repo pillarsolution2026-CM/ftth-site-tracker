@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/shared/i18n/locale-provider';
 import type { DrawingViewer } from '../hooks/use-drawing-viewer';
 import { effectiveLayer } from '../model/drawing-preview';
+import { QSelectDialog } from './qselect-dialog';
 import { TableDialog } from './table-dialog';
+import { MatchSettingsDialog } from './match-settings-dialog';
 
 /**
  * The workspace's AutoCAD-like dialogs (owner 2026-11-24): FIND (find and replace text, as
@@ -349,5 +351,7 @@ export function WorkspaceDialogs({ viewer }: { viewer: DrawingViewer }) {
   if (dialog.kind === 'find') return <FindDialog viewer={viewer} />;
   if (dialog.kind === 'laywalk') return <LayerWalkDialog viewer={viewer} />;
   if (dialog.kind === 'table') return <TableDialog viewer={viewer} />;
+  if (dialog.kind === 'matchprop') return <MatchSettingsDialog viewer={viewer} />;
+  if (dialog.kind === 'qselect') return <QSelectDialog viewer={viewer} />;
   return <AttributesDialog key={dialog.index} viewer={viewer} index={dialog.index} />;
 }

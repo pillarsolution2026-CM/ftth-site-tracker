@@ -43,10 +43,14 @@ from cad_worker.domain.drawing_view import (
     EntityShapes,
     RenderedView,
     RenderStats,
+    ViewGeometry,
     ViewInsert,
     ViewLayer,
     ViewTooLargeError,
+    arc_geometry,
+    ellipse_geometry,
     hex_color,
+    polyline_geometry,
     shape_sagitta,
     utf16_cut,
     utf16_length,
@@ -238,6 +242,94 @@ def _insert_of(entity: Any, kind: str) -> ViewInsert | None:
         return None
 
 
+def _flip(entity: Any) -> float | None:
+    """+1 for the default extrusion, -1 for (0, 0, -1) (a mirrored 2D entity: x is negated, so
+    bulges and arc directions turn the other way); None for a tilted one (not 2D)."""
+    ex = Vec3(entity.dxf.get("extrusion", (0, 0, 1)))
+    if ex.isclose(Vec3(0, 0, 1), abs_tol=1e-9):
+        return 1.0
+    if ex.isclose(Vec3(0, 0, -1), abs_tol=1e-9):
+        return -1.0
+    return None
+
+
+def _polyline_vertices(entity: Any, kind: str) -> tuple[list[tuple[float, float, float]], bool]:
+    if kind == "LWPOLYLINE":
+        z = float(entity.dxf.get("elevation", 0.0))
+        verts = [(float(x), float(y), z, float(b)) for x, y, b in entity.get_points("xyb")]
+        return _wcs_vertices(entity, verts), bool(entity.closed)
+    z = float(Vec3(entity.dxf.get("elevation", (0, 0, 0))).z)
+    verts = [
+        (float(v.dxf.location.x), float(v.dxf.location.y), z, float(v.dxf.get("bulge", 0.0)))
+        for v in entity.vertices
+        if not int(v.dxf.get("flags", 0)) & 16  # spline frame points are not vertices
+    ]
+    return _wcs_vertices(entity, verts), bool(entity.is_closed)
+
+
+def _wcs_vertices(
+    entity: Any, verts: list[tuple[float, float, float, float]]
+) -> list[tuple[float, float, float]]:
+    flip = _flip(entity) or 1.0
+    points = to_wcs(entity, [(x, y, z) for x, y, z, _ in verts])
+    return [(p[0], p[1], b * flip) for p, (_, _, _, b) in zip(points, verts, strict=True)]
+
+
+def _angle(cx: float, cy: float, p: Any) -> float:
+    return math.degrees(math.atan2(float(p[1]) - cy, float(p[0]) - cx)) % 360.0
+
+
+def _geometry_of(entity: Any, kind: str) -> ViewGeometry | None:
+    """A top-level entity's own 2D geometry (ADR-062): polyline vertices with bulges, circle /
+    arc, ellipse. None for other kinds, a tilted (3D) one, a spline-fit or 3D polyline, or when
+    unreadable (the entity keeps its paths and today's grips)."""
+    try:
+        if kind == "POLYLINE" and not entity.is_2d_polyline:
+            return None
+        if kind == "POLYLINE" and int(entity.dxf.get("flags", 0)) & 4:
+            return None  # spline-fit: its vertices are not where it is drawn
+        if kind in ("LWPOLYLINE", "POLYLINE"):
+            if _flip(entity) is None:
+                return None
+            verts, closed = _polyline_vertices(entity, kind)
+            return polyline_geometry(verts, closed)
+        if kind in ("CIRCLE", "ARC"):
+            flip = _flip(entity)
+            if flip is None:
+                return None
+            r = abs(float(entity.dxf.radius))
+            c = Vec3(entity.dxf.center)
+            cx, cy, _ = to_wcs(entity, [(c.x, c.y, c.z)])[0]
+            if kind == "CIRCLE":
+                return arc_geometry(cx, cy, r, 0.0, 360.0)
+            a0 = math.radians(float(entity.dxf.start_angle))
+            a1 = math.radians(float(entity.dxf.end_angle))
+            ends = to_wcs(
+                entity,
+                [(c.x + r * math.cos(a), c.y + r * math.sin(a), c.z) for a in (a0, a1)],
+            )
+            first, last = (ends[0], ends[1]) if flip > 0 else (ends[1], ends[0])
+            start = _angle(cx, cy, first)
+            sweep = (_angle(cx, cy, last) - start) % 360.0 or 360.0
+            return arc_geometry(cx, cy, r, start, start + sweep)
+        if kind == "ELLIPSE":
+            ex = Vec3(entity.dxf.get("extrusion", (0, 0, 1)))
+            major = Vec3(entity.dxf.major_axis)
+            if abs(ex.x) > 1e-9 or abs(ex.y) > 1e-9 or abs(major.z) > 1e-9:
+                return None
+            c = Vec3(entity.dxf.center)
+            t0 = float(entity.dxf.get("start_param", 0.0))
+            t1 = float(entity.dxf.get("end_param", 2.0 * math.pi))
+            if ex.z < 0:  # the minor axis turns clockwise: the parameters run the other way
+                t0, t1 = -t1, -t0
+            sweep = (t1 - t0) % (2.0 * math.pi) or 2.0 * math.pi
+            ratio = float(entity.dxf.get("ratio", 1.0))
+            return ellipse_geometry(c.x, c.y, major.x, major.y, ratio, t0, t0 + sweep)
+    except Exception:  # the entity keeps its paths, only without its own geometry
+        return None
+    return None
+
+
 class EzdxfViewRenderer:
     """In-process renderer (tests, and the child process of `SubprocessViewRenderer`)."""
 
@@ -347,7 +439,9 @@ class EzdxfViewRenderer:
                 stats.skip("unsupported", kind)
             else:
                 stats.empty += 1  # e.g. a POINT, an empty block, a blank text
-        elif builder.add(handle, layer, color, kind, shapes, _insert_of(entity, kind)):
+        elif builder.add(
+            handle, layer, color, kind, shapes, _insert_of(entity, kind), _geometry_of(entity, kind)
+        ):
             stats.rendered += 1
         else:
             stats.dropped += 1  # over the caps (the view is `truncated`)

@@ -1,4 +1,6 @@
+import { bulgeThrough, flattenVertices, segmentMid, type BulgeVertex } from './bulge';
 import {
+  arcOfPoints,
   copyEdits,
   moveEdits,
   pointsCurveEdit,
@@ -35,7 +37,7 @@ export interface Grip {
   vertex: number;
   /** Handles the grip moves (a group's members; the entity's own otherwise). */
   handles: readonly string[];
-  /** The web view can stretch it (false: an arc end, an ellipse axis, a spline end). */
+  /** The web view can stretch it (false: an ellipse axis, a spline end). */
   editable: boolean;
 }
 
@@ -63,6 +65,17 @@ function entityGrips(index: number, handle: string, g: EntityGeometry): Grip[] {
       return [make(g.start, 'end', 0), make(middle(g.start, g.end), 'mid'), make(g.end, 'end', 1)];
     case 'polyline': {
       const out: Grip[] = [];
+      if (g.vertices) {
+        // ADR-062 (item 33): grips on the real vertices; an arc segment's grip on its middle.
+        const vs = g.vertices;
+        const count = vs.length;
+        vs.forEach((v, i) => {
+          out.push(make(v, 'vertex', i));
+          const next = vs[i + 1] ?? (g.closed && count > 2 ? vs[0] : undefined);
+          if (next) out.push(make(segmentMid(v, next, v.bulge), 'segment', i));
+        });
+        return out;
+      }
       const n = g.points.length;
       g.points.forEach((p, i) => {
         out.push(make(p, 'vertex', i));
@@ -83,9 +96,9 @@ function entityGrips(index: number, handle: string, g: EntityGeometry): Grip[] {
     }
     case 'arc':
       return [
-        make(g.start, 'end', 0, false),
-        make(g.mid, 'mid', 0, false),
-        make(g.end, 'end', 1, false),
+        make(g.start, 'end', 0),
+        make(g.mid, 'mid', 0),
+        make(g.end, 'end', 1),
         make(g.center, 'center'),
       ];
     case 'ellipse':
@@ -193,12 +206,200 @@ export function hitGrip(
   return best;
 }
 
+type ArcValue = { x: number; y: number; r: number; start: number; end: number };
+
+/** Points of the arc through three points (first → through → last), for the screen. */
+function arcThrough(a: Xy, m: Xy, b: Xy): { points: [number, number][]; arc: ArcValue } | null {
+  const arc = arcOfPoints([
+    [a.x, a.y],
+    [m.x, m.y],
+    [b.x, b.y],
+  ]);
+  if (!arc) return null;
+  const sweep = arc.end - arc.start;
+  const steps = Math.max(2, Math.ceil((sweep / 360) * 64));
+  const points: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = ((arc.start + (sweep * i) / steps) * Math.PI) / 180;
+    points.push([arc.x + arc.r * Math.cos(t), arc.y + arc.r * Math.sin(t)]);
+  }
+  // The points run counter-clockwise; keep the object's own direction (first → last).
+  const first = points[0] as [number, number];
+  if (Math.hypot(first[0] - a.x, first[1] - a.y) > Math.hypot(first[0] - b.x, first[1] - b.y)) {
+    points.reverse();
+  }
+  // The ends stay exactly where the grips put them (the centre is rounded).
+  points[0] = [a.x, a.y];
+  points[points.length - 1] = [b.x, b.y];
+  return { points, arc };
+}
+
+const MOVING_KINDS = new Set<GripKind>(['group', 'insert', 'center']);
+
 /**
- * The edits of a grip STRETCH from `base` to `to` (AutoCAD): an end / vertex moves alone, a
- * polyline segment's middle moves its two vertices, a line middle / centre / insertion point /
- * group grip moves the object, a circle quadrant changes the radius. With `copy` the original stays
- * and a copy takes the change. Null when the web view cannot do it.
+ * A polyline with real vertices and bulges (ADR-062): `set_curve` of `handle` (or, with no handle,
+ * a new curve on `layerName`) whose points are the flattened path the build reads.
  */
+export function vertexCurveEdit(
+  handle: string | null,
+  layerName: string,
+  vertices: readonly BulgeVertex[],
+  closed: boolean,
+): CanvasEdit {
+  const points = flattenVertices(vertices, closed);
+  const kept = vertices.map(
+    (v) => [roundCoord(v.x), roundCoord(v.y), roundCoord(v.bulge) + 0] as [number, number, number],
+  );
+  if (handle === null) {
+    const edit = pointsCurveEdit(layerName, points, closed);
+    return edit.kind === 'add_curve' ? { ...edit, vertices: kept } : edit;
+  }
+  const edit = setCurveEdit(handle, points, closed);
+  return edit.kind === 'set_curve' ? { ...edit, vertices: kept } : edit;
+}
+
+/** The edits of the hot grips of one object moved by (dx, dy); null when the web cannot. */
+function objectStretch(
+  geometry: EntityGeometry,
+  handle: string,
+  grips: readonly Grip[],
+  dx: number,
+  dy: number,
+  copy: boolean,
+  layerName: string,
+): CanvasEdit[] | null {
+  const move = () => (copy ? copyEdits([handle], dx, dy) : moveEdits([handle], dx, dy));
+  const moved = (p: Xy): Xy => ({ x: p.x + dx, y: p.y + dy });
+  if (grips.some((g) => MOVING_KINDS.has(g.kind))) return move();
+  if (geometry.type === 'circle') {
+    const quadrant = grips.find((g) => g.kind === 'quadrant');
+    if (!quadrant || copy) return null;
+    const radius = Math.hypot(
+      quadrant.x + dx - geometry.center.x,
+      quadrant.y + dy - geometry.center.y,
+    );
+    if (!(radius > 0) || !(geometry.radius > 0)) return null;
+    return scaleEdits(
+      [handle],
+      geometry.center.x,
+      geometry.center.y,
+      roundCoord(radius / geometry.radius),
+    );
+  }
+  if (geometry.type === 'arc') {
+    // AutoCAD: the arc goes through its three grips, the hot ones where they are dragged to.
+    const at = (kind: GripKind, vertex: number, p: Xy) =>
+      grips.some((g) => g.kind === kind && g.vertex === vertex) ? moved(p) : p;
+    const made = arcThrough(
+      at('end', 0, geometry.start),
+      at('mid', 0, geometry.mid),
+      at('end', 1, geometry.end),
+    );
+    if (!made) return null;
+    if (copy) {
+      const edit = pointsCurveEdit(layerName, made.points, false);
+      return edit.kind === 'add_curve' ? [{ ...edit, arc: made.arc }] : [edit];
+    }
+    const edit = setCurveEdit(handle, made.points, false);
+    return edit.kind === 'set_curve' ? [{ ...edit, arc: made.arc }] : [edit];
+  }
+  if (geometry.type === 'line') {
+    if (grips.some((g) => g.kind === 'mid')) return move();
+    const pairs = [geometry.start, geometry.end].map((p, i) => {
+      const q = grips.some((g) => g.kind === 'end' && g.vertex === i) ? moved(p) : p;
+      return [q.x, q.y] as [number, number];
+    });
+    return [copy ? pointsCurveEdit(layerName, pairs, false) : setCurveEdit(handle, pairs, false)];
+  }
+  if (geometry.type !== 'polyline') return null;
+  const closed = geometry.closed;
+  const shifted = new Set<number>();
+  if (geometry.vertices) {
+    const vs: BulgeVertex[] = geometry.vertices.map((v) => ({ ...v }));
+    const n = vs.length;
+    const bent = new Map<number, number>();
+    for (const g of grips) {
+      if (g.kind === 'vertex') shifted.add(g.vertex);
+      else if (g.kind === 'segment') {
+        const a = vs[g.vertex];
+        const b = vs[(g.vertex + 1) % n];
+        if (!a || !b) continue;
+        // An arc segment's middle bends the arc through the new point; a straight one moves.
+        if (Math.abs(a.bulge) > 1e-12) bent.set(g.vertex, bulgeThrough(a, b, moved(g)));
+        else {
+          shifted.add(g.vertex);
+          shifted.add((g.vertex + 1) % n);
+        }
+      }
+    }
+    for (const i of shifted) {
+      const v = vs[i];
+      if (v) vs[i] = { ...v, x: v.x + dx, y: v.y + dy };
+    }
+    for (const [i, bulge] of bent) {
+      const v = vs[i];
+      if (v) vs[i] = { ...v, bulge };
+    }
+    return [vertexCurveEdit(copy ? null : handle, layerName, vs, closed)];
+  }
+  const points = [...geometry.points];
+  for (const g of grips) {
+    if (g.kind === 'end' || g.kind === 'vertex') shifted.add(g.vertex);
+    else if (g.kind === 'segment') {
+      shifted.add(g.vertex);
+      shifted.add((g.vertex + 1) % points.length);
+    }
+  }
+  if (shifted.size === 0) return null;
+  for (const i of shifted) {
+    const p = points[i];
+    if (p) points[i] = moved(p);
+  }
+  const pairs = points.map((p) => [p.x, p.y] as [number, number]);
+  return [copy ? pointsCurveEdit(layerName, pairs, closed) : setCurveEdit(handle, pairs, closed)];
+}
+
+/**
+ * The edits of a grip STRETCH of the hot grips from `base` to `to` (AutoCAD): an end / vertex
+ * moves alone, a polyline segment's middle moves its two vertices (an arc segment's bends the arc
+ * through the new point), an arc goes through its three grips, a line middle / centre / insertion
+ * point / group grip moves the object, a circle quadrant changes the radius. Several hot grips
+ * (Shift+click) move together. With `copy` the original stays and a copy takes the change. Null
+ * when the web view cannot do it.
+ */
+export function gripsStretchEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  hot: readonly Grip[],
+  base: Xy,
+  to: Xy,
+  copy: boolean,
+  layerOf: (index: number) => string,
+): CanvasEdit[] | null {
+  if (hot.length === 0 || hot.some((g) => !g.editable)) return null;
+  const dx = to.x - base.x;
+  const dy = to.y - base.y;
+  const out: CanvasEdit[] = [];
+  const byObject = new Map<number, Grip[]>();
+  for (const g of hot) {
+    if (g.index < 0) {
+      out.push(...(copy ? copyEdits(g.handles, dx, dy) : moveEdits(g.handles, dx, dy)));
+      continue;
+    }
+    byObject.set(g.index, [...(byObject.get(g.index) ?? []), g]);
+  }
+  for (const [index, grips] of byObject) {
+    const geometry = geometryOf(scene, preview, index);
+    const handle = grips[0]?.handles[0];
+    if (!geometry || !handle) return null;
+    const made = objectStretch(geometry, handle, grips, dx, dy, copy, layerOf(index));
+    if (!made) return null;
+    out.push(...made);
+  }
+  return out;
+}
+
+/** One hot grip's STRETCH (see `gripsStretchEdits`). */
 export function gripStretchEdits(
   scene: DrawingScene,
   preview: DrawingPreview,
@@ -208,44 +409,37 @@ export function gripStretchEdits(
   copy: boolean,
   layerName: string,
 ): CanvasEdit[] | null {
-  if (!grip.editable) return null;
-  const dx = to.x - base.x;
-  const dy = to.y - base.y;
-  const move = () => (copy ? copyEdits(grip.handles, dx, dy) : moveEdits(grip.handles, dx, dy));
-  if (grip.kind === 'group' || grip.kind === 'insert' || grip.kind === 'center') return move();
-  const geometry = geometryOf(scene, preview, grip.index);
-  const handle = grip.handles[0];
-  if (!geometry || !handle) return null;
-  if (grip.kind === 'quadrant' && geometry.type === 'circle') {
-    if (copy) return null;
-    const radius = Math.hypot(to.x - geometry.center.x, to.y - geometry.center.y);
-    if (!(radius > 0) || !(geometry.radius > 0)) return null;
-    return scaleEdits(
-      [handle],
-      geometry.center.x,
-      geometry.center.y,
-      roundCoord(radius / geometry.radius),
+  return gripsStretchEdits(scene, preview, [grip], base, to, copy, () => layerName);
+}
+
+/** Where a grip STRETCH would put the objects, for the rubber band: their new points. */
+export function gripSketches(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  hot: readonly Grip[],
+  base: Xy,
+  to: Xy,
+): { points: Xy[]; closed: boolean }[] {
+  const out: { points: Xy[]; closed: boolean }[] = [];
+  const quadrant = hot.find((g) => g.kind === 'quadrant');
+  const circle = quadrant ? geometryOf(scene, preview, quadrant.index) : null;
+  if (quadrant && circle?.type === 'circle') {
+    const r = Math.hypot(
+      quadrant.x + to.x - base.x - circle.center.x,
+      quadrant.y + to.y - base.y - circle.center.y,
     );
+    const points = Array.from({ length: 48 }, (_, i) => ({
+      x: circle.center.x + r * Math.cos((i / 48) * 2 * Math.PI),
+      y: circle.center.y + r * Math.sin((i / 48) * 2 * Math.PI),
+    }));
+    out.push({ points, closed: true });
   }
-  let points: Xy[];
-  let closed = false;
-  if (geometry.type === 'line') points = [geometry.start, geometry.end];
-  else if (geometry.type === 'polyline') {
-    points = [...geometry.points];
-    closed = geometry.closed;
-  } else return null;
-  if (grip.kind === 'mid' && geometry.type === 'line') return move();
-  const shift = (i: number) => {
-    const p = points[i];
-    if (p) points[i] = { x: p.x + dx, y: p.y + dy };
-  };
-  if (grip.kind === 'end' || grip.kind === 'vertex') shift(grip.vertex);
-  else if (grip.kind === 'segment') {
-    shift(grip.vertex);
-    shift((grip.vertex + 1) % points.length);
-  } else return null;
-  const pairs = points.map((p) => [p.x, p.y] as [number, number]);
-  return [copy ? pointsCurveEdit(layerName, pairs, closed) : setCurveEdit(handle, pairs, closed)];
+  for (const edit of gripsStretchEdits(scene, preview, hot, base, to, false, () => '') ?? []) {
+    if (edit.kind === 'set_curve') {
+      out.push({ points: edit.points.map((p) => ({ x: p[0], y: p[1] })), closed: edit.closed });
+    }
+  }
+  return out.length > 0 ? out : [{ points: [base, to], closed: false }];
 }
 
 /** Where a grip STRETCH would put the object, for the rubber band: its new points, or null. */
@@ -256,20 +450,98 @@ export function gripSketch(
   base: Xy,
   to: Xy,
 ): { points: Xy[]; closed: boolean } | null {
-  const geometry = geometryOf(scene, preview, grip.index);
-  if (!geometry || !grip.editable) return { points: [base, to], closed: false };
-  if (geometry.type === 'circle' && grip.kind === 'quadrant') {
-    const r = Math.hypot(to.x - geometry.center.x, to.y - geometry.center.y);
-    const points = Array.from({ length: 48 }, (_, i) => ({
-      x: geometry.center.x + r * Math.cos((i / 48) * 2 * Math.PI),
-      y: geometry.center.y + r * Math.sin((i / 48) * 2 * Math.PI),
-    }));
-    return { points, closed: true };
-  }
-  const edits = gripStretchEdits(scene, preview, grip, base, to, false, '');
-  const curve = edits?.[0];
-  if (curve && curve.kind === 'set_curve') {
-    return { points: curve.points.map((p) => ({ x: p[0], y: p[1] })), closed: curve.closed };
-  }
-  return { points: [base, to], closed: false };
+  return gripSketches(scene, preview, [grip], base, to)[0] ?? null;
+}
+
+/** The same grip (of the same object, at the same place). */
+export const sameGrip = (a: Grip | null | undefined, b: Grip): boolean =>
+  a !== null &&
+  a !== undefined &&
+  a.index === b.index &&
+  a.kind === b.kind &&
+  a.vertex === b.vertex &&
+  a.x === b.x &&
+  a.y === b.y;
+
+/**
+ * AutoCAD's multifunctional grip menu of a polyline (hover a grip): a vertex has Stretch Vertex /
+ * Add Vertex / Remove Vertex; a segment's middle Stretch / Add Vertex / Convert to Arc (an arc
+ * segment: Convert to Line). Other grips have none.
+ */
+export type GripMenuItem = 'stretch' | 'addVertex' | 'removeVertex' | 'toArc' | 'toLine';
+
+function polylineOf(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+): { vertices: BulgeVertex[]; closed: boolean; handle: string } | null {
+  const handle = grip.handles[0];
+  if (grip.index < 0 || !handle) return null;
+  const g = geometryOf(scene, preview, grip.index);
+  if (g?.type !== 'polyline') return null;
+  const vertices = g.vertices
+    ? g.vertices.map((v) => ({ ...v }))
+    : g.points.map((p) => ({ x: p.x, y: p.y, bulge: 0 }));
+  return { vertices, closed: g.closed, handle };
+}
+
+export function gripMenuOf(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+): GripMenuItem[] {
+  if (grip.kind !== 'vertex' && grip.kind !== 'segment') return [];
+  const line = polylineOf(scene, preview, grip);
+  if (!line) return [];
+  if (grip.kind === 'vertex') return ['stretch', 'addVertex', 'removeVertex'];
+  const bulge = line.vertices[grip.vertex]?.bulge ?? 0;
+  return ['stretch', 'addVertex', Math.abs(bulge) > 1e-12 ? 'toLine' : 'toArc'];
+}
+
+/** Add Vertex: a new vertex at `at` after the grip's vertex (both new segments straight). */
+export function addVertexEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+  at: Xy,
+): CanvasEdit[] | null {
+  const line = polylineOf(scene, preview, grip);
+  if (!line) return null;
+  const vs = line.vertices;
+  const before = vs[grip.vertex];
+  if (!before) return null;
+  vs[grip.vertex] = { ...before, bulge: 0 };
+  vs.splice(grip.vertex + 1, 0, { x: at.x, y: at.y, bulge: 0 });
+  return [vertexCurveEdit(line.handle, '', vs, line.closed)];
+}
+
+/** Remove Vertex: null when the polyline would keep fewer than two (closed: three) vertices. */
+export function removeVertexEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+): CanvasEdit[] | null {
+  const line = polylineOf(scene, preview, grip);
+  if (!line || line.vertices.length <= (line.closed ? 3 : 2)) return null;
+  line.vertices.splice(grip.vertex, 1);
+  return [vertexCurveEdit(line.handle, '', line.vertices, line.closed)];
+}
+
+/** Convert to Arc (through `through`) / Convert to Line (`through` null) of a segment. */
+export function segmentBulgeEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+  through: Xy | null,
+): CanvasEdit[] | null {
+  const line = polylineOf(scene, preview, grip);
+  if (!line || grip.kind !== 'segment') return null;
+  const vs = line.vertices;
+  const a = vs[grip.vertex];
+  const b = vs[(grip.vertex + 1) % vs.length];
+  if (!a || !b) return null;
+  const bulge = through ? bulgeThrough(a, b, through) : 0;
+  if (through && bulge === 0) return null;
+  vs[grip.vertex] = { ...a, bulge };
+  return [vertexCurveEdit(line.handle, '', vs, line.closed)];
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LonLat } from '@ftth/geo';
 import { ltr } from '@ftth/i18n';
 import { errorCodeOf, type ClientErrorCode } from '@/shared/api/bff-client';
@@ -25,9 +25,15 @@ import {
 import { pendingPlaces, routePieces } from '../model/corrections';
 import { PathCache, type BoxLabel, type DrawModel } from '../model/drawing-draw';
 import { buildMarkers, hitEntity, hitMarker, type ProblemMarker } from '../model/drawing-hit';
-import { applyCorrections, defaultTextHeight, effectiveLayer } from '../model/drawing-preview';
+import {
+  applyCorrections,
+  defaultTextHeight,
+  effectiveLayer,
+  FALLBACK_COLOR,
+} from '../model/drawing-preview';
 import { boxOf, buildScene, type DrawingScene } from '../model/drawing-scene';
 import {
+  clampScale,
   fitTransform,
   panBy,
   scaleLimits,
@@ -47,12 +53,15 @@ import { hitGrip, type Grip } from '../model/grips';
 import { draftedEdit, useDrafting, type Drafting } from './use-drafting';
 import { useHistory, type HistoryPart } from './use-history';
 import { useFixTools, type FixTools } from './use-fix-tools';
+import type { ZoomView } from './view-commands';
 
 export type WorkspaceDialog =
   | { kind: 'find' }
   | { kind: 'laywalk' }
   | { kind: 'attributes'; index: number }
-  | { kind: 'table' };
+  | { kind: 'table' }
+  | { kind: 'matchprop' }
+  | { kind: 'qselect' };
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {
@@ -73,6 +82,10 @@ const MARKER_HIT_PX = 14;
 const ENTITY_HIT_PX = 6;
 /** A grip is hit within this many px of its centre (a little more than its half side). */
 const GRIP_HIT_PX = 6;
+/** ZOOM Previous keeps this many views (AutoCAD: 10). */
+const ZOOM_PREVIOUS_MAX = 10;
+/** Wheel steps and pan moves closer than this make one view for ZOOM Previous. */
+const VIEW_BURST_MS = 800;
 
 export type ViewerStatus =
   'loading' | 'error' | 'none' | 'failed' | 'queued' | 'loadingView' | 'viewError' | 'ready';
@@ -125,6 +138,10 @@ export interface DrawingViewer {
   toggleLayer: (index: number) => void;
   setShownForListed: (shown: boolean) => void;
   toggleFrozen: (index: number) => void;
+  /** Why the last layer change was refused (the current layer cannot be frozen), else null. */
+  layerMessage: string | null;
+  /** A layer's index: the drawing's, then those made on the page (-1: unknown). */
+  layerIndexOf: (name: string) => number;
   toggleLocked: (index: number) => void;
   setLayerColor: (index: number, color: string | null) => void;
   /** LAYER: the Layer Properties palette is asked for (changes on each request). */
@@ -145,6 +162,8 @@ export interface DrawingViewer {
   click: (sx: number, sy: number, additive?: boolean) => void;
   popover: ViewerPopover | null;
   closePopover: () => void;
+  /** The grip under the pointer (its multifunctional menu shows for a polyline's grips). */
+  hoverGrip: Grip | null;
   markerCount: number;
   /** The Layers panel on the screen: off, isolate, freeze, lock, states, fading. */
   layerScreen: LayerScreen;
@@ -329,6 +348,26 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const [layersNonce, setLayersNonce] = useState(0);
   const [layerQuery, setLayerQuery] = useState('');
   const layers = scene?.view.layers;
+  // Layers made on the page (audit 7): an index after the drawing's ones, kept by name, so they
+  // are turned off, frozen, locked and coloured on the screen like any other layer.
+  const [pageLayers, setPageLayers] = useState<readonly string[]>([]);
+  const viewCount = layers?.length ?? 0;
+  const layerIndexOf = useCallback(
+    (name: string) => {
+      const inView = scene?.layerByName.get(name);
+      if (inView !== undefined) return inView;
+      const at = pageLayers.indexOf(name);
+      return at < 0 ? -1 : viewCount + at;
+    },
+    [scene, pageLayers, viewCount],
+  );
+  const layerNameAt = useCallback(
+    (index: number) => layers?.[index]?.name ?? pageLayers[index - viewCount] ?? '',
+    [layers, pageLayers, viewCount],
+  );
+  /** The current layer's index, read when a layer is frozen (it never is). */
+  const currentLayerRef = useRef(-1);
+  const [layerMessage, setLayerMessage] = useState<string | null>(null);
   const isShown = useCallback(
     (index: number) => {
       if (index < 0) return true;
@@ -337,8 +376,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     [overrides, layers, frozen],
   );
   const layerRows = useMemo<LayerRow[]>(
-    () =>
-      (layers ?? []).map((layer, index) => ({
+    () => [
+      ...(layers ?? []).map((layer, index) => ({
         index,
         name: layer.name,
         color: layerColor.get(index) ?? layer.color,
@@ -346,7 +385,19 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         frozen: frozen.has(index),
         locked: locked.has(index),
       })),
-    [layers, overrides, frozen, locked, layerColor],
+      ...pageLayers.map((name, at) => {
+        const index = viewCount + at;
+        return {
+          index,
+          name,
+          color: layerColor.get(index) ?? FALLBACK_COLOR,
+          shown: overrides.get(index) ?? true,
+          frozen: frozen.has(index),
+          locked: locked.has(index),
+        };
+      }),
+    ],
+    [layers, overrides, frozen, locked, layerColor, pageLayers, viewCount],
   );
   const toggleIn =
     (set: (update: (previous: ReadonlySet<number>) => ReadonlySet<number>) => void) =>
@@ -416,7 +467,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const remember = (label: string) => history.record(label, 'screen', screenNow());
   const layerScreen = useLayerScreen({
     cadFileId,
-    layerCount: layers?.length ?? 0,
+    layerCount: viewCount + pageLayers.length,
+    nameOf: layerNameAt,
+    indexOf: layerIndexOf,
+    currentLayer: () => currentLayerRef.current,
     snapshot: { overrides, frozen, locked },
     apply: (s) => {
       remember('LAYER');
@@ -428,7 +482,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
 
   const textHeight = defaultTextHeight(tools.metresPerUnit);
+  // ZOOM / PAN / REGEN typed on the command line act on this view (set after each render).
+  const zoomRef = useRef<ZoomView | null>(null);
   const canvasEdit = useCanvasEdit({
+    view: zoomRef,
     history,
     screen: screenPart,
     layerScreen: {
@@ -460,6 +517,19 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     ruledLayers: tools.ruledLayers,
   });
   const shownPreview = canvasEdit.preview;
+  currentLayerRef.current = layerIndexOf(canvasEdit.currentLayer);
+  const newPageLayers = scene
+    ? canvasEdit.allLayers.filter((n) => !scene.layerByName.has(n) && !pageLayers.includes(n))
+    : [];
+  const newPageKey = newPageLayers.join('\u0000');
+  useEffect(() => {
+    if (!newPageKey) return;
+    const added = newPageKey.split('\u0000');
+    setPageLayers((previous) => [...previous, ...added.filter((n) => !previous.includes(n))]);
+  }, [newPageKey]);
+  // Items drawn on the page are picked, snapped and shown picked like the file's (ADR-061).
+  // (Used only where `scene` was checked: the page scene is null only when the scene is.)
+  const pickScene = (canvasEdit.scene ?? scene) as DrawingScene;
 
   // View transform: null = "fit all", so a resize refits until the user zooms or pans.
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -480,9 +550,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     shownPreview !== null &&
     !shownPreview.erased.has(index) &&
     (objectShown === undefined || objectShown(index)) &&
-    isShown(effectiveLayer(scene, shownPreview, index));
+    isShown(effectiveLayer(pickScene, shownPreview, index));
   const drafting = useDrafting({
-    source: scene && shownPreview ? { scene, preview: shownPreview, isShown: drawnNow } : null,
+    source:
+      scene && shownPreview ? { scene: pickScene, preview: shownPreview, isShown: drawnNow } : null,
     scale: transform.scale,
     enabled: scene !== null,
   });
@@ -492,7 +563,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     // The objects under the pick, nearest first (AutoCAD's Selection Cycling list).
     for (let n = 0; n < 12; n++) {
       const hit = hitEntity(
-        scene,
+        pickScene,
         at.x,
         at.y,
         ENTITY_HIT_PX / transform.scale,
@@ -558,7 +629,9 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         ? {
             scene,
             preview: shownPreview,
+            pageScene: pickScene,
             layerShown: isShown,
+            pageLayer: layerIndexOf,
             markers,
             highlighted,
             selected,
@@ -568,6 +641,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             grips: edit.grips,
             groupBoxes: edit.groupBoxes,
             hotGrip: edit.hotGrip,
+            hotGrips: edit.hotGrips,
             hoverGrip,
             band: edit.band,
             layerColor,
@@ -596,11 +670,14 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       edit.grips,
       edit.groupBoxes,
       edit.hotGrip,
+      edit.hotGrips,
       hoverGrip,
       edit.band,
       scene,
+      pickScene,
       shownPreview,
       isShown,
+      layerIndexOf,
       markers,
       highlighted,
       selected,
@@ -614,11 +691,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     hitGrip(edit.grips, (x, y) => toScreen(transform, size, x, y), sx, sy, GRIP_HIT_PX);
   const click = (sx: number, sy: number, additive = false) => {
     if (!scene || !shownPreview) return;
-    // AutoCAD: a click on a grip of the picked objects makes it hot («** STRETCH **»).
-    if (edit.editing && edit.command === null && edit.hotGrip === null && !additive) {
+    // AutoCAD: a click on a grip of the picked objects makes it hot («** STRETCH **»);
+    // Shift+click makes several hot first (a click on one of them then stretches them all).
+    if (edit.editing && edit.command === null && edit.hotGrip === null) {
       const grip = gripAt(sx, sy);
       if (grip) {
-        edit.startGrip(grip);
+        if (additive) edit.armGrip(grip);
+        else edit.startGrip(grip);
         setPopover(null);
         return;
       }
@@ -631,29 +710,20 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     if (edit.editing && !onMarker) {
       const world = toWorld(transform, size, sx, sy);
       const hit = hitEntity(
-        scene,
+        pickScene,
         world.x,
         world.y,
         ENTITY_HIT_PX / transform.scale,
-        (index) =>
-          !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
+        // A hidden object (HIDEOBJECTS / ISOLATEOBJECTS) is not under the pick at all.
+        drawnNow,
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
       edit.pick(hit, world, additive);
-      // Between commands a click also shows the item and its error as in the normal view
-      // (owner 2026-11-19); while a command runs the click only answers the command.
-      if (edit.command === null && hit !== null) {
-        const handle = scene.view.entities[hit]?.handle ?? '';
-        const related =
-          markers.find((m) => routePieces(m.handle).includes(handle) || m.handle === handle) ??
-          null;
-        setSelected(hit);
-        setPopover({ x: world.x, y: world.y, entity: hit, marker: related });
-      } else {
-        setPopover(null);
-        setSelected(null);
-      }
+      // AutoCAD (item 35): a pick shows the grips only (Quick Properties when QPMODE is on);
+      // the details stay one Ctrl+1 / right-click «Properties» away. Error marks open above.
+      setPopover(null);
+      setSelected(null);
       return;
     }
     const marker = hitMarker(markers, transform, size, sx, sy, MARKER_HIT_PX);
@@ -664,12 +734,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     }
     const world = toWorld(transform, size, sx, sy);
     const entity = hitEntity(
-      scene,
+      pickScene,
       world.x,
       world.y,
       ENTITY_HIT_PX / transform.scale,
       (index) =>
-        !shownPreview.erased.has(index) && isShown(effectiveLayer(scene, shownPreview, index)),
+        !shownPreview.erased.has(index) && isShown(effectiveLayer(pickScene, shownPreview, index)),
       shownPreview.transformOf,
       shownPreview.curveOf,
     );
@@ -679,21 +749,67 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       setHighlightNonce(null);
       return;
     }
-    const handle = scene.view.entities[entity]?.handle ?? '';
+    const handle = pickScene.view.entities[entity]?.handle ?? '';
     const related =
       markers.find((m) => routePieces(m.handle).includes(handle) || m.handle === handle) ?? null;
     setSelected(entity);
     setPopover({ x: world.x, y: world.y, entity, marker: related });
   };
 
-  const zoomBy = (sx: number, sy: number, factor: number) =>
+  // AutoCAD's ZOOM Previous: the last views (10), each zoom / pan burst counting as one.
+  const [views, setViews] = useState<readonly (ViewTransform | null)[]>([]);
+  const lastView = useRef(0);
+  const keepView = (burst: boolean) => {
+    const now = Date.now();
+    if (!burst || now - lastView.current > VIEW_BURST_MS) {
+      setViews((previous) => [...previous, custom].slice(-ZOOM_PREVIOUS_MAX));
+    }
+    lastView.current = burst ? now : 0;
+  };
+  const zoomBy = (sx: number, sy: number, factor: number) => {
+    keepView(true);
     setCustom((previous) => zoomAt(previous ?? fitted, size, sx, sy, factor, limits));
-  const pan = (dx: number, dy: number) =>
+  };
+  const pan = (dx: number, dy: number) => {
+    keepView(true);
     setCustom((previous) => panBy(previous ?? fitted, dx, dy));
-  const gesture = (sx: number, sy: number, factor: number, dx: number, dy: number) =>
+  };
+  const gesture = (sx: number, sy: number, factor: number, dx: number, dy: number) => {
+    keepView(true);
     setCustom((previous) =>
       panBy(zoomAt(previous ?? fitted, size, sx, sy, factor, limits), dx, dy),
     );
+  };
+  const fitAll = () => {
+    keepView(false);
+    setCustom(null);
+  };
+  const zoomView: ZoomView = {
+    current: () => ({
+      cx: transform.cx,
+      cy: transform.cy,
+      width: size.width / transform.scale,
+      height: size.height / transform.scale,
+    }),
+    show: (cx, cy, height) => {
+      keepView(false);
+      const scale = clampScale(Math.max(1, size.height) / Math.max(height, 1e-12), limits);
+      setCustom({ cx, cy, scale });
+    },
+    extents: fitAll,
+    extentsHeight: () => Math.max(1, size.height) / fitted.scale,
+    previous: () => {
+      if (views.length === 0) return false;
+      setCustom(views[views.length - 1] ?? null);
+      setViews(views.slice(0, -1));
+      lastView.current = 0;
+      return true;
+    },
+    regen: () => setCustom((previous) => (previous ? { ...previous } : previous)),
+  };
+  useEffect(() => {
+    zoomRef.current = zoomView;
+  });
   const stateError = stateQuery.error ?? null;
   let resolved: ViewerStatus;
   if (stateError) resolved = 'error';
@@ -728,6 +844,8 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       count: boxLabels.length,
     },
     layerRows,
+    layerMessage,
+    layerIndexOf,
     layerQuery,
     setLayerQuery,
     toggleLayer: (index) => {
@@ -739,6 +857,12 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       setShownForListed(shown);
     },
     toggleFrozen: (index) => {
+      // AutoCAD: «Cannot freeze layer "0".  It is the CURRENT layer.»
+      if (!frozen.has(index) && index === currentLayerRef.current) {
+        setLayerMessage(t('design.cad.msg.cannotFreezeCurrent', { layer: layerNameAt(index) }));
+        return;
+      }
+      setLayerMessage(null);
       remember('LAYER');
       toggleIn(setFrozen)(index);
     },
@@ -764,9 +888,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     zoomIn: () => zoomBy(size.width / 2, size.height / 2, ZOOM_STEP),
     zoomOut: () => zoomBy(size.width / 2, size.height / 2, 1 / ZOOM_STEP),
     zoomBy,
-    fit: () => setCustom(null),
+    fit: fitAll,
     click,
     popover,
+    hoverGrip,
     closePopover: () => {
       setPopover(null);
       setSelected(null);
@@ -787,7 +912,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     setDialog,
     zoomToEntity: (index) => {
       if (!scene) return;
-      const box = boxOf(scene, index);
+      const box = boxOf(pickScene, index);
       const half = Math.max((box.maxX - box.minX) / 2, (box.maxY - box.minY) / 2, 1) * 3;
       setCustom(windowTransform((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, half, size));
       setSelected(index);
@@ -822,14 +947,14 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       if (edit.chosenCount > 0) return;
       const world = toWorld(transform, size, sx, sy);
       const hit = hitEntity(
-        scene,
+        pickScene,
         world.x,
         world.y,
         ENTITY_HIT_PX / transform.scale,
         (index) =>
           !shownPreview.erased.has(index) &&
           (objectShown === undefined || objectShown(index)) &&
-          isShown(effectiveLayer(scene, shownPreview, index)),
+          isShown(effectiveLayer(pickScene, shownPreview, index)),
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
@@ -846,7 +971,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
         setPropertiesNonce((n) => n + 1);
         return;
       }
-      const box = boxOf(scene, index);
+      const box = boxOf(pickScene, index);
       setSelected(index);
       setPopover({
         x: (box.minX + box.maxX) / 2,

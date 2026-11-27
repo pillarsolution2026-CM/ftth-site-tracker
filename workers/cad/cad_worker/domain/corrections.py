@@ -28,7 +28,9 @@ drawing units.
 - the CAD ribbon (ADR-050): `erase_item {handle}` removes the row; `copy_item {handle, dx, dy}` adds
   a moved copy with handle `FIX-<correction id>`; `mirror_item {handle, x1, y1, x2, y2}` reflects
   the points across that line; `scale_item {handle, x, y, factor}` scales them about (x, y) (a
-  text's height too); `add_curve {layer, points, closed}` adds a line / polyline `FIX-<id>`;
+  text's height too); `add_curve {layer, points, closed, arc?}` adds a line /
+  polyline `FIX-<id>` (`arc`, a true circle / arc of the screen, is checked and ignored: `points`
+  are its path, ADR-061);
   `add_layer {layer, like}` and `rename_layer {from, to}` give a layer the rule of another (the
   build copies that rule to a layer without one, `layer_aliases`; ADR-051: also a layer of the
   drawing without a rule, so what is drawn on it counts; `like` null = a layer for drawing only),
@@ -51,6 +53,12 @@ drawing units.
   mtext, wrap, mask}` (TEXTFIT, TXT2MTXT, TEXTMASK) and `add_table {layer, x, y, columns, rows,
   height, styles, cells}` are checked and then ignored; `add_shape` gains `loops`, `island`,
   `background`, `transparency`, `origin`, `double` and `drawOrder` (checked, ignored).
+
+Items drawn on the page are objects (ADR-061): a later correction may name `FIX-<id>` of an
+added text, item, line or copy and is applied to its row like any other. Notes, shapes and tables
+(and copies of them) have no row: a correction that names one is checked and ignored, an erase
+drops it. A correction naming an added item that has no row any more (its layer was deleted, it
+was erased) is skipped, not an error.
 
 A correction that cannot be applied (handle gone after the file was processed again, wrong kind of
 entity, pieces not forming one chain) fails the revision loudly (`MAPPING_INVALID`) with the reason:
@@ -92,6 +100,8 @@ MAX_ROTATION_DEG = 360.0
 MIN_SCALE_FACTOR = 0.001
 MAX_SCALE_FACTOR = 1000.0
 MAX_CURVE_POINTS = 2000
+# |bulge| of a curve's real vertices (contract MAX_CURVE_BULGE, ADR-062).
+MAX_CURVE_BULGE = 1000.0
 MAX_NOTE_POINTS = 50
 MAX_LINEWEIGHT_MM = 10.0
 NOTE_KINDS = frozenset({"dimension", "leader"})
@@ -424,11 +434,11 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "copy_item": frozenset({"kind", "handle", "dx", "dy", "toLayer"}),
     "mirror_item": frozenset({"kind", "handle", "x1", "y1", "x2", "y2"}),
     "scale_item": frozenset({"kind", "handle", "x", "y", "factor"}),
-    "add_curve": frozenset({"kind", "layer", "points", "closed"}),
+    "add_curve": frozenset({"kind", "layer", "points", "closed", "arc", "vertices"}),
     "add_layer": frozenset({"kind", "layer", "like"}),
     "rename_layer": frozenset({"kind", "from", "to"}),
     "delete_layer": frozenset({"kind", "layer"}),
-    "set_curve": frozenset({"kind", "handle", "points", "closed"}),
+    "set_curve": frozenset({"kind", "handle", "points", "closed", "arc", "vertices"}),
     "add_note": frozenset({"kind", "note", "layer", "points", "text"}),
     "set_style": frozenset({"kind", "handle", "color", "linetype", "lineweight"}),
     "add_shape": frozenset(
@@ -574,6 +584,8 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
             factor,
         )
     if kind == "add_curve":
+        _arc(cid, body.get("arc"))
+        _vertices(cid, body.get("vertices"))
         return AddCurve(
             _layer(cid, body, "layer"), _points(cid, body.get("points")), _flag(cid, body)
         )
@@ -591,6 +603,8 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
     if kind == "delete_layer":
         return DeleteLayer(_layer(cid, body, "layer"))
     if kind == "set_curve":
+        _arc(cid, body.get("arc"))
+        _vertices(cid, body.get("vertices"))
         return SetCurve(
             _handle(cid, body.get("handle")), _points(cid, body.get("points")), _flag(cid, body)
         )
@@ -687,6 +701,44 @@ def _finite(cid: str, body: Mapping[str, object], key: str) -> float:
             f"correction {cid}: `{key}` must be a number within ±{MAX_CORRECTION_COORD}"
         )
     return number
+
+
+def _arc(cid: str, arc: object) -> None:
+    """Checks the optional true circle / arc of an added curve (ADR-061); the rows ignore it:
+    `points` stay the path."""
+    if arc is None:
+        return
+    if not isinstance(arc, Mapping) or set(arc) != {"x", "y", "r", "start", "end"}:
+        raise CorrectionInvalidError(f"correction {cid}: `arc` needs x, y, r, start and end")
+    _finite(cid, arc, "x")
+    _finite(cid, arc, "y")
+    r = _finite(cid, arc, "r")
+    if r <= 0:
+        raise CorrectionInvalidError(f"correction {cid}: the arc radius must be positive")
+    for key in ("start", "end"):
+        if not -360 <= _finite(cid, arc, key) <= 720:
+            raise CorrectionInvalidError(f"correction {cid}: arc {key} must be within -360..720")
+
+
+def _vertices(cid: str, vertices: object) -> None:
+    """Checks the optional real vertices [x, y, bulge] of a curve (ADR-062); the rows ignore
+    them: `points` stay the path the build reads."""
+    if vertices is None:
+        return
+    if not isinstance(vertices, list) or not 2 <= len(vertices) <= MAX_CURVE_POINTS:
+        raise CorrectionInvalidError(
+            f"correction {cid}: `vertices` must be 2-{MAX_CURVE_POINTS} [x, y, bulge]"
+        )
+    for v in vertices:
+        if not isinstance(v, list) or len(v) != 3:
+            raise CorrectionInvalidError(f"correction {cid}: a vertex is [x, y, bulge]")
+        x, y, bulge = (_number(n) for n in v)
+        if x is None or y is None or abs(x) > MAX_CORRECTION_COORD or abs(y) > MAX_CORRECTION_COORD:
+            raise CorrectionInvalidError(f"correction {cid}: a vertex coordinate is out of range")
+        if bulge is None or abs(bulge) > MAX_CURVE_BULGE:
+            raise CorrectionInvalidError(
+                f"correction {cid}: a bulge must be within ±{MAX_CURVE_BULGE:g}"
+            )
 
 
 def _note(cid: str, body: Mapping[str, object]) -> AddNote:
@@ -1024,6 +1076,9 @@ class _Rows:
     # Layer -> sorted heights of its readable texts, kept in step by `put_text`: a default text
     # height is a lookup, not a scan of every text (security review M).
     heights: dict[str, list[float]] = dataclasses.field(default_factory=dict)
+    # `FIX-<id>` handles of added items that have no row (note, shape, table and copies of them,
+    # ADR-061): later corrections that name them are checked and ignored.
+    screen: set[str] = dataclasses.field(default_factory=set)
 
     def taken(self, handle: str) -> bool:
         return handle in self.curves or handle in self.inserts or handle in self.texts
@@ -1055,9 +1110,40 @@ class _Rows:
         return heights[mid] if len(heights) % 2 else (heights[mid - 1] + heights[mid]) / 2
 
 
+def _named_handles(c: Correction) -> tuple[str, ...]:
+    """The handles a correction names (none for the corrections that add or name layers)."""
+    if isinstance(c, MergeRoutes | SetGroup):
+        return tuple(c.handles)
+    if isinstance(c, DismissProblem):
+        return ()
+    handle = getattr(c, "handle", None)
+    return (handle,) if isinstance(handle, str) else ()
+
+
+def _apply_to_added(rows: _Rows, fc: FrozenCorrection) -> bool:
+    """Handles the correction that names an item an earlier correction added (ADR-061): True when
+    it is done (ignored). A screen-only item has no row: the correction is ignored, an erase drops
+    it, a copy of it is screen-only too. An added item with no row any more (its layer was
+    deleted, it was erased) makes the correction skipped, not an error. Rows of the drawing and
+    rows still there are left to the usual code (and its errors)."""
+    c = fc.correction
+    named = [h for h in _named_handles(c) if h.startswith(FIX_HANDLE_PREFIX)]
+    if not named:
+        return False
+    if any(h in rows.screen for h in named):
+        if isinstance(c, EraseItem):
+            rows.screen.discard(c.handle)
+        elif isinstance(c, CopyItem):
+            rows.screen.add(fc.fix_handle)
+        return True
+    return any(not rows.taken(h) for h in named)
+
+
 def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
     c = fc.correction
     where = f"drawing correction {fc.id}"
+    if _apply_to_added(rows, fc):
+        return
     if isinstance(c, MoveLayer):
         _move_layer(rows, c, where)
     elif isinstance(c, SetText):
@@ -1114,6 +1200,8 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
     elif isinstance(
         c, AddNote | SetStyle | AddShape | SetOrder | SetGroup | SetTextFormat | AddTable
     ):
+        if isinstance(c, AddNote | AddShape | AddTable):
+            rows.screen.add(fc.fix_handle)  # an object of the page: later edits are ignored
         return  # screen only (ADR-051): no row, quantity or problem changes
     elif isinstance(c, MergeLayer):
         _relayer(rows, c.from_layer, c.to_layer)

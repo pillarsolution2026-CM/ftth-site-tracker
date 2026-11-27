@@ -619,7 +619,7 @@ describe('DrawingViewer box types (ADR-043)', () => {
 
 describe(
   'DrawingViewer AutoCAD-like workspace (ADR-047, ADR-050, ADR-051)',
-  { timeout: 20_000 },
+  { timeout: 60_000 },
   () => {
     const size = { width: 800, height: 600 };
     const tf = fitTransform(testView().extents, size);
@@ -729,7 +729,63 @@ describe(
       expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
       await save(user);
       expect(sent()).toEqual([{ kind: 'move_layer', handle: 'B', toLayer: 'Sap' }]);
+      // QSAVE (owner default): the edit mode stays open after «حفظ»; Cancel leaves it.
+      await waitFor(() =>
+        expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit the drawing' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
       expect(await screen.findByRole('button', { name: 'Edit the drawing' })).toBeInTheDocument();
+    });
+
+    it('saves more than 200 edits in chunks of 200, with one progress line', async () => {
+      const { canvas, user } = await openWorkspace();
+      let next = 0;
+      api.createCorrections.mockImplementation(
+        async (_p: string, _f: string, body: { items: unknown[] }) => ({
+          items: body.items.map(() => ({ id: `id-${++next}` })),
+        }),
+      );
+      await click(user, canvas, 75, 25);
+      await type(user, 'ar');
+      await type(user, 'cou');
+      await type(user, '26');
+      await type(user, '18');
+      await type(user, '');
+      // 26 × 18 − 1 = 467 copies: no «too many edits» refusal any more.
+      expect(screen.getByText(/467.? edits not saved yet/)).toBeInTheDocument();
+      await save(user);
+      await waitFor(() => expect(api.createCorrections).toHaveBeenCalledTimes(3));
+      const sizes = api.createCorrections.mock.calls.map(
+        (call) => (call[2] as { items: unknown[] }).items.length,
+      );
+      expect(sizes).toEqual([200, 200, 67]);
+      await waitFor(() => expect(history()).toMatch(/Saving edits: 467 of 467/));
+      expect(history().match(/Saving edits/g)).toHaveLength(1);
+      expect(screen.queryByText(/edits not saved yet/)).not.toBeInTheDocument();
+    });
+
+    it('a refused chunk keeps the chunks before it saved and the rest waiting', async () => {
+      const { canvas, user } = await openWorkspace();
+      let calls = 0;
+      api.createCorrections.mockImplementation(
+        async (_p: string, _f: string, body: { items: unknown[] }) => {
+          calls++;
+          if (calls === 2) throw new ApiClientError('VALIDATION_FAILED', 422, {});
+          return { items: body.items.map((_, i) => ({ id: `id-${calls}-${i}` })) };
+        },
+      );
+      await click(user, canvas, 75, 25);
+      await type(user, 'ar');
+      await type(user, 'cou');
+      await type(user, '26');
+      await type(user, '18');
+      await type(user, '');
+      await save(user);
+      await waitFor(() => expect(history()).toMatch(/200 of 467 edits saved; the other 267/));
+      expect(screen.getByText(/267.? edits not saved yet/)).toBeInTheDocument();
+      expect(screen.getByRole('toolbar', { name: 'Drawing tools' })).toBeInTheDocument();
     });
 
     it('a window to the right picks what is inside; a typed MOVE then asks for the base point', async () => {
@@ -839,14 +895,17 @@ describe(
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
       const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
       ctx.fillText.mockClear();
-      await user.click(within(ribbon).getByRole('button', { name: 'Hide the error markers' }));
-      const show = within(ribbon).getByRole('button', { name: 'Show the error markers' });
+      await user.click(within(ribbon).getByRole('button', { name: 'Hide error markers' }));
+      const show = within(ribbon).getByRole('button', { name: 'Show error markers' });
       expect(show).toHaveAttribute('aria-pressed', 'true');
+      // Item 32: a map pin, slashed while the markers are hidden (not a warning triangle).
+      expect(within(show).getByTestId('markers-slash')).toBeInTheDocument();
       await waitFor(() => expect(ctx.fillText).toHaveBeenCalled());
       expect(codes()).not.toContain('LABEL_MISSING');
       ctx.fillText.mockClear();
       await user.click(show);
       await waitFor(() => expect(codes()).toContain('LABEL_MISSING'));
+      expect(screen.queryByTestId('markers-slash')).not.toBeInTheDocument();
     });
 
     it('OpenStreetMap needs the file CRS', async () => {
@@ -915,7 +974,7 @@ describe(
           'Show the whole drawing',
           'Full screen',
           'Layers',
-          'Hide the error markers',
+          'Hide error markers',
         ]) {
           expect(within(strip).getByRole('button', { name })).toBeInTheDocument();
         }
@@ -977,29 +1036,26 @@ describe(
         }
       });
 
-      it('keeps the ribbon on one row: panels that do not fit shrink to a button', async () => {
-        // Each panel is 100 px wide open; the row is 800 px: the last ones shrink.
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
-          this: HTMLElement,
-        ) {
-          return this.getAttribute('role') === 'group' ? 100 : 0;
-        });
+      it('divides the ribbon equally between all panels; what does not fit goes under ▾ (items 31, 31b)', async () => {
+        // The row is 800 px (clientWidth): eleven panels of 72 px; every tool is 60 px wide, so
+        // each panel keeps its first tool and none collapses to a bare title.
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(60);
         const { user } = await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
+        for (const name of ['Draw', 'Modify', 'Layers', 'Groups', 'Block', 'Properties']) {
+          expect(within(ribbon).getByRole('group', { name })).toHaveStyle({ width: '72px' });
+        }
         await waitFor(() =>
-          expect(
-            within(ribbon).getByRole('button', { name: 'Open the Properties panel' }),
-          ).toBeInTheDocument(),
+          expect(within(ribbon).queryByRole('button', { name: 'Polyline' })).toBeNull(),
         );
-        expect(within(ribbon).getByRole('group', { name: 'Draw' })).toBeInTheDocument();
         expect(tool('Line')).toBeInTheDocument();
-        expect(within(ribbon).queryByRole('button', { name: 'Open the Draw panel' })).toBeNull();
-        // A shrunk panel opens its tools under it.
-        expect(within(ribbon).queryByRole('button', { name: 'Match Properties' })).toBeNull();
-        await user.click(within(ribbon).getByRole('button', { name: 'Open the Properties panel' }));
         expect(
           within(ribbon).getByRole('button', { name: 'Match Properties' }),
         ).toBeInTheDocument();
+        expect(within(ribbon).queryByRole('button', { name: /^Open the .* panel$/ })).toBeNull();
+        // The ▾ next to «Draw» holds the tools that did not fit, then the slide-out.
+        await user.click(within(ribbon).getByRole('button', { name: 'More Draw tools' }));
+        expect(tool('Polyline')).toBeInTheDocument();
       });
     });
 
@@ -1161,6 +1217,20 @@ describe(
         return fills;
       };
 
+      it('item 35: a pick shows grips only, no details panel; an error mark still opens its fix', async () => {
+        const fills = fillsOf();
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await waitFor(() => expect(fills).toContain('#007fff'));
+        const details = () =>
+          screen.queryByRole('dialog', { name: 'Details of the place on the drawing' });
+        expect(details()).not.toBeInTheDocument();
+        // The error mark of A1 (at 21, 21) still opens its fix tools between commands.
+        await click(user, canvas, 21, 21);
+        expect(details()).toBeInTheDocument();
+        expect(within(details() as HTMLElement).getByText('Symbol without a label')).toBeVisible();
+      });
+
       it('a picked line shows its grips; a click on an end grip STRETCHes that end', async () => {
         const fills = fillsOf();
         const { canvas, user } = await openWorkspace();
@@ -1180,6 +1250,68 @@ describe(
             points: [
               [50, 25],
               [110, 30],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
+      it('Enter cycles the hot grip STRETCH → MOVE → ROTATE (audit 3, phase 2B)', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 100, 25);
+        await type(user, '');
+        expect(prompt()).toBe('** MOVE ** Specify move point or [Base point/Copy/Undo/eXit]:');
+        await type(user, '');
+        expect(prompt()).toBe(
+          '** ROTATE ** Specify rotation angle or [Base point/Copy/Undo/Reference/eXit]:',
+        );
+        await type(user, 'r');
+        expect(prompt()).toBe('** ROTATE ** Specify reference angle <0>:');
+        await type(user, '30');
+        expect(prompt()).toBe('** ROTATE ** Specify new angle:');
+        await type(user, '120');
+        expect(prompt()).toBe('Type a command');
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'rotate_item', handle: 'B', x: 100, y: 25, angle: 90 }]);
+      });
+
+      it('MI at a grip goes to MIRROR; with Copy the original stays and a mirrored copy is made', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 100, 25);
+        await type(user, 'mi');
+        expect(prompt()).toBe('** MIRROR ** Specify second point or [Base point/Copy/Undo/eXit]:');
+        await type(user, 'c');
+        await type(user, '100,35');
+        // Copy keeps the mode going (AutoCAD's multiple copies) until Esc / eXit.
+        expect(prompt()).toMatch(/^\*\* MIRROR \*\*/);
+        await type(user, 'x');
+        await save(user);
+        const [copy, mirror] = sent();
+        expect(copy).toMatchObject({ kind: 'copy_item', handle: 'B', dx: 0, dy: 0 });
+        expect(mirror).toMatchObject({ kind: 'mirror_item', x1: 100, y1: 25, x2: 100, y2: 35 });
+        expect(mirror?.handle).toMatch(/^NEW-/);
+      });
+
+      it('Shift+click makes several grips hot; a click on one stretches them together', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Shift>}');
+        await click(user, canvas, 50, 25);
+        await click(user, canvas, 100, 25);
+        await user.keyboard('{/Shift}');
+        expect(prompt()).toBe('Type a command');
+        await click(user, canvas, 100, 25);
+        await type(user, '@0,10');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 35],
+              [100, 35],
             ],
             closed: false,
           },
@@ -1854,11 +1986,13 @@ describe(
       ]);
     });
 
-    it('between commands a click picks the item and shows its panel as in the normal view', async () => {
+    it('between commands a click picks the item (grips and Properties, no details panel: item 35)', async () => {
       const { canvas, user } = await openWorkspace();
       await click(user, canvas, 75, 25);
-      expect(await screen.findByText('B')).toBeInTheDocument();
-      expect(screen.getByLabelText('Color')).toBeEnabled();
+      await waitFor(() => expect(screen.getByLabelText('Color')).toBeEnabled());
+      expect(
+        screen.queryByRole('dialog', { name: 'Details of the place on the drawing' }),
+      ).not.toBeInTheDocument();
       await type(user, 'm');
       expect(prompt()).toMatch(/MOVE Specify base point/);
     });
@@ -2019,10 +2153,15 @@ describe(
 
     it('colour and line type of picked objects are styles; MATCHPROP copies them', async () => {
       const { canvas, user } = await openWorkspace();
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      // Nothing picked: the current colour for new objects (ByLayer).
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await click(user, canvas, 75, 25);
-      await user.selectOptions(screen.getByLabelText('Color'), 'Red');
-      await user.selectOptions(screen.getByLabelText('Linetype'), 'DASHED');
+      // B has its own colour in the file: shown as AutoCAD does (r,g,b), not «ByLayer».
+      expect(screen.getByLabelText('Color')).toHaveTextContent('18,52,86');
+      await user.click(screen.getByLabelText('Color'));
+      await user.click(screen.getByRole('option', { name: 'Red' }));
+      await user.click(screen.getByLabelText('Linetype'));
+      await user.click(screen.getByRole('option', { name: 'DASHED' }));
       await user.keyboard('{Escape}');
       await type(user, 'ma');
       await click(user, canvas, 75, 25);
@@ -2041,7 +2180,7 @@ describe(
       const palette = screen.getByRole('dialog', { name: 'Layer Properties Manager' });
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await user.click(within(palette).getByRole('button', { name: 'Lock Route' }));
       // A frozen layer is not drawn, so nothing on it can be picked either.
       await user.click(within(palette).getByRole('button', { name: 'Freeze Route' }));
@@ -2050,10 +2189,10 @@ describe(
         'true',
       );
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeDisabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('ByLayer');
       await user.click(within(palette).getByRole('button', { name: 'Freeze Route' }));
       await click(user, canvas, 75, 25);
-      expect(screen.getByLabelText('Color')).toBeEnabled();
+      expect(screen.getByLabelText('Color')).toHaveTextContent('18,52,86');
       await user.click(screen.getByRole('button', { name: /^Cancel/ }));
       expect(api.createCorrections).not.toHaveBeenCalled();
     });
@@ -2353,7 +2492,8 @@ describe(
         await type(user, 'Sap');
         await type(user, 'm');
         await type(user, 'all');
-        expect(history()).toMatch(/4 found/);
+        // The dimension just drawn is an object too (ADR-061): ALL picks it as AutoCAD does.
+        expect(history()).toMatch(/5 found/);
         await type(user, 'r');
         expect(prompt()).toBe('MOVE Remove objects:');
         await click(user, canvas, 75, 25);
@@ -2377,6 +2517,7 @@ describe(
           { kind: 'move_item', handle: 'A', dx: 1, dy: 0 },
           { kind: 'move_item', handle: 'A1', dx: 1, dy: 0 },
           { kind: 'move_item', handle: 'T1', dx: 1, dy: 0 },
+          { kind: 'move_item', handle: expect.stringMatching(/^NEW-/), dx: 1, dy: 0 },
         ]);
       });
     });

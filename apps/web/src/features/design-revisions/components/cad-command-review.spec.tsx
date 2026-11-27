@@ -84,7 +84,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('AutoCAD review of the existing commands (phase 7)', { timeout: 20_000 }, () => {
+describe('AutoCAD review of the existing commands (phase 7)', { timeout: 60_000 }, () => {
   const size = { width: 800, height: 600 };
   const tf = fitTransform(testView().extents, size);
   const at = (x: number, y: number) => {

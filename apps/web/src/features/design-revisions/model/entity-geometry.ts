@@ -1,6 +1,8 @@
 import { angleOf, applyAffine, IDENTITY, scaleOf, type Affine } from './affine';
-import type { DrawingPreview } from './drawing-preview';
+import { transformVertices, type BulgeVertex } from './bulge';
+import { transformArc, type DrawingPreview, type PreviewArc } from './drawing-preview';
 import { boxOf, type DrawingScene } from './drawing-scene';
+import { isPageRow } from './page-scene';
 import type { Bounds } from './view-transform';
 
 /**
@@ -17,7 +19,14 @@ export interface Xy {
 
 export type EntityGeometry =
   | { type: 'line'; start: Xy; end: Xy }
-  | { type: 'polyline'; points: Xy[]; closed: boolean }
+  | {
+      type: 'polyline';
+      /** The drawn points (arc segments flattened). */
+      points: Xy[];
+      closed: boolean;
+      /** The real vertices with their bulges when the view / the edit carries them (ADR-062). */
+      vertices?: BulgeVertex[];
+    }
   | { type: 'circle'; center: Xy; radius: number }
   | { type: 'arc'; center: Xy; radius: number; start: Xy; mid: Xy; end: Xy }
   | { type: 'ellipse'; center: Xy; major: [Xy, Xy]; minor: [Xy, Xy] }
@@ -127,6 +136,35 @@ export function geometryOf(
   if (!entity) return null;
   const kind = entity.kind.toUpperCase();
   const moved = preview.transformOf.get(index) ?? IDENTITY;
+  const replaced = preview.curveOf.get(index);
+  // A true circle / arc: drawn on the page (add_curve.arc, ADR-061), in the view (ADR-062) or
+  // sent by a grip edit (set_curve.arc).
+  const trueArc: PreviewArc | null = replaced
+    ? replaced.arc
+      ? transformArc(replaced.arc, moved)
+      : null
+    : entity.arc
+      ? isPageRow(entity)
+        ? entity.arc
+        : transformArc(entity.arc, moved)
+      : null;
+  if (trueArc) {
+    const { x, y, r, start, end } = trueArc;
+    const center = { x, y };
+    const at = (deg: number): Xy => ({
+      x: x + r * Math.cos((deg * Math.PI) / 180),
+      y: y + r * Math.sin((deg * Math.PI) / 180),
+    });
+    if (end - start >= 360 - 1e-9) return { type: 'circle', center, radius: r };
+    return {
+      type: 'arc',
+      center,
+      radius: r,
+      start: at(start),
+      mid: at((start + end) / 2),
+      end: at(end),
+    };
+  }
   if (kind === 'TEXT' || kind === 'MTEXT') {
     const first = entity.texts[0];
     if (!first) return { type: 'other', kind, box: drawnBox(scene, preview, index) };
@@ -172,7 +210,27 @@ export function geometryOf(
     if (kind === 'LINE' && drawn.points.length === 2 && a && b && !drawn.closed) {
       return { type: 'line', start: a, end: b };
     }
+    // ADR-062: the real vertices (the view's, or a grip edit's), where the moves put them.
+    const own = replaced ? replaced.vertices : entity.vertices;
+    if (own && own.length >= 2) {
+      const closed = replaced ? replaced.closed : (entity.closed ?? drawn.closed);
+      const vertices = isPageRow(entity) && !replaced ? [...own] : transformVertices(own, moved);
+      return { type: 'polyline', points: drawn.points, closed, vertices };
+    }
     return { type: 'polyline', points: drawn.points, closed: drawn.closed };
+  }
+  if (kind === 'ELLIPSE' && !replaced && entity.ellipse) {
+    // ADR-062: the view's own ellipse; grips at the centre and the four axis ends.
+    const e = entity.ellipse;
+    const at = (x: number, y: number) => applyAffine(moved, x, y);
+    const minorX = -e.majorY * e.ratio;
+    const minorY = e.majorX * e.ratio;
+    return {
+      type: 'ellipse',
+      center: at(e.x, e.y),
+      major: [at(e.x + e.majorX, e.y + e.majorY), at(e.x - e.majorX, e.y - e.majorY)],
+      minor: [at(e.x + minorX, e.y + minorY), at(e.x - minorX, e.y - minorY)],
+    };
   }
   if (!drawn) return { type: 'other', kind, box: drawnBox(scene, preview, index) };
   const pts = drawn.points;
@@ -238,6 +296,8 @@ export function polygonArea(points: readonly Xy[]): number {
 
 /** AutoCAD's object name in the Properties palette. */
 export function objectName(geometry: EntityGeometry | null, kind: string): string {
+  // A donut is a polyline in AutoCAD.
+  if (kind.toUpperCase() === 'DONUT') return 'Polyline';
   switch (geometry?.type) {
     case 'line':
       return 'Line';
@@ -265,6 +325,7 @@ export function objectName(geometry: EntityGeometry | null, kind: string): strin
         MLEADER: 'Multileader',
         SOLID: '2D Solid',
         WIPEOUT: 'Wipeout',
+        ACAD_TABLE: 'Table',
       };
       return names[k] ?? k.charAt(0) + k.slice(1).toLowerCase();
     }
