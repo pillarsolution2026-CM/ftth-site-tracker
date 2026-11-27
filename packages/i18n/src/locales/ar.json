@@ -2418,6 +2418,7 @@
         "boundaryDone": "BOUNDARY created 1 polyline",
         "arraySettings": "Type = Rectangular  Associative = No",
         "arrayCount": "{columns} column(s) x {rows} row(s)",
+        "recovered": "رجّعنا {count} تعديل ما اتحفظوش المرة اللي فاتت (حفظ تلقائي {time}). Ctrl+Z يشيلهم؛ حفظ يثبّتهم.",
         "chamferSettings": "({mode} mode) Current chamfer Dist1 = {d1}, Dist2 = {d2}",
         "chamferSettingsAngle": "({mode} mode) Current chamfer Length = {length}, Angle = {angle}",
         "arrayPolarSettings": "Type = Polar  Associative = No",

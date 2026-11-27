@@ -77,6 +77,14 @@ export function editRef(edit: CanvasEdit): string | null {
   return ref;
 }
 
+/**
+ * Gives a restored edit (autosave, round 3) the ref it had, so later restored edits naming its
+ * `NEW-<ref>` keep pointing at it. Ignored for an edit that adds nothing or has a ref already.
+ */
+export function adoptRef(edit: CanvasEdit, ref: string): void {
+  if (addsItem(edit) && !refs.has(edit) && /^[A-Za-z0-9_-]{1,40}$/.test(ref)) refs.set(edit, ref);
+}
+
 /** The handle the item an unsaved edit adds has on the page (`NEW-<ref>`), or undefined. */
 export function editHandle(edit: CanvasEdit): string | undefined {
   const ref = editRef(edit);

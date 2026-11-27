@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MessageKey } from '@ftth/i18n';
 import { errorCodeOf, errorReasonOf } from '@/shared/api/bff-client';
 import { useI18n } from '@/shared/i18n/locale-provider';
@@ -150,6 +150,7 @@ import type { TableSpec } from '../model/table';
 import { hatchLoopCount, hatchPending, isHatchCommand, type HatchSettings } from './hatch-command';
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import { useHistory, type HistoryPart, type UndoHistory } from './use-history';
+import { loadUnsaved, saveUnsaved } from '../model/edit-autosave';
 import type { LayerScreen } from './use-layer-screen';
 import { moreTransparent, moreWord, transparentLabel } from './more-commands';
 import type { UndoControl, ZoomView } from './view-commands';
@@ -1108,6 +1109,30 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     setEdits((previous) => addEdits(previous, added));
     setError(null);
     return added.map((_, i) => at + i);
+  };
+
+  // ---------- autosave (phase 3E, AutoCAD's SAVETIME + Drawing Recovery) ----------
+  // Off until edit mode is entered, so the empty list of a fresh page does not wipe what a closed
+  // tab left; from then on every change of the unsaved edits is kept (none: cleared).
+  const autosaveOn = useRef(false);
+  useEffect(() => {
+    if (autosaveOn.current) saveUnsaved(cadFileId, edits);
+  }, [cadFileId, edits]);
+  const recoverUnsaved = () => {
+    const armed = autosaveOn.current;
+    autosaveOn.current = true;
+    if (armed || edits.length > 0) return;
+    const back = loadUnsaved(cadFileId);
+    if (!back) return;
+    // One Undo step takes them back; «حفظ» keeps them.
+    undoHistory.record('RECOVER', 'edits', { edits, currentLayer });
+    setEdits(back.edits);
+    say(
+      msg('recovered', {
+        count: back.edits.length,
+        time: back.savedAt.slice(0, 16).replace('T', ' '),
+      }),
+    );
   };
 
   const geometryMessage = (caught: unknown) => {
@@ -3539,6 +3564,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     start: () => {
       setEditing(true);
       setError(null);
+      recoverUnsaved();
       setFocusNonce((n) => n + 1);
     },
     command: run?.cmd ?? null,

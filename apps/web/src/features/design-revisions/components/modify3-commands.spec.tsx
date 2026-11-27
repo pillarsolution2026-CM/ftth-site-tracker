@@ -218,3 +218,29 @@ describe('ARRAYPOLAR / ARRAYPATH / CHAMFER (audit 4.2)', { timeout: 60_000 }, ()
     ]);
   });
 });
+
+describe('autosave and recovery of unsaved edits (phase 3E)', { timeout: 60_000 }, () => {
+  it('an edit not saved is kept; entering edit mode again brings it back for Save', async () => {
+    window.localStorage.setItem(
+      `ftth.cad.unsaved.${FILE_ID}`,
+      JSON.stringify({
+        v: 1,
+        savedAt: '2026-11-27T09:30:00.000Z',
+        items: [{ edit: { kind: 'erase_item', handle: 'B' }, ref: null }],
+      }),
+    );
+    const { user } = await openWorkspace();
+    expect(history()).toContain('Recovered 1 edit(s) not saved last time');
+    await type(user, 'e');
+    await save(user);
+    expect(sent()).toEqual([{ kind: 'erase_item', handle: 'B' }]);
+  });
+
+  it('keeps each change while editing', async () => {
+    const { canvas, user } = await openWorkspace();
+    await clickAt(user, canvas, 75, 25);
+    await user.keyboard('{Delete}');
+    const kept = JSON.parse(window.localStorage.getItem(`ftth.cad.unsaved.${FILE_ID}`) ?? '{}');
+    expect(kept.items).toEqual([{ edit: { kind: 'erase_item', handle: 'B' }, ref: null }]);
+  });
+});

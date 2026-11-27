@@ -2418,6 +2418,7 @@
         "boundaryDone": "CONTOUR a créé 1 polyligne",
         "arraySettings": "Type = Rectangulaire  Associatif = Non",
         "arrayCount": "{columns} colonne(s) x {rows} rangée(s)",
+        "recovered": "{count} modification(s) non enregistrée(s) la dernière fois récupérée(s) (enregistrement automatique de {time}). Ctrl+Z les retire ; Enregistrer les garde.",
         "chamferSettings": "(mode {mode}) Chanfrein courant Dist1 = {d1}, Dist2 = {d2}",
         "chamferSettingsAngle": "(mode {mode}) Chanfrein courant Longueur = {length}, Angle = {angle}",
         "arrayPolarSettings": "Type = Polaire  Associatif = Non",
