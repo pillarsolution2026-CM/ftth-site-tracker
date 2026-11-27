@@ -493,11 +493,12 @@ def test_circles_arcs_and_ellipses_keep_their_parameters(tmp_path: Path) -> None
     assert circle is not None and circle.arc == ViewArc(3, 4, 2, 0, 360)
     arc = entities[h["arc"]].geometry
     assert arc is not None and arc.arc is not None
-    assert (arc.arc.r, arc.arc.start, arc.arc.end) == (5, pytest.approx(30), pytest.approx(120))
+    assert arc.arc.r == 5
+    assert arc.arc.start == pytest.approx(30) and arc.arc.end == pytest.approx(120)
     # Extrusion (0, 0, -1): OCS 0..90 is WCS 90..180 counter-clockwise.
     flipped = entities[h["flipped"]].geometry
     assert flipped is not None and flipped.arc is not None
-    assert (flipped.arc.start, flipped.arc.end) == (pytest.approx(90), pytest.approx(180))
+    assert flipped.arc.start == pytest.approx(90) and flipped.arc.end == pytest.approx(180)
     ellipse = entities[h["ellipse"]].geometry
     assert ellipse is not None and ellipse.ellipse is not None
     e = ellipse.ellipse

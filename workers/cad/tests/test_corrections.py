@@ -1193,7 +1193,7 @@ def test_an_added_curve_is_edited_by_its_fix_handle() -> None:
         SetCurve(fx(1), ((0, 0), (5, 0)), False),
         MoveLayer(fx(1), "R2"),
         SetStyle(fx(1), "#ff0000", None, None),
-        SetOrder(fx(1), "front"),
+        SetOrder(fx(1), 1.0),
     )
     assert len(out.curves) == 1
     assert out.curves[0].layer == "R2" and out.curves[0].points == ((0, 0), (5, 0))
