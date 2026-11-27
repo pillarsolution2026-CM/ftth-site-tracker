@@ -2366,6 +2366,7 @@
         "notCurve": "Object is not a line or polyline.",
         "notText": "Object is not a text.",
         "sameObject": "Cannot fillet an object with itself.",
+        "notAdjacent": "Cannot fillet polyline segments that are not adjacent.",
         "filletSettings": "Current settings: Mode = {mode}, Radius = {radius}",
         "offsetSettings": "Current settings: Erase source={erase}  Layer={layer}  OFFSETGAPTYPE=0",
         "matchSettings": "Current active settings: {settings}",

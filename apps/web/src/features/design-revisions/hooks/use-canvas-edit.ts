@@ -17,6 +17,7 @@ import {
   translation,
   type Affine,
 } from '../model/affine';
+import { cornerOnOne } from '../model/same-polyline';
 import { arcOffset, fencePicks, throughArcDistance, type ArcShape } from '../model/trim-offset';
 import {
   acadAngle,
@@ -2450,13 +2451,29 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
-        if (index === r.target || first === handle) {
-          say(msg('sameObject'));
-          return;
-        }
         try {
           // Shift-select: a sharp corner (radius 0) whatever the radius set.
           const radius = shift ? 0 : filletRadius;
+          if (index === r.target || first === handle) {
+            // Two adjacent segments of one polyline: the corner is rounded inside it (AutoCAD).
+            const one = cornerOnOne(a.points, a.closed, pt(r.targetAt), pt(at), (x, y) =>
+              fillet(x, y, radius),
+            );
+            if (!one) {
+              say(msg('notAdjacent'));
+              return;
+            }
+            if (!filletTrim) {
+              if (one.added.length >= 2) {
+                add([pointsCurveEdit(layerNameOf(r.target), one.added, false)]);
+              }
+            } else add([setCurveEdit(first, one.points, one.closed)]);
+            if (r.flags.multiple) {
+              go(r, 'filletFirst', { target: null, targetAt: null });
+              setSelection(NONE);
+            } else finish();
+            return;
+          }
           const [p, q, arc] = fillet(
             { points: a.points, closed: a.closed, pick: pt(r.targetAt) },
             { points: b.points, closed: b.closed, pick: pt(at) },

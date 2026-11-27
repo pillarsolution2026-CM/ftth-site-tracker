@@ -10,6 +10,7 @@ import {
 } from '../model/canvas-edit';
 import { drawnBox } from '../model/entity-geometry';
 import { chamfer, type Pt } from '../model/geometry';
+import { cornerOnOne } from '../model/same-polyline';
 import type { ExtraContext, ExtraRun } from './extra-commands';
 
 /**
@@ -589,10 +590,6 @@ export function modify3Object<R extends ExtraRun>(
     ctx.say(ctx.msg('notCurve'));
     return;
   }
-  if (firstHandle === handle) {
-    ctx.say(ctx.msg('sameObject'));
-    return;
-  }
   const c = settingsOf(ctx).chamfer;
   let d1 = c.d1;
   let d2 = c.d2;
@@ -602,7 +599,31 @@ export function modify3Object<R extends ExtraRun>(
   }
   // Shift-select: a sharp corner (distances 0), as AutoCAD.
   if (shift) d1 = d2 = 0;
+  const next = () => {
+    if (d.multiple) {
+      ctx.setSelection(new Set());
+      go(ctx, r, 'm3_chamFirst', { first: undefined });
+    } else ctx.finish();
+  };
   try {
+    if (firstHandle === handle) {
+      // Two adjacent segments of one polyline: the corner is cut inside it (AutoCAD).
+      const one = cornerOnOne(a.points, a.closed, [first.at.x, first.at.y], [at.x, at.y], (x, y) =>
+        chamfer(x, y, d1, d2),
+      );
+      if (!one) {
+        ctx.say(ctx.msg('notAdjacent'));
+        return;
+      }
+      const edits: CanvasEdit[] = [];
+      if (c.trim) edits.push(setCurveEdit(firstHandle, one.points, one.closed));
+      else if (one.added.length >= 2) {
+        edits.push(pointsCurveEdit(ctx.layerNameOf(first.index), one.added, false));
+      }
+      if (edits.length > 0) ctx.add(edits);
+      next();
+      return;
+    }
     const [p, q, line] = chamfer(
       { points: a.points, closed: a.closed, pick: [first.at.x, first.at.y] },
       { points: geom.points, closed: geom.closed, pick: [at.x, at.y] },
@@ -613,10 +634,7 @@ export function modify3Object<R extends ExtraRun>(
     if (c.trim) edits.push(setCurveEdit(firstHandle, p, false), setCurveEdit(handle, q, false));
     if (line.length >= 2) edits.push(pointsCurveEdit(ctx.layerNameOf(first.index), line, false));
     if (edits.length > 0) ctx.add(edits);
-    if (d.multiple) {
-      ctx.setSelection(new Set());
-      go(ctx, r, 'm3_chamFirst', { first: undefined });
-    } else ctx.finish();
+    next();
   } catch (caught) {
     ctx.geometryMessage(caught);
   }

@@ -2117,6 +2117,25 @@ describe(
       expect(first[1]).toBeCloseTo(25, 5);
     });
 
+    it('FILLET on two adjacent segments of one polyline rounds its corner (AutoCAD)', async () => {
+      const { canvas, user } = await openWorkspace();
+      await type(user, 'f');
+      await user.click(screen.getByRole('button', { name: 'Radius' }));
+      await type(user, '5');
+      // Route A runs 0,0 → 50,0 → 50,25: its two segments meet at 50,0.
+      await click(user, canvas, 25, 0);
+      await click(user, canvas, 50, 15);
+      await save(user);
+      const [a] = sent();
+      expect(a).toMatchObject({ kind: 'set_curve', handle: 'A', closed: false });
+      const pts = a?.points as number[][];
+      expect(pts[0]).toEqual([0, 0]);
+      expect(pts[1]?.[0]).toBeCloseTo(45, 5);
+      expect(pts[pts.length - 2]?.[1]).toBeCloseTo(5, 5);
+      expect(pts[pts.length - 1]).toEqual([50, 25]);
+      expect(history()).not.toMatch(/Cannot fillet an object with itself/);
+    });
+
     it('STRETCH moves the vertices in a crossing window; JOIN merges picked lines', async () => {
       const { canvas, user } = await openWorkspace();
       await type(user, 's');

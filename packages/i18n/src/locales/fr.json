@@ -2366,6 +2366,7 @@
         "notCurve": "L'objet n'est pas une ligne ni une polyligne.",
         "notText": "L'objet n'est pas un texte.",
         "sameObject": "Impossible de raccorder un objet avec lui-même.",
+        "notAdjacent": "Impossible de raccorder des segments de polyligne non adjacents.",
         "filletSettings": "Paramètres courants : Mode = {mode}, Rayon = {radius}",
         "offsetSettings": "Paramètres courants : Effacer source={erase}  Calque={layer}  OFFSETGAPTYPE=0",
         "matchSettings": "Paramètres actifs courants : {settings}",
