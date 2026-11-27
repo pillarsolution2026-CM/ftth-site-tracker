@@ -18,7 +18,14 @@ import {
   type Affine,
 } from '../model/affine';
 import { cornerOnOne } from '../model/same-polyline';
-import { arcOffset, fencePicks, throughArcDistance, type ArcShape } from '../model/trim-offset';
+import {
+  arcOffset,
+  extendArc,
+  fencePicks,
+  throughArcDistance,
+  trimAtPicks,
+  type ArcShape,
+} from '../model/trim-offset';
 import {
   acadAngle,
   acadNumber,
@@ -2364,14 +2371,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       if (shown.erased.has(index) || !pickable(index)) return;
       const geom = curveGeom(index, TRIM_KINDS);
       if (!geom) return;
-      const [pick] = fencePicks(geom.points, geom.closed, a, b);
-      if (!pick) return;
-      try {
-        const edges = trimEdgesFor(r, index, geom.points, false);
-        out.push(...trimPieceEdits(index, entity.handle, geom, edges, pick));
-      } catch (caught) {
-        if (!(caught instanceof GeometryError)) throw caught;
-      }
+      const picks = fencePicks(geom.points, geom.closed, a, b);
+      if (picks.length === 0) return;
+      // Every crossing of the fence removes its piece (AutoCAD), not only the first.
+      const edges = trimEdgesFor(r, index, geom.points, false);
+      const { pieces, cut } = trimAtPicks(geom.points, geom.closed, edges, picks);
+      if (!cut) return;
+      const [first, ...rest] = pieces;
+      if (!first) out.push({ kind: 'erase_item', handle: entity.handle });
+      else out.push(setCurveEdit(entity.handle, first, false));
+      for (const piece of rest) out.push(pointsCurveEdit(layerNameOf(index), piece, false));
     });
     if (out.length === 0) return;
     const made = add(out);
@@ -2395,8 +2404,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     switch (r.step) {
       case 'trimPick': {
         const extending = shift !== (r.cmd === 'extend');
-        // Arcs and circles are trimmed too; EXTEND stays on lines and polylines.
-        const geom = curveGeom(index, extending ? CURVE_KINDS : TRIM_KINDS);
+        // Arcs and circles are trimmed; lines, polylines and arcs are extended (AutoCAD).
+        const geom = curveGeom(index, extending ? JOIN_KINDS : TRIM_KINDS);
         if (!geom) {
           say(msg('notCurve'));
           return;
@@ -2413,7 +2422,33 @@ export function useCanvasEdit(input: Input): CanvasEditState {
               say(msg('notCurve'));
               return;
             }
-            out.push(setCurveEdit(handle, extendCurve(geom.points, edgeList, pt(at)), false));
+            const arc = scene.view.entities[index]?.kind === 'ARC' ? arcShapeOf(index) : null;
+            if (arc) {
+              // An arc runs on along its own circle, and stays a true arc.
+              const next = extendArc(arc, edgeList, pt(at));
+              const sweep = next.end - next.start;
+              const points = arcPoints(
+                [next.x, next.y],
+                next.r,
+                (next.start * Math.PI) / 180,
+                (sweep * Math.PI) / 180,
+              );
+              const round = (v: number) => Math.round(v * 1e6) / 1e6;
+              const base = setCurveEdit(handle, points, false);
+              if (base.kind !== 'set_curve') return;
+              out.push({
+                ...base,
+                arc: {
+                  x: round(next.x),
+                  y: round(next.y),
+                  r: round(next.r),
+                  start: round(next.start),
+                  end: round(next.end),
+                },
+              });
+            } else {
+              out.push(setCurveEdit(handle, extendCurve(geom.points, edgeList, pt(at)), false));
+            }
           } else {
             out.push(...trimPieceEdits(index, handle, geom, edgeList, pt(at)));
           }

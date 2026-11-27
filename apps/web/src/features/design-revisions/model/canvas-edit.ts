@@ -351,7 +351,8 @@ function crossesBox(
     const pts: [number, number][] = [];
     for (let i = 0; i + 1 < path.length; i += 2)
       pts.push(at(path[i] as number, path[i + 1] as number));
-    if (chain(pts, false)) return true;
+    // A filled area (hatch, solid, wipeout) is touched by a box inside it too (AutoCAD).
+    if (chain(pts, FILLED_KINDS.has(entity.kind))) return true;
   }
   for (const text of entity.texts) {
     const rad = (text.rotation * Math.PI) / 180;
@@ -371,6 +372,8 @@ function crossesBox(
   }
   return false;
 }
+
+const FILLED_KINDS = new Set(['HATCH', 'SOLID', 'WIPEOUT']);
 
 const pointIn = (p: readonly [number, number], b: Bounds) =>
   p[0] >= b.minX && p[0] <= b.maxX && p[1] >= b.minY && p[1] <= b.maxY;

@@ -63,6 +63,21 @@ describe('canvas edits (ADR-047)', () => {
     expect(entitiesInBand(scene, { x0: 61, y0: 41, x1: 59, y1: 43 }, all)).toEqual([]);
   });
 
+  it('a crossing box inside a hatch takes it; inside a plain outline it does not', () => {
+    const square = [0, 0, 10, 0, 10, 10, 0, 10, 0, 0];
+    const view = testView();
+    const [first, second] = view.entities;
+    if (!first || !second) throw new Error('test view');
+    const fill = buildScene({
+      ...view,
+      entities: [
+        { ...first, kind: 'HATCH', paths: [square] },
+        { ...second, kind: 'LWPOLYLINE', paths: [square] },
+      ],
+    });
+    expect(entitiesInBand(fill, { x0: 6, y0: 4, x1: 4, y1: 6 }, all)).toEqual([0]);
+  });
+
   it('a crossing box takes a text by its rotated box, not by the culling box around it', () => {
     // T1 'F 36 C' at 30,30, height 2.5, unrotated: its box is 30..~39 × 30..32.5.
     expect(entitiesInBand(scene, { x0: 32, y0: 31, x1: 31, y1: 33 }, all)).toEqual([3]);
