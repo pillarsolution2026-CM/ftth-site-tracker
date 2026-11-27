@@ -45,11 +45,29 @@ describe('canvas edits (ADR-047)', () => {
     const windowBand = { x0: 19, y0: 19, x1: 23, y1: 23 };
     expect(isCrossing(windowBand)).toBe(false);
     expect(entitiesInBand(scene, windowBand, all)).toEqual([2]);
-    // Same box dragged to the left: route A (0,0 → 50,25) is touched too.
+    // Same box dragged to the left: route A (0,0 → 50,0 → 50,25) only has its bounding box there,
+    // its segments do not pass through the box, so it is not taken (AutoCAD tests the geometry).
     const crossing = { x0: 23, y0: 19, x1: 19, y1: 23 };
     expect(isCrossing(crossing)).toBe(true);
-    expect(entitiesInBand(scene, crossing, all)).toEqual([0, 2]);
-    expect(entitiesInBand(scene, crossing, (index) => index !== 0)).toEqual([2]);
+    expect(entitiesInBand(scene, crossing, all)).toEqual([2]);
+    // A crossing box over A's vertical segment takes it.
+    const overA = { x0: 52, y0: 10, x1: 48, y1: 12 };
+    expect(entitiesInBand(scene, overA, all)).toEqual([0]);
+    expect(entitiesInBand(scene, overA, (index) => index !== 0)).toEqual([]);
+  });
+
+  it('a crossing box takes a segment that passes through it with no vertex inside', () => {
+    // H1 runs 0,40 → 100,40: a small box around 60,40 holds no vertex, only the segment.
+    expect(entitiesInBand(scene, { x0: 61, y0: 39, x1: 59, y1: 41 }, all)).toEqual([4]);
+    // A box just above H1 inside its (flat) bounding box range in x does not touch it.
+    expect(entitiesInBand(scene, { x0: 61, y0: 41, x1: 59, y1: 43 }, all)).toEqual([]);
+  });
+
+  it('a crossing box takes a text by its rotated box, not by the culling box around it', () => {
+    // T1 'F 36 C' at 30,30, height 2.5, unrotated: its box is 30..~39 × 30..32.5.
+    expect(entitiesInBand(scene, { x0: 32, y0: 31, x1: 31, y1: 33 }, all)).toEqual([3]);
+    // Below the text but inside its far culling box: not taken.
+    expect(entitiesInBand(scene, { x0: 33, y0: 26, x1: 31, y1: 28 }, all)).toEqual([]);
   });
 
   it('knows texts, and counts an insert of several shapes once', () => {

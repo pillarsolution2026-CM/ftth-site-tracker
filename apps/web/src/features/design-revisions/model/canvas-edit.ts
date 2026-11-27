@@ -3,7 +3,7 @@ import {
   type CreateDrawingCorrectionRequest,
   type DrawingCorrectionInput,
 } from '@ftth/shared';
-import { boxThrough, type Affine } from './affine';
+import { applyAffine, boxThrough, type Affine } from './affine';
 import { applyInputs, stepOfInput, type DrawingPreview } from './drawing-preview';
 import { boxOf, TEXT_WIDTH_FACTOR, type DrawingScene } from './drawing-scene';
 import type { Bounds } from './view-transform';
@@ -310,9 +310,108 @@ export function entitiesInBand(
     const box = moved ? boxThrough(moved, drawn) : drawn;
     const inside = box.minX >= minX && box.maxX <= maxX && box.minY >= minY && box.maxY <= maxY;
     const touches = box.maxX >= minX && box.minX <= maxX && box.maxY >= minY && box.minY <= maxY;
-    if ((crossing ? touches : inside) && isShown(index)) out.push(index);
+    const picked = crossing
+      ? touches &&
+        (inside || crossesBox(scene, index, { minX, minY, maxX, maxY }, moved, replaced?.points))
+      : inside;
+    if (picked && isShown(index)) out.push(index);
   }
   return out;
+}
+
+/**
+ * AutoCAD's crossing test on what is drawn, not its bounding box: a segment of a path passes
+ * through the box (or lies in it), or a text's rotated box overlaps it.
+ */
+function crossesBox(
+  scene: DrawingScene,
+  index: number,
+  box: Bounds,
+  moved: Affine | undefined,
+  points: readonly (readonly [number, number])[] | undefined,
+): boolean {
+  const at = (x: number, y: number): [number, number] => {
+    if (!moved) return [x, y];
+    const p = applyAffine(moved, x, y);
+    return [p.x, p.y];
+  };
+  const chain = (pts: readonly (readonly [number, number])[], closed: boolean) => {
+    if (pts.length === 1) return pointIn(pts[0] as readonly [number, number], box);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      if (segmentMeetsBox(pts[i] as [number, number], pts[i + 1] as [number, number], box)) {
+        return true;
+      }
+    }
+    return closed && pts.length > 2 && polygonHolds(pts, box);
+  };
+  if (points) return chain(points, false);
+  const entity = scene.view.entities[index];
+  if (!entity) return false;
+  for (const path of entity.paths) {
+    const pts: [number, number][] = [];
+    for (let i = 0; i + 1 < path.length; i += 2)
+      pts.push(at(path[i] as number, path[i + 1] as number));
+    if (chain(pts, false)) return true;
+  }
+  for (const text of entity.texts) {
+    const rad = (text.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const width = Math.max(text.height, text.text.length * text.height * TEXT_WIDTH_FACTOR * 0.75);
+    const corners = (
+      [
+        [0, 0],
+        [width, 0],
+        [width, text.height],
+        [0, text.height],
+        [0, 0],
+      ] as const
+    ).map(([u, v]) => at(text.x + u * cos - v * sin, text.y + u * sin + v * cos));
+    if (chain(corners, true)) return true;
+  }
+  return false;
+}
+
+const pointIn = (p: readonly [number, number], b: Bounds) =>
+  p[0] >= b.minX && p[0] <= b.maxX && p[1] >= b.minY && p[1] <= b.maxY;
+
+/** Liang–Barsky: does the segment a→b meet the box (touching counts)? */
+function segmentMeetsBox(a: [number, number], b: [number, number], box: Bounds): boolean {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number) => {
+    if (p === 0) return q >= 0;
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+  return (
+    clip(-dx, a[0] - box.minX) &&
+    clip(dx, box.maxX - a[0]) &&
+    clip(-dy, a[1] - box.minY) &&
+    clip(dy, box.maxY - a[1])
+  );
+}
+
+/** Is the box (its centre) inside the closed polygon (a text's box around a small band)? */
+function polygonHolds(pts: readonly (readonly [number, number])[], box: Bounds): boolean {
+  const x = (box.minX + box.maxX) / 2;
+  const y = (box.minY + box.maxY) / 2;
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i] as readonly [number, number];
+    const [xj, yj] = pts[j] as readonly [number, number];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 function pointsBox(points: readonly (readonly [number, number])[]): Bounds {
