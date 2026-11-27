@@ -1143,6 +1143,45 @@ def test_add_curve_accepts_a_true_arc_and_ignores_it() -> None:
             parse_corrections([{"id": ID1, "correction": {**body, "arc": arc}}])
 
 
+def test_curves_accept_real_vertices_and_arcs_and_ignore_them() -> None:
+    """ADR-062: set_curve / add_curve may carry the screen's vertices [x, y, bulge] (and a
+    set_curve a true arc); the rows read `points` only."""
+    vertices = [[0, 0, 1], [2, 0, 0], [2, 2, -0.5]]
+    set_body: dict[str, Any] = {
+        "kind": "set_curve",
+        "handle": "c1",
+        "points": [[0, 0], [2, 0]],
+        "closed": False,
+        "vertices": vertices,
+        "arc": {"x": 1, "y": 0, "r": 1, "start": 180, "end": 360},
+    }
+    parsed = parse_corrections([{"id": ID1, "correction": set_body}])
+    assert parsed[0].correction == SetCurve("c1", ((0, 0), (2, 0)), False)
+    add_body: dict[str, Any] = {
+        "kind": "add_curve",
+        "layer": "R",
+        "points": [[0, 0], [2, 0]],
+        "closed": False,
+        "vertices": vertices,
+    }
+    assert type(
+        parse_corrections([{"id": ID1, "correction": add_body}])[0].correction
+    ).__name__ == ("AddCurve")
+    for bad in (
+        [[0, 0, 0]],
+        [[0, 0, 1001], [1, 0, 0]],
+        [[0, 0], [1, 0]],
+        [[0, float("nan"), 0], [1, 0, 0]],
+        [[0, 0, True], [1, 0, 0]],
+        "v",
+    ):
+        for body in (set_body, add_body):
+            with pytest.raises(CorrectionInvalidError):
+                parse_corrections([{"id": ID1, "correction": {**body, "vertices": bad}}])
+    with pytest.raises(CorrectionInvalidError):
+        parse_corrections([{"id": ID1, "correction": {**set_body, "arc": {"x": 0}}}])
+
+
 def test_an_added_curve_is_edited_by_its_fix_handle() -> None:
     out = apply(
         empty(),

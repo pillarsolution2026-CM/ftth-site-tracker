@@ -45,6 +45,12 @@ DRAWING_VIEW_MAX_PARTS = 1_000_000
 # Keys kept per counter in the job event (the rest is summed under "other").
 STATS_MAX_KEYS = 50
 
+# Real vertices kept per polyline and |bulge| (contract DRAWING_VIEW_MAX_ENTITY_VERTICES /
+# DRAWING_VIEW_MAX_BULGE, ADR-062); a longer polyline keeps only its path.
+DRAWING_VIEW_MAX_ENTITY_VERTICES = 2000
+DRAWING_VIEW_MAX_BULGE = 1000.0
+BULGE_DECIMALS = 9
+
 COORD_DECIMALS = 4
 # Curves are flattened with a sagitta of at most this fraction of the drawing diagonal …
 EXTENTS_SAGITTA_RATIO = 1e-5
@@ -106,6 +112,41 @@ class ViewInsert:
 
 
 @dataclass(frozen=True, slots=True)
+class ViewArc:
+    """A CIRCLE's / ARC's centre, radius and angles (degrees, counter-clockwise; circle 0-360)."""
+
+    x: float
+    y: float
+    r: float
+    start: float
+    end: float
+
+
+@dataclass(frozen=True, slots=True)
+class ViewEllipse:
+    """An ELLIPSE: centre, major axis end relative to it, ratio, parameters (radians, CCW)."""
+
+    x: float
+    y: float
+    major_x: float
+    major_y: float
+    ratio: float
+    start: float
+    end: float
+
+
+@dataclass(frozen=True, slots=True)
+class ViewGeometry:
+    """An entity's own geometry besides its flattened paths (ADR-062, owner item 33): a 2D
+    polyline's real vertices (x, y, bulge) and closed flag, a circle / arc, or an ellipse."""
+
+    vertices: tuple[tuple[float, float, float], ...] | None = None
+    closed: bool | None = None
+    arc: ViewArc | None = None
+    ellipse: ViewEllipse | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ViewEntity:
     handle: str
     layer: int
@@ -114,6 +155,7 @@ class ViewEntity:
     paths: tuple[tuple[float, ...], ...]  # flat [x0, y0, x1, y1, …], ≥ 2 points each
     texts: tuple[ViewText, ...]
     insert: ViewInsert | None = None
+    geometry: ViewGeometry | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +209,62 @@ def shape_sagitta(drawing_sagitta: float, shape_size: float) -> float:
 def _round(value: float) -> float:
     rounded = round(value, COORD_DECIMALS)
     return rounded + 0.0  # -0.0 -> 0.0
+
+
+def polyline_geometry(
+    vertices: Sequence[tuple[float, float, float]], closed: bool
+) -> ViewGeometry | None:
+    """A polyline's real vertices, rounded like the paths (bulges to `BULGE_DECIMALS`);
+    consecutive duplicates dropped (a zero-length segment). None when fewer
+    than two remain, more than `DRAWING_VIEW_MAX_ENTITY_VERTICES`, or a value is out of range."""
+    if len(vertices) > DRAWING_VIEW_MAX_ENTITY_VERTICES:
+        return None
+    out: list[tuple[float, float, float]] = []
+    for x, y, b in vertices:
+        if not all(math.isfinite(v) for v in (x, y, b)) or abs(b) > DRAWING_VIEW_MAX_BULGE:
+            return None
+        xy = (_round(x), _round(y))
+        bulge = round(b, BULGE_DECIMALS) + 0.0
+        if out and out[-1][:2] == xy:
+            out[-1] = (xy[0], xy[1], bulge)  # the next segment starts here with this bulge
+            continue
+        out.append((xy[0], xy[1], bulge))
+    if closed and len(out) > 2 and out[0][:2] == out[-1][:2]:
+        out.pop()
+    if len(out) < 2:
+        return None
+    return ViewGeometry(vertices=tuple(out), closed=closed)
+
+
+def arc_geometry(x: float, y: float, r: float, start: float, end: float) -> ViewGeometry | None:
+    """A circle / arc (degrees, CCW from `start` to `end` with end > start; a circle 0-360)."""
+    values = (x, y, r, start, end)
+    if not all(math.isfinite(v) for v in values) or r <= 0:
+        return None
+    return ViewGeometry(
+        arc=ViewArc(_round(x), _round(y), _round(r), round(start, 6) + 0.0, round(end, 6) + 0.0)
+    )
+
+
+def ellipse_geometry(
+    x: float, y: float, major_x: float, major_y: float, ratio: float, start: float, end: float
+) -> ViewGeometry | None:
+    values = (x, y, major_x, major_y, ratio, start, end)
+    if not all(math.isfinite(v) for v in values) or not 0 < ratio <= 1:
+        return None
+    if major_x == 0 and major_y == 0:
+        return None
+    return ViewGeometry(
+        ellipse=ViewEllipse(
+            _round(x),
+            _round(y),
+            _round(major_x),
+            _round(major_y),
+            round(ratio, 9),
+            round(start, 9) + 0.0,
+            round(end, 9) + 0.0,
+        )
+    )
 
 
 class BudgetExceededError(Exception):
@@ -341,9 +439,10 @@ class DrawingViewBuilder:
         kind: str,
         shapes: EntityShapes,
         insert: ViewInsert | None = None,
+        geometry: ViewGeometry | None = None,
     ) -> bool:
         """Add an entity's shapes (collected within `shapes()` budgets). False when nothing of
-        it was kept."""
+        it was kept. `geometry` is kept only when all of the entity's paths were kept."""
         if shapes.paths_overflow:
             self._paths_full = True
         if shapes.texts_overflow:
@@ -377,6 +476,7 @@ class DrawingViewBuilder:
                 paths=tuple(paths),
                 texts=tuple(texts),
                 insert=insert,
+                geometry=geometry if len(paths) == len(shapes.paths) and paths else None,
             )
         )
         return True
@@ -459,6 +559,30 @@ def _entity_json(e: ViewEntity) -> dict[str, object]:
             "scaleX": i.scale_x,
             "scaleY": i.scale_y,
             "name": i.name,
+        }
+    if e.geometry is not None:
+        out.update(_geometry_json(e.geometry))
+    return out
+
+
+def _geometry_json(g: ViewGeometry) -> dict[str, object]:
+    out: dict[str, object] = {}
+    if g.vertices is not None:
+        out["vertices"] = [{"x": x, "y": y, "bulge": b} for x, y, b in g.vertices]
+        out["closed"] = bool(g.closed)
+    if g.arc is not None:
+        a = g.arc
+        out["arc"] = {"x": a.x, "y": a.y, "r": a.r, "start": a.start, "end": a.end}
+    if g.ellipse is not None:
+        el = g.ellipse
+        out["ellipse"] = {
+            "x": el.x,
+            "y": el.y,
+            "majorX": el.major_x,
+            "majorY": el.major_y,
+            "ratio": el.ratio,
+            "start": el.start,
+            "end": el.end,
         }
     return out
 

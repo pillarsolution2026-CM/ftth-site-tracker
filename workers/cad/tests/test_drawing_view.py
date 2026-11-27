@@ -24,11 +24,13 @@ from cad_worker.domain.drawing_view import (
     DrawingView,
     DrawingViewBuilder,
     EntityShapes,
+    ViewArc,
     ViewEntity,
     ViewLayer,
     ViewTooLargeError,
     capped_counts,
     flat_path,
+    polyline_geometry,
     shape_sagitta,
     utf16_cut,
     view_sagitta,
@@ -272,7 +274,7 @@ def test_gzip_json_mirrors_the_contract(drawing: tuple[Path, dict[str, str]]) ->
     assert data["extents"] == {"minX": -20, "minY": -30, "maxX": 200, "maxY": 300}
     for entity in data["entities"]:
         base = {"handle", "layer", "color", "kind", "paths", "texts"}
-        assert set(entity) in (base, base | {"insert"})
+        assert set(entity) in (base, base | {"insert"}, base | {"vertices", "closed"})
         assert ("insert" in entity) == (entity["kind"] == "INSERT")
         assert 0 <= entity["layer"] < len(data["layers"])
         assert entity["color"] is None or HEX.match(entity["color"])
@@ -433,3 +435,107 @@ def test_subprocess_memory_limit_is_too_large(
             path, tmp_path / "v.gz", FILE_ID, None
         )
     assert info.value.code == "TOO_LARGE"
+
+
+# ---------- ADR-062: real vertices, circles / arcs, ellipses (owner item 33) ----------
+
+
+def _geometry_drawing(path: Path) -> dict[str, str]:
+    doc = new_dxf("R2018", setup=True)
+    msp = doc.modelspace()
+    h: dict[str, str] = {}
+    # A closed polyline: straight, a half circle (bulge 1), straight back.
+    h["pline"] = msp.add_lwpolyline(
+        [(0, 0, 0, 0, 0), (10, 0, 0, 0, 1), (10, 10, 0, 0, 0), (0, 10, 0, 0, 0)],
+        format="xyseb",
+        close=True,
+    ).dxf.handle
+    mirrored = msp.add_lwpolyline([(0, 0, 0, 0, 0.5), (4, 0)], format="xyseb")
+    mirrored.dxf.extrusion = (0, 0, -1)
+    h["mirrored"] = mirrored.dxf.handle
+    old = msp.add_polyline2d([(0, 0), (5, 0), (5, 5)])
+    old.vertices[0].dxf.bulge = -1.0
+    h["polyline2d"] = old.dxf.handle
+    h["circle"] = msp.add_circle((3, 4), 2).dxf.handle
+    h["arc"] = msp.add_arc((0, 0), 5, 30, 120).dxf.handle
+    flipped = msp.add_arc((0, 0), 5, 0, 90)
+    flipped.dxf.extrusion = (0, 0, -1)
+    h["flipped"] = flipped.dxf.handle
+    h["ellipse"] = msp.add_ellipse((1, 1), major_axis=(4, 0), ratio=0.5).dxf.handle
+    h["line"] = msp.add_line((0, 0), (1, 1)).dxf.handle
+    doc.saveas(path)
+    return h
+
+
+def test_polylines_keep_their_real_vertices_and_bulges(tmp_path: Path) -> None:
+    path = tmp_path / "geometry.dxf"
+    h = _geometry_drawing(path)
+    entities = _by_handle(EzdxfViewRenderer().render(path, FILE_ID, None).view)
+    pline = entities[h["pline"]]
+    assert pline.geometry is not None
+    assert pline.geometry.vertices == ((0, 0, 0), (10, 0, 1), (10, 10, 0), (0, 10, 0))
+    assert pline.geometry.closed is True
+    assert len(_points(pline.paths[0])) > 8  # the path stays flattened
+    # (0, 0, -1): x is negated and the bulge turns the other way.
+    mirrored = entities[h["mirrored"]].geometry
+    assert mirrored is not None and mirrored.vertices == ((0, 0, -0.5), (-4, 0, 0))
+    old = entities[h["polyline2d"]].geometry
+    assert old is not None and old.vertices == ((0, 0, -1), (5, 0, 0), (5, 5, 0))
+    assert old.closed is False
+    assert entities[h["line"]].geometry is None
+
+
+def test_circles_arcs_and_ellipses_keep_their_parameters(tmp_path: Path) -> None:
+    path = tmp_path / "geometry.dxf"
+    h = _geometry_drawing(path)
+    entities = _by_handle(EzdxfViewRenderer().render(path, FILE_ID, None).view)
+    circle = entities[h["circle"]].geometry
+    assert circle is not None and circle.arc == ViewArc(3, 4, 2, 0, 360)
+    arc = entities[h["arc"]].geometry
+    assert arc is not None and arc.arc is not None
+    assert (arc.arc.r, arc.arc.start, arc.arc.end) == (5, pytest.approx(30), pytest.approx(120))
+    # Extrusion (0, 0, -1): OCS 0..90 is WCS 90..180 counter-clockwise.
+    flipped = entities[h["flipped"]].geometry
+    assert flipped is not None and flipped.arc is not None
+    assert (flipped.arc.start, flipped.arc.end) == (pytest.approx(90), pytest.approx(180))
+    ellipse = entities[h["ellipse"]].geometry
+    assert ellipse is not None and ellipse.ellipse is not None
+    e = ellipse.ellipse
+    assert (e.x, e.y, e.major_x, e.major_y, e.ratio) == (1, 1, 4, 0, 0.5)
+    assert e.end - e.start == pytest.approx(2 * math.pi)
+
+
+def test_geometry_goes_to_the_json(tmp_path: Path) -> None:
+    path = tmp_path / "geometry.dxf"
+    h = _geometry_drawing(path)
+    view = EzdxfViewRenderer().render(path, FILE_ID, None).view
+    out = io.BytesIO()
+    write_view_gzip(view, out)
+    data = {e["handle"]: e for e in json.loads(gzip.decompress(out.getvalue()))["entities"]}
+    assert data[h["pline"]]["vertices"][1] == {"x": 10, "y": 0, "bulge": 1}
+    assert data[h["pline"]]["closed"] is True
+    assert data[h["circle"]]["arc"] == {"x": 3, "y": 4, "r": 2, "start": 0, "end": 360}
+    assert set(data[h["ellipse"]]["ellipse"]) == {
+        "x",
+        "y",
+        "majorX",
+        "majorY",
+        "ratio",
+        "start",
+        "end",
+    }
+    assert "vertices" not in data[h["line"]] and "arc" not in data[h["line"]]
+
+
+def test_polyline_geometry_bounds() -> None:
+    assert polyline_geometry([(0, 0, 0)], False) is None
+    assert polyline_geometry([(0, 0, 0), (0, 0, 1)], False) is None  # one point after duplicates
+    assert polyline_geometry([(0, 0, math.inf), (1, 0, 0)], False) is None
+    assert polyline_geometry([(0, 0, 1001), (1, 0, 0)], False) is None
+    assert polyline_geometry([(float(i), 0, 0) for i in range(2001)], False) is None
+    # A repeated vertex hands its bulge on: the next segment starts there.
+    g = polyline_geometry([(0, 0, 0), (0, 0, 0.5), (1, 0, 0)], False)
+    assert g is not None and g.vertices == ((0, 0, 0.5), (1, 0, 0))
+    # A closed one drawn back to its first point does not repeat it.
+    g = polyline_geometry([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 0, 0)], True)
+    assert g is not None and g.vertices is not None and len(g.vertices) == 3
