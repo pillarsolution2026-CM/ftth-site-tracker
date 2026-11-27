@@ -2062,6 +2062,44 @@ describe(
       ]);
     });
 
+    it('TRIM: a drag is a fence that trims what it crosses; OFFSET makes a circle concentric', async () => {
+      const { canvas, user } = await openWorkspace();
+      await chooseLayer(user, 'Route');
+      await type(user, 'l');
+      await type(user, '75,20');
+      await type(user, '75,30');
+      await type(user, '');
+      await type(user, 'tr');
+      // The fence 90,28 → 90,22 crosses B (50,25 → 100,25) right of the new line at x 75.
+      await drag(user, canvas, [90, 28], [90, 22]);
+      await type(user, '');
+      await type(user, 'c');
+      await type(user, '20,60');
+      await type(user, '5');
+      await type(user, 'o');
+      await type(user, '2');
+      await click(user, canvas, 25, 60);
+      await click(user, canvas, 40, 60);
+      await type(user, '');
+      await save(user);
+      const [, trim, circle, offset] = sent();
+      expect(trim).toEqual({
+        kind: 'set_curve',
+        handle: 'B',
+        points: [
+          [50, 25],
+          [75, 25],
+        ],
+        closed: false,
+      });
+      expect(circle).toMatchObject({ kind: 'add_curve', arc: { x: 20, y: 60, r: 5 } });
+      expect(offset).toMatchObject({
+        kind: 'add_curve',
+        closed: true,
+        arc: { x: 20, y: 60, r: 7, start: 0, end: 360 },
+      });
+    });
+
     it('FILLET with a radius sets both curves, the arc on the first', async () => {
       const { canvas, user } = await openWorkspace();
       await type(user, 'f');

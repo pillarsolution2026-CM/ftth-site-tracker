@@ -8,13 +8,16 @@ import { useSaveCorrections } from '../api/queries';
 import { MAX_CORRECTIONS_PER_SAVE } from '@ftth/shared';
 import { saveInChunks } from '../model/save-chunks';
 import {
+  angleOf,
   applyAffine,
   mirrorAcross,
   rotationAbout,
   scaleAbout,
+  scaleOf,
   translation,
   type Affine,
 } from '../model/affine';
+import { arcOffset, fencePicks, throughArcDistance, type ArcShape } from '../model/trim-offset';
 import {
   acadAngle,
   acadNumber,
@@ -58,6 +61,7 @@ import { boxOf, type DrawingScene } from '../model/drawing-scene';
 import { isPageRow, pageSceneOf } from '../model/page-scene';
 import { joinProblem, type JoinPiece } from '../model/join';
 import {
+  arcPoints,
   arcThrough,
   circlePoints,
   circleThrough,
@@ -497,6 +501,10 @@ const OBJECT_STEPS: readonly Step[] = [
   'dimSelect',
 ];
 
+/** TRIM waiting for the piece to remove: a drag there is a fence (AutoCAD quick mode). */
+const isTrimQuick = (run: Run | null): boolean =>
+  run !== null && run.cmd === 'trim' && run.step === 'trimPick';
+
 const isTextStep = (step: Step) =>
   TEXT_STEPS.includes(step) ||
   LAYER_TEXT_STEPS.includes(step) ||
@@ -508,6 +516,8 @@ const isObjectStep = (step: Step) =>
 const CURVE_KINDS = new Set(['LINE', 'LWPOLYLINE', 'POLYLINE']);
 /** JOIN also takes arcs, as AutoCAD (the joined polyline keeps the arc's points). */
 const JOIN_KINDS = new Set([...CURVE_KINDS, 'ARC']);
+/** TRIM and OFFSET also take arcs and circles (AutoCAD). */
+const TRIM_KINDS = new Set([...CURVE_KINDS, 'ARC', 'CIRCLE']);
 /** DXF type → the command that draws one like it (ADDSELECTED). */
 const DRAW_LIKE: Readonly<Record<string, CommandId>> = {
   LINE: 'line',
@@ -1052,6 +1062,27 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       closed = true;
     }
     return points.length >= 2 ? { points, closed } : null;
+  };
+
+  /** The true arc / circle of an entity as drawn now; null when it has none (or is mirrored). */
+  const arcShapeOf = (index: number): ArcShape | null => {
+    if (!scene || !shown) return null;
+    const replaced = shown.curveOf.get(index);
+    if (replaced) return replaced.arc ?? null;
+    const arc = scene.view.entities[index]?.arc;
+    if (!arc) return null;
+    const moved = shown.transformOf.get(index);
+    if (!moved) return arc;
+    if (moved[0] * moved[3] - moved[1] * moved[2] < 0) return null;
+    const c = applyAffine(moved, arc.x, arc.y);
+    const turn = angleOf(moved);
+    return {
+      x: c.x,
+      y: c.y,
+      r: arc.r * scaleOf(moved),
+      start: arc.start + turn,
+      end: arc.end + turn,
+    };
   };
 
   /** Every shown path near a box, as polylines: the cutting edges of TRIM. */
@@ -2248,16 +2279,38 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const offsetTo = (r: Run, side: Point) => {
     if (r.target === null || !scene) return;
-    const geom = curveGeom(r.target);
+    const geom = curveGeom(r.target, TRIM_KINDS);
     const handle = scene.view.entities[r.target]?.handle;
     if (!geom || !handle) return;
     const layer = offsetOnCurrent && drawLayer ? drawLayer : layerNameOf(r.target);
+    const arc = arcShapeOf(r.target);
     try {
-      const dist = offsetThrough ? throughDistance(geom.points, geom.closed, pt(side)) : offsetDist;
+      const dist = !offsetThrough
+        ? offsetDist
+        : arc
+          ? throughArcDistance(arc, pt(side))
+          : throughDistance(geom.points, geom.closed, pt(side));
       // Multiple: each new offset goes on from the last one (AutoCAD).
       const steps = (r.flags.multipleCount ?? 0) + 1;
-      const points = offsetCurve(geom.points, geom.closed, dist * steps, pt(side));
-      const out: CanvasEdit[] = [pointsCurveEdit(layer, points, geom.closed)];
+      const out: CanvasEdit[] = [];
+      if (arc) {
+        // An arc / circle offsets to a concentric one (AutoCAD), not to a polyline.
+        const next = arcOffset(arc, dist * steps, pt(side));
+        if (!next) throw new GeometryError('RADIUS');
+        const center: Pt = [next.x, next.y];
+        const sweep = (((next.end - next.start) % 360) + 360) % 360 || 360;
+        out.push(
+          sweep >= 360 - 1e-9
+            ? circleCurveEdit(layer, center, next.r, circlePoints(center, next.r))
+            : arcCurveEdit(
+                layer,
+                arcPoints(center, next.r, (next.start * Math.PI) / 180, (sweep * Math.PI) / 180),
+              ),
+        );
+      } else {
+        const points = offsetCurve(geom.points, geom.closed, dist * steps, pt(side));
+        out.push(pointsCurveEdit(layer, points, geom.closed));
+      }
       if (offsetErase && !r.flags.multiple) out.push({ kind: 'erase_item', handle });
       const made = add(out);
       if (r.flags.multiple) {
@@ -2269,6 +2322,59 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     } catch (caught) {
       geometryMessage(caught);
     }
+  };
+
+  /**
+   * TRIM's edges for an object: those chosen (cuTting edges), else every shown object (quick
+   * mode); cutting edges cross the object's box, boundary edges to extend to may lie anywhere.
+   */
+  const trimEdgesFor = (r: Run, index: number, points: readonly Pt[], extending: boolean) => {
+    if (r.flags.edges) {
+      return r.flags.edges.flatMap((i) => {
+        const g = curveGeom(i, TRIM_KINDS);
+        return g && i !== index ? [g] : [];
+      });
+    }
+    const everywhere = { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
+    return edgesNear(extending ? everywhere : boxAround(points), index);
+  };
+
+  /** The edits that remove the piece of an object at `at` between its cutting edges. */
+  const trimPieceEdits = (
+    index: number,
+    handle: string,
+    geom: { points: Pt[]; closed: boolean },
+    edges: { points: Pt[]; closed: boolean }[],
+    at: Pt,
+  ): CanvasEdit[] => {
+    const [first, second] = trimCurve(geom.points, geom.closed, edges, at);
+    const out: CanvasEdit[] = [];
+    if (!first) out.push({ kind: 'erase_item', handle });
+    else out.push(setCurveEdit(handle, first, false));
+    if (second) out.push(pointsCurveEdit(layerNameOf(index), second, false));
+    return out;
+  };
+
+  /** TRIM fence (a drag in quick mode, AutoCAD): every object the fence crosses loses that piece. */
+  const trimFence = (r: Run, a: Pt, b: Pt) => {
+    if (!scene || !shown) return;
+    const out: CanvasEdit[] = [];
+    scene.view.entities.forEach((entity, index) => {
+      if (shown.erased.has(index) || !pickable(index)) return;
+      const geom = curveGeom(index, TRIM_KINDS);
+      if (!geom) return;
+      const [pick] = fencePicks(geom.points, geom.closed, a, b);
+      if (!pick) return;
+      try {
+        const edges = trimEdgesFor(r, index, geom.points, false);
+        out.push(...trimPieceEdits(index, entity.handle, geom, edges, pick));
+      } catch (caught) {
+        if (!(caught instanceof GeometryError)) throw caught;
+      }
+    });
+    if (out.length === 0) return;
+    const made = add(out);
+    go(r, 'trimPick', { made: [...r.made, made.length] });
   };
 
   /** An object clicked for the step (`shift`: Shift held, as AutoCAD's shift-select). */
@@ -2287,20 +2393,16 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const handle = scene.view.entities[index]?.handle ?? '';
     switch (r.step) {
       case 'trimPick': {
-        const geom = curveGeom(index);
+        const extending = shift !== (r.cmd === 'extend');
+        // Arcs and circles are trimmed too; EXTEND stays on lines and polylines.
+        const geom = curveGeom(index, extending ? CURVE_KINDS : TRIM_KINDS);
         if (!geom) {
           say(msg('notCurve'));
           return;
         }
-        const extending = shift !== (r.cmd === 'extend');
-        // Cutting edges cross the object's box; boundary edges to extend to may lie anywhere.
-        const everywhere = { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
-        const edgeList = r.flags.edges
-          ? r.flags.edges.flatMap((i) => {
-              const g = curveGeom(i);
-              return g && i !== index ? [g] : [];
-            })
-          : edgesNear(extending ? everywhere : boxAround(geom.points), index);
+        const edgeList = extending
+          ? trimEdgesFor(r, index, geom.points, true)
+          : trimEdgesFor(r, index, geom.points, false);
         try {
           const out: CanvasEdit[] = [];
           // TRIM: Shift-select extends; EXTEND: a plain pick extends, Shift-select trims.
@@ -2312,11 +2414,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
             }
             out.push(setCurveEdit(handle, extendCurve(geom.points, edgeList, pt(at)), false));
           } else {
-            const pieces = trimCurve(geom.points, geom.closed, edgeList, pt(at));
-            const [first, second] = pieces;
-            if (!first) out.push({ kind: 'erase_item', handle });
-            else out.push(setCurveEdit(handle, first, false));
-            if (second) out.push(pointsCurveEdit(layerNameOf(index), second, false));
+            out.push(...trimPieceEdits(index, handle, geom, edgeList, pt(at)));
           }
           const made = add(out);
           go(r, 'trimPick', { made: [...r.made, made.length] });
@@ -2423,7 +2521,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return;
       }
       case 'offsetPick':
-        if (!curveGeom(index)) {
+        if (!curveGeom(index, TRIM_KINDS)) {
           say(msg('notCurve'));
           return;
         }
@@ -3851,11 +3949,15 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       setError(null);
       add(made);
     },
-    boxing: editing && selecting && gripRun === null,
+    boxing: editing && (selecting || isTrimQuick(run)) && gripRun === null,
     band,
     setBand,
     pickBand: (picked, additive) => {
       setBand(null);
+      if (run && isTrimQuick(run)) {
+        trimFence(run, [picked.x0, picked.y0], [picked.x1, picked.y1]);
+        return;
+      }
       if (!scene || !shown || !selecting) return;
       // STRETCH takes a crossing window whichever way it is dragged.
       const box: Band =
