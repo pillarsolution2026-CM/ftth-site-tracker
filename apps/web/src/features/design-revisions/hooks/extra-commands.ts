@@ -108,6 +108,7 @@ import {
   type MorePromptKey,
   type MoreStep,
 } from './more-commands';
+import { DEFAULT_MODIFY3_SETTINGS, type Modify3Settings } from './modify3-commands';
 import type { UndoControl, ZoomView } from './view-commands';
 
 /**
@@ -327,6 +328,8 @@ export interface ExtraSettings {
   text: TextToolSettings;
   /** MATCHPROP's Property Settings (item 34). */
   match: MatchSettings;
+  /** ARRAYPOLAR / ARRAYPATH / CHAMFER answers (round 3). */
+  modify3?: Modify3Settings;
 }
 
 export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
@@ -340,6 +343,7 @@ export const DEFAULT_EXTRA_SETTINGS: ExtraSettings = {
   groupPick: true,
   text: DEFAULT_TEXT_SETTINGS,
   match: DEFAULT_MATCH_SETTINGS,
+  modify3: DEFAULT_MODIFY3_SETTINGS,
 };
 
 /** Per run: what the added command has taken so far. */
@@ -446,7 +450,7 @@ export const isExtra = (cmd: CommandId) =>
 // ---------- prompts ----------
 
 export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null {
-  if (isMoreCommand(r.cmd)) return morePrompt(r);
+  if (isMoreCommand(r.cmd)) return morePrompt(r, settings);
   if (isLayerCommand(r.cmd)) return layerPrompt(r);
   if (isMatchCommand(r.cmd)) return matchPrompt(r);
   if (isTextCommand(r.cmd)) return textPrompt(r, settings.text);

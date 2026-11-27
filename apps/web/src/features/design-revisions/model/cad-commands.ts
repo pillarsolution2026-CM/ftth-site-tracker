@@ -44,6 +44,9 @@ export type CommandId =
   | 'lengthen'
   | 'reverse'
   | 'arrayrect'
+  | 'arraypolar'
+  | 'arraypath'
+  | 'chamfer'
   | 'overkill'
   | 'draworder'
   // Clipboard (Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+Shift+C)
@@ -161,6 +164,9 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   copybase: { name: 'COPYBASE', aliases: [] },
   pasteclip: { name: 'PASTECLIP', aliases: [] },
   arrayrect: { name: 'ARRAYRECT', aliases: ['AR', 'ARRAY'] },
+  arraypolar: { name: 'ARRAYPOLAR', aliases: [] },
+  arraypath: { name: 'ARRAYPATH', aliases: [] },
+  chamfer: { name: 'CHAMFER', aliases: ['CHA'] },
   overkill: { name: 'OVERKILL', aliases: [] },
   draworder: { name: 'DRAWORDER', aliases: ['DR'] },
   text: { name: 'TEXT', aliases: ['T', 'DT', 'DTEXT'] },
@@ -308,6 +314,8 @@ export const SELECTING: readonly CommandId[] = [
   'laymch',
   'reverse',
   'arrayrect',
+  'arraypolar',
+  'arraypath',
   'overkill',
   'draworder',
   'region',
@@ -401,6 +409,9 @@ export function matchOption(options: readonly CommandOption[], word: string): st
  * (`Erase source objects? [Yes/No] <No>:`), unlike «Specify … or [..]».
  */
 export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
+  'polarRotate',
+  'pathAlign',
+  'chamTrim',
   'mirrorErase',
   'copyMode',
   'filletTrim',

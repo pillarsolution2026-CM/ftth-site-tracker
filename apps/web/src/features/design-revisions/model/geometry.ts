@@ -341,6 +341,34 @@ export function fillet(first: FilletPick, second: FilletPick, radius: number): [
   return [k1.withEnd(...arc), k2.withEnd(t2), arc];
 }
 
+/**
+ * CHAMFER of two different open curves at the picked segments (AutoCAD): each is cut back `d1` /
+ * `d2` from their corner and the third result is the chamfer line between the cuts (empty when
+ * both distances are 0: the curves then meet at the corner, as FILLET radius 0).
+ */
+export function chamfer(
+  first: FilletPick,
+  second: FilletPick,
+  d1: number,
+  d2: number,
+): [Pt[], Pt[], Pt[]] {
+  if (first.closed || second.closed) throw new GeometryError('CLOSED');
+  if (d1 < 0 || d2 < 0) throw new GeometryError('RADIUS');
+  const s1 = pickedSegment(first);
+  const s2 = pickedSegment(second);
+  const corner = lineMeet(s1.a, s1.b, s2.a, s2.b);
+  if (!corner) throw new GeometryError('PARALLEL');
+  const k1 = keptSide(first, s1, corner);
+  const k2 = keptSide(second, s2, corner);
+  if (d1 === 0 && d2 === 0) return [k1.withEnd(corner), k2.withEnd(corner), []];
+  if (d1 > distance(corner, k1.toward) + EPS || d2 > distance(corner, k2.toward) + EPS) {
+    throw new GeometryError('RADIUS_TOO_LARGE');
+  }
+  const t1 = add(corner, mul(unit(sub(k1.toward, corner)), d1));
+  const t2 = add(corner, mul(unit(sub(k2.toward, corner)), d2));
+  return [k1.withEnd(t1), k2.withEnd(t2), [t1, t2]];
+}
+
 function pickedSegment(c: FilletPick): { i: number; a: Pt; b: Pt; t: number } {
   const pts = dedupe(c.points);
   const near = nearestOnCurve(pts, false, c.pick);

@@ -353,6 +353,29 @@ const ICONS: Partial<Record<IconKey, ReactNode>> = {
     </>
   ),
   reverse: <path d="M4 9h14l-3-3M20 15H6l3 3" />,
+  arraypolar: (
+    <>
+      <circle cx="12" cy="12" r="7" strokeDasharray="2 2" />
+      <rect x="10" y="3" width="4" height="4" />
+      <rect x="17" y="10" width="4" height="4" />
+      <rect x="10" y="17" width="4" height="4" />
+      <rect x="3" y="10" width="4" height="4" />
+    </>
+  ),
+  arraypath: (
+    <>
+      <path d="M3 19C8 19 8 5 21 5" strokeDasharray="2 2" />
+      <rect x="2" y="16" width="4" height="4" />
+      <rect x="9" y="9" width="4" height="4" />
+      <rect x="17" y="3" width="4" height="4" />
+    </>
+  ),
+  chamfer: (
+    <>
+      <path d="M4 20V10l6-6h10" />
+      <path d="M4 4h4M4 4v4" strokeDasharray="1.5 1.5" />
+    </>
+  ),
   arrayrect: (
     <>
       <rect x="3" y="3" width="5" height="5" />
@@ -1472,6 +1495,9 @@ export function CadRibbon({
                   <Tile edit={edit} id="lengthen" />
                   <Tile edit={edit} id="reverse" />
                   <Tile edit={edit} id="arrayrect" />
+                  <Tile edit={edit} id="arraypath" />
+                  <Tile edit={edit} id="arraypolar" />
+                  <Tile edit={edit} id="chamfer" />
                   <Tile edit={edit} id="overkill" />
                   <SplitTool
                     edit={edit}
