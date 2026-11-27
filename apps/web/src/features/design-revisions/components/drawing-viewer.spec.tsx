@@ -1217,6 +1217,20 @@ describe(
         return fills;
       };
 
+      it('item 35: a pick shows grips only, no details panel; an error mark still opens its fix', async () => {
+        const fills = fillsOf();
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await waitFor(() => expect(fills).toContain('#007fff'));
+        const details = () =>
+          screen.queryByRole('dialog', { name: 'Details of the place on the drawing' });
+        expect(details()).not.toBeInTheDocument();
+        // The error mark of A1 (at 21, 21) still opens its fix tools between commands.
+        await click(user, canvas, 21, 21);
+        expect(details()).toBeInTheDocument();
+        expect(within(details() as HTMLElement).getByText('Symbol without a label')).toBeVisible();
+      });
+
       it('a picked line shows its grips; a click on an end grip STRETCHes that end', async () => {
         const fills = fillsOf();
         const { canvas, user } = await openWorkspace();

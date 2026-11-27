@@ -100,6 +100,8 @@ MAX_ROTATION_DEG = 360.0
 MIN_SCALE_FACTOR = 0.001
 MAX_SCALE_FACTOR = 1000.0
 MAX_CURVE_POINTS = 2000
+# |bulge| of a curve's real vertices (contract MAX_CURVE_BULGE, ADR-062).
+MAX_CURVE_BULGE = 1000.0
 MAX_NOTE_POINTS = 50
 MAX_LINEWEIGHT_MM = 10.0
 NOTE_KINDS = frozenset({"dimension", "leader"})
@@ -432,11 +434,11 @@ _KEYS: Mapping[str, frozenset[str]] = {
     "copy_item": frozenset({"kind", "handle", "dx", "dy", "toLayer"}),
     "mirror_item": frozenset({"kind", "handle", "x1", "y1", "x2", "y2"}),
     "scale_item": frozenset({"kind", "handle", "x", "y", "factor"}),
-    "add_curve": frozenset({"kind", "layer", "points", "closed", "arc"}),
+    "add_curve": frozenset({"kind", "layer", "points", "closed", "arc", "vertices"}),
     "add_layer": frozenset({"kind", "layer", "like"}),
     "rename_layer": frozenset({"kind", "from", "to"}),
     "delete_layer": frozenset({"kind", "layer"}),
-    "set_curve": frozenset({"kind", "handle", "points", "closed"}),
+    "set_curve": frozenset({"kind", "handle", "points", "closed", "arc", "vertices"}),
     "add_note": frozenset({"kind", "note", "layer", "points", "text"}),
     "set_style": frozenset({"kind", "handle", "color", "linetype", "lineweight"}),
     "add_shape": frozenset(
@@ -583,6 +585,7 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
         )
     if kind == "add_curve":
         _arc(cid, body.get("arc"))
+        _vertices(cid, body.get("vertices"))
         return AddCurve(
             _layer(cid, body, "layer"), _points(cid, body.get("points")), _flag(cid, body)
         )
@@ -600,6 +603,8 @@ def _correction(cid: str, body: Mapping[str, object]) -> Correction:
     if kind == "delete_layer":
         return DeleteLayer(_layer(cid, body, "layer"))
     if kind == "set_curve":
+        _arc(cid, body.get("arc"))
+        _vertices(cid, body.get("vertices"))
         return SetCurve(
             _handle(cid, body.get("handle")), _points(cid, body.get("points")), _flag(cid, body)
         )
@@ -713,6 +718,27 @@ def _arc(cid: str, arc: object) -> None:
     for key in ("start", "end"):
         if not -360 <= _finite(cid, arc, key) <= 720:
             raise CorrectionInvalidError(f"correction {cid}: arc {key} must be within -360..720")
+
+
+def _vertices(cid: str, vertices: object) -> None:
+    """Checks the optional real vertices [x, y, bulge] of a curve (ADR-062); the rows ignore
+    them: `points` stay the path the build reads."""
+    if vertices is None:
+        return
+    if not isinstance(vertices, list) or not 2 <= len(vertices) <= MAX_CURVE_POINTS:
+        raise CorrectionInvalidError(
+            f"correction {cid}: `vertices` must be 2-{MAX_CURVE_POINTS} [x, y, bulge]"
+        )
+    for v in vertices:
+        if not isinstance(v, list) or len(v) != 3:
+            raise CorrectionInvalidError(f"correction {cid}: a vertex is [x, y, bulge]")
+        x, y, bulge = (_number(n) for n in v)
+        if x is None or y is None or abs(x) > MAX_CORRECTION_COORD or abs(y) > MAX_CORRECTION_COORD:
+            raise CorrectionInvalidError(f"correction {cid}: a vertex coordinate is out of range")
+        if bulge is None or abs(bulge) > MAX_CURVE_BULGE:
+            raise CorrectionInvalidError(
+                f"correction {cid}: a bulge must be within ±{MAX_CURVE_BULGE:g}"
+            )
 
 
 def _note(cid: str, body: Mapping[str, object]) -> AddNote:
