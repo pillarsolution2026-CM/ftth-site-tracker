@@ -506,6 +506,8 @@ const isObjectStep = (step: Step) =>
   OBJECT_STEPS.includes(step) || EXTRA_OBJECT_STEPS.includes(step);
 
 const CURVE_KINDS = new Set(['LINE', 'LWPOLYLINE', 'POLYLINE']);
+/** JOIN also takes arcs, as AutoCAD (the joined polyline keeps the arc's points). */
+const JOIN_KINDS = new Set([...CURVE_KINDS, 'ARC']);
 /** DXF type → the command that draws one like it (ADDSELECTED). */
 const DRAW_LIKE: Readonly<Record<string, CommandId>> = {
   LINE: 'line',
@@ -1024,10 +1026,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   /** The points of a line or polyline as drawn now (moves and curve edits applied). */
-  const curveGeom = (index: number): { points: Pt[]; closed: boolean } | null => {
+  const curveGeom = (
+    index: number,
+    kinds: ReadonlySet<string> = CURVE_KINDS,
+  ): { points: Pt[]; closed: boolean } | null => {
     if (!scene || !shown) return null;
     const entity = scene.view.entities[index];
-    if (!entity || !CURVE_KINDS.has(entity.kind)) return null;
+    if (!entity || !kinds.has(entity.kind)) return null;
     const replaced = shown.curveOf.get(index);
     if (replaced)
       return { points: replaced.points.map((p) => [p[0], p[1]] as Pt), closed: replaced.closed };
@@ -1692,7 +1697,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
 
   const join = (picked: string[]) => {
     const curves = picked.filter((handle) =>
-      (scene?.byHandle.get(handle) ?? []).some((index) => curveGeom(index) !== null),
+      (scene?.byHandle.get(handle) ?? []).some((index) => curveGeom(index, JOIN_KINDS) !== null),
     );
     if (curves.length < 2) {
       say(msg('joinNeedsTwo'));
@@ -1703,7 +1708,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const pieces: JoinPiece[] = [];
     for (const handle of curves) {
       for (const index of scene?.byHandle.get(handle) ?? []) {
-        const geom = curveGeom(index);
+        const geom = curveGeom(index, JOIN_KINDS);
         if (geom) pieces.push({ handle, layer: layerNameOf(index), ...geom });
       }
     }

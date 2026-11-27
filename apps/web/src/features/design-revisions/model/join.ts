@@ -58,3 +58,48 @@ export function joinProblem(pieces: readonly JoinPiece[], touch: number): JoinPr
   }
   return null;
 }
+
+/**
+ * The one polyline a JOIN makes (the worker's `merge_curves` order): from the piece with the
+ * smallest handle, each step adds the unused piece whose end is nearest to either tip, turned to
+ * start there; a vertex the two pieces share is kept once. The pieces were checked at JOIN.
+ */
+export function chainPoints(
+  pieces: readonly { handle: string; points: readonly (readonly [number, number])[] }[],
+): Pt[] {
+  const sorted = [...pieces]
+    .filter((p) => p.points.length > 0)
+    .sort((a, b) => (a.handle < b.handle ? -1 : a.handle > b.handle ? 1 : 0));
+  const key = sorted[0];
+  if (!key) return [];
+  let chain: Pt[] = key.points.map((p) => [p[0], p[1]] as Pt);
+  const unused = sorted.slice(1);
+  const gap = (a: readonly [number, number], b: readonly [number, number]) =>
+    Math.hypot(a[0] - b[0], a[1] - b[1]);
+  while (unused.length > 0) {
+    let best = { at: 0, atEnd: true, startsAtTip: true, d: Infinity };
+    unused.forEach((piece, at) => {
+      const first = piece.points[0] as Pt;
+      const last = piece.points[piece.points.length - 1] as Pt;
+      for (const atEnd of [true, false]) {
+        const tip = (atEnd ? chain[chain.length - 1] : chain[0]) as Pt;
+        for (const [startsAtTip, end] of [
+          [true, first],
+          [false, last],
+        ] as const) {
+          const d = gap(tip, end);
+          if (d < best.d) best = { at, atEnd, startsAtTip, d };
+        }
+      }
+    });
+    const [piece] = unused.splice(best.at, 1);
+    if (!piece) break;
+    const tip = (best.atEnd ? chain[chain.length - 1] : chain[0]) as Pt;
+    let points = piece.points.map((p) => [p[0], p[1]] as Pt);
+    if (!best.startsAtTip) points.reverse();
+    const head = points[0] as Pt;
+    if (head[0] === tip[0] && head[1] === tip[1]) points = points.slice(1);
+    chain = best.atEnd ? [...chain, ...points] : [...points.reverse(), ...chain];
+  }
+  return chain;
+}

@@ -67,14 +67,26 @@ describe('correction preview', () => {
     ]);
   });
 
-  it('merge_routes marks the pieces merged without changing them', () => {
+  it('merge_routes makes the pieces one polyline, as AutoCAD JOIN', () => {
     const preview = applyCorrections(
       scene,
-      [correction({ kind: 'merge_routes', handles: ['A', 'B'] })],
+      [correction({ kind: 'merge_routes', handles: ['B', 'A'] })],
       2.5,
     );
     expect([...preview.merged].sort()).toEqual([0, 1]);
     expect(preview.layerOf.size).toBe(0);
+    // A (0,0 → 50,0 → 50,25) keeps the chain; B (50,25 → 100,25) is gone into it.
+    expect(preview.curveOf.get(0)).toEqual({
+      points: [
+        [0, 0],
+        [50, 0],
+        [50, 25],
+        [100, 25],
+      ],
+      closed: false,
+    });
+    expect(preview.erased.has(1)).toBe(true);
+    expect(preview.erased.has(0)).toBe(false);
   });
 
   it('does not apply withdrawn corrections', () => {

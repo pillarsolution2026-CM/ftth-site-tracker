@@ -180,7 +180,7 @@ _CONTROL = re.compile(r"[\x00-\x1f]")
 FIX_HANDLE_PREFIX = "FIX-"
 # Height of an added text without height on a layer with no readable text (drawing units).
 DEFAULT_TEXT_HEIGHT = 1.0
-MERGEABLE_TYPES = frozenset({"LINE", "LWPOLYLINE", "POLYLINE"})
+MERGEABLE_TYPES = frozenset({"LINE", "LWPOLYLINE", "POLYLINE", "ARC"})  # AutoCAD JOIN takes arcs
 MERGED_TYPE = "LWPOLYLINE"
 
 

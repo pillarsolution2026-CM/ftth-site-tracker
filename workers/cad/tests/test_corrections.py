@@ -502,7 +502,7 @@ def test_merge_fails_at_a_junction() -> None:
     "other",
     [
         SourceCurve("b", "DUCT 4", ((40, 0), (80, 0), (80, 40), (40, 0)), True, "LWPOLYLINE"),
-        SourceCurve("b", "DUCT 4", ((40, 0), (80, 0)), False, "ARC"),
+        SourceCurve("b", "DUCT 4", ((40, 0), (80, 0)), False, "CIRCLE"),
         line("b", "DUCT 2", (40, 0), (80, 0)),  # another layer
     ],
 )
@@ -510,6 +510,16 @@ def test_merge_only_open_lines_of_one_layer(other: SourceCurve) -> None:
     drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)), other))
     with pytest.raises(CorrectionInvalidError):
         apply(drawing, MergeRoutes(("a", "b")))
+
+
+def test_merge_joins_a_line_and_an_arc_into_one_polyline() -> None:
+    # AutoCAD JOIN: a line and an arc that meet end to end become one polyline.
+    arc = SourceCurve("b", "DUCT 4", ((40, 0), (50, 5), (60, 0)), False, "ARC")
+    drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)), arc))
+    out = apply(drawing, MergeRoutes(("a", "b")))
+    assert [(c.handle, c.points, c.entity_type) for c in out.curves] == [
+        ("a", ((0, 0), (40, 0), (50, 5), (60, 0)), "LWPOLYLINE")
+    ]
 
 
 def test_a_merged_away_piece_is_gone_for_later_corrections() -> None:

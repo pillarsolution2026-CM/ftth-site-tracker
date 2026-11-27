@@ -24,6 +24,7 @@ import {
 } from './affine';
 import { transformVertices, type BulgeVertex } from './bulge';
 import { fileSceneOf, type DrawingScene } from './drawing-scene';
+import { chainPoints } from './join';
 
 /** Colour of a preview shape whose layer is not in the drawing view. */
 export const FALLBACK_COLOR = '#333333';
@@ -70,6 +71,9 @@ export interface PreviewCurveShape {
   arc?: PreviewArc;
   vertices?: readonly BulgeVertex[];
 }
+
+/** Where a JOIN piece is: a file entity or an item of the page. */
+type Where = { file: number } | { page: number };
 
 /** The true arc / real vertices a set_curve or add_curve carries (ADR-062), for the preview. */
 function shapeExtras(correction: {
@@ -478,6 +482,23 @@ export function applyInputs(
     scene.layerByName.get(name) ?? scene.layerByName.get(aliases.get(name) ?? '') ?? -1;
   const colorOf = (index: number) => layers[index]?.color ?? FALLBACK_COLOR;
   const indexes = (handle: string) => scene.byHandle.get(handle) ?? [];
+  /** A file line's points as drawn now (new points, else its one path moved). */
+  const filePoints = (index: number): (readonly [number, number])[] | null => {
+    const replaced = curveOf.get(index);
+    if (replaced) return [...replaced.points];
+    const entity = scene.view.entities[index];
+    if (!entity || entity.paths.length !== 1) return null;
+    const flat = entity.paths[0] as readonly number[];
+    const moved = transformOf.get(index);
+    const out: (readonly [number, number])[] = [];
+    for (let i = 0; i + 1 < flat.length; i += 2) {
+      const x = flat[i] as number;
+      const y = flat[i + 1] as number;
+      const p = moved ? applyAffine(moved, x, y) : { x, y };
+      out.push([p.x, p.y]);
+    }
+    return out;
+  };
   /** The live page items a handle names (FIX- / NEW- handles). */
   const own = (handle: string): number[] =>
     (pageAt.get(handle) ?? []).filter((k) => !(page[k] as PageItem).erased);
@@ -606,11 +627,51 @@ export function applyInputs(
         });
         break;
       }
-      case 'merge_routes':
+      case 'merge_routes': {
+        // AutoCAD JOIN: the pieces become one polyline, kept by the piece with the smallest
+        // handle (the worker's merge_curves); the others are gone into it.
+        const pieces: { handle: string; points: (readonly [number, number])[]; at: Where }[] = [];
         for (const handle of correction.handles) {
-          for (const index of indexes(handle)) merged.add(index);
+          for (const index of indexes(handle)) {
+            merged.add(index);
+            const points = filePoints(index);
+            if (points) pieces.push({ handle, points, at: { file: index } });
+          }
+          for (const k of own(handle)) {
+            const entry = page[k] as PageItem;
+            if (entry.item.type !== 'curve') continue;
+            const path = entry.item.value.path;
+            const points: (readonly [number, number])[] = [];
+            for (let i = 0; i + 1 < path.length; i += 2) {
+              points.push([path[i] as number, path[i + 1] as number]);
+            }
+            pieces.push({ handle, points, at: { page: k } });
+          }
+        }
+        if (pieces.length < 2) break;
+        const chain = chainPoints(pieces);
+        const key = pieces.reduce((a, b) => (b.handle < a.handle ? b : a));
+        for (const piece of pieces) {
+          const { at } = piece;
+          if (piece === key) {
+            if ('file' in at) {
+              curveOf.set(at.file, { points: chain, closed: false });
+              transformOf.delete(at.file);
+            } else {
+              const entry = page[at.page] as PageItem;
+              if (entry.item.type !== 'curve') continue;
+              const rest = { ...entry.item.value };
+              delete rest.arc;
+              delete rest.vertices;
+              change(at.page, {
+                item: { type: 'curve', value: { ...rest, path: chain.flat(), closed: false } },
+              });
+            }
+          } else if ('file' in at) erased.add(at.file);
+          else change(at.page, { erased: true });
         }
         break;
+      }
       case 'erase_item':
         for (const k of own(correction.handle)) change(k, { erased: true });
         for (const index of indexes(correction.handle)) erased.add(index);
