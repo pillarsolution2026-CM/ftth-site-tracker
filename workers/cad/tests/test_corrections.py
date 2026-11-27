@@ -516,8 +516,8 @@ def test_a_merged_away_piece_is_gone_for_later_corrections() -> None:
     drawing = empty(
         curves=(line("a", "DUCT 4", (0, 0), (40, 0)), line("b", "DUCT 4", (40, 0), (80, 0)))
     )
-    with pytest.raises(CorrectionInvalidError, match="no item with handle b"):
-        apply(drawing, MergeRoutes(("a", "b")), MoveLayer("b", "DUCT 2"))
+    out = apply(drawing, MergeRoutes(("a", "b")), MoveLayer("b", "DUCT 2"))
+    assert [c.layer for c in out.curves] == ["DUCT 4"]
 
 
 # ---------- missing handles ----------
@@ -527,10 +527,12 @@ def test_a_merged_away_piece_is_gone_for_later_corrections() -> None:
     "correction",
     [MoveLayer("gone", "L"), SetText("gone", "x"), MergeRoutes(("a", "gone"))],
 )
-def test_a_handle_missing_from_the_drawing_fails_loudly(correction: Any) -> None:
+def test_a_handle_missing_from_the_drawing_is_skipped_with_a_warning(
+    correction: Any, caplog: pytest.LogCaptureFixture
+) -> None:
     drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)),))
-    with pytest.raises(CorrectionInvalidError, match=f"drawing correction {ID1}: no .* gone"):
-        apply_corrections(drawing, [fix(correction)], metres_per_unit=1.0)
+    assert apply_corrections(drawing, [fix(correction)], metres_per_unit=1.0) == drawing
+    assert f"drawing correction {ID1}: skipped" in caplog.text
 
 
 # ---------- dismissing a misread problem place (ADR-046) ----------
@@ -648,9 +650,9 @@ def test_a_moved_label_reaches_its_item_again() -> None:
 
 
 @pytest.mark.parametrize("correction", [MoveItem("missing", 1, 1), RotateItem("missing", 0, 0, 10)])
-def test_moving_a_missing_handle_fails_loudly(correction: Any) -> None:
-    with pytest.raises(CorrectionInvalidError, match="no item with handle missing"):
-        apply(empty(), correction)
+def test_moving_a_handle_with_no_row_is_skipped(correction: Any) -> None:
+    drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)),))
+    assert apply(drawing, correction) == drawing
 
 
 def test_moved_and_rotated_curves_are_read_even_without_a_rule() -> None:
@@ -767,9 +769,10 @@ def test_added_and_renamed_layers_take_the_rule_of_their_source() -> None:
     "correction",
     [EraseItem("missing"), CopyItem("missing", 1, 1), ScaleItem("missing", 0, 0, 2)],
 )
-def test_ribbon_on_a_missing_handle_fails_loudly(correction: Any) -> None:
-    with pytest.raises(CorrectionInvalidError, match="no item with handle missing"):
-        apply(empty(), correction)
+def test_ribbon_on_a_handle_with_no_row_is_skipped(correction: Any) -> None:
+    # A HATCH or DIMENSION handle: the worker keeps no row for it; the build must not fail.
+    drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)),))
+    assert apply(drawing, correction) == drawing
 
 
 # ---------- AutoCAD-like screen (ADR-051) ----------
@@ -1240,6 +1243,7 @@ def test_an_edit_of_an_added_item_whose_layer_was_deleted_is_skipped() -> None:
     assert [c.handle for c in out.curves] == ["c1"]
 
 
-def test_an_unknown_row_handle_of_the_drawing_still_fails() -> None:
-    with pytest.raises(CorrectionInvalidError):
-        apply(empty(), MoveItem("nope", 1, 1))
+def test_a_wrong_kind_of_row_still_fails() -> None:
+    drawing = empty(curves=(line("a", "DUCT 4", (0, 0), (40, 0)),))
+    with pytest.raises(CorrectionInvalidError, match="no text with handle a"):
+        apply(drawing, SetText("a", "x"))

@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import bisect
 import dataclasses
+import logging
 import math
 import re
 import uuid
@@ -86,6 +87,8 @@ from cad_worker.domain.design_build import (
     SourceText,
 )
 from cad_worker.domain.drawing_checks import PROBLEM_CODES, ROUTE_END_TOUCH_M
+
+_log = logging.getLogger(__name__)
 
 MAX_HANDLE_LENGTH = 64
 MAX_LAYER_LENGTH = 255
@@ -1120,6 +1123,25 @@ def _named_handles(c: Correction) -> tuple[str, ...]:
     return (handle,) if isinstance(handle, str) else ()
 
 
+_SCREEN_ONLY = (
+    AddNote,
+    SetStyle,
+    AddShape,
+    SetOrder,
+    SetGroup,
+    SetTextFormat,
+    AddTable,
+    DismissProblem,
+)
+
+
+def _names_no_row(rows: _Rows, c: Correction) -> bool:
+    """True when the correction edits a row but one of its handles is in no row at all."""
+    if isinstance(c, _SCREEN_ONLY):
+        return False
+    return any(not rows.taken(h) for h in _named_handles(c))
+
+
 def _apply_to_added(rows: _Rows, fc: FrozenCorrection) -> bool:
     """Handles the correction that names an item an earlier correction added (ADR-061): True when
     it is done (ignored). A screen-only item has no row: the correction is ignored, an erase drops
@@ -1143,6 +1165,11 @@ def _apply(rows: _Rows, fc: FrozenCorrection, touch: float) -> None:
     c = fc.correction
     where = f"drawing correction {fc.id}"
     if _apply_to_added(rows, fc):
+        return
+    if _names_no_row(rows, c):
+        # The handle is an item the worker keeps no row for (HATCH, DIMENSION, ...) or one already
+        # gone: the screen shows the edit, the build skips it instead of failing (owner 2026-11-28).
+        _log.warning("%s: skipped, no row for handle(s) %s", where, _named_handles(c))
         return
     if isinstance(c, MoveLayer):
         _move_layer(rows, c, where)

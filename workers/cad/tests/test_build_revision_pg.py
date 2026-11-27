@@ -365,20 +365,15 @@ def test_corrections_are_applied_before_features_links_and_problems(
     assert added == ("J-9", True, pytest.approx(0.2))  # median height of the layer's texts
 
 
-def test_a_correction_on_a_vanished_handle_fails_with_mapping_invalid(
+def test_a_correction_on_a_handle_with_no_row_is_skipped(
     db: psycopg.Connection[Any], deps: BuildDeps
 ) -> None:
+    # A HATCH or DIMENSION handle: the worker keeps no row for it, the build goes on.
     corrections = [
         {"id": CORRECTION_IDS[0], "correction": {"kind": "set_text", "handle": "T99", "text": "x"}}
     ]
     revision = queue_revision(db, seed_processed_file(db), corrections=corrections)
-    assert run_build(revision.job(), deps, "w1") == "failed"
-    row = revision_row(db, revision)
-    assert row["error_code"] == "MAPPING_INVALID"
-    assert row["error_message"] == (
-        f"drawing correction {CORRECTION_IDS[0]}: no text with handle T99 in the drawing"
-    )
-    assert count(db, "design_features", revision) == 0
+    assert run_build(revision.job(), deps, "w1") == "built"
 
 
 def test_invalid_frozen_corrections_fail_with_mapping_invalid(
