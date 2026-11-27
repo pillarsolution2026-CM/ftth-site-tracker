@@ -33,6 +33,7 @@ import {
 } from '../model/drawing-preview';
 import { boxOf, buildScene, type DrawingScene } from '../model/drawing-scene';
 import {
+  clampScale,
   fitTransform,
   panBy,
   scaleLimits,
@@ -52,13 +53,15 @@ import { hitGrip, type Grip } from '../model/grips';
 import { draftedEdit, useDrafting, type Drafting } from './use-drafting';
 import { useHistory, type HistoryPart } from './use-history';
 import { useFixTools, type FixTools } from './use-fix-tools';
+import type { ZoomView } from './view-commands';
 
 export type WorkspaceDialog =
   | { kind: 'find' }
   | { kind: 'laywalk' }
   | { kind: 'attributes'; index: number }
   | { kind: 'table' }
-  | { kind: 'matchprop' };
+  | { kind: 'matchprop' }
+  | { kind: 'qselect' };
 
 /** A problem place the user asked to see on the drawing («اعرض الموضع على الرسمة»). */
 export interface ShowPlace {
@@ -79,6 +82,10 @@ const MARKER_HIT_PX = 14;
 const ENTITY_HIT_PX = 6;
 /** A grip is hit within this many px of its centre (a little more than its half side). */
 const GRIP_HIT_PX = 6;
+/** ZOOM Previous keeps this many views (AutoCAD: 10). */
+const ZOOM_PREVIOUS_MAX = 10;
+/** Wheel steps and pan moves closer than this make one view for ZOOM Previous. */
+const VIEW_BURST_MS = 800;
 
 export type ViewerStatus =
   'loading' | 'error' | 'none' | 'failed' | 'queued' | 'loadingView' | 'viewError' | 'ready';
@@ -473,7 +480,10 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
 
   const textHeight = defaultTextHeight(tools.metresPerUnit);
+  // ZOOM / PAN / REGEN typed on the command line act on this view (set after each render).
+  const zoomRef = useRef<ZoomView | null>(null);
   const canvasEdit = useCanvasEdit({
+    view: zoomRef,
     history,
     screen: screenPart,
     layerScreen: {
@@ -740,14 +750,60 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     setPopover({ x: world.x, y: world.y, entity, marker: related });
   };
 
-  const zoomBy = (sx: number, sy: number, factor: number) =>
+  // AutoCAD's ZOOM Previous: the last views (10), each zoom / pan burst counting as one.
+  const [views, setViews] = useState<readonly (ViewTransform | null)[]>([]);
+  const lastView = useRef(0);
+  const keepView = (burst: boolean) => {
+    const now = Date.now();
+    if (!burst || now - lastView.current > VIEW_BURST_MS) {
+      setViews((previous) => [...previous, custom].slice(-ZOOM_PREVIOUS_MAX));
+    }
+    lastView.current = burst ? now : 0;
+  };
+  const zoomBy = (sx: number, sy: number, factor: number) => {
+    keepView(true);
     setCustom((previous) => zoomAt(previous ?? fitted, size, sx, sy, factor, limits));
-  const pan = (dx: number, dy: number) =>
+  };
+  const pan = (dx: number, dy: number) => {
+    keepView(true);
     setCustom((previous) => panBy(previous ?? fitted, dx, dy));
-  const gesture = (sx: number, sy: number, factor: number, dx: number, dy: number) =>
+  };
+  const gesture = (sx: number, sy: number, factor: number, dx: number, dy: number) => {
+    keepView(true);
     setCustom((previous) =>
       panBy(zoomAt(previous ?? fitted, size, sx, sy, factor, limits), dx, dy),
     );
+  };
+  const fitAll = () => {
+    keepView(false);
+    setCustom(null);
+  };
+  const zoomView: ZoomView = {
+    current: () => ({
+      cx: transform.cx,
+      cy: transform.cy,
+      width: size.width / transform.scale,
+      height: size.height / transform.scale,
+    }),
+    show: (cx, cy, height) => {
+      keepView(false);
+      const scale = clampScale(Math.max(1, size.height) / Math.max(height, 1e-12), limits);
+      setCustom({ cx, cy, scale });
+    },
+    extents: fitAll,
+    extentsHeight: () => Math.max(1, size.height) / fitted.scale,
+    previous: () => {
+      if (views.length === 0) return false;
+      setCustom(views[views.length - 1] ?? null);
+      setViews(views.slice(0, -1));
+      lastView.current = 0;
+      return true;
+    },
+    regen: () => setCustom((previous) => (previous ? { ...previous } : previous)),
+  };
+  useEffect(() => {
+    zoomRef.current = zoomView;
+  });
   const stateError = stateQuery.error ?? null;
   let resolved: ViewerStatus;
   if (stateError) resolved = 'error';
@@ -826,7 +882,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     zoomIn: () => zoomBy(size.width / 2, size.height / 2, ZOOM_STEP),
     zoomOut: () => zoomBy(size.width / 2, size.height / 2, 1 / ZOOM_STEP),
     zoomBy,
-    fit: () => setCustom(null),
+    fit: fitAll,
     click,
     popover,
     closePopover: () => {

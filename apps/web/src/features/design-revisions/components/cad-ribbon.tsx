@@ -21,7 +21,12 @@ import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
 import { TableTile, TextTools } from './text-panel';
 import { HatchCreationTab } from './hatch-tab';
-import { COMMANDS, PROMPTS_WITHOUT_OR, type CommandId } from '../model/cad-commands';
+import {
+  COMMANDS,
+  PROMPTS_WITHOUT_OR,
+  suggestCommands,
+  type CommandId,
+} from '../model/cad-commands';
 import { ColorPicker, LinetypePicker, LineweightPicker } from './property-pickers';
 
 /**
@@ -93,7 +98,9 @@ type IconKey =
   | 'paletteLayers'
   | 'paletteProblems'
   | 'paletteCorrections'
-  | 'paletteProperties';
+  | 'paletteProperties'
+  | 'qselect'
+  | 'selectall';
 const ICONS: Partial<Record<IconKey, ReactNode>> = {
   line: (
     <>
@@ -581,6 +588,77 @@ const ICONS: Partial<Record<IconKey, ReactNode>> = {
       <circle cx="8" cy="17" r="2" />
     </>
   ),
+  // Round 3: Utilities, Clipboard and the added Modify tools.
+  measuregeom: (
+    <>
+      <path d="M3 17 17 3l4 4L7 21z" />
+      <path d="M7 13l2 2M10 10l2 2M13 7l2 2" />
+    </>
+  ),
+  id: (
+    <>
+      <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+      <circle cx="12" cy="12" r="2" />
+    </>
+  ),
+  list: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="1" />
+      <path d="M8 8h8M8 12h8M8 16h5" />
+    </>
+  ),
+  extend: (
+    <>
+      <path d="M20 3v18" />
+      <path d="M3 12h9" />
+      <path d="M12 12h8" strokeDasharray="2 2" />
+      <path d="M15 9l3 3-3 3" />
+    </>
+  ),
+  explode: (
+    <>
+      <path d="M4 14l5-5M11 5l4 4M19 11l-4 6" />
+      <path d="M3 4l2 2M21 4l-2 2M3 20l2-2M21 20l-2-2" strokeDasharray="1.5 1.5" />
+    </>
+  ),
+  pasteclip: (
+    <>
+      <rect x="5" y="4" width="14" height="17" rx="1" />
+      <rect x="9" y="2.5" width="6" height="3" rx="0.5" />
+      <path d="M9 11h6M9 15h6" />
+    </>
+  ),
+  cutclip: (
+    <>
+      <circle cx="7" cy="18" r="3" />
+      <circle cx="17" cy="18" r="3" />
+      <path d="M9 16 18 3M15 16 6 3" />
+    </>
+  ),
+  copyclip: (
+    <>
+      <rect x="8" y="8" width="12" height="13" rx="1" />
+      <path d="M16 8V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
+    </>
+  ),
+  copybase: (
+    <>
+      <rect x="8" y="8" width="12" height="13" rx="1" />
+      <path d="M16 8V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h3" />
+      <circle cx="8" cy="21" r="1.5" />
+    </>
+  ),
+  qselect: (
+    <>
+      <path d="M4 5h16l-6 7v6l-4 2v-8z" />
+    </>
+  ),
+  selectall: (
+    <>
+      <rect x="3" y="3" width="18" height="18" strokeDasharray="2 2" />
+      <path d="M8 12l3 3 5-6" />
+    </>
+  ),
 };
 
 /** Palette key → its icon on the tab strip (icons only, owner 2026-11-26). */
@@ -1031,6 +1109,8 @@ export const PANEL_ORDER = [
   'groups',
   'block',
   'properties',
+  'utilities',
+  'clipboard',
 ] as const satisfies readonly string[];
 
 /** The width each panel gets (px), 0 until the ribbon is measured. */
@@ -1385,6 +1465,8 @@ export function CadRibbon({
               title={t('design.cad.panel.modify')}
               more={
                 <>
+                  <Tile edit={edit} id="extend" />
+                  <Tile edit={edit} id="explode" />
                   <Tile edit={edit} id="break" />
                   <Tile edit={edit} id="breakatpoint" />
                   <Tile edit={edit} id="lengthen" />
@@ -1570,6 +1652,64 @@ export function CadRibbon({
             <Panel id="properties" title={t('design.cad.panel.properties')}>
               <Tile edit={edit} id="matchprop" big />
               <PropertiesControls edit={edit} />
+            </Panel>
+            <Panel id="utilities" title={t('design.cad.panel.utilities')}>
+              <SplitTool
+                edit={edit}
+                label={t('design.cad.tool.measuregeom')}
+                icon="measuregeom"
+                items={[
+                  {
+                    label: t('design.cad.tool.measureDistance'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'D',
+                  },
+                  {
+                    label: t('design.cad.tool.measureRadius'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'R',
+                  },
+                  {
+                    label: t('design.cad.tool.measureAngle'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'A',
+                  },
+                  {
+                    label: t('design.cad.tool.measureArea'),
+                    icon: 'measuregeom',
+                    id: 'measuregeom',
+                    option: 'AR',
+                  },
+                ]}
+              />
+              <Rows>
+                <Tile edit={edit} id="qselect" />
+                <button
+                  type="button"
+                  aria-label={t('design.cad.tool.selectall')}
+                  title={`${t('design.cad.tool.selectall')} — Ctrl+A`}
+                  onClick={edit.selectAll}
+                  className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs ${DARK.tile}`}
+                >
+                  <Svg size="size-4">{ICONS.selectall}</Svg>
+                  <span dir="ltr" className="whitespace-nowrap">
+                    {t('design.cad.tool.selectall')}
+                  </span>
+                </button>
+                <Tile edit={edit} id="id" />
+                <Tile edit={edit} id="list" />
+              </Rows>
+            </Panel>
+            <Panel id="clipboard" title={t('design.cad.panel.clipboard')}>
+              <Tile edit={edit} id="pasteclip" big />
+              <Rows>
+                <Tile edit={edit} id="cutclip" />
+                <Tile edit={edit} id="copyclip" />
+                <Tile edit={edit} id="copybase" />
+              </Rows>
             </Panel>
           </div>
         </RibbonFit.Provider>
@@ -1861,9 +2001,31 @@ export function CadCommandLine({
   useEffect(() => {
     if (focusNonce > 0) inputRef.current?.focus({ preventScroll: true });
   }, [focusNonce]);
+  // AutoComplete (item 33): the highlighted suggestion; ↑ / ↓ recall (position in recentInput).
+  const [highlight, setHighlight] = useState(0);
+  const [recall, setRecall] = useState<number | null>(null);
+  const [recentOpen, setRecentOpen] = useState(false);
+  const typed = edit.input;
+  const [typedBefore, setTypedBefore] = useState(typed);
+  if (typed !== typedBefore) {
+    setTypedBefore(typed);
+    setHighlight(0);
+  }
   if (!edit.available || !edit.editing) return null;
   const name = edit.commandLabel ?? (edit.command ? COMMANDS[edit.command].name : null);
   const { prompt } = edit;
+  const suggestions =
+    prompt.key === 'command' && name === null && recall === null ? suggestCommands(typed) : [];
+  const listed = Math.min(highlight, Math.max(0, suggestions.length - 1));
+  const recallTo = (index: number | null) => {
+    setRecall(index);
+    edit.setInput(index === null ? '' : (edit.recentInput[index] ?? ''));
+  };
+  const start = (id: CommandId) => {
+    setRecentOpen(false);
+    setRecall(null);
+    edit.run(id);
+  };
   const text = t(`design.cad.cmd.${prompt.key}` as MessageKey);
   // AutoCAD's floating command line: a translucent grey bar over the bottom of the drawing, the
   // last lines fading above it; the text keeps a shadow so it reads on any drawing (owner 2026-11-26).
@@ -1895,7 +2057,67 @@ export function CadCommandLine({
           </div>
         ))}
       </div>
-      <div className="pointer-events-auto flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#22262c]/60 px-2 py-1.5">
+      <div
+        onContextMenu={(event) => {
+          // AutoCAD: right-click on the command line lists the recent commands.
+          event.preventDefault();
+          setRecentOpen((open) => !open);
+        }}
+        className="pointer-events-auto relative flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#22262c]/60 px-2 py-1.5"
+      >
+        {suggestions.length > 0 ? (
+          <ul
+            id="cad-suggestions"
+            role="listbox"
+            aria-label={t('design.cad.suggestions')}
+            className="absolute start-8 bottom-full z-20 mb-0.5 max-h-72 min-w-52 overflow-y-auto rounded border border-[#4a505a] bg-[#2b2f36] py-0.5 shadow-lg [text-shadow:none]"
+          >
+            {suggestions.map((s, i) => (
+              <li
+                key={s.id}
+                id={`cad-suggestion-${s.id}`}
+                role="option"
+                aria-selected={i === listed}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => start(s.id)}
+                className={`cursor-default px-2 py-0.5 ${
+                  i === listed ? 'bg-[#3d6fb6] text-white' : 'text-[#e8eaed] hover:bg-white/10'
+                }`}
+              >
+                {s.label}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {recentOpen ? (
+          <ul
+            role="menu"
+            aria-label={t('design.cad.recentCommands')}
+            className="absolute start-0 bottom-full z-20 mb-0.5 min-w-52 rounded border border-[#4a505a] bg-[#2b2f36] py-1 font-sans shadow-lg [text-shadow:none]"
+          >
+            <li role="presentation" className="px-2 pb-1 text-[11px] text-[#aab0b8]" dir="auto">
+              {t('design.cad.recentCommands')}
+            </li>
+            {edit.recentCommands.length === 0 ? (
+              <li role="presentation" className="px-2 text-[#aab0b8]" dir="auto">
+                {t('design.cad.noRecentCommands')}
+              </li>
+            ) : (
+              edit.recentCommands.map((id) => (
+                <li key={id} role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => start(id)}
+                    className="flex min-h-7 w-full items-center px-2 text-start font-mono hover:bg-white/10"
+                  >
+                    {COMMANDS[id].name}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        ) : null}
         <button
           type="button"
           aria-label={t('design.cad.strip.history')}
@@ -1942,13 +2164,52 @@ export function CadCommandLine({
           value={edit.input}
           spellCheck={false}
           autoComplete="off"
-          onChange={(event) => edit.setInput(event.target.value)}
+          role="combobox"
+          aria-expanded={suggestions.length > 0}
+          aria-controls="cad-suggestions"
+          aria-autocomplete="list"
+          aria-activedescendant={
+            suggestions[listed] ? `cad-suggestion-${suggestions[listed].id}` : undefined
+          }
+          onChange={(event) => {
+            setRecall(null);
+            edit.setInput(event.target.value);
+          }}
           onKeyDown={(event) => {
             const ctrl = event.ctrlKey || event.metaKey;
             if (event.key === 'Delete' && edit.input === '' && edit.key('Delete', false)) {
               event.preventDefault();
               return;
             }
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              const up = event.key === 'ArrowUp';
+              if (suggestions.length > 0) {
+                // AutoCAD: the arrows walk the suggestion list.
+                event.preventDefault();
+                const n = suggestions.length;
+                setHighlight((listed + (up ? n - 1 : 1)) % n);
+                return;
+              }
+              const count = edit.recentInput.length;
+              if (count === 0 || (edit.input !== '' && recall === null)) return;
+              // On an empty line the arrows recall what was typed before (AutoCAD).
+              event.preventDefault();
+              if (up) recallTo(recall === null ? count - 1 : Math.max(0, recall - 1));
+              else recallTo(recall === null || recall + 1 >= count ? null : recall + 1);
+              return;
+            }
+            if (event.key === 'Escape') {
+              setRecentOpen(false);
+              setRecall(null);
+            }
+            const picked = suggestions[listed];
+            if (picked && listed > 0 && (event.key === 'Enter' || event.key === ' ')) {
+              // Enter / Space takes the highlighted suggestion (the first one goes as typed).
+              event.preventDefault();
+              start(picked.id);
+              return;
+            }
+            if (event.key === 'Enter' || event.key === ' ') setRecall(null);
             if (
               event.key === 'Enter' ||
               event.key === 'Escape' ||

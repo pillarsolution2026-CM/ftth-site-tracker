@@ -12,10 +12,10 @@ import { fittingTools, Panel, panelShare, PANEL_ORDER, RibbonFit } from './cad-r
  */
 
 describe('equal ribbon panels (items 31 + 31b)', () => {
-  it('divides the ribbon equally between all nine panels', () => {
-    expect(PANEL_ORDER).toHaveLength(9);
-    expect(panelShare(1800, PANEL_ORDER.length)).toBe(200);
-    expect(panelShare(1000, PANEL_ORDER.length)).toBe(111);
+  it('divides the ribbon equally between all eleven panels', () => {
+    expect(PANEL_ORDER).toHaveLength(11);
+    expect(panelShare(1800, PANEL_ORDER.length)).toBe(163);
+    expect(panelShare(1000, PANEL_ORDER.length)).toBe(90);
     expect(panelShare(0, PANEL_ORDER.length)).toBe(0);
   });
 

@@ -92,6 +92,23 @@ import {
   type TextStep,
   type TextToolSettings,
 } from './text-commands';
+import {
+  isMoreCommand,
+  MORE_OBJECT_STEPS,
+  MORE_TRACKED,
+  moreAfterSelect,
+  moreBegin,
+  moreEnter,
+  moreNumber,
+  moreObject,
+  moreOption,
+  morePoint,
+  morePrompt,
+  moreSketch,
+  type MorePromptKey,
+  type MoreStep,
+} from './more-commands';
+import type { UndoControl, ZoomView } from './view-commands';
 
 /**
  * The Draw and Modify commands added for the owner (2026-11-24), on the same command line as the
@@ -135,6 +152,7 @@ const SELECTING_EXTRA: ReadonlySet<CommandId> = new Set<CommandId>([
 ]);
 
 export type ExtraStep =
+  | MoreStep
   | LayerStep
   | HatchStep
   | TextStep
@@ -193,6 +211,7 @@ export type ExtraStep =
 
 /** Prompts of the added commands (i18n keys under `design.cad.cmd`). */
 export type ExtraPromptKey =
+  | MorePromptKey
   | LayerPromptKey
   | 'matchSource'
   | 'matchDest'
@@ -253,6 +272,7 @@ export type ExtraPromptKey =
 
 /** Steps that wait for an object pick (a click picks, a typed point is refused). */
 export const EXTRA_OBJECT_STEPS: readonly string[] = [
+  ...MORE_OBJECT_STEPS,
   ...LAYER_OBJECT_STEPS,
   ...MATCH_OBJECT_STEPS,
   ...TEXT_OBJECT_STEPS,
@@ -268,6 +288,7 @@ export const EXTRA_OBJECT_STEPS: readonly string[] = [
 ];
 /** Steps that follow the pointer for the rubber band. */
 export const EXTRA_TRACKED: readonly string[] = [
+  ...MORE_TRACKED,
   ...LAYER_TRACKED,
   ...TEXT_TRACKED,
   'x_brSecond',
@@ -380,6 +401,10 @@ export interface ExtraContext<R extends ExtraRun> {
   usableLayers: readonly string[];
   layerScreen?: LayerScreen;
   openDialog?: (dialog: WorkspaceDialog | null) => void;
+  /** ZOOM / PAN / REGEN: the view of the drawing (round 3). */
+  view?: ZoomView;
+  /** U / UNDO / REDO / OOPS typed (round 3). */
+  undo?: UndoControl;
 }
 
 interface Prompt {
@@ -412,11 +437,16 @@ const data = (r: ExtraRun): ExtraData => r.flags.extra ?? {};
 
 /** Whether the run is one of the added commands. */
 export const isExtra = (cmd: CommandId) =>
-  EXTRA_COMMANDS.has(cmd) || isLayerCommand(cmd) || isTextCommand(cmd) || isMatchCommand(cmd);
+  EXTRA_COMMANDS.has(cmd) ||
+  isLayerCommand(cmd) ||
+  isTextCommand(cmd) ||
+  isMatchCommand(cmd) ||
+  isMoreCommand(cmd);
 
 // ---------- prompts ----------
 
 export function extraPrompt(r: ExtraRun, settings: ExtraSettings): Prompt | null {
+  if (isMoreCommand(r.cmd)) return morePrompt(r);
   if (isLayerCommand(r.cmd)) return layerPrompt(r);
   if (isMatchCommand(r.cmd)) return matchPrompt(r);
   if (isTextCommand(r.cmd)) return textPrompt(r, settings.text);
@@ -589,6 +619,7 @@ export function extraBegin<R extends ExtraRun>(
   if (isMatchCommand(cmd)) return matchBegin(ctx, fresh);
   if (isTextCommand(cmd)) return textBegin(ctx, cmd, fresh);
   if (isHatchCommand(cmd)) return hatchBegin(ctx, cmd, fresh);
+  if (isMoreCommand(cmd)) return moreBegin(ctx, cmd, fresh);
   const picked = ctx.handles.length > 0;
   const start = (step: ExtraStep, extra: ExtraData = {}): R => {
     const r = fresh(step);
@@ -651,6 +682,7 @@ export function extraAfterSelect<R extends ExtraRun>(ctx: ExtraContext<R>, r: R)
   if (isLayerCommand(r.cmd)) return layerAfterSelect(ctx, r);
   if (isMatchCommand(r.cmd)) return matchAfterSelect(ctx, r);
   if (isTextCommand(r.cmd)) return textAfterSelect(ctx, r);
+  if (isMoreCommand(r.cmd)) return moreAfterSelect(ctx, r);
   if (ctx.handles.length === 0) {
     ctx.finish();
     return null;
@@ -724,6 +756,7 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
   if (isLayerCommand(r.cmd)) return layerPoint(ctx, r, p);
   if (isTextCommand(r.cmd)) return textPoint(ctx, r, p);
   if (isHatchCommand(r.cmd)) return hatchPoint(ctx, r, p);
+  if (isMoreCommand(r.cmd)) return morePoint(ctx, r, p);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -869,6 +902,7 @@ export function extraPoint<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, p: Po
 }
 
 export function extraNumber<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, value: number): void {
+  if (isMoreCommand(r.cmd)) return moreNumber(ctx, r, value);
   if (isTextCommand(r.cmd)) return textNumber(ctx, r, value);
   if (isHatchCommand(r.cmd)) {
     ctx.say(ctx.msg('badPoint'));
@@ -1009,6 +1043,7 @@ export function extraOption<R extends ExtraRun>(ctx: ExtraContext<R>, r: R, key:
   if (isMatchCommand(r.cmd)) return matchOption(ctx, r, key);
   if (isTextCommand(r.cmd)) return textOption(ctx, r, key);
   if (isHatchCommand(r.cmd)) return hatchOption(ctx, r, key);
+  if (isMoreCommand(r.cmd)) return moreOption(ctx, r, key);
   const d = data(r);
   const s = ctx.settings;
   try {
@@ -1116,6 +1151,7 @@ export function extraEnter<R extends ExtraRun>(ctx: ExtraContext<R>, r: R): void
   if (isLayerCommand(r.cmd)) return layerEnter(ctx, r);
   if (isTextCommand(r.cmd)) return textEnter(ctx, r);
   if (isHatchCommand(r.cmd)) return hatchEnter(ctx, r);
+  if (isMoreCommand(r.cmd)) return moreEnter(ctx, r);
   const d = data(r);
   const s = ctx.settings;
   switch (r.step as ExtraStep) {
@@ -1198,6 +1234,7 @@ export function extraObject<R extends ExtraRun>(
   if (isMatchCommand(r.cmd)) return matchObject(ctx, r, index);
   if (isTextCommand(r.cmd)) return textObject(ctx, r, index);
   if (isHatchCommand(r.cmd)) return hatchObject(ctx, r, index, at);
+  if (isMoreCommand(r.cmd)) return moreObject(ctx, r, index, at);
   const d = data(r);
   if (index === null || !ctx.pickable(index)) {
     ctx.say(ctx.msg('nothingThere'));
@@ -1291,6 +1328,7 @@ export function extraSketch(
 ): { points: Point[]; closed: boolean } | null {
   if (isLayerCommand(r.cmd)) return layerSketch(r, at);
   if (isTextCommand(r.cmd)) return textSketch(r, at);
+  if (isMoreCommand(r.cmd)) return moreSketch(r, at);
   const d = data(r);
   const a = pt(at);
   try {

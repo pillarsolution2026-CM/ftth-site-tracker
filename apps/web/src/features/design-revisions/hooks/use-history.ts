@@ -33,6 +33,8 @@ export interface UndoHistory {
   close: () => void;
   /** Undoes the last step; its label, or null when there is none. */
   undo: (parts: Readonly<Record<string, HistoryPart>>) => string | null;
+  /** UNDO n: the last `count` steps at once; their labels, newest first. */
+  undoMany: (count: number, parts: Readonly<Record<string, HistoryPart>>) => string[];
   redo: (parts: Readonly<Record<string, HistoryPart>>) => string | null;
   clear: () => void;
   canUndo: boolean;
@@ -86,6 +88,27 @@ export function useHistory(): UndoHistory {
       }),
     close: () => setState((s) => (s.open ? { ...s, open: false } : s)),
     undo: (parts) => swap('done', parts),
+    undoMany: (count, parts) => {
+      const taken = state.done.slice(-Math.max(0, Math.floor(count))).reverse();
+      if (taken.length === 0) return [];
+      // Newest first: each undone step keeps, for Redo, the state its part had just before.
+      const now = new Map<string, unknown>();
+      const backs: HistoryStep[] = [];
+      for (const step of taken) {
+        const part = parts[step.part];
+        if (!part) continue;
+        if (!now.has(step.part)) now.set(step.part, part.capture());
+        backs.push({ ...step, before: now.get(step.part) });
+        now.set(step.part, step.before);
+      }
+      for (const [key, value] of now) parts[key]?.apply(value);
+      setState((s) => ({
+        open: false,
+        done: s.done.slice(0, s.done.length - taken.length),
+        undone: [...s.undone, ...backs],
+      }));
+      return taken.map((step) => step.label);
+    },
     redo: (parts) => swap('undone', parts),
     clear: () => setState(EMPTY),
     canUndo: state.done.length > 0,

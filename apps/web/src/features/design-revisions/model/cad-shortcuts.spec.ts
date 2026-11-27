@@ -68,6 +68,9 @@ describe('ribbon panels', () => {
       'groups',
       'block',
       'properties',
+      // Round 3 (audit 8): AutoCAD's Home tab ends with Utilities and Clipboard.
+      'utilities',
+      'clipboard',
     ]);
   });
 });

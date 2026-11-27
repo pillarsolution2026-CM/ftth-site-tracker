@@ -93,7 +93,26 @@ export type CommandId =
   | 'tcircle'
   | 'textmask'
   | 'textunmask'
-  | 'table';
+  | 'table'
+  // View and undo, typed (round 3, audit 4.1 / 4.2)
+  | 'zoom'
+  | 'pan'
+  | 'regen'
+  | 'u'
+  | 'undo'
+  | 'redo'
+  | 'oops'
+  // Inquiry (round 3, audit 4.2)
+  | 'id'
+  | 'dist'
+  | 'area'
+  | 'list'
+  | 'measuregeom'
+  // Modify (round 3, audit 4.2)
+  | 'extend'
+  | 'explode'
+  | 'qselect'
+  | 'pedit';
 
 export interface CommandDef {
   /** The AutoCAD command name, as typed and as shown before each prompt. */
@@ -183,7 +202,31 @@ export const COMMANDS: Readonly<Record<CommandId, CommandDef>> = {
   textmask: { name: 'TEXTMASK', aliases: [] },
   textunmask: { name: 'TEXTUNMASK', aliases: [] },
   table: { name: 'TABLE', aliases: ['TB'] },
+  zoom: { name: 'ZOOM', aliases: ['Z'] },
+  pan: { name: 'PAN', aliases: ['P'] },
+  regen: { name: 'REGEN', aliases: ['RE'] },
+  u: { name: 'U', aliases: [] },
+  undo: { name: 'UNDO', aliases: [] },
+  redo: { name: 'REDO', aliases: [] },
+  oops: { name: 'OOPS', aliases: [] },
+  id: { name: 'ID', aliases: [] },
+  dist: { name: 'DIST', aliases: ['DI'] },
+  area: { name: 'AREA', aliases: ['AA'] },
+  list: { name: 'LIST', aliases: ['LI', 'LS'] },
+  measuregeom: { name: 'MEASUREGEOM', aliases: ['MEA'] },
+  extend: { name: 'EXTEND', aliases: ['EX'] },
+  explode: { name: 'EXPLODE', aliases: ['X'] },
+  qselect: { name: 'QSELECT', aliases: [] },
+  pedit: { name: 'PEDIT', aliases: ['PE'] },
 };
+
+/** Commands that may run inside another one, typed with an apostrophe (`'ZOOM`, AutoCAD). */
+export const TRANSPARENT: ReadonlySet<CommandId> = new Set<CommandId>([
+  'zoom',
+  'pan',
+  'dist',
+  'id',
+]);
 
 const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
   (Object.entries(COMMANDS) as [CommandId, CommandDef][]).flatMap(([id, def]) =>
@@ -191,13 +234,65 @@ const BY_NAME: ReadonlyMap<string, CommandId> = new Map(
   ),
 );
 
-/** The command a typed word names (AutoCAD's `_` and `.` prefixes allowed), or null. */
+/** The command a typed word names (AutoCAD's `_`, `.` and `'` prefixes allowed), or null. */
 export function lookupCommand(typed: string): CommandId | null {
   const word = typed
     .trim()
     .toUpperCase()
-    .replace(/^[_.]+/, '');
+    .replace(/^[_.']+/, '');
   return BY_NAME.get(word) ?? null;
+}
+
+/** One line of AutoCAD's AutoComplete list above the command line. */
+export interface CommandSuggestion {
+  id: CommandId;
+  /** As AutoCAD lists it: the name, or «ALIAS (NAME)» when an alias matched. */
+  label: string;
+  /** Matched in the middle of the word (AutoCAD's mid-string search), after the prefix matches. */
+  mid: boolean;
+}
+
+const MAX_SUGGESTIONS = 12;
+
+/**
+ * AutoCAD's AutoComplete (item 33): the exact name or alias first, then the names that start with
+ * the text (alphabetical), the aliases that start with it, then the names that contain it.
+ * Each command once.
+ */
+export function suggestCommands(typed: string): CommandSuggestion[] {
+  const word = typed
+    .trim()
+    .toUpperCase()
+    .replace(/^[_.']+/, '');
+  if (!/^[A-Z0-9]+$/.test(word) || !/[A-Z]/.test(word)) return [];
+  const out: CommandSuggestion[] = [];
+  const seen = new Set<CommandId>();
+  const push = (id: CommandId, label: string, mid: boolean) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, label, mid });
+  };
+  const entries = (Object.entries(COMMANDS) as [CommandId, CommandDef][]).sort((a, b) =>
+    a[1].name.localeCompare(b[1].name),
+  );
+  const exact = BY_NAME.get(word);
+  if (exact) {
+    const def = COMMANDS[exact];
+    push(exact, def.name === word ? def.name : `${word} (${def.name})`, false);
+  }
+  for (const [id, def] of entries) if (def.name.startsWith(word)) push(id, def.name, false);
+  const aliases = entries
+    .flatMap(([id, def]) => def.aliases.map((alias) => [id, alias, def.name] as const))
+    .filter(([, alias]) => alias.startsWith(word))
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  for (const [id, alias, name] of aliases) push(id, `${alias} (${name})`, false);
+  for (const [id, def] of entries) if (def.name.includes(word)) push(id, def.name, true);
+  return out.slice(0, MAX_SUGGESTIONS);
+}
+
+/** What Enter on the command line starts: the exact command, else the first suggestion. */
+export function resolveCommand(typed: string): CommandId | null {
+  return lookupCommand(typed) ?? suggestCommands(typed)[0]?.id ?? null;
 }
 
 /** Commands that work on objects: picked first (noun-verb) or after the command (verb-noun). */
@@ -216,6 +311,8 @@ export const SELECTING: readonly CommandId[] = [
   'overkill',
   'draworder',
   'region',
+  'explode',
+  'list',
   'copyclip',
   'cutclip',
   'copybase',
@@ -315,6 +412,12 @@ export const PROMPTS_WITHOUT_OR: ReadonlySet<string> = new Set([
   'splineMethod',
   'polygonMode',
   'orderOption',
+  // Round 3: their text already ends in «or» (AutoCAD's own wording) or is a question.
+  'zoomCorner',
+  'undoCount',
+  'undoEverything',
+  'mgOption',
+  'peditOption',
 ]);
 
 /** An angle as AutoCAD prints it in a default (AUPREC 0: whole degrees). */

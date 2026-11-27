@@ -20,8 +20,9 @@ import {
   acadNumber,
   COMMANDS,
   PROMPTS_WITHOUT_OR,
-  lookupCommand,
   matchOption,
+  resolveCommand,
+  TRANSPARENT,
   parseEntry,
   towards,
   type CommandId,
@@ -139,6 +140,8 @@ import { hatchLoopCount, hatchPending, isHatchCommand, type HatchSettings } from
 import type { WorkspaceDialog } from './use-drawing-viewer';
 import { useHistory, type HistoryPart, type UndoHistory } from './use-history';
 import type { LayerScreen } from './use-layer-screen';
+import { moreTransparent, moreWord, transparentLabel } from './more-commands';
+import type { UndoControl, ZoomView } from './view-commands';
 
 export type { Point } from '../model/cad-commands';
 
@@ -510,6 +513,8 @@ const GRIP_OPTIONS: readonly CommandOption[] = [
   { word: 'eXit', key: 'X' },
 ];
 const HISTORY_LINES = 50;
+/** AutoCAD's CMDINPUTHISTORYMAX: how many inputs ↑ / ↓ and the recent lists keep. */
+const INPUT_HISTORY_MAX = 20;
 const opt = (word: string, key: string): CommandOption => ({ word, key });
 
 /** The drawing's edit mode (ADR-047, ADR-050, ADR-051). */
@@ -544,6 +549,10 @@ export interface CanvasEditState {
   prompt: CommandPrompt;
   /** Lines already on the command line (newest last). */
   history: readonly string[];
+  /** What was typed on the command line, newest last (↑ / ↓ recall it, AutoCAD). */
+  recentInput: readonly string[];
+  /** Commands started, newest first (the command line's right-click «Recent Commands»). */
+  recentCommands: readonly CommandId[];
   input: string;
   setInput: (value: string) => void;
   /** Enter on the command line. */
@@ -568,6 +577,10 @@ export interface CanvasEditState {
   selectSimilar: () => void;
   /** Ctrl+A: every shown, unlocked object (AutoCAD's «All»). */
   selectAll: () => void;
+  /** QSELECT: every object that may be picked now (shown, unlocked, not erased). */
+  selectable: () => number[];
+  /** QSELECT's OK: these objects are picked (`append`: added to the picked ones). */
+  selectIndexes: (indexes: readonly number[], append: boolean) => void;
   /** The objects COPYCLIP / CUTCLIP / COPYBASE keep for PASTECLIP (Ctrl+C / X / Shift+C / V). */
   clipboardCount: number;
   /** The draw command ADDSELECTED would start for the one picked object; null when none fits. */
@@ -687,6 +700,8 @@ interface Input {
   joinTouch?: number;
   /** One Undo history for the edits and the screen states (item 13); its own when absent. */
   history?: UndoHistory;
+  /** ZOOM / PAN / REGEN typed: the viewer's view (set by the viewer after each render). */
+  view?: { readonly current: ZoomView | null };
   /** The screen states (layers, isolation…) the history puts back. */
   screen?: HistoryPart;
 }
@@ -813,6 +828,19 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   const undoHistory = input.history ?? ownHistory;
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [gripRun, setGripRun] = useState<GripRun | null>(null);
+  // AutoCAD's recent input (↑ / ↓ on the command line) and recent commands (right-click).
+  const [recentInput, setRecentInput] = useState<readonly string[]>([]);
+  const [recentCommands, setRecentCommands] = useState<readonly CommandId[]>([]);
+  /** UNDO Mark: how many history steps there were then; OOPS: the last ERASE's objects. */
+  const [undoMark, setUndoMark] = useState<number | null>(null);
+  const [lastErased, setLastErased] = useState<readonly string[]>([]);
+  const rememberInput = (typed: string) => {
+    const value = typed.trim();
+    if (!value) return;
+    setRecentInput((before) =>
+      [...before.filter((v) => v !== value), value].slice(-INPUT_HISTORY_MAX),
+    );
+  };
 
   // Leaving the page with unsaved edits asks first.
   const unsaved = edits.length > 0;
@@ -1205,6 +1233,12 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       case 'pointAt':
         return p('pointAt');
       case 'trimPick':
+        // EXTEND (round 3): the same pick with the other default; Shift trims.
+        if (r.cmd === 'extend')
+          return p('extendPick', [
+            opt('Boundary edges', 'B'),
+            ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
+          ]);
         // Undo is offered once something was trimmed (AutoCAD).
         return p('trimPick', [
           opt('cuTting edges', 'T'),
@@ -1212,7 +1246,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           ...(r.made.length > 0 ? [opt('Undo', 'U')] : []),
         ]);
       case 'trimEdges':
-        return p('trimEdges', [], 'select all');
+        return p(r.cmd === 'extend' ? 'extendEdges' : 'trimEdges', [], 'select all');
       case 'trimErase':
         return p('trimErase', [], 'exit');
       case 'filletFirst':
@@ -1301,7 +1335,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
   };
 
   const promptLine = (r: Run | null) =>
-    formatPrompt(t, r ? COMMANDS[r.cmd].name : null, promptOf(r));
+    formatPrompt(t, r ? (transparentLabel(r) ?? COMMANDS[r.cmd].name) : null, promptOf(r));
 
   // ---------- running ----------
 
@@ -1346,13 +1380,53 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           usableLayers: layers,
           layerScreen: input.layerScreen,
           openDialog: input.openDialog,
+          view: input.view?.current ?? undefined,
+          undo: undoControl,
         }
       : null;
+
+  /** U / UNDO / REDO / OOPS typed share the one history (item 13). */
+  const undoControl: UndoControl = {
+    undo: (count) => undoHistory.undoMany(count, historyParts()),
+    redo: () => undoHistory.redo(historyParts()),
+    steps: () => undoHistory.steps.length,
+    mark: () => setUndoMark(undoHistory.steps.length),
+    markAt: () => undoMark,
+    clearMark: () => setUndoMark(null),
+    oops: () => {
+      // OOPS: the objects of the last ERASE come back (their unsaved erase edits are dropped).
+      const gone = new Set(lastErased);
+      if (gone.size === 0) return 0;
+      const kept = [...edits];
+      let count = 0;
+      for (let i = kept.length - 1; i >= 0 && gone.size > 0; i--) {
+        const edit = kept[i];
+        if (edit?.kind === 'erase_item' && gone.has(edit.handle)) {
+          gone.delete(edit.handle);
+          kept.splice(i, 1);
+          count++;
+        }
+      }
+      if (count === 0) return 0;
+      undoHistory.record('OOPS', 'edits', { edits, currentLayer });
+      setEdits(kept);
+      setLastErased([]);
+      return count;
+    },
+  };
+  /** ERASE (the command, Delete): OOPS can bring these back. */
+  const eraseNow = (picked: string[]) => {
+    add(eraseEdits(picked));
+    setLastErased(picked);
+  };
 
   const begin = (cmd: CommandId): Run | null | undefined => {
     if (!scene) return null;
     setError(null);
     setLastCmd(cmd);
+    setRecentCommands((before) =>
+      [cmd, ...before.filter((c) => c !== cmd)].slice(0, INPUT_HISTORY_MAX),
+    );
     setText('');
     setBand(null);
     setFocusNonce((n) => n + 1);
@@ -1381,7 +1455,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return next('select');
       case 'erase':
         if (picked) {
-          add(eraseEdits(handles));
+          eraseNow(handles);
           finish();
           return;
         }
@@ -1418,6 +1492,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         say(msg('pointModes'));
         return next('pointAt');
       case 'trim':
+      case 'extend':
         setSelection(NONE);
         say(msg('trimSettings'));
         return next('trimPick');
@@ -1579,7 +1654,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         clipSelected(r.cmd, r.base);
         return;
       case 'erase':
-        add(eraseEdits(handles));
+        eraseNow(handles);
         finish();
         return;
       case 'join':
@@ -2117,16 +2192,20 @@ export function useCanvasEdit(input: Input): CanvasEditState {
           say(msg('notCurve'));
           return;
         }
+        const extending = shift !== (r.cmd === 'extend');
+        // Cutting edges cross the object's box; boundary edges to extend to may lie anywhere.
+        const everywhere = { minX: -Infinity, minY: -Infinity, maxX: Infinity, maxY: Infinity };
         const edgeList = r.flags.edges
           ? r.flags.edges.flatMap((i) => {
               const g = curveGeom(i);
               return g && i !== index ? [g] : [];
             })
-          : edgesNear(boxAround(geom.points), index);
+          : edgesNear(extending ? everywhere : boxAround(geom.points), index);
         try {
           const out: CanvasEdit[] = [];
-          if (shift) {
-            // Shift-select extends the picked end to the nearest edge (AutoCAD).
+          // TRIM: Shift-select extends; EXTEND: a plain pick extends, Shift-select trims.
+          if (extending) {
+            // The picked end goes to the nearest edge (AutoCAD).
             if (geom.closed) {
               say(msg('notCurve'));
               return;
@@ -2575,8 +2654,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         go(r, key === 'W' ? 'rectAreaWidth' : 'rectAreaLength');
         return;
       case 'trimPick':
-        if (key === 'T') {
-          say(msg('trimEdgesSettings'));
+        if (key === 'T' || key === 'B') {
+          say(msg(r.cmd === 'extend' ? 'extendEdgesSettings' : 'trimEdgesSettings'));
           flag(r, { edges: [] }, 'trimEdges');
         } else if (key === 'R') go(r, 'trimErase');
         else if (key === 'U') undoMade(r);
@@ -2935,11 +3014,22 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     const typed = text;
     setText('');
     if (!editing) return;
+    rememberInput(typed);
     if (run && isTextStep(run.step)) {
       say(`${promptLine(run)} ${typed}`);
       const ctx = extraFor(run);
       if (ctx) extraText(ctx, run, typed);
       else feedText(run, typed);
+      return;
+    }
+    if (run && typed.trim().startsWith("'")) {
+      // A transparent command inside this one ('ZOOM, 'PAN), AutoCAD's «>>».
+      say(`${promptLine(run)} ${typed}`);
+      const id = resolveCommand(typed.trim());
+      const ctx = extraCtx();
+      if (id && TRANSPARENT.has(id) && ctx && !transparentLabel(run)) {
+        moreTransparent(ctx, id, (step) => newRun(id, step as Step), run);
+      } else say(msg('notTransparent'));
       return;
     }
     const last = run ? (run.points[run.points.length - 1] ?? run.base) : null;
@@ -2949,7 +3039,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         if (lastCmd) begin(lastCmd);
         return;
       }
-      const id = entry.kind === 'word' ? lookupCommand(entry.word) : null;
+      // AutoComplete (item 33): the exact name, else the first suggestion (`JO` → JOIN).
+      const id = entry.kind === 'word' ? resolveCommand(entry.word) : null;
       if (id) begin(id);
       else say(msg('unknownCommand', { name: typed.trim().toUpperCase() }));
       return;
@@ -2962,7 +3053,9 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     } else if (entry.kind === 'number') feedNumber(run, entry.value);
     else if (entry.kind === 'word') {
       const key = matchOption(promptOf(run).options, entry.word);
+      const ctx = key ? null : extraFor(run);
       if (key) feedOption(run, key);
+      else if (ctx && moreWord(ctx, run, entry.word)) return;
       else if (!(run.step === 'select' && selectionWord(run, entry.word))) say(msg('badKeyword'));
     } else say(msg('badPoint'));
   };
@@ -3256,6 +3349,8 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         : null,
     prompt: gripRun ? gripPrompt(gripRun) : promptOf(run),
     history,
+    recentInput,
+    recentCommands,
     input: text,
     setInput: setText,
     submit: submitAll,
@@ -3298,7 +3393,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
         return true;
       }
       if (k === 'Delete' && !run && handles.length > 0) {
-        add(eraseEdits(handles));
+        eraseNow(handles);
         setSelection(NONE);
         return true;
       }
@@ -3326,6 +3421,13 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       });
       setSelection(all);
       say(msg('found', { count: all.size }));
+    },
+    selectable: () =>
+      scene ? scene.view.entities.flatMap((_, i) => (pickable(i) ? [i] : [])) : [],
+    selectIndexes: (indexes, append) => {
+      if (!editing || run) return;
+      setSelection((before) => new Set([...(append ? before : []), ...indexes]));
+      say(msg('qselectFound', { count: indexes.length }));
     },
     clipboardCount: clipboard?.handles.length ?? 0,
     selectSimilar: () => {
@@ -3407,7 +3509,7 @@ export function useCanvasEdit(input: Input): CanvasEditState {
       setPointer({ x: grip.x, y: grip.y });
       setFocusNonce((n) => n + 1);
     },
-    commandLabel: gripRun ? GRIP_NAME : null,
+    commandLabel: gripRun ? GRIP_NAME : transparentLabel(run),
     apply: (made) => {
       if (!editing || made.length === 0) return;
       setError(null);
