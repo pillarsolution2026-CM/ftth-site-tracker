@@ -143,7 +143,10 @@ function rowShape(
   file: DrawingScene,
   preview: DrawingPreview,
   entry: PageItem,
-): Pick<PageRow, 'paths' | 'texts' | 'arc' | 'nodes' | 'insert' | 'vertices' | 'closed' | 'ellipse'> & {
+): Pick<
+  PageRow,
+  'paths' | 'texts' | 'arc' | 'nodes' | 'insert' | 'vertices' | 'closed' | 'ellipse'
+> & {
   color: string | null;
 } {
   const styled = entry.style?.color ?? null;

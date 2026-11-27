@@ -1256,6 +1256,68 @@ describe(
         ]);
       });
 
+      it('Enter cycles the hot grip STRETCH → MOVE → ROTATE (audit 3, phase 2B)', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 100, 25);
+        await type(user, '');
+        expect(prompt()).toBe('** MOVE ** Specify move point or [Base point/Copy/Undo/eXit]:');
+        await type(user, '');
+        expect(prompt()).toBe(
+          '** ROTATE ** Specify rotation angle or [Base point/Copy/Undo/Reference/eXit]:',
+        );
+        await type(user, 'r');
+        expect(prompt()).toBe('** ROTATE ** Specify reference angle <0>:');
+        await type(user, '30');
+        expect(prompt()).toBe('** ROTATE ** Specify new angle:');
+        await type(user, '120');
+        expect(prompt()).toBe('Type a command');
+        await save(user);
+        expect(sent()).toEqual([{ kind: 'rotate_item', handle: 'B', x: 100, y: 25, angle: 90 }]);
+      });
+
+      it('MI at a grip goes to MIRROR; with Copy the original stays and a mirrored copy is made', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await click(user, canvas, 100, 25);
+        await type(user, 'mi');
+        expect(prompt()).toBe('** MIRROR ** Specify second point or [Base point/Copy/Undo/eXit]:');
+        await type(user, 'c');
+        await type(user, '100,35');
+        // Copy keeps the mode going (AutoCAD's multiple copies) until Esc / eXit.
+        expect(prompt()).toMatch(/^\*\* MIRROR \*\*/);
+        await type(user, 'x');
+        await save(user);
+        const [copy, mirror] = sent();
+        expect(copy).toMatchObject({ kind: 'copy_item', handle: 'B', dx: 0, dy: 0 });
+        expect(mirror).toMatchObject({ kind: 'mirror_item', x1: 100, y1: 25, x2: 100, y2: 35 });
+        expect(mirror?.handle).toMatch(/^NEW-/);
+      });
+
+      it('Shift+click makes several grips hot; a click on one stretches them together', async () => {
+        const { canvas, user } = await openWorkspace();
+        await click(user, canvas, 75, 25);
+        await user.keyboard('{Shift>}');
+        await click(user, canvas, 50, 25);
+        await click(user, canvas, 100, 25);
+        await user.keyboard('{/Shift}');
+        expect(prompt()).toBe('Type a command');
+        await click(user, canvas, 100, 25);
+        await type(user, '@0,10');
+        await save(user);
+        expect(sent()).toEqual([
+          {
+            kind: 'set_curve',
+            handle: 'B',
+            points: [
+              [50, 35],
+              [100, 35],
+            ],
+            closed: false,
+          },
+        ]);
+      });
+
       it('Esc cancels the hot grip; the middle grip of a line moves it', async () => {
         const { canvas, user } = await openWorkspace();
         await click(user, canvas, 75, 25);

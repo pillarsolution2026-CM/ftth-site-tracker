@@ -20,7 +20,7 @@ import {
 import type { ProblemMarker } from './drawing-hit';
 import { boxOf, cullEntities, resolveColor, screenColor, type DrawingScene } from './drawing-scene';
 import { linearDimension, type Pt } from './geometry';
-import type { Grip } from './grips';
+import { sameGrip, type Grip } from './grips';
 import { familiesOf, familyGap, islandLoops, patternSegments } from './hatch-patterns';
 import { cellRects, cellTextHeight, styleOfRow } from './table';
 import { textLength, wrapLines } from './text-tools';
@@ -94,6 +94,8 @@ export interface DrawModel {
   hoverGrip?: Grip | null;
   /** The hot grip of a grip STRETCH (red). */
   hotGrip?: Grip | null;
+  /** Every hot grip (Shift+click made several hot), drawn red like the hot one. */
+  hotGrips?: readonly Grip[];
   /** The selection box being dragged in the edit mode, in drawing coordinates. */
   band?: Band | null;
   /** Picked entities shown where a move / turn in progress would put them (ADR-047). */
@@ -1109,15 +1111,6 @@ export const GRIP_HOT_COLOR = '#ff0000';
 /** Half the side of a grip on screen (GRIPSIZE 5 at 96 dpi). */
 export const GRIP_HALF_PX = 4.5;
 
-const sameGrip = (a: Grip | null | undefined, b: Grip) =>
-  a !== null &&
-  a !== undefined &&
-  a.index === b.index &&
-  a.kind === b.kind &&
-  a.vertex === b.vertex &&
-  a.x === b.x &&
-  a.y === b.y;
-
 /** The most picked entities stroked into the selection layer (the nearest part of a bigger one). */
 export const CHOSEN_MAX_STROKES = 20_000;
 
@@ -1377,11 +1370,12 @@ function drawChosen(
     const p = toScreen(tf, vp, grip.x, grip.y);
     if (p.x < -GRIP_HALF_PX * 2 || p.y < -GRIP_HALF_PX * 2) continue;
     if (p.x > vp.width + GRIP_HALF_PX * 2 || p.y > vp.height + GRIP_HALF_PX * 2) continue;
-    ctx.fillStyle = sameGrip(model.hotGrip, grip)
-      ? GRIP_HOT_COLOR
-      : sameGrip(model.hoverGrip, grip)
-        ? GRIP_HOVER_COLOR
-        : GRIP_COLOR;
+    ctx.fillStyle =
+      sameGrip(model.hotGrip, grip) || model.hotGrips?.some((hot) => sameGrip(hot, grip))
+        ? GRIP_HOT_COLOR
+        : sameGrip(model.hoverGrip, grip)
+          ? GRIP_HOVER_COLOR
+          : GRIP_COLOR;
     // A polyline's segment grip is a thin rectangle, the others squares (AutoCAD).
     const w = grip.kind === 'segment' ? GRIP_HALF_PX * 1.4 : GRIP_HALF_PX;
     const h = grip.kind === 'segment' ? GRIP_HALF_PX * 0.6 : GRIP_HALF_PX;

@@ -14,6 +14,7 @@ import { CadCommandLine, CadRibbon } from './cad-ribbon';
 import { DraftingOverlay } from './drafting-overlay';
 import { CadStatusBar } from './status-bar';
 import { CanvasPopover } from './canvas-popover';
+import { GripMenu } from './grip-menu';
 import { DrawingCanvas } from './drawing-canvas';
 import { LayerManager } from './layer-panel';
 import { PropertiesPalette } from './properties-palette';
@@ -346,6 +347,7 @@ function Workspace({
             <DrawingCanvas viewer={viewer} model={model} fill={full} crosshair={crosshair.size}>
               <DraftingOverlay viewer={viewer} />
               <CanvasPopover viewer={viewer} />
+              <GripMenu viewer={viewer} />
               <WorkspaceDialogs viewer={viewer} />
             </DrawingCanvas>
             {commandLineOn ? (

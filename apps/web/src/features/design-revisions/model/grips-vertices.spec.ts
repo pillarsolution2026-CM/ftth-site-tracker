@@ -5,7 +5,15 @@ import { applyInputs, EMPTY_PREVIEW } from './drawing-preview';
 import { buildScene } from './drawing-scene';
 import { testView } from './drawing-test-view';
 import { geometryOf } from './entity-geometry';
-import { gripsOf, gripsStretchEdits, type Grip } from './grips';
+import {
+  addVertexEdits,
+  gripMenuOf,
+  gripsOf,
+  gripsStretchEdits,
+  removeVertexEdits,
+  segmentBulgeEdits,
+  type Grip,
+} from './grips';
 
 /**
  * Round 3, phase 2B (ADR-062, owner item 33): grips on a polyline's real vertices and on the
@@ -109,8 +117,7 @@ describe('grips on real vertices (item 33)', () => {
     });
     const arcMid = grips.find((g) => g.kind === 'segment' && g.vertex === 1) as Grip;
     const [bent] =
-      gripsStretchEdits(s, EMPTY_PREVIEW, [arcMid], arcMid, { x: 12, y: 5 }, false, () => '') ??
-      [];
+      gripsStretchEdits(s, EMPTY_PREVIEW, [arcMid], arcMid, { x: 12, y: 5 }, false, () => '') ?? [];
     expect(bent?.kind).toBe('set_curve');
     if (bent?.kind === 'set_curve') {
       const b = bent.vertices?.[1]?.[2] ?? 0;
@@ -202,5 +209,75 @@ describe('arcs and ellipses from the view (ADR-062)', () => {
       expect(edit.arc?.r).toBeCloseTo(7.25, 6);
       expect(edit.points[0]).toEqual([5, 0]);
     }
+  });
+});
+
+describe('multifunctional grip menu of a polyline (audit 3)', () => {
+  it('offers AutoCAD items and adds / removes vertices, converts segments', () => {
+    const { s, poly, arc } = scene();
+    const grips = gripsOf(s, EMPTY_PREVIEW, new Set([poly]), true).grips;
+    const v0 = grips.find((g) => g.kind === 'vertex' && g.vertex === 0) as Grip;
+    const straight = grips.find((g) => g.kind === 'segment' && g.vertex === 0) as Grip;
+    const curved = grips.find((g) => g.kind === 'segment' && g.vertex === 1) as Grip;
+    expect(gripMenuOf(s, EMPTY_PREVIEW, v0)).toEqual(['stretch', 'addVertex', 'removeVertex']);
+    expect(gripMenuOf(s, EMPTY_PREVIEW, straight)).toEqual(['stretch', 'addVertex', 'toArc']);
+    expect(gripMenuOf(s, EMPTY_PREVIEW, curved)).toEqual(['stretch', 'addVertex', 'toLine']);
+    const arcGrip = gripsOf(s, EMPTY_PREVIEW, new Set([arc]), true).grips[0] as Grip;
+    expect(gripMenuOf(s, EMPTY_PREVIEW, arcGrip)).toEqual([]);
+
+    const [added] = addVertexEdits(s, EMPTY_PREVIEW, straight, { x: 5, y: -3 }) ?? [];
+    expect(added).toMatchObject({
+      kind: 'set_curve',
+      vertices: [
+        [0, 0, 0],
+        [5, -3, 0],
+        [10, 0, 1],
+        [10, 10, 0],
+        [0, 10, 0],
+      ],
+    });
+    const [removed] = removeVertexEdits(s, EMPTY_PREVIEW, v0) ?? [];
+    expect(removed).toMatchObject({
+      vertices: [
+        [10, 0, 1],
+        [10, 10, 0],
+        [0, 10, 0],
+      ],
+    });
+    const [toLine] = segmentBulgeEdits(s, EMPTY_PREVIEW, curved, null) ?? [];
+    expect(toLine).toMatchObject({
+      vertices: [
+        [0, 0, 0],
+        [10, 0, 0],
+        [10, 10, 0],
+        [0, 10, 0],
+      ],
+    });
+    const [toArc] = segmentBulgeEdits(s, EMPTY_PREVIEW, straight, { x: 5, y: -5 }) ?? [];
+    if (toArc?.kind !== 'set_curve') throw new Error('arc');
+    expect(toArc.vertices?.[0]?.[2]).toBeCloseTo(1, 6);
+    // A line of two vertices keeps both.
+    expect(
+      removeVertexEdits(
+        s,
+        applyInputs(
+          s,
+          EMPTY_PREVIEW,
+          [
+            {
+              kind: 'set_curve',
+              handle: 'P9',
+              points: [
+                [0, 0],
+                [1, 0],
+              ],
+              closed: false,
+            },
+          ],
+          2.5,
+        ),
+        v0,
+      ),
+    ).toBeNull();
   });
 });

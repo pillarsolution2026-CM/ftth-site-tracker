@@ -452,3 +452,96 @@ export function gripSketch(
 ): { points: Xy[]; closed: boolean } | null {
   return gripSketches(scene, preview, [grip], base, to)[0] ?? null;
 }
+
+/** The same grip (of the same object, at the same place). */
+export const sameGrip = (a: Grip | null | undefined, b: Grip): boolean =>
+  a !== null &&
+  a !== undefined &&
+  a.index === b.index &&
+  a.kind === b.kind &&
+  a.vertex === b.vertex &&
+  a.x === b.x &&
+  a.y === b.y;
+
+/**
+ * AutoCAD's multifunctional grip menu of a polyline (hover a grip): a vertex has Stretch Vertex /
+ * Add Vertex / Remove Vertex; a segment's middle Stretch / Add Vertex / Convert to Arc (an arc
+ * segment: Convert to Line). Other grips have none.
+ */
+export type GripMenuItem = 'stretch' | 'addVertex' | 'removeVertex' | 'toArc' | 'toLine';
+
+function polylineOf(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+): { vertices: BulgeVertex[]; closed: boolean; handle: string } | null {
+  const handle = grip.handles[0];
+  if (grip.index < 0 || !handle) return null;
+  const g = geometryOf(scene, preview, grip.index);
+  if (g?.type !== 'polyline') return null;
+  const vertices = g.vertices
+    ? g.vertices.map((v) => ({ ...v }))
+    : g.points.map((p) => ({ x: p.x, y: p.y, bulge: 0 }));
+  return { vertices, closed: g.closed, handle };
+}
+
+export function gripMenuOf(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+): GripMenuItem[] {
+  if (grip.kind !== 'vertex' && grip.kind !== 'segment') return [];
+  const line = polylineOf(scene, preview, grip);
+  if (!line) return [];
+  if (grip.kind === 'vertex') return ['stretch', 'addVertex', 'removeVertex'];
+  const bulge = line.vertices[grip.vertex]?.bulge ?? 0;
+  return ['stretch', 'addVertex', Math.abs(bulge) > 1e-12 ? 'toLine' : 'toArc'];
+}
+
+/** Add Vertex: a new vertex at `at` after the grip's vertex (both new segments straight). */
+export function addVertexEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+  at: Xy,
+): CanvasEdit[] | null {
+  const line = polylineOf(scene, preview, grip);
+  if (!line) return null;
+  const vs = line.vertices;
+  const before = vs[grip.vertex];
+  if (!before) return null;
+  vs[grip.vertex] = { ...before, bulge: 0 };
+  vs.splice(grip.vertex + 1, 0, { x: at.x, y: at.y, bulge: 0 });
+  return [vertexCurveEdit(line.handle, '', vs, line.closed)];
+}
+
+/** Remove Vertex: null when the polyline would keep fewer than two (closed: three) vertices. */
+export function removeVertexEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+): CanvasEdit[] | null {
+  const line = polylineOf(scene, preview, grip);
+  if (!line || line.vertices.length <= (line.closed ? 3 : 2)) return null;
+  line.vertices.splice(grip.vertex, 1);
+  return [vertexCurveEdit(line.handle, '', line.vertices, line.closed)];
+}
+
+/** Convert to Arc (through `through`) / Convert to Line (`through` null) of a segment. */
+export function segmentBulgeEdits(
+  scene: DrawingScene,
+  preview: DrawingPreview,
+  grip: Grip,
+  through: Xy | null,
+): CanvasEdit[] | null {
+  const line = polylineOf(scene, preview, grip);
+  if (!line || grip.kind !== 'segment') return null;
+  const vs = line.vertices;
+  const a = vs[grip.vertex];
+  const b = vs[(grip.vertex + 1) % vs.length];
+  if (!a || !b) return null;
+  const bulge = through ? bulgeThrough(a, b, through) : 0;
+  if (through && bulge === 0) return null;
+  vs[grip.vertex] = { ...a, bulge };
+  return [vertexCurveEdit(line.handle, '', vs, line.closed)];
+}

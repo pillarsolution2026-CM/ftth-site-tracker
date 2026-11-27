@@ -162,6 +162,8 @@ export interface DrawingViewer {
   click: (sx: number, sy: number, additive?: boolean) => void;
   popover: ViewerPopover | null;
   closePopover: () => void;
+  /** The grip under the pointer (its multifunctional menu shows for a polyline's grips). */
+  hoverGrip: Grip | null;
   markerCount: number;
   /** The Layers panel on the screen: off, isolate, freeze, lock, states, fading. */
   layerScreen: LayerScreen;
@@ -639,6 +641,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
             grips: edit.grips,
             groupBoxes: edit.groupBoxes,
             hotGrip: edit.hotGrip,
+            hotGrips: edit.hotGrips,
             hoverGrip,
             band: edit.band,
             layerColor,
@@ -667,6 +670,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       edit.grips,
       edit.groupBoxes,
       edit.hotGrip,
+      edit.hotGrips,
       hoverGrip,
       edit.band,
       scene,
@@ -687,11 +691,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     hitGrip(edit.grips, (x, y) => toScreen(transform, size, x, y), sx, sy, GRIP_HIT_PX);
   const click = (sx: number, sy: number, additive = false) => {
     if (!scene || !shownPreview) return;
-    // AutoCAD: a click on a grip of the picked objects makes it hot («** STRETCH **»).
-    if (edit.editing && edit.command === null && edit.hotGrip === null && !additive) {
+    // AutoCAD: a click on a grip of the picked objects makes it hot («** STRETCH **»);
+    // Shift+click makes several hot first (a click on one of them then stretches them all).
+    if (edit.editing && edit.command === null && edit.hotGrip === null) {
       const grip = gripAt(sx, sy);
       if (grip) {
-        edit.startGrip(grip);
+        if (additive) edit.armGrip(grip);
+        else edit.startGrip(grip);
         setPopover(null);
         return;
       }
@@ -885,6 +891,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     fit: fitAll,
     click,
     popover,
+    hoverGrip,
     closePopover: () => {
       setPopover(null);
       setSelected(null);

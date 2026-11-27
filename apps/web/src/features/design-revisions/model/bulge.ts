@@ -92,10 +92,7 @@ export function flattenVertices(
 }
 
 /** Vertices where a move / turn / mirror / scale puts them (a mirror turns the arcs around). */
-export function transformVertices(
-  vertices: readonly BulgeVertex[],
-  t: Affine,
-): BulgeVertex[] {
+export function transformVertices(vertices: readonly BulgeVertex[], t: Affine): BulgeVertex[] {
   const flip = t[0] * t[3] - t[1] * t[2] < 0 ? -1 : 1;
   return vertices.map((v) => {
     const p = applyAffine(t, v.x, v.y);
