@@ -22,6 +22,7 @@ import {
   translation,
   type Affine,
 } from './affine';
+import { transformVertices, type BulgeVertex } from './bulge';
 import { fileSceneOf, type DrawingScene } from './drawing-scene';
 
 /** Colour of a preview shape whose layer is not in the drawing view. */
@@ -58,6 +59,29 @@ export interface PreviewCurve {
   layerName: string;
   /** A true circle / arc (add_curve.arc, ADR-061); `path` is its flattened outline. */
   arc?: PreviewArc;
+  /** A polyline's real vertices with their bulges (ADR-062); `path` is its flattened outline. */
+  vertices?: readonly BulgeVertex[];
+}
+
+/** A curve's new shape (set_curve): its points, and its true arc or real vertices when sent. */
+export interface PreviewCurveShape {
+  points: readonly (readonly [number, number])[];
+  closed: boolean;
+  arc?: PreviewArc;
+  vertices?: readonly BulgeVertex[];
+}
+
+/** The true arc / real vertices a set_curve or add_curve carries (ADR-062), for the preview. */
+function shapeExtras(correction: {
+  arc?: PreviewArc | undefined;
+  vertices?: readonly (readonly [number, number, number])[] | undefined;
+}): { arc?: PreviewArc; vertices?: BulgeVertex[] } {
+  return {
+    ...(correction.arc ? { arc: { ...correction.arc } } : {}),
+    ...(correction.vertices
+      ? { vertices: correction.vertices.map(([x, y, bulge]) => ({ x, y, bulge })) }
+      : {}),
+  };
 }
 
 /** Centre, radius, counter-clockwise from `start` to `end` degrees (0 → 360: a circle). */
@@ -197,7 +221,7 @@ export interface DrawingPreview {
    * Entity → its new points in drawing units (set_curve: Trim, Fillet, Stretch; ADR-051), drawn
    * instead of its own path, after which `transformOf` moves it.
    */
-  curveOf: ReadonlyMap<number, { points: readonly (readonly [number, number])[]; closed: boolean }>;
+  curveOf: ReadonlyMap<number, PreviewCurveShape>;
   /** Dimensions and leaders (add_note; ADR-051). */
   notes: readonly PreviewNote[];
   /** Entity → its latest style (set_style; ADR-051). */
@@ -347,10 +371,15 @@ export function transformPageItem(item: PageItemValue, t: Affine): PageItemValue
         const q = applyAffine(t, flat[i] as number, flat[i + 1] as number);
         path.push(q.x, q.y);
       }
-      const { arc, ...rest } = item.value;
+      const { arc, vertices, ...rest } = item.value;
       return {
         type: 'curve',
-        value: arc ? { ...rest, path, arc: transformArc(arc, t) } : { ...rest, path },
+        value: {
+          ...rest,
+          path,
+          ...(arc ? { arc: transformArc(arc, t) } : {}),
+          ...(vertices ? { vertices: transformVertices(vertices, t) } : {}),
+        },
       };
     }
     case 'text': {
@@ -645,7 +674,7 @@ export function applyInputs(
             layer,
             color: colorOf(layer),
             layerName: correction.layer,
-            ...(correction.arc ? { arc: { ...correction.arc } } : {}),
+            ...shapeExtras(correction),
           },
         });
         break;
@@ -687,8 +716,12 @@ export function applyInputs(
             // New points replace the curve (a trimmed circle is a polyline on the screen).
             const rest = { ...entry.item.value };
             delete rest.arc;
+            delete rest.vertices;
             change(k, {
-              item: { type: 'curve', value: { ...rest, path, closed: correction.closed } },
+              item: {
+                type: 'curve',
+                value: { ...rest, path, closed: correction.closed, ...shapeExtras(correction) },
+              },
             });
           } else if (entry.item.type === 'copy') {
             const { layer, name } = copyLayer(entry.item.value);
@@ -708,7 +741,11 @@ export function applyInputs(
         }
         // New points replace the curve; moves made before are already in them.
         for (const index of indexes(correction.handle)) {
-          curveOf.set(index, { points: correction.points, closed: correction.closed });
+          curveOf.set(index, {
+            points: correction.points,
+            closed: correction.closed,
+            ...shapeExtras(correction),
+          });
           transformOf.delete(index);
         }
         break;

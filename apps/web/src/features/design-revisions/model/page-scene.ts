@@ -1,9 +1,11 @@
 import type { DrawingViewEntity, DrawingViewLayer } from '@ftth/shared';
-import { angleOf, applyAffine, scaleOf } from './affine';
+import { angleOf, applyAffine, scaleOf, type Affine } from './affine';
+import { transformVertices } from './bulge';
 import {
   FALLBACK_COLOR,
   type DrawingPreview,
   type PageItem,
+  transformArc,
   type PreviewArc,
 } from './drawing-preview';
 import { entityBox, type DrawingScene } from './drawing-scene';
@@ -107,12 +109,43 @@ export function pageItemKind(file: DrawingScene, entry: PageItem): string {
   }
 }
 
+/** A copied entity's own vertices / circle / arc / ellipse where the copy puts them (ADR-062). */
+function copiedGeometry(
+  source: DrawingViewEntity,
+  t: Affine,
+): Pick<PageRow, 'vertices' | 'closed' | 'arc' | 'ellipse'> {
+  if (source.vertices) {
+    return { vertices: transformVertices(source.vertices, t), closed: source.closed ?? false };
+  }
+  if (source.arc) return { arc: transformArc(source.arc, t) };
+  if (source.ellipse) {
+    const e = source.ellipse;
+    const c = applyAffine(t, e.x, e.y);
+    const tip = applyAffine(t, e.x + e.majorX, e.y + e.majorY);
+    const mirrored = t[0] * t[3] - t[1] * t[2] < 0;
+    return {
+      ellipse: {
+        ...e,
+        x: c.x,
+        y: c.y,
+        majorX: tip.x - c.x,
+        majorY: tip.y - c.y,
+        start: mirrored ? -e.end : e.start,
+        end: mirrored ? -e.start : e.end,
+      },
+    };
+  }
+  return {};
+}
+
 /** A row's drawn shape (paths, texts, circle, nodes) from its page item. */
 function rowShape(
   file: DrawingScene,
   preview: DrawingPreview,
   entry: PageItem,
-): Pick<PageRow, 'paths' | 'texts' | 'arc' | 'nodes' | 'insert'> & { color: string | null } {
+): Pick<PageRow, 'paths' | 'texts' | 'arc' | 'nodes' | 'insert' | 'vertices' | 'closed' | 'ellipse'> & {
+  color: string | null;
+} {
   const styled = entry.style?.color ?? null;
   const { item } = entry;
   const none = { paths: [], texts: [], color: styled };
@@ -129,7 +162,11 @@ function rowShape(
         const [x0, y0] = flat as [number, number];
         if (x0 !== flat[n - 2] || y0 !== flat[n - 1]) flat.push(x0, y0);
       }
-      return { paths: [atLeastTwo(flat)].filter((p) => p.length >= 4), texts: [], color: styled };
+      const paths = [atLeastTwo(flat)].filter((p) => p.length >= 4);
+      if (v.vertices && v.vertices.length >= 2) {
+        return { paths, texts: [], vertices: [...v.vertices], closed: v.closed, color: styled };
+      }
+      return { paths, texts: [], color: styled };
     }
     case 'text': {
       const v = item.value;
@@ -241,6 +278,7 @@ function rowShape(
       return {
         paths,
         texts,
+        ...copiedGeometry(source, t),
         ...(insert && moved
           ? {
               insert: {
