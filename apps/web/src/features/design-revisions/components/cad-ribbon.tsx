@@ -892,6 +892,26 @@ function shortcutOf(id: CommandId): string {
 }
 
 /** A small icon-only tool, as AutoCAD's compact panel rows (the name shows on hover). */
+/** A small tool shown by its icon alone (AutoCAD's Layers panel rows); its name is the tip. */
+function IconTile({ edit, id }: { edit: CanvasEditState; id: CommandId }) {
+  const { t } = useI18n();
+  const label = t(`design.cad.tool.${id}` as MessageKey);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={edit.command === id}
+      title={`${label} — ${COMMANDS[id].name}`}
+      onClick={() => edit.run(id)}
+      className={`flex min-h-8 min-w-8 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
+        edit.command === id ? DARK.on : DARK.tile
+      }`}
+    >
+      <Svg size="size-4">{ICONS[id]}</Svg>
+    </button>
+  );
+}
+
 function LayerStates({ screen }: { screen: LayerScreen }) {
   const { t } = useI18n();
   const [naming, setNaming] = useState(false);
@@ -1535,20 +1555,21 @@ export function CadRibbon({
               more={
                 <div className="flex flex-col gap-1">
                   <LayerStates screen={layerScreen} />
+                  <div className="grid grid-flow-col grid-rows-3 gap-x-1">
+                    <Tile edit={edit} id="layerp" />
+                    <Tile edit={edit} id="laycur" />
+                    <Tile edit={edit} id="copytolayer" />
+                    <Tile edit={edit} id="laywalk" />
+                    <Tile edit={edit} id="laymrg" />
+                    <Tile edit={edit} id="laydel" />
+                    <Tile edit={edit} id="find" />
+                  </div>
                   <LockedFading screen={layerScreen} />
                 </div>
               }
             >
               <div className="flex flex-col items-start gap-0">
                 <Tile edit={edit} id="layer" />
-                <LayerDropdown
-                  edit={edit}
-                  rows={rows}
-                  onToggleLayer={onToggleLayer}
-                  onToggleFrozen={onToggleFrozen}
-                  onToggleLocked={onToggleLocked}
-                  notice={layerNotice}
-                />
                 <button
                   type="button"
                   aria-label={t('design.cad.osm')}
@@ -1566,25 +1587,30 @@ export function CadRibbon({
                   </span>
                 </button>
               </div>
-              <Rows>
-                <Tile edit={edit} id="layoff" />
-                <Tile edit={edit} id="layiso" />
-                <Tile edit={edit} id="layfrz" />
-                <Tile edit={edit} id="laylck" />
-                <Tile edit={edit} id="laymcur" />
-                <Tile edit={edit} id="layon" />
-                <Tile edit={edit} id="layuniso" />
-                <Tile edit={edit} id="laythw" />
-                <Tile edit={edit} id="layulk" />
-                <Tile edit={edit} id="laymch" />
-                <Tile edit={edit} id="find" />
-                <Tile edit={edit} id="layerp" />
-                <Tile edit={edit} id="laycur" />
-                <Tile edit={edit} id="copytolayer" />
-                <Tile edit={edit} id="laywalk" />
-                <Tile edit={edit} id="laymrg" />
-                <Tile edit={edit} id="laydel" />
-              </Rows>
+              <div className="flex flex-col gap-0">
+                <LayerDropdown
+                  edit={edit}
+                  rows={rows}
+                  onToggleLayer={onToggleLayer}
+                  onToggleFrozen={onToggleFrozen}
+                  onToggleLocked={onToggleLocked}
+                  notice={layerNotice}
+                />
+                <div className="flex items-center gap-0.5">
+                  <IconTile edit={edit} id="layoff" />
+                  <IconTile edit={edit} id="layiso" />
+                  <IconTile edit={edit} id="layfrz" />
+                  <IconTile edit={edit} id="laylck" />
+                  <Tile edit={edit} id="laymcur" />
+                </div>
+                <div className="flex items-center gap-0.5">
+                  <IconTile edit={edit} id="layon" />
+                  <IconTile edit={edit} id="layuniso" />
+                  <IconTile edit={edit} id="laythw" />
+                  <IconTile edit={edit} id="layulk" />
+                  <Tile edit={edit} id="laymch" />
+                </div>
+              </div>
             </Panel>
             <Panel id="groups" title={t('design.cad.panel.groups')}>
               <Rows>
@@ -1740,6 +1766,8 @@ function LayerDropdown({
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  // The list is placed on the screen under the box: the ribbon panel would clip it (owner).
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
   const byName = new Map(rows.map((row) => [row.name, row] as const));
   const names = edit.allLayers;
   // With objects picked it shows their layer, as AutoCAD (blank when they differ).
@@ -1756,7 +1784,11 @@ function LayerDropdown({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`${t('design.cad.currentLayer')}: ${(picked ? edit.shownLayer : edit.currentLayer) || t('design.cad.noLayer')}`}
-        onClick={() => setOpen(!open)}
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          setAt({ left: box.left, top: box.bottom + 4 });
+          setOpen(!open);
+        }}
         className={`flex min-h-8 w-60 items-center gap-1.5 rounded px-2 text-xs ${DARK.field}`}
       >
         {current ? (
@@ -1780,7 +1812,8 @@ function LayerDropdown({
         <div
           role="dialog"
           aria-label={t('design.cad.layerList')}
-          className={`absolute start-0 top-full z-30 mt-1 max-h-72 w-80 overflow-y-auto rounded shadow-lg ${DARK.field}`}
+          style={at ? { left: at.left, top: at.top } : undefined}
+          className={`${at ? 'fixed' : 'absolute start-0 top-full mt-1'} z-50 max-h-[60vh] w-80 overflow-y-auto rounded shadow-lg ${DARK.field}`}
         >
           <ul>
             {names.map((name) => {

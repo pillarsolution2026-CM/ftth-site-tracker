@@ -1811,19 +1811,23 @@ describe(
         ]) {
           expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
         }
-        for (const name of ['Thaw All Layers', 'Unlock', 'Find']) {
+        for (const name of ['Thaw All Layers', 'Unlock']) {
           expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
         }
-        // Every tool shows its icon and its name (owner 2026-11-28).
-        for (const name of ['Previous', 'Change to Current Layer', 'Copy Objects to New Layer']) {
-          expect(within(layers).getByRole('button', { name })).toHaveTextContent(name);
-        }
-        for (const name of ['Layer Walk', 'Merge', 'Delete', 'Off']) {
-          expect(within(layers).getByRole('button', { name })).toHaveTextContent(name);
-        }
+        // As AutoCAD: the state tools by their icon, Make Current / Match Layer named.
+        expect(within(layers).getByRole('button', { name: 'Off' })).toHaveTextContent('');
+        expect(within(layers).getByRole('button', { name: 'Make Current' })).toHaveTextContent(
+          'Make Current',
+        );
         await user.click(screen.getByRole('button', { name: 'More Layers tools' }));
         const more = screen.getByRole('group', { name: 'More Layers tools' });
         expect(within(more).getByRole('combobox', { name: 'Layer State' })).toHaveValue('');
+        for (const name of ['Previous', 'Change to Current Layer', 'Copy Objects to New Layer']) {
+          expect(within(more).getByRole('button', { name })).toHaveTextContent(name);
+        }
+        for (const name of ['Layer Walk', 'Merge', 'Delete']) {
+          expect(within(more).getByRole('button', { name })).toHaveTextContent(name);
+        }
         expect(within(more).getByRole('button', { name: 'Locked layer fading' })).toHaveAttribute(
           'aria-pressed',
           'true',
