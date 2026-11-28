@@ -1000,11 +1000,12 @@ describe(
         expect(api.createCorrections).not.toHaveBeenCalled();
       });
 
-      it('OpenStreetMap has its own Map panel among the panels', async () => {
+      it('OpenStreetMap sits in the Layers panel; there is no Map panel (owner 2026-11-28)', async () => {
         await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
-        const map = within(ribbon).getByRole('group', { name: 'Map' });
-        expect(within(map).getByRole('button', { name: 'OpenStreetMap' })).toBeInTheDocument();
+        expect(within(ribbon).queryByRole('group', { name: 'Map' })).toBeNull();
+        const layers = within(ribbon).getByRole('group', { name: 'Layers' });
+        expect(within(layers).getByRole('button', { name: 'OpenStreetMap' })).toBeInTheDocument();
         const annotation = within(ribbon).getByRole('group', { name: 'Annotation' });
         expect(within(annotation).queryByRole('button', { name: 'OpenStreetMap' })).toBeNull();
       });
@@ -1037,14 +1038,17 @@ describe(
       });
 
       it('divides the ribbon equally between all panels; what does not fit goes under ▾ (items 31, 31b)', async () => {
-        // The row is 800 px (clientWidth): eleven panels of 72 px; every column of three small
-        // tools is 60 px wide, so each panel keeps its first column (Line, Polyline, Circle).
+        // The row is 800 px (clientWidth): eleven shares of 72 px (Layers takes two); every
+        // column of three small tools is 60 px wide, so each panel keeps its first column.
         vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(60);
         const { user } = await openWorkspace();
         const ribbon = screen.getByRole('toolbar', { name: 'Drawing tools' });
-        for (const name of ['Draw', 'Modify', 'Layers', 'Groups', 'Block', 'Properties']) {
+        for (const name of ['Draw', 'Modify', 'Groups', 'Block', 'Properties']) {
           expect(within(ribbon).getByRole('group', { name })).toHaveStyle({ width: '72px' });
         }
+        expect(within(ribbon).getByRole('group', { name: 'Layers' })).toHaveStyle({
+          width: '144px',
+        });
         await waitFor(() =>
           expect(within(ribbon).queryByRole('button', { name: 'Arc' })).toBeNull(),
         );
@@ -1795,15 +1799,16 @@ describe(
         for (const name of ['Thaw All Layers', 'Unlock', 'Find']) {
           expect(within(layers).getByRole('button', { name })).toBeInTheDocument();
         }
+        // Every tool shows its icon and its name (owner 2026-11-28).
+        for (const name of ['Previous', 'Change to Current Layer', 'Copy Objects to New Layer']) {
+          expect(within(layers).getByRole('button', { name })).toHaveTextContent(name);
+        }
+        for (const name of ['Layer Walk', 'Merge', 'Delete', 'Off']) {
+          expect(within(layers).getByRole('button', { name })).toHaveTextContent(name);
+        }
         await user.click(screen.getByRole('button', { name: 'More Layers tools' }));
         const more = screen.getByRole('group', { name: 'More Layers tools' });
         expect(within(more).getByRole('combobox', { name: 'Layer State' })).toHaveValue('');
-        for (const name of ['Previous', 'Change to Current Layer', 'Copy Objects to New Layer']) {
-          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
-        }
-        for (const name of ['Layer Walk', 'Merge', 'Delete']) {
-          expect(within(more).getByRole('button', { name })).toBeInTheDocument();
-        }
         expect(within(more).getByRole('button', { name: 'Locked layer fading' })).toHaveAttribute(
           'aria-pressed',
           'true',
@@ -1888,15 +1893,12 @@ describe(
         ]);
       });
 
-      it('the Block panel says which block tools need AutoCAD', async () => {
+      it('the Block panel shows no greyed-out tools (owner 2026-11-28)', async () => {
         await openWorkspace();
         const block = screen.getByRole('group', { name: 'Block' });
         expect(within(block).getByRole('button', { name: 'Insert' })).toBeEnabled();
-        expect(within(block).getByRole('button', { name: 'Edit' })).toBeDisabled();
-        expect(within(block).getByRole('button', { name: 'Edit' })).toHaveAttribute(
-          'title',
-          expect.stringMatching(/edited in AutoCAD/),
-        );
+        expect(within(block).queryByRole('button', { name: 'Edit' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'More Block tools' })).toBeNull();
       });
     });
 

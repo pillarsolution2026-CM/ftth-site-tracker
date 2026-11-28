@@ -19,7 +19,7 @@ import { useI18n } from '@/shared/i18n/locale-provider';
 import type { LayerRow } from '../hooks/use-drawing-viewer';
 import type { LayerScreen } from '../hooks/use-layer-screen';
 import { formatPrompt, type CanvasEditState } from '../hooks/use-canvas-edit';
-import { TableTile, TextTools } from './text-panel';
+import { ModifyText, TableTile, TextTool } from './text-panel';
 import { HatchCreationTab } from './hatch-tab';
 import {
   COMMANDS,
@@ -892,47 +892,6 @@ function shortcutOf(id: CommandId): string {
 }
 
 /** A small icon-only tool, as AutoCAD's compact panel rows (the name shows on hover). */
-function IconTile({ edit, id }: { edit: CanvasEditState; id: CommandId }) {
-  const { t } = useI18n();
-  const label = t(`design.cad.tool.${id}` as MessageKey);
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={edit.command === id}
-      title={`${label} — ${COMMANDS[id].name}`}
-      onClick={() => edit.run(id)}
-      className={`flex min-h-8 min-w-8 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-(--color-focus) ${
-        edit.command === id ? DARK.on : DARK.tile
-      }`}
-    >
-      <Svg size="size-4">{ICONS[id]}</Svg>
-    </button>
-  );
-}
-
-/**
- * A tool of AutoCAD's panel that the web screen cannot do (it needs the block definitions of the
- * file): shown greyed with the reason, so nothing pretends to work.
- */
-function Unavailable({ icon, label, reason }: { icon: IconKey; label: string; reason: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      aria-label={label}
-      title={`${label} — ${reason}`}
-      className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs opacity-40 ${DARK.tile}`}
-    >
-      <Svg size="size-4">{ICONS[icon]}</Svg>
-      <span dir="ltr" className="whitespace-nowrap">
-        {label}
-      </span>
-    </button>
-  );
-}
-
-/** Named layer states (AutoCAD's «Unsaved Layer State» drop-down); kept in this browser. */
 function LayerStates({ screen }: { screen: LayerScreen }) {
   const { t } = useI18n();
   const [naming, setNaming] = useState(false);
@@ -1125,7 +1084,6 @@ export const PANEL_ORDER = [
   'modify',
   'annotation',
   'text',
-  'map',
   'layers',
   'groups',
   'block',
@@ -1133,6 +1091,12 @@ export const PANEL_ORDER = [
   'utilities',
   'clipboard',
 ] as const satisfies readonly string[];
+
+/** Panels that take more than one share: Layers has the old Map panel's room too (owner). */
+export const PANEL_WEIGHT: Readonly<Record<string, number>> = { layers: 2 };
+
+/** All the shares of the ribbon (one per panel, more for the wide ones). */
+export const PANEL_SHARES = PANEL_ORDER.reduce((sum, id) => sum + (PANEL_WEIGHT[id] ?? 1), 0);
 
 /** The width each panel gets (px), 0 until the ribbon is measured. */
 export const RibbonFit = createContext<{ share: number }>({ share: 0 });
@@ -1173,7 +1137,8 @@ export function Panel({
   children: ReactNode;
 }) {
   const { t } = useI18n();
-  const { share } = useContext(RibbonFit);
+  const { share: one } = useContext(RibbonFit);
+  const share = one * (PANEL_WEIGHT[id] ?? 1);
   const [open, setOpen] = useState(false);
   const tools = toolsOf(children);
   const widths = useRef<number[]>([]);
@@ -1384,7 +1349,7 @@ export function CadRibbon({
     observer.observe(row);
     return () => observer.disconnect();
   }, [refit, editing]);
-  const share = panelShare(rowWidth, PANEL_ORDER.length);
+  const share = panelShare(rowWidth, PANEL_SHARES);
   const fit = useMemo(() => ({ share }), [share]);
   return (
     <div
@@ -1555,10 +1520,35 @@ export function CadRibbon({
               </Rows>
             </Panel>
             <Panel id="text" title={t('design.cad.panel.text')}>
-              <TextTools edit={edit} />
-            </Panel>
-            <Panel id="map" title={t('design.cad.panel.map')}>
               <Rows>
+                <ModifyText edit={edit} />
+                <TextTool edit={edit} id="txt2mtxt" />
+                <TextTool edit={edit} id="tcount" />
+                <TextTool edit={edit} id="tcircle" />
+                <TextTool edit={edit} id="textmask" />
+                <TextTool edit={edit} id="textunmask" />
+              </Rows>
+            </Panel>
+            <Panel
+              id="layers"
+              title={t('design.cad.panel.layers')}
+              more={
+                <div className="flex flex-col gap-1">
+                  <LayerStates screen={layerScreen} />
+                  <LockedFading screen={layerScreen} />
+                </div>
+              }
+            >
+              <div className="flex flex-col items-start gap-0">
+                <Tile edit={edit} id="layer" />
+                <LayerDropdown
+                  edit={edit}
+                  rows={rows}
+                  onToggleLayer={onToggleLayer}
+                  onToggleFrozen={onToggleFrozen}
+                  onToggleLocked={onToggleLocked}
+                  notice={layerNotice}
+                />
                 <button
                   type="button"
                   aria-label={t('design.cad.osm')}
@@ -1575,105 +1565,53 @@ export function CadRibbon({
                     {t('design.cad.osm')}
                   </span>
                 </button>
-              </Rows>
-            </Panel>
-            <Panel
-              id="layers"
-              title={t('design.cad.panel.layers')}
-              more={
-                <div className="flex flex-col gap-1">
-                  <LayerStates screen={layerScreen} />
-                  <div className="flex flex-wrap gap-0.5">
-                    <IconTile edit={edit} id="layerp" />
-                    <IconTile edit={edit} id="laycur" />
-                    <IconTile edit={edit} id="copytolayer" />
-                    <IconTile edit={edit} id="laywalk" />
-                    <IconTile edit={edit} id="laymrg" />
-                    <IconTile edit={edit} id="laydel" />
-                  </div>
-                  <LockedFading screen={layerScreen} />
-                </div>
-              }
-            >
-              <Rows>
-                <Tile edit={edit} id="layer" />
-              </Rows>
-              <div className="flex flex-col gap-1">
-                <LayerDropdown
-                  edit={edit}
-                  rows={rows}
-                  onToggleLayer={onToggleLayer}
-                  onToggleFrozen={onToggleFrozen}
-                  onToggleLocked={onToggleLocked}
-                  notice={layerNotice}
-                />
-                <div className="flex flex-wrap items-center gap-0.5">
-                  <IconTile edit={edit} id="layoff" />
-                  <IconTile edit={edit} id="layiso" />
-                  <IconTile edit={edit} id="layfrz" />
-                  <IconTile edit={edit} id="laylck" />
-                  <Tile edit={edit} id="laymcur" />
-                </div>
-                <div className="flex flex-wrap items-center gap-0.5">
-                  <IconTile edit={edit} id="layon" />
-                  <IconTile edit={edit} id="layuniso" />
-                  <IconTile edit={edit} id="laythw" />
-                  <IconTile edit={edit} id="layulk" />
-                  <Tile edit={edit} id="laymch" />
-                  <Tile edit={edit} id="find" />
-                </div>
               </div>
+              <Rows>
+                <Tile edit={edit} id="layoff" />
+                <Tile edit={edit} id="layiso" />
+                <Tile edit={edit} id="layfrz" />
+                <Tile edit={edit} id="laylck" />
+                <Tile edit={edit} id="laymcur" />
+                <Tile edit={edit} id="layon" />
+                <Tile edit={edit} id="layuniso" />
+                <Tile edit={edit} id="laythw" />
+                <Tile edit={edit} id="layulk" />
+                <Tile edit={edit} id="laymch" />
+                <Tile edit={edit} id="find" />
+                <Tile edit={edit} id="layerp" />
+                <Tile edit={edit} id="laycur" />
+                <Tile edit={edit} id="copytolayer" />
+                <Tile edit={edit} id="laywalk" />
+                <Tile edit={edit} id="laymrg" />
+                <Tile edit={edit} id="laydel" />
+              </Rows>
             </Panel>
             <Panel id="groups" title={t('design.cad.panel.groups')}>
               <Rows>
                 <Tile edit={edit} id="group" />
-                <IconTile edit={edit} id="ungroup" />
-                <IconTile edit={edit} id="groupedit" />
+                <Tile edit={edit} id="ungroup" />
+                <Tile edit={edit} id="groupedit" />
                 <button
                   type="button"
                   aria-pressed={edit.groupPick}
                   aria-label={t('design.cad.tool.pickstyle')}
                   title={`${t('design.cad.tool.pickstyle')} — PICKSTYLE`}
                   onClick={() => edit.run('pickstyle')}
-                  className={`flex min-h-8 min-w-8 items-center justify-center rounded ${
+                  className={`flex min-h-8 items-center gap-1.5 rounded px-1.5 text-xs ${
                     edit.groupPick ? DARK.on : DARK.tile
                   }`}
                 >
                   <Svg size="size-4">{ICONS.pickstyle}</Svg>
+                  <span dir="ltr" className="whitespace-nowrap">
+                    {t('design.cad.tool.pickstyle')}
+                  </span>
                 </button>
               </Rows>
             </Panel>
-            <Panel
-              id="block"
-              title={t('design.cad.panel.block')}
-              more={
-                <>
-                  <Unavailable
-                    icon="attdef"
-                    label={t('design.cad.tool.attdef')}
-                    reason={t('design.cad.blockInCad')}
-                  />
-                  <Unavailable
-                    icon="attdef"
-                    label={t('design.cad.tool.battman')}
-                    reason={t('design.cad.blockInCad')}
-                  />
-                  <Unavailable
-                    icon="attdef"
-                    label={t('design.cad.tool.attsync')}
-                    reason={t('design.cad.blockInCad')}
-                  />
-                </>
-              }
-            >
+            <Panel id="block" title={t('design.cad.panel.block')}>
               <Rows>
                 <Tile edit={edit} id="insert" />
                 <Tile edit={edit} id="block" />
-                <Unavailable
-                  icon="bedit"
-                  label={t('design.cad.tool.bedit')}
-                  reason={t('design.cad.blockInCad')}
-                />
                 <Tile edit={edit} id="eattedit" />
               </Rows>
             </Panel>

@@ -25,10 +25,30 @@ describe('FILLET / CHAMFER on two segments of the same polyline (AutoCAD)', () =
     expect(cornerOnOne(L, false, [10, 5], [5, 0], sharp(0))?.points).toEqual(L);
   });
 
-  it('refuses segments that are not adjacent', () => {
-    const z: Pt[] = [...L, [20, 10]];
-    expect(cornerOnOne(z, false, [5, 0], [15, 10], sharp(1))).toBeNull();
+  it('refuses segments two or more segments apart, and the same segment', () => {
+    const z: Pt[] = [...L, [20, 10], [20, 20]];
+    expect(cornerOnOne(z, false, [5, 0], [20, 15], sharp(1))).toBeNull();
     expect(cornerOnOne(z, false, [5, 0], [6, 0], sharp(1))).toBeNull();
+  });
+
+  it('passes over a repeated vertex at the corner (drawings often have one)', () => {
+    const doubled: Pt[] = [
+      [0, 0],
+      [10, 0],
+      [10, 0],
+      [10, 10],
+    ];
+    expect(cornerOnOne(doubled, false, [5, 0], [10, 5], sharp(0))?.points).toEqual(L);
+  });
+
+  it('drops one segment between the two picked (AutoCAD)', () => {
+    const cutCorner: Pt[] = [
+      [0, 0],
+      [9, 0],
+      [10, 1],
+      [10, 10],
+    ];
+    expect(cornerOnOne(cutCorner, false, [5, 0], [10, 5], sharp(0))?.points).toEqual(L);
   });
 
   it('works on the closing corner of a closed polyline and keeps it closed', () => {

@@ -3,7 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/test-utils/render';
-import { fittingTools, Panel, panelShare, PANEL_ORDER, RibbonFit } from './cad-ribbon';
+import {
+  fittingTools,
+  Panel,
+  panelShare,
+  PANEL_ORDER,
+  PANEL_SHARES,
+  RibbonFit,
+} from './cad-ribbon';
 
 /**
  * Items 31 + 31b (owner 2026-11-26): the ribbon's width is divided EQUALLY between all panels;
@@ -12,11 +19,12 @@ import { fittingTools, Panel, panelShare, PANEL_ORDER, RibbonFit } from './cad-r
  */
 
 describe('equal ribbon panels (items 31 + 31b)', () => {
-  it('divides the ribbon equally between all eleven panels', () => {
-    expect(PANEL_ORDER).toHaveLength(11);
-    expect(panelShare(1800, PANEL_ORDER.length)).toBe(163);
-    expect(panelShare(1000, PANEL_ORDER.length)).toBe(90);
-    expect(panelShare(0, PANEL_ORDER.length)).toBe(0);
+  it('divides the ribbon between ten panels; Layers takes the old Map panel room too', () => {
+    expect(PANEL_ORDER).toHaveLength(10);
+    expect(PANEL_ORDER).not.toContain('map');
+    expect(PANEL_SHARES).toBe(11);
+    expect(panelShare(1800, PANEL_SHARES)).toBe(163);
+    expect(panelShare(0, PANEL_SHARES)).toBe(0);
   });
 
   it('keeps the tools that fit, at least one, and all while not laid out', () => {

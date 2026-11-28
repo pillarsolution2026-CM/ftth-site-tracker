@@ -102,7 +102,15 @@ function Svg({ children, size = 'size-4' }: { children: ReactNode; size?: string
   );
 }
 
-function Tool({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId; big?: boolean }) {
+export function TextTool({
+  edit,
+  id,
+  big = false,
+}: {
+  edit: CanvasEditState;
+  id: CommandId;
+  big?: boolean;
+}) {
   const { t } = useI18n();
   const label = t(`design.cad.tool.${id}` as MessageKey);
   const on = edit.command === id;
@@ -129,19 +137,15 @@ function Tool({ edit, id, big = false }: { edit: CanvasEditState; id: CommandId;
 
 /** The Table tool of AutoCAD's Annotation panel (opens the Insert Table dialog). */
 export function TableTile({ edit }: { edit: CanvasEditState }) {
-  return <Tool edit={edit} id="table" />;
+  return <TextTool edit={edit} id="table" />;
 }
 
-/** Modify Text ▾ (Express Tools): its working items, and the greyed ones with the reason. */
-function ModifyText({ edit }: { edit: CanvasEditState }) {
+/** Modify Text ▾ (Express Tools): its working items. */
+export function ModifyText({ edit }: { edit: CanvasEditState }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const label = t('design.cad.tool.modifyText');
   const items: CommandId[] = ['tcase', 'torient', 'textfit'];
-  const greyed: { key: 'txtexp' | 'tjust'; reason: string }[] = [
-    { key: 'txtexp', reason: t('design.cad.textNoOutlines') },
-    { key: 'tjust', reason: t('design.cad.textNoJustify') },
-  ];
   return (
     <div className="relative flex">
       <button
@@ -182,37 +186,8 @@ function ModifyText({ edit }: { edit: CanvasEditState }) {
               </button>
             </li>
           ))}
-          {greyed.map((item) => (
-            <li key={item.key} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                disabled
-                aria-disabled="true"
-                title={item.reason}
-                className="flex min-h-8 w-full items-center gap-2 px-2 text-start text-xs opacity-40"
-              >
-                <Svg>{ICONS[item.key]}</Svg>
-                <span dir="ltr">{t(`design.cad.tool.${item.key}`)}</span>
-              </button>
-            </li>
-          ))}
         </ul>
       ) : null}
-    </div>
-  );
-}
-
-/** The tools of the «Text» panel (Express Tools); the ribbon wraps them in its panel. */
-export function TextTools({ edit }: { edit: CanvasEditState }) {
-  return (
-    <div className="grid grid-flow-col grid-rows-3 gap-x-1">
-      <ModifyText edit={edit} />
-      <Tool edit={edit} id="txt2mtxt" />
-      <Tool edit={edit} id="tcount" />
-      <Tool edit={edit} id="tcircle" />
-      <Tool edit={edit} id="textmask" />
-      <Tool edit={edit} id="textunmask" />
     </div>
   );
 }
