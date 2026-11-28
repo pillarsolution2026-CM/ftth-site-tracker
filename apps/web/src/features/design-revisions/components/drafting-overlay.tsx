@@ -302,17 +302,33 @@ function CycleList({ viewer }: { viewer: DrawingViewer }) {
       </div>
       {cycle.candidates.map((index) => {
         const entity = scene.view.entities[index];
+        const preview = viewer.edit.preview;
+        const layer = preview
+          ? scene.view.layers[effectiveLayer(scene, preview, index)]
+          : undefined;
+        // AutoCAD's list: the object's type and its layer (with the layer colour).
         return (
           <button
             key={index}
             type="button"
             role="option"
-            aria-selected={false}
+            aria-selected={cycle.lit === index}
             onClick={() => cycle.choose(index)}
-            className="flex w-full justify-between gap-3 px-2 py-1 text-start hover:bg-white/10"
+            onMouseEnter={() => drafting.setCycle({ ...cycle, lit: index })}
+            onFocus={() => drafting.setCycle({ ...cycle, lit: index })}
+            className={`flex w-full items-center justify-between gap-3 px-2 py-1 text-start hover:bg-white/10 ${
+              cycle.lit === index ? 'bg-white/10' : ''
+            }`}
           >
-            <span>{typeName(entity?.kind ?? '')}</span>
-            <span className="font-mono opacity-60">{entity?.handle}</span>
+            <span className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block size-2.5 shrink-0 border border-white/40"
+                style={{ backgroundColor: layer ? layer.color : 'transparent' }}
+              />
+              {typeName(entity?.kind ?? '')}
+            </span>
+            <span className="opacity-70">{layer ? layer.name : ''}</span>
           </button>
         );
       })}

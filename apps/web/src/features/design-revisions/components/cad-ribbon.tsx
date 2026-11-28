@@ -1742,7 +1742,9 @@ function LayerDropdown({
   const [open, setOpen] = useState(false);
   const byName = new Map(rows.map((row) => [row.name, row] as const));
   const names = edit.allLayers;
-  const current = byName.get(edit.currentLayer);
+  // With objects picked it shows their layer, as AutoCAD (blank when they differ).
+  const picked = edit.shownLayer !== edit.currentLayer;
+  const current = byName.get(edit.shownLayer);
   const choose = (name: string) => {
     edit.chooseLayer(name);
     setOpen(false);
@@ -1753,7 +1755,7 @@ function LayerDropdown({
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`${t('design.cad.currentLayer')}: ${edit.currentLayer || t('design.cad.noLayer')}`}
+        aria-label={`${t('design.cad.currentLayer')}: ${(picked ? edit.shownLayer : edit.currentLayer) || t('design.cad.noLayer')}`}
         onClick={() => setOpen(!open)}
         className={`flex min-h-8 w-60 items-center gap-1.5 rounded px-2 text-xs ${DARK.field}`}
       >
@@ -1770,7 +1772,7 @@ function LayerDropdown({
           </>
         ) : null}
         <span className="flex-1 truncate text-start">
-          {edit.currentLayer || t('design.cad.noLayer')}
+          {picked ? edit.shownLayer : edit.currentLayer || t('design.cad.noLayer')}
         </span>
         <span aria-hidden="true">▾</span>
       </button>

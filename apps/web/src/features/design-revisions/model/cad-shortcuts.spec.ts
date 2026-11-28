@@ -63,7 +63,6 @@ describe('ribbon panels', () => {
       'modify',
       'annotation',
       'text',
-      'map',
       'layers',
       'groups',
       'block',

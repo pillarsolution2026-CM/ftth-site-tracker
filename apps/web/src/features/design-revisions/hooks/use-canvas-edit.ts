@@ -714,6 +714,11 @@ export interface CanvasEditState {
   /** Every layer: the drawing's and those added on the page. */
   allLayers: string[];
   currentLayer: string;
+  /**
+   * The layer the drop-down shows (AutoCAD): with objects picked and no command, their layer
+   * ('' when they are on different layers); else the current layer.
+   */
+  shownLayer: string;
   /** The layer drop-down: with objects picked they move to it, else it becomes current. */
   chooseLayer: (value: string) => void;
   /** A new layer; `like` null = for drawing only (the build ignores what is on it). */
@@ -4076,6 +4081,11 @@ export function useCanvasEdit(input: Input): CanvasEditState {
     layers,
     allLayers,
     currentLayer: current,
+    shownLayer: (() => {
+      if (run || selection.size === 0) return current;
+      const names = new Set([...selection].map((index) => layerNameOf(index)));
+      return names.size === 1 ? ([...names][0] ?? '') : '';
+    })(),
     chooseLayer: (value) => {
       if (!value) {
         setCurrentLayer('');

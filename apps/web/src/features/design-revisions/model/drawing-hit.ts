@@ -109,7 +109,12 @@ export function hitEntity(
       return;
     }
     if (!isShown(i)) return;
-    const d = distToEntity(entities[i] as DrawingViewEntity, x, y);
+    const entity = entities[i] as DrawingViewEntity;
+    let d = distToEntity(entity, x, y);
+    // A filled area (hatch, solid, wipeout) is under the pick inside it too (AutoCAD); a line
+    // nearer the point still wins the plain pick.
+    const inside = tolerance * 0.99;
+    if (d > inside && FILLED.has(entity.kind) && insideFill(entity, x, y)) d = inside;
     if (takes(d, i)) {
       best = i;
       bestDistance = d;
@@ -132,6 +137,24 @@ export function hitEntity(
     test(i, at.x, at.y);
   }
   return best;
+}
+
+const FILLED = new Set(['HATCH', 'SOLID', 'WIPEOUT']);
+
+/** Is the point inside one of the entity's closed paths (even-odd, so islands stay holes)? */
+export function insideFill(entity: DrawingViewEntity, x: number, y: number): boolean {
+  let inside = false;
+  for (const path of entity.paths) {
+    const n = Math.floor(path.length / 2);
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = path[i * 2] as number;
+      const yi = path[i * 2 + 1] as number;
+      const xj = path[j * 2] as number;
+      const yj = path[j * 2 + 1] as number;
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+  }
+  return inside;
 }
 
 /** The most objects walked path by path for one pick (far out the nearest ones). */

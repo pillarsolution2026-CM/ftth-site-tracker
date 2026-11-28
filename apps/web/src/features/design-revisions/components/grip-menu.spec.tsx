@@ -21,9 +21,13 @@ const grip = (kind: Grip['kind']): Grip => ({
 function viewerWith(hover: Grip, items: GripMenuItem[], hot: Grip | null = null) {
   const chooseGripMenu = vi.fn();
   const hoverAt = vi.fn();
+  const closeGripMenu = vi.fn();
+  const holdGripMenu = vi.fn();
   const viewer = {
     hoverGrip: hover,
     hoverAt,
+    closeGripMenu,
+    holdGripMenu,
     size: { width: 400, height: 300 },
     transform: { scale: 1, cx: 0, cy: 0 },
     edit: {
@@ -34,13 +38,13 @@ function viewerWith(hover: Grip, items: GripMenuItem[], hot: Grip | null = null)
       chooseGripMenu,
     },
   } as unknown as DrawingViewer;
-  return { viewer, chooseGripMenu, hoverAt };
+  return { viewer, chooseGripMenu, hoverAt, closeGripMenu, holdGripMenu };
 }
 
 describe('GripMenu', () => {
   it('a vertex grip offers Stretch Vertex / Add Vertex / Remove Vertex; a click chooses', async () => {
     const vertex = grip('vertex');
-    const { viewer, chooseGripMenu, hoverAt } = viewerWith(vertex, [
+    const { viewer, chooseGripMenu, closeGripMenu, holdGripMenu } = viewerWith(vertex, [
       'stretch',
       'addVertex',
       'removeVertex',
@@ -50,7 +54,9 @@ describe('GripMenu', () => {
     expect(items).toEqual(['Stretch Vertex', 'Add Vertex', 'Remove Vertex']);
     await userEvent.click(screen.getByRole('menuitem', { name: 'Remove Vertex' }));
     expect(chooseGripMenu).toHaveBeenCalledWith(vertex, 'removeVertex');
-    expect(hoverAt).toHaveBeenCalled();
+    expect(closeGripMenu).toHaveBeenCalled();
+    // The menu holds while the pointer is on it, so it can be reached from the grip (owner).
+    expect(holdGripMenu).toHaveBeenCalledWith(true);
   });
 
   it('a segment grip offers Stretch / Add Vertex / Convert to Arc', () => {

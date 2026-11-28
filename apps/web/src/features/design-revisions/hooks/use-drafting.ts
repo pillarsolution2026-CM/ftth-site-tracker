@@ -121,6 +121,8 @@ export type DraftingTab = 'snap' | 'polar' | 'osnap' | 'dyn';
 export interface CycleChoice {
   at: Point;
   candidates: readonly number[];
+  /** The row under the pointer: that object is lit on the drawing (AutoCAD). */
+  lit?: number | null;
   /** Picks the one chosen (as the click would have). */
   choose: (index: number) => void;
 }

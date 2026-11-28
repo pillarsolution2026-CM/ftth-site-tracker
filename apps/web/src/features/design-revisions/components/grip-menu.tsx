@@ -39,6 +39,8 @@ export function GripMenu({ viewer }: { viewer: DrawingViewer }) {
         left: Math.max(4, Math.min(at.x + 10, size.width - 150)),
         top: Math.max(4, Math.min(at.y + 10, size.height - 90)),
       }}
+      onMouseEnter={() => viewer.holdGripMenu(true)}
+      onMouseLeave={() => viewer.holdGripMenu(false)}
       className="absolute z-10 flex w-36 flex-col rounded-sm border border-neutral-500 bg-neutral-800 py-1 text-xs text-white shadow-lg"
     >
       {items.map((item) => (
@@ -50,7 +52,7 @@ export function GripMenu({ viewer }: { viewer: DrawingViewer }) {
           onClick={() => {
             edit.chooseGripMenu(grip, item);
             // The grip may be gone (Remove Vertex): the menu closes until the next hover.
-            viewer.hoverAt(-1e6, -1e6);
+            viewer.closeGripMenu();
           }}
         >
           {label(item)}

@@ -98,3 +98,25 @@ describe('curves with new points (set_curve, ADR-051)', () => {
     expect(hitEntity(scene, 90, 25, 1, always, new Map(), curveOf)).toBeNull();
   });
 });
+
+describe('filled areas under the pick (Selection Cycling sees them, as AutoCAD)', () => {
+  const square = [0, 0, 10, 0, 10, 10, 0, 10, 0, 0];
+  const base = entityAt(view, 0);
+  const fill = buildScene({
+    ...view,
+    entities: [
+      { ...base, handle: 'H', kind: 'HATCH', paths: [square] },
+      { ...base, handle: 'P', kind: 'LWPOLYLINE', paths: [square] },
+      { ...base, handle: 'L', kind: 'LINE', paths: [[0, 5, 10, 5]] },
+    ],
+  });
+
+  it('a hatch is hit inside its area; a plain outline is not', () => {
+    expect(hitEntity(fill, 3, 3, 1, (i) => i !== 2)).toBe(0);
+    expect(hitEntity(fill, 3, 3, 1, (i) => i === 1)).toBeNull();
+  });
+
+  it('a line over the hatch wins the plain pick', () => {
+    expect(hitEntity(fill, 3, 5.2, 1, always)).toBe(2);
+  });
+});

@@ -82,6 +82,8 @@ const MARKER_HIT_PX = 14;
 const ENTITY_HIT_PX = 6;
 /** A grip is hit within this many px of its centre (a little more than its half side). */
 const GRIP_HIT_PX = 6;
+/** How long the grip menu stays after the pointer leaves the grip (owner: time to reach it). */
+const GRIP_MENU_LINGER_MS = 1500;
 /** ZOOM Previous keeps this many views (AutoCAD: 10). */
 const ZOOM_PREVIOUS_MAX = 10;
 /** Wheel steps and pan moves closer than this make one view for ZOOM Previous. */
@@ -164,6 +166,13 @@ export interface DrawingViewer {
   closePopover: () => void;
   /** The grip under the pointer (its multifunctional menu shows for a polyline's grips). */
   hoverGrip: Grip | null;
+  /**
+   * The pointer is over the grip menu (true) or left it (false): the menu stays while the pointer
+   * is on it, and a moment after the pointer leaves the grip, so it can be reached (owner).
+   */
+  holdGripMenu: (held: boolean) => void;
+  /** Closes the grip menu now (an item was chosen). */
+  closeGripMenu: () => void;
   markerCount: number;
   /** The Layers panel on the screen: off, isolate, freeze, lock, states, fading. */
   layerScreen: LayerScreen;
@@ -560,18 +569,25 @@ export function useDrawingViewer(input: Input): DrawingViewer {
   const edit = draftedEdit(canvasEdit, drafting, (at) => {
     if (!scene || !shownPreview) return [];
     const found: number[] = [];
-    // The objects under the pick, nearest first (AutoCAD's Selection Cycling list).
-    for (let n = 0; n < 12; n++) {
+    const seen = new Set<number>();
+    const handles = new Set<string>();
+    // The objects under the pick, nearest first (AutoCAD's Selection Cycling list): one row per
+    // object (an insert's shapes share a handle), filled areas included.
+    for (let n = 0; n < 40 && found.length < 20; n++) {
       const hit = hitEntity(
         pickScene,
         at.x,
         at.y,
         ENTITY_HIT_PX / transform.scale,
-        (index) => drawnNow(index) && !found.includes(index),
+        (index) => drawnNow(index) && !seen.has(index),
         shownPreview.transformOf,
         shownPreview.curveOf,
       );
       if (hit === null) break;
+      seen.add(hit);
+      const handle = pickScene.view.entities[hit]?.handle || 'index ' + String(hit);
+      if (handles.has(handle)) continue;
+      handles.add(handle);
       found.push(hit);
     }
     return found;
@@ -579,6 +595,21 @@ export function useDrawingViewer(input: Input): DrawingViewer {
 
   // Selection, highlight and the floating panel.
   const [hoverGrip, setHoverGrip] = useState<Grip | null>(null);
+  // The grip menu closes a moment after the pointer leaves the grip, not while it is on the menu.
+  const gripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gripHeld = useRef(false);
+  const stopGripTimer = () => {
+    if (gripTimer.current !== null) clearTimeout(gripTimer.current);
+    gripTimer.current = null;
+  };
+  const closeGripLater = () => {
+    if (gripTimer.current !== null || gripHeld.current) return;
+    gripTimer.current = setTimeout(() => {
+      gripTimer.current = null;
+      if (!gripHeld.current) setHoverGrip(null);
+    }, GRIP_MENU_LINGER_MS);
+  };
+  useEffect(() => stopGripTimer, []);
   const [propertiesNonce, setPropertiesNonce] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [popover, setPopover] = useState<ViewerPopover | null>(null);
@@ -599,7 +630,13 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     setPopover(null);
   }
 
+  const lit = drafting.cycle?.lit ?? null;
   const highlighted = useMemo<ReadonlySet<number>>(() => {
+    // Selection Cycling: the object under the pointer in the list is lit on the drawing.
+    if (scene && lit !== null) {
+      const handle = pickScene.view.entities[lit]?.handle;
+      return new Set(handle ? (pickScene.byHandle.get(handle) ?? [lit]) : [lit]);
+    }
     if (!scene || focus === null || highlightNonce !== focus.nonce) return NO_ENTITIES;
     const found = new Set<number>();
     for (const handle of routePieces(focus.handle)) {
@@ -609,7 +646,7 @@ export function useDrawingViewer(input: Input): DrawingViewer {
       for (const index of scene.byHandle.get(focus.handle) ?? []) found.add(index);
     }
     return found;
-  }, [scene, focus, highlightNonce]);
+  }, [scene, focus, highlightNonce, lit, pickScene]);
 
   // Routes marked for trench: entity → «Trench: 25.000 m» (the sum of the marks in force).
   const trenchLabels = useMemo(() => {
@@ -936,11 +973,24 @@ export function useDrawingViewer(input: Input): DrawingViewer {
     },
     hoverAt: (sx, sy) => {
       const grip = edit.grips.length > 0 ? gripAt(sx, sy) : null;
-      if (
-        grip !== hoverGrip &&
-        (grip === null || hoverGrip === null || grip.x !== hoverGrip.x || grip.y !== hoverGrip.y)
-      )
+      if (grip === null) {
+        if (hoverGrip !== null) closeGripLater();
+        return;
+      }
+      stopGripTimer();
+      if (hoverGrip === null || grip.x !== hoverGrip.x || grip.y !== hoverGrip.y) {
         setHoverGrip(grip);
+      }
+    },
+    holdGripMenu: (held) => {
+      gripHeld.current = held;
+      if (held) stopGripTimer();
+      else closeGripLater();
+    },
+    closeGripMenu: () => {
+      gripHeld.current = false;
+      stopGripTimer();
+      setHoverGrip(null);
     },
     pickForMenu: (sx, sy) => {
       if (!scene || !shownPreview || !edit.editing || edit.command !== null) return;

@@ -1783,6 +1783,21 @@ describe(
         expect(screen.getByText(/1.? edits not saved yet/)).toBeInTheDocument();
       });
 
+      it('picking an object shows its layer in the layer box, as AutoCAD', async () => {
+        const { canvas, user } = await openWorkspace();
+        expect(screen.getByRole('button', { name: /^Layer: / })).toHaveAccessibleName(
+          'Layer: — none —',
+        );
+        await click(user, canvas, 75, 25);
+        expect(screen.getByRole('button', { name: /^Layer: / })).toHaveAccessibleName(
+          'Layer: Route',
+        );
+        await user.keyboard('{Escape}');
+        expect(screen.getByRole('button', { name: /^Layer: / })).toHaveAccessibleName(
+          'Layer: — none —',
+        );
+      });
+
       it('the Layers panel has the AutoCAD tools, layer states and locked layer fading', async () => {
         const { user } = await openWorkspace();
         const layers = screen.getByRole('group', { name: 'Layers' });
